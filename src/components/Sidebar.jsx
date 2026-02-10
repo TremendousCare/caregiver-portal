@@ -2,7 +2,7 @@ import { PHASES } from '../lib/constants';
 import { getCurrentPhase } from '../lib/utils';
 import { styles } from '../styles/theme';
 
-export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, collapsed, setCollapsed }) {
+export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed }) {
   return (
     <aside
       className={`tc-sidebar${collapsed ? ' collapsed' : ''}`}
@@ -93,6 +93,26 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
                 </button>
               );
             })}
+            {archivedCount > 0 && (
+              <button
+                className="tc-pipeline-item"
+                style={{
+                  ...styles.pipelineItem,
+                  marginTop: 4,
+                  borderTop: '1px solid #2A2A2A',
+                  paddingTop: 10,
+                  ...(filterPhase === 'archived' ? { background: 'rgba(41,190,228,0.12)' } : {}),
+                }}
+                onClick={() => {
+                  setFilterPhase(filterPhase === 'archived' ? 'all' : 'archived');
+                  setView('dashboard');
+                }}
+              >
+                <span>📦</span>
+                <span style={{ flex: 1, textAlign: 'left' }}>Archived</span>
+                <span style={styles.badge}>{archivedCount}</span>
+              </button>
+            )}
           </div>
 
           <div style={styles.sidebarSection}>
@@ -142,6 +162,28 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
               </button>
             );
           })}
+          {archivedCount > 0 && (
+            <button
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '100%', padding: '8px 0', border: 'none', borderRadius: 6,
+                background: filterPhase === 'archived' ? 'rgba(41,190,228,0.12)' : 'transparent',
+                color: '#8BA3C7', fontSize: 16, cursor: 'pointer',
+                fontFamily: 'inherit', position: 'relative',
+                marginTop: 4,
+              }}
+              onClick={() => {
+                setFilterPhase(filterPhase === 'archived' ? 'all' : 'archived');
+                setView('dashboard');
+              }}
+              title={`Archived (${archivedCount})`}
+            >
+              📦
+              <span style={{ position: 'absolute', top: 2, right: 6, fontSize: 9, fontWeight: 700, color: '#29BEE4' }}>
+                {archivedCount}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </aside>

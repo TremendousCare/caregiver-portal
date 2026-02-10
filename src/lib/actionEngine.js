@@ -1,4 +1,4 @@
-import { getCurrentPhase, getDaysInPhase, getDaysSinceApplication } from './utils';
+import { getCurrentPhase, getDaysInPhase, getDaysSinceApplication, isTaskDone } from './utils';
 
 const URGENCY = { critical: 0, warning: 1, info: 2 };
 
@@ -13,7 +13,7 @@ export const generateActionItems = (caregivers) => {
     const daysSinceApp = getDaysSinceApplication(cg);
 
     // ── 24-Hour Interview Standard ──
-    if (phase === 'intake' && daysSinceApp >= 1 && !cg.tasks?.calendar_invite) {
+    if (phase === 'intake' && daysSinceApp >= 1 && !isTaskDone(cg.tasks?.calendar_invite)) {
       items.push({
         cgId: cg.id,
         name,
@@ -26,7 +26,7 @@ export const generateActionItems = (caregivers) => {
     }
 
     // ── Offer Letter Chase (Phase: interview) ──
-    if (phase === 'interview' && cg.tasks?.offer_letter_sent && !cg.tasks?.offer_hold) {
+    if (phase === 'interview' && isTaskDone(cg.tasks?.offer_letter_sent) && !isTaskDone(cg.tasks?.offer_hold)) {
       const sentTimestamp = cg.phaseTimestamps?.interview;
       if (sentTimestamp) {
         const daysSinceSent = Math.floor((now - sentTimestamp) / 86400000);
@@ -91,7 +91,7 @@ export const generateActionItems = (caregivers) => {
     }
 
     // ── Orientation not scheduled ──
-    if (phase === 'orientation' && !cg.tasks?.invite_sent && daysInPhase >= 1) {
+    if (phase === 'orientation' && !isTaskDone(cg.tasks?.invite_sent) && daysInPhase >= 1) {
       items.push({
         cgId: cg.id, name, urgency: 'warning', icon: '🎓',
         title: 'Orientation invite not sent',
@@ -129,7 +129,7 @@ export const generateActionItems = (caregivers) => {
     }
 
     // ── Phase stall (general) ──
-    if (phase === 'intake' && daysInPhase >= 4 && !cg.tasks?.phone_screen) {
+    if (phase === 'intake' && daysInPhase >= 4 && !isTaskDone(cg.tasks?.phone_screen)) {
       items.push({
         cgId: cg.id, name, urgency: 'warning', icon: '📞',
         title: `No phone screen after ${daysInPhase} days`,

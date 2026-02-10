@@ -19,8 +19,14 @@ CREATE TABLE IF NOT EXISTS caregivers (
   has_hca TEXT DEFAULT 'yes',
   has_dl TEXT DEFAULT 'yes',
   source TEXT DEFAULT '',
+  source_detail TEXT DEFAULT '',
   application_date DATE,
   availability TEXT DEFAULT '',
+  years_experience TEXT DEFAULT '',
+  languages TEXT DEFAULT '',
+  specializations TEXT DEFAULT '',
+  certifications TEXT DEFAULT '',
+  preferred_shift TEXT DEFAULT '',
   initial_notes TEXT DEFAULT '',
   tasks JSONB DEFAULT '{}'::jsonb,
   notes JSONB DEFAULT '[]'::jsonb,
@@ -29,6 +35,12 @@ CREATE TABLE IF NOT EXISTS caregivers (
   board_status TEXT DEFAULT '',
   board_note TEXT DEFAULT '',
   board_moved_at BIGINT,
+  archived BOOLEAN DEFAULT false,
+  archived_at BIGINT,
+  archive_reason TEXT,
+  archive_detail TEXT,
+  archive_phase TEXT,
+  archived_by TEXT,
   created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
 );
 

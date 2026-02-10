@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PHASES, CHASE_SCRIPTS, GREEN_LIGHT_ITEMS } from '../lib/constants';
-import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, isGreenLight } from '../lib/utils';
+import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, isGreenLight, isTaskDone } from '../lib/utils';
 import { getPhaseTasks } from '../lib/storage';
 import { OrientationBanner } from './KanbanBoard';
 import { styles, taskEditStyles } from '../styles/theme';
@@ -14,14 +14,47 @@ function EditField({ label, value, onChange, type = 'text' }) {
   );
 }
 
+const ARCHIVE_REASONS = [
+  { value: 'hired', label: 'Hired & Deployed' },
+  { value: 'declined_offer', label: 'Declined Offer' },
+  { value: 'ghosted', label: 'Ghosted / No Response' },
+  { value: 'failed_background', label: 'Failed Background Check' },
+  { value: 'withdrew', label: 'Candidate Withdrew' },
+  { value: 'no_show', label: 'No-Show to Interview/Orientation' },
+  { value: 'not_qualified', label: 'Did Not Meet Requirements' },
+  { value: 'duplicate', label: 'Duplicate Entry' },
+  { value: 'other', label: 'Other' },
+];
+
+const NOTE_TYPES = [
+  { value: 'note', label: 'Internal Note', icon: '📝' },
+  { value: 'call', label: 'Phone Call', icon: '📞' },
+  { value: 'text', label: 'Text Message', icon: '💬' },
+  { value: 'email', label: 'Email', icon: '✉️' },
+  { value: 'voicemail', label: 'Voicemail', icon: '📱' },
+];
+
+const NOTE_OUTCOMES = [
+  { value: 'connected', label: 'Connected' },
+  { value: 'no_answer', label: 'No Answer' },
+  { value: 'left_vm', label: 'Left Voicemail' },
+  { value: 'responded', label: 'Responded' },
+  { value: 'no_response', label: 'No Response' },
+];
+
 export function CaregiverDetail({
-  caregiver, allCaregivers, onBack, onUpdateTask, onUpdateTasksBulk,
-  onAddNote, onDelete, onUpdateCaregiver, onRefreshTasks,
+  caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
+  onAddNote, onArchive, onUnarchive, onUpdateCaregiver, onRefreshTasks,
   showScripts, setShowScripts, showGreenLight, setShowGreenLight,
 }) {
   const [noteText, setNoteText] = useState('');
+  const [noteType, setNoteType] = useState('note');
+  const [noteDirection, setNoteDirection] = useState('outbound');
+  const [noteOutcome, setNoteOutcome] = useState('');
   const [activePhase, setActivePhase] = useState(getCurrentPhase(caregiver));
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiveDetail, setArchiveDetail] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [editingTasks, setEditingTasks] = useState(false);
@@ -40,14 +73,32 @@ export function CaregiverDetail({
       perId: caregiver.perId || '', hcaExpiration: caregiver.hcaExpiration || '',
       hasHCA: caregiver.hasHCA || 'yes', hasDL: caregiver.hasDL || 'yes',
       availability: caregiver.availability || '', source: caregiver.source || '',
-      applicationDate: caregiver.applicationDate || '', initialNotes: caregiver.initialNotes || '',
+      sourceDetail: caregiver.sourceDetail || '',
+      applicationDate: caregiver.applicationDate || '',
+      yearsExperience: caregiver.yearsExperience || '',
+      languages: caregiver.languages || '',
+      specializations: caregiver.specializations || '',
+      certifications: caregiver.certifications || '',
+      preferredShift: caregiver.preferredShift || '',
+      initialNotes: caregiver.initialNotes || '',
     });
     setEditing(true);
   };
 
   const saveEdits = () => { onUpdateCaregiver(caregiver.id, editForm); setEditing(false); };
   const editField = (field, value) => { setEditForm((f) => ({ ...f, [field]: value })); };
-  const handleAddNote = () => { if (!noteText.trim()) return; onAddNote(caregiver.id, noteText.trim()); setNoteText(''); };
+  const isCommunication = noteType !== 'note';
+  const handleAddNote = () => {
+    if (!noteText.trim()) return;
+    const note = { text: noteText.trim(), type: noteType };
+    if (isCommunication) {
+      note.direction = noteDirection;
+      if (noteOutcome) note.outcome = noteOutcome;
+    }
+    onAddNote(caregiver.id, note);
+    setNoteText('');
+    setNoteOutcome('');
+  };
 
   return (
     <div>
@@ -74,18 +125,51 @@ export function CaregiverDetail({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {greenLight && <span style={styles.greenLightBadgeLg}>🟢 Green Light</span>}
+          {caregiver.archived && <span style={{ padding: '6px 14px', borderRadius: 8, background: '#FEF2F0', color: '#DC3545', fontWeight: 600, fontSize: 13 }}>Archived</span>}
           <button style={styles.greenLightBtn} onClick={() => setShowGreenLight(!showGreenLight)}>🛡️ Green Light Check</button>
-          <button style={styles.dangerBtn} onClick={() => setShowDeleteConfirm(true)}>🗑️</button>
+          {!caregiver.archived ? (
+            <button style={styles.dangerBtn} onClick={() => setShowArchiveDialog(true)}>📦 Archive</button>
+          ) : (
+            <button className="tc-btn-primary" style={styles.primaryBtn} onClick={() => onUnarchive(caregiver.id)}>↩️ Restore</button>
+          )}
         </div>
       </div>
 
-      {/* Delete confirmation */}
-      {showDeleteConfirm && (
+      {/* Archive Banner for archived caregivers */}
+      {caregiver.archived && (
+        <div style={{ background: '#FEF2F0', border: '1px solid #FECACA', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 20 }}>📦</span>
+            <strong style={{ color: '#DC3545', fontFamily: "'Outfit', sans-serif" }}>Archived Caregiver</strong>
+          </div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13, color: '#556270' }}>
+            <div><span style={{ fontWeight: 600 }}>Reason:</span> {ARCHIVE_REASONS.find((r) => r.value === caregiver.archiveReason)?.label || caregiver.archiveReason || '—'}</div>
+            {caregiver.archiveDetail && <div><span style={{ fontWeight: 600 }}>Detail:</span> {caregiver.archiveDetail}</div>}
+            <div><span style={{ fontWeight: 600 }}>Phase at archive:</span> {PHASES.find((p) => p.id === caregiver.archivePhase)?.label || caregiver.archivePhase || '—'}</div>
+            {caregiver.archivedAt && <div><span style={{ fontWeight: 600 }}>Archived:</span> {new Date(caregiver.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{caregiver.archivedBy ? ` by ${caregiver.archivedBy}` : ''}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Archive dialog */}
+      {showArchiveDialog && (
         <div style={styles.alertCard}>
-          <strong>Remove this caregiver?</strong> This action cannot be undone.
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button style={styles.dangerBtn} onClick={() => onDelete(caregiver.id)}>Yes, Remove</button>
-            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+          <strong>Archive this caregiver?</strong>
+          <p style={{ margin: '8px 0 12px', fontSize: 13, color: '#556270' }}>They'll be moved out of the active pipeline. You can restore them later.</p>
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Reason <span style={{ color: '#DC3545' }}>*</span></label>
+            <select style={styles.fieldInput} value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)}>
+              <option value="">Select a reason...</option>
+              {ARCHIVE_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Details (optional)</label>
+            <input style={styles.fieldInput} placeholder="Any additional context..." value={archiveDetail} onChange={(e) => setArchiveDetail(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{ ...styles.dangerBtn, opacity: archiveReason ? 1 : 0.5 }} disabled={!archiveReason} onClick={() => { onArchive(caregiver.id, archiveReason, archiveDetail); setShowArchiveDialog(false); }}>Archive</button>
+            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => { setShowArchiveDialog(false); setArchiveReason(''); setArchiveDetail(''); }}>Cancel</button>
           </div>
         </div>
       )}
@@ -103,7 +187,7 @@ export function CaregiverDetail({
               ['tb_test'],
               ['training_assigned'],
             ];
-            const done = taskKeys[i].every((k) => caregiver.tasks?.[k]);
+            const done = taskKeys[i].every((k) => isTaskDone(caregiver.tasks?.[k]));
             return (
               <div key={i} style={styles.greenLightRow}>
                 <span style={{ color: done ? '#5BA88B' : '#D4697A', fontSize: 18 }}>{done ? '✓' : '✗'}</span>
@@ -142,10 +226,15 @@ export function CaregiverDetail({
                 { label: 'HCA Status', value: caregiver.hasHCA === 'yes' ? '✅ Valid HCA ID' : caregiver.hasHCA === 'willing' ? '📝 Willing to register' : '❌ No HCA ID' },
                 { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : '❌ No' },
                 { label: 'Availability', value: caregiver.availability },
-                { label: 'Source', value: caregiver.source },
+                { label: 'Source', value: [caregiver.source, caregiver.sourceDetail].filter(Boolean).join(' — ') || null },
                 { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
                 { label: 'Days Since Application', value: `${days} day${days !== 1 ? 's' : ''}` },
                 { label: 'Board Status', value: caregiver.boardStatus ? caregiver.boardStatus.charAt(0).toUpperCase() + caregiver.boardStatus.slice(1) : 'Not yet on board' },
+                { label: 'Years of Experience', value: caregiver.yearsExperience ? ({ '0-1': 'Less than 1 year', '1-3': '1–3 years', '3-5': '3–5 years', '5-10': '5–10 years', '10+': '10+ years' }[caregiver.yearsExperience] || caregiver.yearsExperience) : null },
+                { label: 'Preferred Shift', value: caregiver.preferredShift ? caregiver.preferredShift.charAt(0).toUpperCase() + caregiver.preferredShift.slice(1) : null },
+                { label: 'Languages', value: caregiver.languages },
+                { label: 'Specializations', value: caregiver.specializations },
+                { label: 'Additional Certifications', value: caregiver.certifications },
                 { label: 'Phase Override', value: caregiver.phaseOverride ? (() => { const p = PHASES.find((ph) => ph.id === caregiver.phaseOverride); return `⚙️ ${p?.icon} ${p?.label} (manual)`; })() : 'Auto (based on tasks)' },
               ].map((item) => (
                 <div key={item.label} style={styles.profileItem}>
@@ -190,10 +279,37 @@ export function CaregiverDetail({
               <div style={styles.field}>
                 <label style={styles.fieldLabel}>Source</label>
                 <select style={styles.fieldInput} value={editForm.source} onChange={(e) => editField('source', e.target.value)}>
-                  <option>Indeed</option><option>Website</option><option>Referral</option><option>Other</option>
+                  <option>Indeed</option><option>Website</option><option>Referral</option><option>Craigslist</option><option>Facebook</option><option>Job Fair</option><option>Walk-In</option><option>Agency Transfer</option><option>Other</option>
                 </select>
               </div>
+              <EditField label={editForm.source === 'Referral' ? 'Referred By' : 'Source Details'} value={editForm.sourceDetail} onChange={(v) => editField('sourceDetail', v)} />
               <EditField label="Application Date" value={editForm.applicationDate} onChange={(v) => editField('applicationDate', v)} type="date" />
+              <div style={styles.field}>
+                <label style={styles.fieldLabel}>Years of Experience</label>
+                <select style={styles.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
+                  <option value="">Select...</option>
+                  <option value="0-1">Less than 1 year</option>
+                  <option value="1-3">1–3 years</option>
+                  <option value="3-5">3–5 years</option>
+                  <option value="5-10">5–10 years</option>
+                  <option value="10+">10+ years</option>
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.fieldLabel}>Preferred Shift</label>
+                <select style={styles.fieldInput} value={editForm.preferredShift} onChange={(e) => editField('preferredShift', e.target.value)}>
+                  <option value="">Select...</option>
+                  <option value="days">Days</option>
+                  <option value="evenings">Evenings</option>
+                  <option value="nights">Nights</option>
+                  <option value="weekends">Weekends</option>
+                  <option value="live-in">Live-In</option>
+                  <option value="flexible">Flexible / Any</option>
+                </select>
+              </div>
+              <EditField label="Languages Spoken" value={editForm.languages} onChange={(v) => editField('languages', v)} />
+              <EditField label="Specializations" value={editForm.specializations} onChange={(v) => editField('specializations', v)} />
+              <EditField label="Additional Certifications" value={editForm.certifications} onChange={(v) => editField('certifications', v)} />
             </div>
             <div style={{ marginTop: 16 }}>
               <label style={styles.fieldLabel}>Initial Notes</label>
@@ -296,8 +412,8 @@ export function CaregiverDetail({
         {/* Tasks header with bulk controls */}
         {(() => {
           const phaseTasks = PHASE_TASKS[activePhase];
-          const allDone = phaseTasks.every((t) => caregiver.tasks?.[t.id]);
-          const noneDone = phaseTasks.every((t) => !caregiver.tasks?.[t.id]);
+          const allDone = phaseTasks.every((t) => isTaskDone(caregiver.tasks?.[t.id]));
+          const noneDone = phaseTasks.every((t) => !isTaskDone(caregiver.tasks?.[t.id]));
           return (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>{editingTasks ? 'Editing Checklist' : 'Checklist'}</span>
@@ -321,7 +437,7 @@ export function CaregiverDetail({
         {!editingTasks ? (
           <div style={styles.taskList}>
             {PHASE_TASKS[activePhase].map((task) => {
-              const done = !!caregiver.tasks?.[task.id];
+              const done = isTaskDone(caregiver.tasks?.[task.id]);
               return (
                 <label key={task.id} className="tc-task-row" style={{ ...styles.taskRow, ...(done ? styles.taskRowDone : {}) }}>
                   <div className={done ? 'tc-checkbox-done' : ''} style={{ ...styles.checkbox, ...(done ? styles.checkboxDone : {}), ...(task.critical ? { borderColor: '#2E4E8D' } : {}) }} onClick={() => onUpdateTask(caregiver.id, task.id, !done)}>
@@ -357,20 +473,100 @@ export function CaregiverDetail({
 
       {/* Notes Section */}
       <div style={styles.notesSection}>
-        <h3 style={styles.notesSectionTitle}>📝 Activity Notes</h3>
+        <h3 style={styles.notesSectionTitle}>📝 Activity Log</h3>
+
+        {/* Type selector pills */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+          {NOTE_TYPES.map((t) => (
+            <button
+              key={t.value}
+              style={{
+                padding: '5px 12px', borderRadius: 20, border: '1px solid',
+                borderColor: noteType === t.value ? '#2E4E8D' : '#D1D5DB',
+                background: noteType === t.value ? '#EBF0FA' : '#FAFBFC',
+                color: noteType === t.value ? '#2E4E8D' : '#6B7B8F',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+              onClick={() => setNoteType(t.value)}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Direction + Outcome row for communications */}
+        {isCommunication && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {['outbound', 'inbound'].map((d) => (
+                <button
+                  key={d}
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid',
+                    borderColor: noteDirection === d ? '#1084C3' : '#D1D5DB',
+                    background: noteDirection === d ? '#EBF5FB' : '#FAFBFC',
+                    color: noteDirection === d ? '#1084C3' : '#6B7B8F',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                  onClick={() => setNoteDirection(d)}
+                >
+                  {d === 'outbound' ? '↗ Outbound' : '↙ Inbound'}
+                </button>
+              ))}
+            </div>
+            <select
+              style={{ ...styles.fieldInput, padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
+              value={noteOutcome}
+              onChange={(e) => setNoteOutcome(e.target.value)}
+            >
+              <option value="">Outcome...</option>
+              {NOTE_OUTCOMES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Note text input */}
         <div style={styles.noteInputRow}>
-          <input style={styles.noteInput} placeholder="Add a note (e.g., called, left VM, sent docs)..." value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+          <input style={styles.noteInput} placeholder={isCommunication ? 'What was discussed or attempted...' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
           <button className="tc-btn-primary" style={styles.primaryBtn} onClick={handleAddNote}>Add</button>
         </div>
+
+        {/* Notes list */}
         <div style={styles.notesList}>
-          {(caregiver.notes || []).slice().reverse().map((n, i) => (
-            <div key={i} style={styles.noteItem}>
-              <div style={styles.noteTimestamp}>{new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-              <div style={styles.noteText}>{n.text}</div>
-            </div>
-          ))}
+          {(caregiver.notes || []).slice().reverse().map((n, i) => {
+            const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
+            const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
+            return (
+              <div key={i} style={styles.noteItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <div style={styles.noteTimestamp}>
+                    {new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    {n.author && <span style={{ marginLeft: 8, color: '#2E4E8D', fontWeight: 600 }}>— {n.author}</span>}
+                  </div>
+                  {(n.type && n.type !== 'note') && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#EBF0FA', color: '#2E4E8D', fontWeight: 600 }}>
+                        {typeInfo?.icon || ''} {typeInfo?.label || n.type}
+                      </span>
+                      {n.direction && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: n.direction === 'inbound' ? '#E8F5E9' : '#FFF8ED', color: n.direction === 'inbound' ? '#388E3C' : '#D97706', fontWeight: 600 }}>
+                          {n.direction === 'inbound' ? '↙ In' : '↗ Out'}
+                        </span>
+                      )}
+                      {outcomeInfo && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#F5F5F5', color: '#556270', fontWeight: 600 }}>
+                          {outcomeInfo.label}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div style={styles.noteText}>{n.text}</div>
+              </div>
+            );
+          })}
           {(!caregiver.notes || caregiver.notes.length === 0) && (
-            <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No notes yet. Track your outreach and communications here.</div>
+            <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No activity yet. Log your outreach and communications here.</div>
           )}
         </div>
       </div>

@@ -24,8 +24,14 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'HCA Status': cg.hasHCA === 'yes' ? 'Valid' : cg.hasHCA === 'willing' ? 'Willing to register' : 'No',
       'DL & Car': cg.hasDL === 'yes' ? 'Yes' : 'No',
       'Source': cg.source || '',
+      'Source Detail': cg.sourceDetail || '',
       'Application Date': cg.applicationDate || '',
       'Availability': cg.availability || '',
+      'Years Experience': cg.yearsExperience || '',
+      'Preferred Shift': cg.preferredShift || '',
+      'Languages': cg.languages || '',
+      'Specializations': cg.specializations || '',
+      'Certifications': cg.certifications || '',
       'Current Phase': phaseInfo?.label || phase,
       'Phase Override': cg.phaseOverride ? PHASES.find((p) => p.id === cg.phaseOverride)?.label || cg.phaseOverride : 'Auto',
       'Overall Progress': `${progress}%`,
@@ -34,6 +40,12 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'Green Light': gl ? 'YES' : 'No',
       'Board Status': cg.boardStatus || 'Not assigned',
       'Board Note': cg.boardNote || '',
+      'Status': cg.archived ? 'Archived' : 'Active',
+      'Archive Reason': cg.archiveReason || '',
+      'Archive Detail': cg.archiveDetail || '',
+      'Archive Phase': cg.archivePhase ? (PHASES.find((p) => p.id === cg.archivePhase)?.label || cg.archivePhase) : '',
+      'Archived Date': cg.archivedAt ? new Date(cg.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+      'Archived By': cg.archivedBy || '',
       'Latest Note': (cg.notes || []).length > 0
         ? cg.notes[cg.notes.length - 1].text
         : '',
@@ -51,6 +63,10 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
           month: 'short', day: 'numeric', year: 'numeric',
           hour: 'numeric', minute: '2-digit',
         }),
+        'Author': note.author || '',
+        'Type': note.type || 'note',
+        'Direction': note.direction || '',
+        'Outcome': note.outcome || '',
         'Note': note.text,
       });
     });

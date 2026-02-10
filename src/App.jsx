@@ -23,6 +23,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // ─── Load data on mount ───
   useEffect(() => {
@@ -65,10 +66,11 @@ export default function App() {
   };
 
   const updateTask = (cgId, taskId, value) => {
+    const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: value } };
+        const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: taskValue } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
@@ -79,10 +81,14 @@ export default function App() {
   };
 
   const updateTasksBulk = (cgId, taskUpdates) => {
+    const enriched = {};
+    for (const [key, val] of Object.entries(taskUpdates)) {
+      enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
+    }
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        const updated = { ...cg, tasks: { ...cg.tasks, ...taskUpdates } };
+        const updated = { ...cg, tasks: { ...cg.tasks, ...enriched } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
@@ -92,20 +98,54 @@ export default function App() {
     );
   };
 
-  const addNote = (cgId, text) => {
+  const addNote = (cgId, noteData) => {
+    // noteData can be a string (legacy) or an object with structured fields
+    const note = typeof noteData === 'string'
+      ? { text: noteData, timestamp: Date.now(), author: currentUser || '' }
+      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUser || '' };
     setCaregivers((prev) =>
       prev.map((cg) =>
         cg.id === cgId
-          ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now() }] }
+          ? { ...cg, notes: [...(cg.notes || []), note] }
           : cg
       )
     );
   };
 
-  const deleteCaregiver = (cgId) => {
-    setCaregivers((prev) => prev.filter((cg) => cg.id !== cgId));
+  const archiveCaregiver = (cgId, reason, detail) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        return {
+          ...cg,
+          archived: true,
+          archivedAt: Date.now(),
+          archiveReason: reason,
+          archiveDetail: detail || '',
+          archivePhase: getCurrentPhase(cg),
+          archivedBy: currentUser || '',
+        };
+      })
+    );
     setView('dashboard');
-    showToast('Caregiver removed');
+    showToast('Caregiver archived');
+  };
+
+  const unarchiveCaregiver = (cgId) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        return {
+          ...cg,
+          archived: false,
+          archivedAt: null,
+          archiveReason: null,
+          archiveDetail: null,
+          archivePhase: null,
+        };
+      })
+    );
+    showToast('Caregiver restored to pipeline');
   };
 
   const updateBoardStatus = (cgId, status) => {
@@ -139,8 +179,10 @@ export default function App() {
 
   // tasksVersion referenced so React re-computes when PHASE_TASKS loads
   const _tv = tasksVersion;
-  const filtered = caregivers.filter((cg) => {
-    const matchPhase = filterPhase === 'all' || getCurrentPhase(cg) === filterPhase;
+  const activeCaregivers = caregivers.filter((cg) => !cg.archived);
+  const archivedCaregivers = caregivers.filter((cg) => cg.archived);
+  const filtered = (filterPhase === 'archived' ? archivedCaregivers : activeCaregivers).filter((cg) => {
+    const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
     const matchSearch =
       !searchTerm ||
       `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -150,7 +192,7 @@ export default function App() {
   });
 
   return (
-    <AuthGate>
+    <AuthGate onUserReady={setCurrentUser}>
       <div style={styles.app}>
         <Toast message={toast} />
 
@@ -159,7 +201,8 @@ export default function App() {
           setView={setView}
           filterPhase={filterPhase}
           setFilterPhase={setFilterPhase}
-          caregivers={caregivers}
+          caregivers={activeCaregivers}
+          archivedCount={archivedCaregivers.length}
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
         />
@@ -169,7 +212,7 @@ export default function App() {
             {view === 'dashboard' && (
               <Dashboard
                 caregivers={filtered}
-                allCaregivers={caregivers}
+                allCaregivers={filterPhase === 'archived' ? archivedCaregivers : activeCaregivers}
                 filterPhase={filterPhase}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
@@ -197,7 +240,7 @@ export default function App() {
                   setCaregivers((prev) =>
                     prev.map((cg) =>
                       ids.includes(cg.id)
-                        ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now() }] }
+                        ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUser || '', type: 'note' }] }
                         : cg
                     )
                   );
@@ -211,8 +254,22 @@ export default function App() {
                     )
                   );
                 }}
-                onBulkDelete={(ids) => {
-                  setCaregivers((prev) => prev.filter((cg) => !ids.includes(cg.id)));
+                onBulkArchive={(ids, reason) => {
+                  setCaregivers((prev) =>
+                    prev.map((cg) => {
+                      if (!ids.includes(cg.id)) return cg;
+                      return {
+                        ...cg,
+                        archived: true,
+                        archivedAt: Date.now(),
+                        archiveReason: reason,
+                        archiveDetail: '',
+                        archivePhase: getCurrentPhase(cg),
+                        archivedBy: currentUser || '',
+                      };
+                    })
+                  );
+                  showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
                 }}
               />
             )}
@@ -221,7 +278,7 @@ export default function App() {
             )}
             {view === 'board' && (
               <KanbanBoard
-                caregivers={caregivers}
+                caregivers={activeCaregivers}
                 onUpdateStatus={updateBoardStatus}
                 onUpdateNote={updateBoardNote}
                 onAddNote={addNote}
@@ -234,12 +291,14 @@ export default function App() {
             {view === 'detail' && selected && (
               <CaregiverDetail
                 caregiver={selected}
-                allCaregivers={caregivers}
+                allCaregivers={activeCaregivers}
+                currentUser={currentUser}
                 onBack={() => setView('dashboard')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
                 onAddNote={addNote}
-                onDelete={deleteCaregiver}
+                onArchive={archiveCaregiver}
+                onUnarchive={unarchiveCaregiver}
                 onUpdateCaregiver={updateCaregiver}
                 onRefreshTasks={refreshTasks}
                 showScripts={showScripts}
