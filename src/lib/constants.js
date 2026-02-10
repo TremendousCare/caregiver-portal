@@ -148,28 +148,28 @@ export const DEFAULT_BOARD_COLUMNS = [
     description: 'Orientation complete, awaiting first client match',
   },
   {
-    id: 'active',
-    label: 'Active — On Assignment',
-    icon: '💼',
+    id: 'deployed',
+    label: 'Deployed',
+    icon: '✅',
     color: '#16A34A',
-    description: 'Currently working with a client',
+    description: 'Currently assigned to a client',
   },
   {
-    id: 'hold',
-    label: 'On Hold',
+    id: 'reserve',
+    label: 'Reserve Pool / Last Resort',
     icon: '⏸️',
     color: '#D97706',
-    description: 'Temporarily unavailable or pending issue resolution',
+    description: 'Available but not first choice for assignments',
   },
   {
-    id: 'inactive',
-    label: 'Inactive / Terminated',
-    icon: '🔴',
-    color: '#DC3545',
-    description: 'No longer with agency',
+    id: 'revisit',
+    label: 'Revisit Intermittently',
+    icon: '🔄',
+    color: '#8B5CF6',
+    description: 'Check back periodically for availability or status change',
   },
 ];
 
 // ─── Kanban UI Constants ────────────────────────────────────
-export const COLUMN_ICONS = ['🚀', '💼', '⏸️', '🔴', '📋', '🌙', '☀️', '🏥', '🎯', '⭐', '🔄', '📦'];
-export const COLUMN_COLORS = ['#2E4E8D', '#16A34A', '#D97706', '#DC3545', '#7C3AED', '#0EA5C9', '#DB2777', '#059669', '#EA580C', '#4F46E5'];
+export const COLUMN_ICONS = ['🚀', '✅', '⏸️', '🔄', '⭐', '📋', '🏠', '💼', '🔒', '📌', '🎯', '❄️', '🔥', '👥', '💤', '🚫'];
+export const COLUMN_COLORS = ['#2E4E8D', '#29BEE4', '#1084C3', '#16A34A', '#D97706', '#8B5CF6', '#DC3545', '#0EA5C9', '#059669', '#7C3AED', '#DB2777', '#EA580C', '#4F46E5', '#0D9488'];

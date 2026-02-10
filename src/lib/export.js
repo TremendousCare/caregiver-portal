@@ -1,9 +1,11 @@
 import { PHASES } from './constants';
-import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, getDaysInPhase, isGreenLight, getPhaseProgress } from './utils';
-import { getPhaseTasks } from './storage';
+import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, getDaysInPhase, isGreenLight } from './utils';
 
 export const exportToCSV = (caregivers, filterPhase = 'all') => {
-  const rows = caregivers.map((cg) => {
+  if (caregivers.length === 0) return;
+
+  // ─── Pipeline Overview rows ────────────────────────────────
+  const overviewRows = caregivers.map((cg) => {
     const phase = getCurrentPhase(cg);
     const phaseInfo = PHASES.find((p) => p.id === phase);
     const progress = getOverallProgress(cg);
@@ -20,35 +22,81 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'HCA PER ID': cg.perId || '',
       'HCA Expiration': cg.hcaExpiration || '',
       'HCA Status': cg.hasHCA === 'yes' ? 'Valid' : cg.hasHCA === 'willing' ? 'Willing to register' : 'No',
+      'DL & Car': cg.hasDL === 'yes' ? 'Yes' : 'No',
       'Source': cg.source || '',
       'Application Date': cg.applicationDate || '',
       'Availability': cg.availability || '',
-      'Current Phase': phaseInfo?.label || '',
+      'Current Phase': phaseInfo?.label || phase,
+      'Phase Override': cg.phaseOverride ? PHASES.find((p) => p.id === cg.phaseOverride)?.label || cg.phaseOverride : 'Auto',
       'Overall Progress': `${progress}%`,
-      'Days Since Application': daysTotal,
+      'Days in Pipeline': daysTotal,
       'Days in Current Phase': daysPhase,
       'Green Light': gl ? 'YES' : 'No',
-      'Notes Count': (cg.notes || []).length,
-      'Last Note': (cg.notes || []).length > 0
+      'Board Status': cg.boardStatus || 'Not assigned',
+      'Board Note': cg.boardNote || '',
+      'Latest Note': (cg.notes || []).length > 0
         ? cg.notes[cg.notes.length - 1].text
         : '',
     };
   });
 
-  if (rows.length === 0) return;
+  // ─── Activity Notes rows ───────────────────────────────────
+  const noteRows = [];
+  caregivers.forEach((cg) => {
+    (cg.notes || []).forEach((note) => {
+      noteRows.push({
+        'First Name': cg.firstName || '',
+        'Last Name': cg.lastName || '',
+        'Date': new Date(note.timestamp).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit',
+        }),
+        'Note': note.text,
+      });
+    });
+  });
+  if (noteRows.length === 0) {
+    noteRows.push({ 'First Name': '', 'Last Name': '', 'Date': '', 'Note': 'No notes recorded' });
+  }
 
-  const headers = Object.keys(rows[0]);
+  // ─── Phase Summary rows ────────────────────────────────────
+  const summaryRows = PHASES.map((p) => {
+    const inPhase = caregivers.filter((c) => getCurrentPhase(c) === p.id);
+    const avgDays = inPhase.length
+      ? Math.round(inPhase.reduce((s, c) => s + getDaysInPhase(c), 0) / inPhase.length)
+      : 0;
+    return { 'Phase': p.label, 'Count': inPhase.length, 'Avg Days in Phase': avgDays };
+  });
+  summaryRows.push({ 'Phase': 'TOTAL', 'Count': caregivers.length, 'Avg Days in Phase': '' });
+
+  // ─── Build CSV ─────────────────────────────────────────────
+  const csvEscape = (val) => {
+    const str = String(val ?? '');
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  };
+
+  const toCsv = (rows) => {
+    if (rows.length === 0) return '';
+    const headers = Object.keys(rows[0]);
+    const lines = [headers.map(csvEscape).join(',')];
+    rows.forEach((row) => {
+      lines.push(headers.map((h) => csvEscape(row[h])).join(','));
+    });
+    return lines.join('\n');
+  };
+
   const csvContent = [
-    headers.join(','),
-    ...rows.map((row) =>
-      headers.map((h) => {
-        const val = String(row[h] ?? '');
-        // Escape commas, quotes, and newlines
-        return val.includes(',') || val.includes('"') || val.includes('\n')
-          ? `"${val.replace(/"/g, '""')}"`
-          : val;
-      }).join(',')
-    ),
+    '=== PIPELINE OVERVIEW ===',
+    toCsv(overviewRows),
+    '',
+    '=== ACTIVITY NOTES ===',
+    toCsv(noteRows),
+    '',
+    '=== PHASE SUMMARY ===',
+    toCsv(summaryRows),
   ].join('\n');
 
   const phaseLabel = filterPhase !== 'all'
@@ -62,6 +110,8 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };
