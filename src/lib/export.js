@@ -45,6 +45,7 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'Archive Detail': cg.archiveDetail || '',
       'Archive Phase': cg.archivePhase ? (PHASES.find((p) => p.id === cg.archivePhase)?.label || cg.archivePhase) : '',
       'Archived Date': cg.archivedAt ? new Date(cg.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+      'Archived By': cg.archivedBy || '',
       'Latest Note': (cg.notes || []).length > 0
         ? cg.notes[cg.notes.length - 1].text
         : '',
@@ -62,6 +63,10 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
           month: 'short', day: 'numeric', year: 'numeric',
           hour: 'numeric', minute: '2-digit',
         }),
+        'Author': note.author || '',
+        'Type': note.type || 'note',
+        'Direction': note.direction || '',
+        'Outcome': note.outcome || '',
         'Note': note.text,
       });
     });

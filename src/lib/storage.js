@@ -255,6 +255,7 @@ const dbToCaregiver = (row) => ({
   archiveReason: row.archive_reason,
   archiveDetail: row.archive_detail,
   archivePhase: row.archive_phase,
+  archivedBy: row.archived_by,
   createdAt: row.created_at,
 });
 
@@ -294,5 +295,6 @@ const caregiverToDb = (cg) => ({
   archive_reason: cg.archiveReason || null,
   archive_detail: cg.archiveDetail || null,
   archive_phase: cg.archivePhase || null,
+  archived_by: cg.archivedBy || null,
   created_at: cg.createdAt || Date.now(),
 });

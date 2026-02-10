@@ -26,12 +26,31 @@ const ARCHIVE_REASONS = [
   { value: 'other', label: 'Other' },
 ];
 
+const NOTE_TYPES = [
+  { value: 'note', label: 'Internal Note', icon: '📝' },
+  { value: 'call', label: 'Phone Call', icon: '📞' },
+  { value: 'text', label: 'Text Message', icon: '💬' },
+  { value: 'email', label: 'Email', icon: '✉️' },
+  { value: 'voicemail', label: 'Voicemail', icon: '📱' },
+];
+
+const NOTE_OUTCOMES = [
+  { value: 'connected', label: 'Connected' },
+  { value: 'no_answer', label: 'No Answer' },
+  { value: 'left_vm', label: 'Left Voicemail' },
+  { value: 'responded', label: 'Responded' },
+  { value: 'no_response', label: 'No Response' },
+];
+
 export function CaregiverDetail({
-  caregiver, allCaregivers, onBack, onUpdateTask, onUpdateTasksBulk,
+  caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
   onAddNote, onArchive, onUnarchive, onUpdateCaregiver, onRefreshTasks,
   showScripts, setShowScripts, showGreenLight, setShowGreenLight,
 }) {
   const [noteText, setNoteText] = useState('');
+  const [noteType, setNoteType] = useState('note');
+  const [noteDirection, setNoteDirection] = useState('outbound');
+  const [noteOutcome, setNoteOutcome] = useState('');
   const [activePhase, setActivePhase] = useState(getCurrentPhase(caregiver));
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [archiveReason, setArchiveReason] = useState('');
@@ -68,7 +87,18 @@ export function CaregiverDetail({
 
   const saveEdits = () => { onUpdateCaregiver(caregiver.id, editForm); setEditing(false); };
   const editField = (field, value) => { setEditForm((f) => ({ ...f, [field]: value })); };
-  const handleAddNote = () => { if (!noteText.trim()) return; onAddNote(caregiver.id, noteText.trim()); setNoteText(''); };
+  const isCommunication = noteType !== 'note';
+  const handleAddNote = () => {
+    if (!noteText.trim()) return;
+    const note = { text: noteText.trim(), type: noteType };
+    if (isCommunication) {
+      note.direction = noteDirection;
+      if (noteOutcome) note.outcome = noteOutcome;
+    }
+    onAddNote(caregiver.id, note);
+    setNoteText('');
+    setNoteOutcome('');
+  };
 
   return (
     <div>
@@ -116,7 +146,7 @@ export function CaregiverDetail({
             <div><span style={{ fontWeight: 600 }}>Reason:</span> {ARCHIVE_REASONS.find((r) => r.value === caregiver.archiveReason)?.label || caregiver.archiveReason || '—'}</div>
             {caregiver.archiveDetail && <div><span style={{ fontWeight: 600 }}>Detail:</span> {caregiver.archiveDetail}</div>}
             <div><span style={{ fontWeight: 600 }}>Phase at archive:</span> {PHASES.find((p) => p.id === caregiver.archivePhase)?.label || caregiver.archivePhase || '—'}</div>
-            {caregiver.archivedAt && <div><span style={{ fontWeight: 600 }}>Archived:</span> {new Date(caregiver.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+            {caregiver.archivedAt && <div><span style={{ fontWeight: 600 }}>Archived:</span> {new Date(caregiver.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{caregiver.archivedBy ? ` by ${caregiver.archivedBy}` : ''}</div>}
           </div>
         </div>
       )}
@@ -443,20 +473,100 @@ export function CaregiverDetail({
 
       {/* Notes Section */}
       <div style={styles.notesSection}>
-        <h3 style={styles.notesSectionTitle}>📝 Activity Notes</h3>
+        <h3 style={styles.notesSectionTitle}>📝 Activity Log</h3>
+
+        {/* Type selector pills */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+          {NOTE_TYPES.map((t) => (
+            <button
+              key={t.value}
+              style={{
+                padding: '5px 12px', borderRadius: 20, border: '1px solid',
+                borderColor: noteType === t.value ? '#2E4E8D' : '#D1D5DB',
+                background: noteType === t.value ? '#EBF0FA' : '#FAFBFC',
+                color: noteType === t.value ? '#2E4E8D' : '#6B7B8F',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+              onClick={() => setNoteType(t.value)}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Direction + Outcome row for communications */}
+        {isCommunication && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {['outbound', 'inbound'].map((d) => (
+                <button
+                  key={d}
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid',
+                    borderColor: noteDirection === d ? '#1084C3' : '#D1D5DB',
+                    background: noteDirection === d ? '#EBF5FB' : '#FAFBFC',
+                    color: noteDirection === d ? '#1084C3' : '#6B7B8F',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                  onClick={() => setNoteDirection(d)}
+                >
+                  {d === 'outbound' ? '↗ Outbound' : '↙ Inbound'}
+                </button>
+              ))}
+            </div>
+            <select
+              style={{ ...styles.fieldInput, padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
+              value={noteOutcome}
+              onChange={(e) => setNoteOutcome(e.target.value)}
+            >
+              <option value="">Outcome...</option>
+              {NOTE_OUTCOMES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Note text input */}
         <div style={styles.noteInputRow}>
-          <input style={styles.noteInput} placeholder="Add a note (e.g., called, left VM, sent docs)..." value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+          <input style={styles.noteInput} placeholder={isCommunication ? 'What was discussed or attempted...' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
           <button className="tc-btn-primary" style={styles.primaryBtn} onClick={handleAddNote}>Add</button>
         </div>
+
+        {/* Notes list */}
         <div style={styles.notesList}>
-          {(caregiver.notes || []).slice().reverse().map((n, i) => (
-            <div key={i} style={styles.noteItem}>
-              <div style={styles.noteTimestamp}>{new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-              <div style={styles.noteText}>{n.text}</div>
-            </div>
-          ))}
+          {(caregiver.notes || []).slice().reverse().map((n, i) => {
+            const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
+            const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
+            return (
+              <div key={i} style={styles.noteItem}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <div style={styles.noteTimestamp}>
+                    {new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    {n.author && <span style={{ marginLeft: 8, color: '#2E4E8D', fontWeight: 600 }}>— {n.author}</span>}
+                  </div>
+                  {(n.type && n.type !== 'note') && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#EBF0FA', color: '#2E4E8D', fontWeight: 600 }}>
+                        {typeInfo?.icon || ''} {typeInfo?.label || n.type}
+                      </span>
+                      {n.direction && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: n.direction === 'inbound' ? '#E8F5E9' : '#FFF8ED', color: n.direction === 'inbound' ? '#388E3C' : '#D97706', fontWeight: 600 }}>
+                          {n.direction === 'inbound' ? '↙ In' : '↗ Out'}
+                        </span>
+                      )}
+                      {outcomeInfo && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#F5F5F5', color: '#556270', fontWeight: 600 }}>
+                          {outcomeInfo.label}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div style={styles.noteText}>{n.text}</div>
+              </div>
+            );
+          })}
           {(!caregiver.notes || caregiver.notes.length === 0) && (
-            <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No notes yet. Track your outreach and communications here.</div>
+            <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No activity yet. Log your outreach and communications here.</div>
           )}
         </div>
       </div>

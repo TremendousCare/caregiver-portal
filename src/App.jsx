@@ -23,6 +23,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // ─── Load data on mount ───
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function App() {
   };
 
   const updateTask = (cgId, taskId, value) => {
-    const taskValue = value ? { completed: true, completedAt: Date.now() } : false;
+    const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
@@ -82,7 +83,7 @@ export default function App() {
   const updateTasksBulk = (cgId, taskUpdates) => {
     const enriched = {};
     for (const [key, val] of Object.entries(taskUpdates)) {
-      enriched[key] = val ? { completed: true, completedAt: Date.now() } : false;
+      enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
     }
     setCaregivers((prev) =>
       prev.map((cg) => {
@@ -97,11 +98,15 @@ export default function App() {
     );
   };
 
-  const addNote = (cgId, text) => {
+  const addNote = (cgId, noteData) => {
+    // noteData can be a string (legacy) or an object with structured fields
+    const note = typeof noteData === 'string'
+      ? { text: noteData, timestamp: Date.now(), author: currentUser || '' }
+      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUser || '' };
     setCaregivers((prev) =>
       prev.map((cg) =>
         cg.id === cgId
-          ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now() }] }
+          ? { ...cg, notes: [...(cg.notes || []), note] }
           : cg
       )
     );
@@ -118,6 +123,7 @@ export default function App() {
           archiveReason: reason,
           archiveDetail: detail || '',
           archivePhase: getCurrentPhase(cg),
+          archivedBy: currentUser || '',
         };
       })
     );
@@ -186,7 +192,7 @@ export default function App() {
   });
 
   return (
-    <AuthGate>
+    <AuthGate onUserReady={setCurrentUser}>
       <div style={styles.app}>
         <Toast message={toast} />
 
@@ -234,7 +240,7 @@ export default function App() {
                   setCaregivers((prev) =>
                     prev.map((cg) =>
                       ids.includes(cg.id)
-                        ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now() }] }
+                        ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUser || '', type: 'note' }] }
                         : cg
                     )
                   );
@@ -259,6 +265,7 @@ export default function App() {
                         archiveReason: reason,
                         archiveDetail: '',
                         archivePhase: getCurrentPhase(cg),
+                        archivedBy: currentUser || '',
                       };
                     })
                   );
@@ -285,6 +292,7 @@ export default function App() {
               <CaregiverDetail
                 caregiver={selected}
                 allCaregivers={activeCaregivers}
+                currentUser={currentUser}
                 onBack={() => setView('dashboard')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
