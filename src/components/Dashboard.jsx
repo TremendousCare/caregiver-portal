@@ -175,7 +175,7 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
 export function Dashboard({
   caregivers, allCaregivers, filterPhase, searchTerm, setSearchTerm,
   onSelect, onAdd, onBulkPhaseOverride, onBulkAddNote, onBulkBoardStatus,
-  onBulkDelete, sidebarWidth,
+  onBulkArchive, sidebarWidth,
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(false);
@@ -231,7 +231,7 @@ export function Dashboard({
     if (action === 'phase') onBulkPhaseOverride(ids, value);
     if (action === 'note') { onBulkAddNote(ids, value); setBulkNoteText(''); }
     if (action === 'board') onBulkBoardStatus(ids, value);
-    if (action === 'delete') onBulkDelete(ids);
+    if (action === 'archive') onBulkArchive(ids, value);
     clearSelection();
   };
 
@@ -241,7 +241,9 @@ export function Dashboard({
         <div>
           <h1 style={styles.pageTitle}>Dashboard</h1>
           <p style={styles.pageSubtitle}>
-            {filterPhase !== 'all'
+            {filterPhase === 'archived'
+              ? 'Showing: Archived caregivers'
+              : filterPhase !== 'all'
               ? `Showing: ${PHASES.find((p) => p.id === filterPhase)?.label}`
               : 'All active caregivers in the pipeline'}
           </p>
@@ -551,37 +553,44 @@ export function Dashboard({
                 )}
               </div>
 
-              {/* Delete */}
+              {/* Archive */}
               <div style={bulkStyles.actionGroup}>
                 <button
                   style={{
                     ...bulkStyles.actionBtn,
-                    ...(bulkAction === 'delete' ? bulkStyles.actionBtnActive : {}),
-                    ...(bulkAction !== 'delete' ? { color: '#E85D4A' } : {}),
+                    ...(bulkAction === 'archive' ? bulkStyles.actionBtnActive : {}),
+                    ...(bulkAction !== 'archive' ? { color: '#E85D4A' } : {}),
                   }}
-                  onClick={() => setBulkAction(bulkAction === 'delete' ? null : 'delete')}
+                  onClick={() => setBulkAction(bulkAction === 'archive' ? null : 'archive')}
                 >
-                  🗑️ Remove
+                  📦 Archive
                 </button>
-                {bulkAction === 'delete' && (
-                  <div style={{ ...bulkStyles.actionDropdown, minWidth: 240 }}>
-                    <div style={bulkStyles.dropdownWarning}>
-                      Remove {selectedIds.size} caregiver{selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.
+                {bulkAction === 'archive' && (
+                  <div className="tc-dropdown" style={{ ...bulkStyles.actionDropdown, minWidth: 240 }}>
+                    <div style={{ padding: '8px 12px', fontSize: 12, color: '#6B7B8F', borderBottom: '1px solid #E5E7EB' }}>
+                      Archive {selectedIds.size} caregiver{selectedIds.size !== 1 ? 's' : ''} as:
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    {[
+                      { value: 'ghosted', label: 'Ghosted / No Response' },
+                      { value: 'not_qualified', label: 'Did Not Meet Requirements' },
+                      { value: 'withdrew', label: 'Candidate Withdrew' },
+                      { value: 'no_show', label: 'No-Show' },
+                      { value: 'other', label: 'Other' },
+                    ].map((r) => (
                       <button
-                        style={bulkStyles.dropdownDanger}
-                        onClick={() => executeBulkAction('delete')}
+                        key={r.value}
+                        className="bulk-dropdown-item" style={bulkStyles.dropdownItem}
+                        onClick={() => executeBulkAction('archive', r.value)}
                       >
-                        Yes, Remove
+                        {r.label}
                       </button>
-                      <button
-                        style={bulkStyles.dropdownCancel}
-                        onClick={() => setBulkAction(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    ))}
+                    <button
+                      style={bulkStyles.dropdownCancel}
+                      onClick={() => setBulkAction(null)}
+                    >
+                      Cancel
+                    </button>
                   </div>
                 )}
               </div>

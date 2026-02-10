@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS caregivers (
   board_status TEXT DEFAULT '',
   board_note TEXT DEFAULT '',
   board_moved_at BIGINT,
+  archived BOOLEAN DEFAULT false,
+  archived_at BIGINT,
+  archive_reason TEXT,
+  archive_detail TEXT,
+  archive_phase TEXT,
   created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
 );
 

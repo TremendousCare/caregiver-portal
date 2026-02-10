@@ -250,6 +250,11 @@ const dbToCaregiver = (row) => ({
   boardStatus: row.board_status,
   boardNote: row.board_note,
   boardMovedAt: row.board_moved_at,
+  archived: row.archived || false,
+  archivedAt: row.archived_at,
+  archiveReason: row.archive_reason,
+  archiveDetail: row.archive_detail,
+  archivePhase: row.archive_phase,
   createdAt: row.created_at,
 });
 
@@ -284,5 +289,10 @@ const caregiverToDb = (cg) => ({
   board_status: cg.boardStatus || '',
   board_note: cg.boardNote || '',
   board_moved_at: cg.boardMovedAt || null,
+  archived: cg.archived || false,
+  archived_at: cg.archivedAt || null,
+  archive_reason: cg.archiveReason || null,
+  archive_detail: cg.archiveDetail || null,
+  archive_phase: cg.archivePhase || null,
   created_at: cg.createdAt || Date.now(),
 });

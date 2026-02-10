@@ -107,10 +107,39 @@ export default function App() {
     );
   };
 
-  const deleteCaregiver = (cgId) => {
-    setCaregivers((prev) => prev.filter((cg) => cg.id !== cgId));
+  const archiveCaregiver = (cgId, reason, detail) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        return {
+          ...cg,
+          archived: true,
+          archivedAt: Date.now(),
+          archiveReason: reason,
+          archiveDetail: detail || '',
+          archivePhase: getCurrentPhase(cg),
+        };
+      })
+    );
     setView('dashboard');
-    showToast('Caregiver removed');
+    showToast('Caregiver archived');
+  };
+
+  const unarchiveCaregiver = (cgId) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        return {
+          ...cg,
+          archived: false,
+          archivedAt: null,
+          archiveReason: null,
+          archiveDetail: null,
+          archivePhase: null,
+        };
+      })
+    );
+    showToast('Caregiver restored to pipeline');
   };
 
   const updateBoardStatus = (cgId, status) => {
@@ -144,8 +173,10 @@ export default function App() {
 
   // tasksVersion referenced so React re-computes when PHASE_TASKS loads
   const _tv = tasksVersion;
-  const filtered = caregivers.filter((cg) => {
-    const matchPhase = filterPhase === 'all' || getCurrentPhase(cg) === filterPhase;
+  const activeCaregivers = caregivers.filter((cg) => !cg.archived);
+  const archivedCaregivers = caregivers.filter((cg) => cg.archived);
+  const filtered = (filterPhase === 'archived' ? archivedCaregivers : activeCaregivers).filter((cg) => {
+    const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
     const matchSearch =
       !searchTerm ||
       `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -164,7 +195,8 @@ export default function App() {
           setView={setView}
           filterPhase={filterPhase}
           setFilterPhase={setFilterPhase}
-          caregivers={caregivers}
+          caregivers={activeCaregivers}
+          archivedCount={archivedCaregivers.length}
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
         />
@@ -174,7 +206,7 @@ export default function App() {
             {view === 'dashboard' && (
               <Dashboard
                 caregivers={filtered}
-                allCaregivers={caregivers}
+                allCaregivers={filterPhase === 'archived' ? archivedCaregivers : activeCaregivers}
                 filterPhase={filterPhase}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
@@ -216,8 +248,21 @@ export default function App() {
                     )
                   );
                 }}
-                onBulkDelete={(ids) => {
-                  setCaregivers((prev) => prev.filter((cg) => !ids.includes(cg.id)));
+                onBulkArchive={(ids, reason) => {
+                  setCaregivers((prev) =>
+                    prev.map((cg) => {
+                      if (!ids.includes(cg.id)) return cg;
+                      return {
+                        ...cg,
+                        archived: true,
+                        archivedAt: Date.now(),
+                        archiveReason: reason,
+                        archiveDetail: '',
+                        archivePhase: getCurrentPhase(cg),
+                      };
+                    })
+                  );
+                  showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
                 }}
               />
             )}
@@ -226,7 +271,7 @@ export default function App() {
             )}
             {view === 'board' && (
               <KanbanBoard
-                caregivers={caregivers}
+                caregivers={activeCaregivers}
                 onUpdateStatus={updateBoardStatus}
                 onUpdateNote={updateBoardNote}
                 onAddNote={addNote}
@@ -239,12 +284,13 @@ export default function App() {
             {view === 'detail' && selected && (
               <CaregiverDetail
                 caregiver={selected}
-                allCaregivers={caregivers}
+                allCaregivers={activeCaregivers}
                 onBack={() => setView('dashboard')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
                 onAddNote={addNote}
-                onDelete={deleteCaregiver}
+                onArchive={archiveCaregiver}
+                onUnarchive={unarchiveCaregiver}
                 onUpdateCaregiver={updateCaregiver}
                 onRefreshTasks={refreshTasks}
                 showScripts={showScripts}

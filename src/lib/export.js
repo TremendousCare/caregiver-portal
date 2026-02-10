@@ -40,6 +40,11 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'Green Light': gl ? 'YES' : 'No',
       'Board Status': cg.boardStatus || 'Not assigned',
       'Board Note': cg.boardNote || '',
+      'Status': cg.archived ? 'Archived' : 'Active',
+      'Archive Reason': cg.archiveReason || '',
+      'Archive Detail': cg.archiveDetail || '',
+      'Archive Phase': cg.archivePhase ? (PHASES.find((p) => p.id === cg.archivePhase)?.label || cg.archivePhase) : '',
+      'Archived Date': cg.archivedAt ? new Date(cg.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
       'Latest Note': (cg.notes || []).length > 0
         ? cg.notes[cg.notes.length - 1].text
         : '',

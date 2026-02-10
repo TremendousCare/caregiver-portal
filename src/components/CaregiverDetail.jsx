@@ -14,14 +14,28 @@ function EditField({ label, value, onChange, type = 'text' }) {
   );
 }
 
+const ARCHIVE_REASONS = [
+  { value: 'hired', label: 'Hired & Deployed' },
+  { value: 'declined_offer', label: 'Declined Offer' },
+  { value: 'ghosted', label: 'Ghosted / No Response' },
+  { value: 'failed_background', label: 'Failed Background Check' },
+  { value: 'withdrew', label: 'Candidate Withdrew' },
+  { value: 'no_show', label: 'No-Show to Interview/Orientation' },
+  { value: 'not_qualified', label: 'Did Not Meet Requirements' },
+  { value: 'duplicate', label: 'Duplicate Entry' },
+  { value: 'other', label: 'Other' },
+];
+
 export function CaregiverDetail({
   caregiver, allCaregivers, onBack, onUpdateTask, onUpdateTasksBulk,
-  onAddNote, onDelete, onUpdateCaregiver, onRefreshTasks,
+  onAddNote, onArchive, onUnarchive, onUpdateCaregiver, onRefreshTasks,
   showScripts, setShowScripts, showGreenLight, setShowGreenLight,
 }) {
   const [noteText, setNoteText] = useState('');
   const [activePhase, setActivePhase] = useState(getCurrentPhase(caregiver));
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiveDetail, setArchiveDetail] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [editingTasks, setEditingTasks] = useState(false);
@@ -81,18 +95,51 @@ export function CaregiverDetail({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {greenLight && <span style={styles.greenLightBadgeLg}>🟢 Green Light</span>}
+          {caregiver.archived && <span style={{ padding: '6px 14px', borderRadius: 8, background: '#FEF2F0', color: '#DC3545', fontWeight: 600, fontSize: 13 }}>Archived</span>}
           <button style={styles.greenLightBtn} onClick={() => setShowGreenLight(!showGreenLight)}>🛡️ Green Light Check</button>
-          <button style={styles.dangerBtn} onClick={() => setShowDeleteConfirm(true)}>🗑️</button>
+          {!caregiver.archived ? (
+            <button style={styles.dangerBtn} onClick={() => setShowArchiveDialog(true)}>📦 Archive</button>
+          ) : (
+            <button className="tc-btn-primary" style={styles.primaryBtn} onClick={() => onUnarchive(caregiver.id)}>↩️ Restore</button>
+          )}
         </div>
       </div>
 
-      {/* Delete confirmation */}
-      {showDeleteConfirm && (
+      {/* Archive Banner for archived caregivers */}
+      {caregiver.archived && (
+        <div style={{ background: '#FEF2F0', border: '1px solid #FECACA', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 20 }}>📦</span>
+            <strong style={{ color: '#DC3545', fontFamily: "'Outfit', sans-serif" }}>Archived Caregiver</strong>
+          </div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13, color: '#556270' }}>
+            <div><span style={{ fontWeight: 600 }}>Reason:</span> {ARCHIVE_REASONS.find((r) => r.value === caregiver.archiveReason)?.label || caregiver.archiveReason || '—'}</div>
+            {caregiver.archiveDetail && <div><span style={{ fontWeight: 600 }}>Detail:</span> {caregiver.archiveDetail}</div>}
+            <div><span style={{ fontWeight: 600 }}>Phase at archive:</span> {PHASES.find((p) => p.id === caregiver.archivePhase)?.label || caregiver.archivePhase || '—'}</div>
+            {caregiver.archivedAt && <div><span style={{ fontWeight: 600 }}>Archived:</span> {new Date(caregiver.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Archive dialog */}
+      {showArchiveDialog && (
         <div style={styles.alertCard}>
-          <strong>Remove this caregiver?</strong> This action cannot be undone.
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button style={styles.dangerBtn} onClick={() => onDelete(caregiver.id)}>Yes, Remove</button>
-            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+          <strong>Archive this caregiver?</strong>
+          <p style={{ margin: '8px 0 12px', fontSize: 13, color: '#556270' }}>They'll be moved out of the active pipeline. You can restore them later.</p>
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Reason <span style={{ color: '#DC3545' }}>*</span></label>
+            <select style={styles.fieldInput} value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)}>
+              <option value="">Select a reason...</option>
+              {ARCHIVE_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.fieldLabel}>Details (optional)</label>
+            <input style={styles.fieldInput} placeholder="Any additional context..." value={archiveDetail} onChange={(e) => setArchiveDetail(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{ ...styles.dangerBtn, opacity: archiveReason ? 1 : 0.5 }} disabled={!archiveReason} onClick={() => { onArchive(caregiver.id, archiveReason, archiveDetail); setShowArchiveDialog(false); }}>Archive</button>
+            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => { setShowArchiveDialog(false); setArchiveReason(''); setArchiveDetail(''); }}>Cancel</button>
           </div>
         </div>
       )}
