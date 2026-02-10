@@ -31,10 +31,16 @@ export function AddCaregiver({ onAdd, onCancel }) {
     perId: '',
     hcaExpiration: '',
     source: 'Indeed',
+    sourceDetail: '',
     applicationDate: new Date().toISOString().split('T')[0],
     availability: '',
     hasHCA: 'yes',
     hasDL: 'yes',
+    yearsExperience: '',
+    languages: '',
+    specializations: '',
+    certifications: '',
+    preferredShift: '',
     initialNotes: '',
   });
 
@@ -79,9 +85,21 @@ export function AddCaregiver({ onAdd, onCancel }) {
               <option>Indeed</option>
               <option>Website</option>
               <option>Referral</option>
+              <option>Craigslist</option>
+              <option>Facebook</option>
+              <option>Job Fair</option>
+              <option>Walk-In</option>
+              <option>Agency Transfer</option>
               <option>Other</option>
             </select>
           </div>
+          <FormField
+            label={form.source === 'Referral' ? 'Referred By' : 'Source Details'}
+            field="sourceDetail"
+            placeholder={form.source === 'Referral' ? 'Name of person who referred' : 'Job posting, campaign, etc.'}
+            value={form.sourceDetail}
+            onChange={handleFieldChange}
+          />
           <FormField label="Application Date" field="applicationDate" type="date" value={form.applicationDate} onChange={handleFieldChange} />
           <FormField label="Availability" field="availability" placeholder="Mon-Fri, Days" value={form.availability} onChange={handleFieldChange} />
         </div>
@@ -109,6 +127,36 @@ export function AddCaregiver({ onAdd, onCancel }) {
               ))}
             </div>
           </div>
+        </div>
+
+        <h3 style={styles.formSection}>Skills & Qualifications</h3>
+        <div style={styles.formGrid}>
+          <div style={styles.field}>
+            <label style={styles.fieldLabel}>Years of Experience</label>
+            <select style={styles.fieldInput} value={form.yearsExperience} onChange={(e) => setForm((f) => ({ ...f, yearsExperience: e.target.value }))}>
+              <option value="">Select...</option>
+              <option value="0-1">Less than 1 year</option>
+              <option value="1-3">1–3 years</option>
+              <option value="3-5">3–5 years</option>
+              <option value="5-10">5–10 years</option>
+              <option value="10+">10+ years</option>
+            </select>
+          </div>
+          <div style={styles.field}>
+            <label style={styles.fieldLabel}>Preferred Shift</label>
+            <select style={styles.fieldInput} value={form.preferredShift} onChange={(e) => setForm((f) => ({ ...f, preferredShift: e.target.value }))}>
+              <option value="">Select...</option>
+              <option value="days">Days</option>
+              <option value="evenings">Evenings</option>
+              <option value="nights">Nights</option>
+              <option value="weekends">Weekends</option>
+              <option value="live-in">Live-In</option>
+              <option value="flexible">Flexible / Any</option>
+            </select>
+          </div>
+          <FormField label="Languages Spoken" field="languages" placeholder="English, Spanish, Tagalog..." value={form.languages} onChange={handleFieldChange} />
+          <FormField label="Specializations" field="specializations" placeholder="Dementia, Hospice, Pediatric..." value={form.specializations} onChange={handleFieldChange} />
+          <FormField label="Additional Certifications" field="certifications" placeholder="CNA, CPR, First Aid..." value={form.certifications} onChange={handleFieldChange} />
         </div>
 
         <h3 style={styles.formSection}>Notes</h3>

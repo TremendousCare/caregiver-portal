@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PHASES, CHASE_SCRIPTS, GREEN_LIGHT_ITEMS } from '../lib/constants';
-import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, isGreenLight } from '../lib/utils';
+import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, isGreenLight, isTaskDone } from '../lib/utils';
 import { getPhaseTasks } from '../lib/storage';
 import { OrientationBanner } from './KanbanBoard';
 import { styles, taskEditStyles } from '../styles/theme';
@@ -40,7 +40,14 @@ export function CaregiverDetail({
       perId: caregiver.perId || '', hcaExpiration: caregiver.hcaExpiration || '',
       hasHCA: caregiver.hasHCA || 'yes', hasDL: caregiver.hasDL || 'yes',
       availability: caregiver.availability || '', source: caregiver.source || '',
-      applicationDate: caregiver.applicationDate || '', initialNotes: caregiver.initialNotes || '',
+      sourceDetail: caregiver.sourceDetail || '',
+      applicationDate: caregiver.applicationDate || '',
+      yearsExperience: caregiver.yearsExperience || '',
+      languages: caregiver.languages || '',
+      specializations: caregiver.specializations || '',
+      certifications: caregiver.certifications || '',
+      preferredShift: caregiver.preferredShift || '',
+      initialNotes: caregiver.initialNotes || '',
     });
     setEditing(true);
   };
@@ -103,7 +110,7 @@ export function CaregiverDetail({
               ['tb_test'],
               ['training_assigned'],
             ];
-            const done = taskKeys[i].every((k) => caregiver.tasks?.[k]);
+            const done = taskKeys[i].every((k) => isTaskDone(caregiver.tasks?.[k]));
             return (
               <div key={i} style={styles.greenLightRow}>
                 <span style={{ color: done ? '#5BA88B' : '#D4697A', fontSize: 18 }}>{done ? '✓' : '✗'}</span>
@@ -142,10 +149,15 @@ export function CaregiverDetail({
                 { label: 'HCA Status', value: caregiver.hasHCA === 'yes' ? '✅ Valid HCA ID' : caregiver.hasHCA === 'willing' ? '📝 Willing to register' : '❌ No HCA ID' },
                 { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : '❌ No' },
                 { label: 'Availability', value: caregiver.availability },
-                { label: 'Source', value: caregiver.source },
+                { label: 'Source', value: [caregiver.source, caregiver.sourceDetail].filter(Boolean).join(' — ') || null },
                 { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
                 { label: 'Days Since Application', value: `${days} day${days !== 1 ? 's' : ''}` },
                 { label: 'Board Status', value: caregiver.boardStatus ? caregiver.boardStatus.charAt(0).toUpperCase() + caregiver.boardStatus.slice(1) : 'Not yet on board' },
+                { label: 'Years of Experience', value: caregiver.yearsExperience ? ({ '0-1': 'Less than 1 year', '1-3': '1–3 years', '3-5': '3–5 years', '5-10': '5–10 years', '10+': '10+ years' }[caregiver.yearsExperience] || caregiver.yearsExperience) : null },
+                { label: 'Preferred Shift', value: caregiver.preferredShift ? caregiver.preferredShift.charAt(0).toUpperCase() + caregiver.preferredShift.slice(1) : null },
+                { label: 'Languages', value: caregiver.languages },
+                { label: 'Specializations', value: caregiver.specializations },
+                { label: 'Additional Certifications', value: caregiver.certifications },
                 { label: 'Phase Override', value: caregiver.phaseOverride ? (() => { const p = PHASES.find((ph) => ph.id === caregiver.phaseOverride); return `⚙️ ${p?.icon} ${p?.label} (manual)`; })() : 'Auto (based on tasks)' },
               ].map((item) => (
                 <div key={item.label} style={styles.profileItem}>
@@ -190,10 +202,37 @@ export function CaregiverDetail({
               <div style={styles.field}>
                 <label style={styles.fieldLabel}>Source</label>
                 <select style={styles.fieldInput} value={editForm.source} onChange={(e) => editField('source', e.target.value)}>
-                  <option>Indeed</option><option>Website</option><option>Referral</option><option>Other</option>
+                  <option>Indeed</option><option>Website</option><option>Referral</option><option>Craigslist</option><option>Facebook</option><option>Job Fair</option><option>Walk-In</option><option>Agency Transfer</option><option>Other</option>
                 </select>
               </div>
+              <EditField label={editForm.source === 'Referral' ? 'Referred By' : 'Source Details'} value={editForm.sourceDetail} onChange={(v) => editField('sourceDetail', v)} />
               <EditField label="Application Date" value={editForm.applicationDate} onChange={(v) => editField('applicationDate', v)} type="date" />
+              <div style={styles.field}>
+                <label style={styles.fieldLabel}>Years of Experience</label>
+                <select style={styles.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
+                  <option value="">Select...</option>
+                  <option value="0-1">Less than 1 year</option>
+                  <option value="1-3">1–3 years</option>
+                  <option value="3-5">3–5 years</option>
+                  <option value="5-10">5–10 years</option>
+                  <option value="10+">10+ years</option>
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.fieldLabel}>Preferred Shift</label>
+                <select style={styles.fieldInput} value={editForm.preferredShift} onChange={(e) => editField('preferredShift', e.target.value)}>
+                  <option value="">Select...</option>
+                  <option value="days">Days</option>
+                  <option value="evenings">Evenings</option>
+                  <option value="nights">Nights</option>
+                  <option value="weekends">Weekends</option>
+                  <option value="live-in">Live-In</option>
+                  <option value="flexible">Flexible / Any</option>
+                </select>
+              </div>
+              <EditField label="Languages Spoken" value={editForm.languages} onChange={(v) => editField('languages', v)} />
+              <EditField label="Specializations" value={editForm.specializations} onChange={(v) => editField('specializations', v)} />
+              <EditField label="Additional Certifications" value={editForm.certifications} onChange={(v) => editField('certifications', v)} />
             </div>
             <div style={{ marginTop: 16 }}>
               <label style={styles.fieldLabel}>Initial Notes</label>
@@ -296,8 +335,8 @@ export function CaregiverDetail({
         {/* Tasks header with bulk controls */}
         {(() => {
           const phaseTasks = PHASE_TASKS[activePhase];
-          const allDone = phaseTasks.every((t) => caregiver.tasks?.[t.id]);
-          const noneDone = phaseTasks.every((t) => !caregiver.tasks?.[t.id]);
+          const allDone = phaseTasks.every((t) => isTaskDone(caregiver.tasks?.[t.id]));
+          const noneDone = phaseTasks.every((t) => !isTaskDone(caregiver.tasks?.[t.id]));
           return (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>{editingTasks ? 'Editing Checklist' : 'Checklist'}</span>
@@ -321,7 +360,7 @@ export function CaregiverDetail({
         {!editingTasks ? (
           <div style={styles.taskList}>
             {PHASE_TASKS[activePhase].map((task) => {
-              const done = !!caregiver.tasks?.[task.id];
+              const done = isTaskDone(caregiver.tasks?.[task.id]);
               return (
                 <label key={task.id} className="tc-task-row" style={{ ...styles.taskRow, ...(done ? styles.taskRowDone : {}) }}>
                   <div className={done ? 'tc-checkbox-done' : ''} style={{ ...styles.checkbox, ...(done ? styles.checkboxDone : {}), ...(task.critical ? { borderColor: '#2E4E8D' } : {}) }} onClick={() => onUpdateTask(caregiver.id, task.id, !done)}>

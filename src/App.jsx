@@ -65,10 +65,11 @@ export default function App() {
   };
 
   const updateTask = (cgId, taskId, value) => {
+    const taskValue = value ? { completed: true, completedAt: Date.now() } : false;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: value } };
+        const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: taskValue } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
@@ -79,10 +80,14 @@ export default function App() {
   };
 
   const updateTasksBulk = (cgId, taskUpdates) => {
+    const enriched = {};
+    for (const [key, val] of Object.entries(taskUpdates)) {
+      enriched[key] = val ? { completed: true, completedAt: Date.now() } : false;
+    }
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        const updated = { ...cg, tasks: { ...cg.tasks, ...taskUpdates } };
+        const updated = { ...cg, tasks: { ...cg.tasks, ...enriched } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
