@@ -6,6 +6,7 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { AddCaregiver } from './components/AddCaregiver';
 import { CaregiverDetail } from './components/CaregiverDetail';
 import { Toast } from './components/Toast';
+import { ChatWidget } from './components/ChatWidget';
 import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
 import { loadCaregivers, saveCaregivers, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
@@ -309,6 +310,11 @@ export default function App() {
             )}
           </div>
         </main>
+
+        <ChatWidget
+          caregivers={caregivers}
+          selectedCaregiver={view === 'detail' ? selected : null}
+        />
       </div>
     </AuthGate>
   );
