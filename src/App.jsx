@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom';
 import { AuthGate } from './components/AuthGate';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -11,10 +12,29 @@ import { getCurrentPhase } from './lib/utils';
 import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
 import { styles } from './styles/theme';
 
+// ─── Route-to-view mapping ───
+const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver' };
+const ROUTE_VIEWS = { '/': 'dashboard', '/board': 'board', '/add': 'add' };
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // ─── Derive view + selectedId from URL ───
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const view = pathParts[0] === 'caregiver' ? 'detail' : (ROUTE_VIEWS[location.pathname] || 'dashboard');
+  const selectedId = pathParts[0] === 'caregiver' ? pathParts[1] || null : null;
+
+  const setView = useCallback((v) => {
+    if (v === 'dashboard') navigate('/');
+    else if (v === 'board') navigate('/board');
+    else if (v === 'add') navigate('/add');
+  }, [navigate]);
+
+  const selectCaregiver = useCallback((id) => {
+    navigate(`/caregiver/${id}`);
+  }, [navigate]);
+
   const [caregivers, setCaregivers] = useState([]);
-  const [view, setView] = useState('dashboard'); // dashboard | detail | add | board
-  const [selectedId, setSelectedId] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [showScripts, setShowScripts] = useState(null);
   const [filterPhase, setFilterPhase] = useState('all');
@@ -55,8 +75,7 @@ export default function App() {
       createdAt: Date.now(),
     };
     setCaregivers((prev) => [newCg, ...prev]);
-    setView('detail');
-    setSelectedId(newCg.id);
+    navigate(`/caregiver/${newCg.id}`);
     saveCaregiver(newCg).catch(() => showToast('Failed to save — check your connection'));
     showToast(`${data.firstName} ${data.lastName} added successfully!`);
   };
@@ -134,7 +153,7 @@ export default function App() {
       })
     );
     if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-    setView('dashboard');
+    navigate('/');
     showToast('Caregiver archived');
   };
 
@@ -245,11 +264,8 @@ export default function App() {
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
                 sidebarWidth={sidebarCollapsed ? 64 : 260}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                  setView('detail');
-                }}
-                onAdd={() => setView('add')}
+                onSelect={(id) => selectCaregiver(id)}
+                onAdd={() => navigate('/add')}
                 onBulkPhaseOverride={(ids, phase) => {
                   const changed = [];
                   setCaregivers((prev) =>
@@ -316,7 +332,7 @@ export default function App() {
               />
             )}
             {view === 'add' && (
-              <AddCaregiver onAdd={addCaregiver} onCancel={() => setView('dashboard')} />
+              <AddCaregiver onAdd={addCaregiver} onCancel={() => navigate('/')} />
             )}
             {view === 'board' && (
               <KanbanBoard
@@ -324,10 +340,7 @@ export default function App() {
                 onUpdateStatus={updateBoardStatus}
                 onUpdateNote={updateBoardNote}
                 onAddNote={addNote}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                  setView('detail');
-                }}
+                onSelect={(id) => selectCaregiver(id)}
               />
             )}
             {view === 'detail' && selected && (
@@ -335,7 +348,7 @@ export default function App() {
                 caregiver={selected}
                 allCaregivers={activeCaregivers}
                 currentUser={currentUser}
-                onBack={() => setView('dashboard')}
+                onBack={() => navigate('/')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
                 onAddNote={addNote}
