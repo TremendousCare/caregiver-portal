@@ -263,11 +263,14 @@ export function AIChatbot({ caregiverId, currentUser }) {
         throw new Error('Not authenticated');
       }
 
-      // Call the Edge Function
+      // Call the Edge Function with explicit auth header
       const { data, error } = await supabase.functions.invoke('ai-chat', {
         body: {
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
           caregiverId: caregiverId || null,
+        },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
         },
       });
 
@@ -307,7 +310,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
         onClick={() => setIsOpen(!isOpen)}
         title="AI Assistant"
       >
-        {isOpen ? '✕' : '🤖'}
+        {isOpen ? '✕' : <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>AI</span>}
         {!isOpen && messages.length === 0 && <div style={CHAT_STYLES.fabBadge} />}
       </button>
 
@@ -318,7 +321,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
           <div style={CHAT_STYLES.header}>
             <div>
               <div style={CHAT_STYLES.headerTitle}>
-                🤖 TC Assistant
+                TC Assistant
               </div>
               <div style={CHAT_STYLES.headerSub}>
                 Powered by Claude AI
@@ -353,7 +356,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
           <div style={CHAT_STYLES.messages}>
             {messages.length === 0 && (
               <div style={CHAT_STYLES.welcome}>
-                <div style={CHAT_STYLES.welcomeIcon}>🤖</div>
+                <div style={{ ...CHAT_STYLES.welcomeIcon, fontSize: 28, fontWeight: 800, color: '#2E4E8D', background: 'linear-gradient(135deg, #1B2A4A, #2E4E8D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: -1 }}>AI</div>
                 <div style={CHAT_STYLES.welcomeTitle}>Hi{currentUser ? `, ${currentUser}` : ''}!</div>
                 <div style={CHAT_STYLES.welcomeText}>
                   I'm your AI recruiting assistant. I can help with pipeline insights,
