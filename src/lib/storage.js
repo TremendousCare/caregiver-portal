@@ -98,21 +98,67 @@ export const loadCaregivers = async () => {
 export const saveCaregivers = async (caregivers) => {
   try {
     if (isSupabaseConfigured()) {
-      // For now, we do a simple full-replace strategy.
-      // A more sophisticated approach would diff and upsert individual rows.
-      // This is fine for teams < 20 users with < 500 caregivers.
       const rows = caregivers.map(caregiverToDb);
       const { error } = await supabase
         .from('caregivers')
         .upsert(rows, { onConflict: 'id' });
       if (error) throw error;
-      return;
     }
     localSet(CAREGIVERS_KEY, caregivers);
   } catch (e) {
     console.error('saveCaregivers failed:', e);
-    // Always keep a localStorage backup
     localSet(CAREGIVERS_KEY, caregivers);
+    throw e;
+  }
+};
+
+// ─── Single-record save (preferred for individual edits) ────
+export const saveCaregiver = async (caregiver) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const row = caregiverToDb(caregiver);
+      const { error } = await supabase
+        .from('caregivers')
+        .upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    // Update localStorage: replace just this record in the cached array
+    const all = localGet(CAREGIVERS_KEY) || [];
+    const idx = all.findIndex((c) => c.id === caregiver.id);
+    if (idx >= 0) {
+      all[idx] = caregiver;
+    } else {
+      all.unshift(caregiver);
+    }
+    localSet(CAREGIVERS_KEY, all);
+  } catch (e) {
+    console.error('saveCaregiver failed:', e);
+    throw e;
+  }
+};
+
+// ─── Bulk save for multi-select operations ──────────────────
+export const saveCaregiversBulk = async (caregivers) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const rows = caregivers.map(caregiverToDb);
+      const { error } = await supabase
+        .from('caregivers')
+        .upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    // Update localStorage: merge changed records into cached array
+    const all = localGet(CAREGIVERS_KEY) || [];
+    const changeMap = new Map(caregivers.map((c) => [c.id, c]));
+    const updated = all.map((c) => changeMap.get(c.id) || c);
+    // Add any new records not in the cached array
+    for (const cg of caregivers) {
+      if (!all.some((c) => c.id === cg.id)) updated.unshift(cg);
+    }
+    localSet(CAREGIVERS_KEY, updated);
+  } catch (e) {
+    console.error('saveCaregiversBulk failed:', e);
+    throw e;
   }
 };
 
