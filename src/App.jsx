@@ -52,7 +52,7 @@ export default function App() {
   // ─── Caregiver CRUD ───
   const addCaregiver = (data) => {
     const newCg = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       ...data,
       tasks: {},
       notes: [],
