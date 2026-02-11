@@ -181,8 +181,8 @@ export const loadPhaseTasks = async () => {
     }
     const local = localGet(PHASE_TASKS_KEY);
     if (local) _phaseTasks = local;
-  } catch {
-    // Keep defaults
+  } catch (e) {
+    console.error('loadPhaseTasks failed:', e);
   }
 };
 
@@ -192,7 +192,9 @@ export const savePhaseTasks = async () => {
       await supabaseSetKV('phase_tasks', _phaseTasks);
     }
     localSet(PHASE_TASKS_KEY, _phaseTasks);
-  } catch {}
+  } catch (e) {
+    console.error('savePhaseTasks failed:', e);
+  }
 };
 
 // ─── Board Columns ───────────────────────────────────────────
@@ -215,7 +217,9 @@ export const saveBoardColumns = async (columns) => {
       await supabaseSetKV('board_columns', columns);
     }
     localSet(BOARD_COLUMNS_KEY, columns);
-  } catch {}
+  } catch (e) {
+    console.error('saveBoardColumns failed:', e);
+  }
 };
 
 // ─── Orientation Data ────────────────────────────────────────
@@ -238,7 +242,9 @@ export const saveOrientationData = async (data) => {
       await supabaseSetKV('orientation', data);
     }
     localSet(ORIENTATION_KEY, data);
-  } catch {}
+  } catch (e) {
+    console.error('saveOrientationData failed:', e);
+  }
 };
 
 // ─── Auth ────────────────────────────────────────────────────
@@ -255,7 +261,9 @@ export const loadAuthState = async () => {
 export const saveAuthState = async () => {
   try {
     localStorage.setItem(AUTH_KEY, JSON.stringify('authenticated'));
-  } catch {}
+  } catch (e) {
+    console.error('saveAuthState failed:', e);
+  }
 };
 
 // ═══════════════════════════════════════════════════════════════
