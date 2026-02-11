@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AuthGate } from './components/AuthGate';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -200,22 +200,24 @@ export default function App() {
     setTasksVersion((v) => v + 1);
   };
 
-  // ─── Derived data ───
-  const selected = caregivers.find((c) => c.id === selectedId);
+  // ─── Derived data (memoized) ───
+  const selected = useMemo(() => caregivers.find((c) => c.id === selectedId), [caregivers, selectedId]);
 
   // tasksVersion referenced so React re-computes when PHASE_TASKS loads
-  const _tv = tasksVersion;
-  const activeCaregivers = caregivers.filter((cg) => !cg.archived);
-  const archivedCaregivers = caregivers.filter((cg) => cg.archived);
-  const filtered = (filterPhase === 'archived' ? archivedCaregivers : activeCaregivers).filter((cg) => {
-    const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
-    const matchSearch =
-      !searchTerm ||
-      `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cg.phone?.includes(searchTerm) ||
-      cg.perId?.includes(searchTerm);
-    return searchTerm ? matchSearch : matchPhase && matchSearch;
-  });
+  const activeCaregivers = useMemo(() => caregivers.filter((cg) => !cg.archived), [caregivers, tasksVersion]);
+  const archivedCaregivers = useMemo(() => caregivers.filter((cg) => cg.archived), [caregivers, tasksVersion]);
+  const filtered = useMemo(() => {
+    const base = filterPhase === 'archived' ? archivedCaregivers : activeCaregivers;
+    return base.filter((cg) => {
+      const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
+      const matchSearch =
+        !searchTerm ||
+        `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cg.phone?.includes(searchTerm) ||
+        cg.perId?.includes(searchTerm);
+      return searchTerm ? matchSearch : matchPhase && matchSearch;
+    });
+  }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
     <AuthGate onUserReady={setCurrentUser}>
