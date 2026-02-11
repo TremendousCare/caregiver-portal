@@ -1,48 +1,135 @@
 import { useState, useEffect } from 'react';
-import { loadAuthState, saveAuthState } from '../lib/storage';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { authStyles } from '../styles/theme';
 
-const TEAM_PASSWORD = 'TremendousCare2025';
+// ─── Fallback: localStorage-based auth (when Supabase not configured) ───
+const LEGACY_PASSWORD = 'TremendousCare2025';
 const USER_NAME_KEY = 'tc-user-name-v1';
+const AUTH_KEY = 'tc-auth-v1';
 
-export function AuthGate({ children, onUserReady }) {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+export function AuthGate({ children, onUserReady, onLogout }) {
+  const [session, setSession] = useState(null);
   const [checking, setChecking] = useState(true);
-  const [userName, setUserName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [signUpSuccess, setSignUpSuccess] = useState(false);
+
+  // ─── Legacy fallback state (no Supabase) ───
+  const [legacyMode] = useState(!isSupabaseConfigured());
+  const [legacyPassword, setLegacyPassword] = useState('');
+  const [legacyAuth, setLegacyAuth] = useState(false);
+  const [legacyError, setLegacyError] = useState(false);
   const [needsName, setNeedsName] = useState(false);
+  const [userName, setUserName] = useState('');
 
   useEffect(() => {
-    loadAuthState().then((isAuth) => {
-      if (isAuth) {
+    if (legacyMode) {
+      // Legacy: check localStorage
+      const val = localStorage.getItem(AUTH_KEY);
+      if (val === '"authenticated"' || val === 'authenticated') {
         const stored = localStorage.getItem(USER_NAME_KEY);
         if (stored) {
-          setAuthenticated(true);
+          setLegacyAuth(true);
           onUserReady(stored);
         } else {
-          setAuthenticated(true);
+          setLegacyAuth(true);
           setNeedsName(true);
         }
       }
       setChecking(false);
+      return;
+    }
+
+    // Supabase Auth: check existing session
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s?.user) {
+        const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
+        onUserReady(displayName);
+      }
+      setChecking(false);
     });
+
+    // Listen for auth state changes (login, logout, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (s?.user) {
+        const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
+        onUserReady(displayName);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const handleLogin = async () => {
-    if (password === TEAM_PASSWORD) {
-      setError(false);
-      await saveAuthState();
+  // ─── Supabase: Sign in with email + password ───
+  const handleSignIn = async () => {
+    if (!email.trim() || !password) return;
+    setSubmitting(true);
+    setError('');
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    setSubmitting(false);
+    if (authError) {
+      setError(authError.message);
+    }
+    // On success, onAuthStateChange fires automatically
+  };
+
+  // ─── Supabase: Sign up with email + password ───
+  const handleSignUp = async () => {
+    if (!email.trim() || !password || !fullName.trim()) return;
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+
+    const { error: authError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { full_name: fullName.trim() },
+      },
+    });
+
+    setSubmitting(false);
+    if (authError) {
+      setError(authError.message);
+    } else {
+      setSignUpSuccess(true);
+    }
+  };
+
+  const handleSubmit = () => {
+    if (isSignUp) handleSignUp();
+    else handleSignIn();
+  };
+
+  // ─── Legacy: passcode login ───
+  const handleLegacyLogin = () => {
+    if (legacyPassword === LEGACY_PASSWORD) {
+      setLegacyError(false);
+      localStorage.setItem(AUTH_KEY, JSON.stringify('authenticated'));
       const stored = localStorage.getItem(USER_NAME_KEY);
       if (stored) {
-        setAuthenticated(true);
+        setLegacyAuth(true);
         onUserReady(stored);
       } else {
-        setAuthenticated(true);
+        setLegacyAuth(true);
         setNeedsName(true);
       }
     } else {
-      setError(true);
+      setLegacyError(true);
     }
   };
 
@@ -56,7 +143,95 @@ export function AuthGate({ children, onUserReady }) {
 
   if (checking) return null;
 
-  if (!authenticated) {
+  // ─── Legacy mode (no Supabase) ───
+  if (legacyMode) {
+    if (!legacyAuth) {
+      return (
+        <div style={authStyles.wrapper}>
+          <div style={authStyles.card}>
+            <div style={authStyles.logoIcon}>TC</div>
+            <h1 style={authStyles.title}>Tremendous Care</h1>
+            <p style={authStyles.subtitle}>Caregiver Portal</p>
+            <div style={authStyles.divider} />
+            <p style={authStyles.prompt}>Enter your team access code to continue</p>
+            <input
+              style={{ ...authStyles.input, ...(legacyError ? { borderColor: '#DC3545' } : {}) }}
+              type="password"
+              placeholder="Team access code"
+              value={legacyPassword}
+              onChange={(e) => { setLegacyPassword(e.target.value); setLegacyError(false); }}
+              onKeyDown={(e) => e.key === 'Enter' && handleLegacyLogin()}
+              autoFocus
+            />
+            {legacyError && <p style={authStyles.error}>Incorrect access code. Please try again.</p>}
+            <button style={authStyles.button} onClick={handleLegacyLogin}>Sign In</button>
+            <p style={authStyles.footer}>Contact your administrator if you need access.</p>
+          </div>
+        </div>
+      );
+    }
+    if (needsName) {
+      return (
+        <div style={authStyles.wrapper}>
+          <div style={authStyles.card}>
+            <div style={authStyles.logoIcon}>TC</div>
+            <h1 style={authStyles.title}>Welcome!</h1>
+            <p style={authStyles.subtitle}>Caregiver Portal</p>
+            <div style={authStyles.divider} />
+            <p style={authStyles.prompt}>Enter your name so we can track your activity</p>
+            <input
+              style={authStyles.input}
+              type="text"
+              placeholder="Your name (e.g., Sarah, Mike)"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
+              autoFocus
+            />
+            <button style={{ ...authStyles.button, opacity: userName.trim() ? 1 : 0.5 }} onClick={handleNameSubmit} disabled={!userName.trim()}>
+              Continue
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return children;
+  }
+
+  // ─── Supabase Auth: not logged in ───
+  if (!session) {
+    // Sign-up success: prompt to check email for confirmation
+    if (signUpSuccess) {
+      return (
+        <div style={authStyles.wrapper}>
+          <div style={authStyles.card}>
+            <div style={authStyles.logoIcon}>TC</div>
+            <h1 style={authStyles.title}>Account Created!</h1>
+            <p style={authStyles.subtitle}>Caregiver Portal</p>
+            <div style={authStyles.divider} />
+            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+            <p style={{ ...authStyles.prompt, fontSize: 15, lineHeight: 1.6 }}>
+              Your account has been created for <strong>{email}</strong>
+            </p>
+            <p style={{ ...authStyles.prompt, color: '#8BA3C7', fontSize: 13 }}>
+              Check your email to confirm your account, then sign in below.
+            </p>
+            <button
+              style={authStyles.button}
+              onClick={() => {
+                setSignUpSuccess(false);
+                setIsSignUp(false);
+                setPassword('');
+                setFullName('');
+              }}
+            >
+              Go to Sign In
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={authStyles.wrapper}>
         <div style={authStyles.card}>
@@ -64,54 +239,82 @@ export function AuthGate({ children, onUserReady }) {
           <h1 style={authStyles.title}>Tremendous Care</h1>
           <p style={authStyles.subtitle}>Caregiver Portal</p>
           <div style={authStyles.divider} />
-          <p style={authStyles.prompt}>Enter your team access code to continue</p>
+          <p style={authStyles.prompt}>
+            {isSignUp ? 'Create your account' : 'Sign in to your account'}
+          </p>
+
+          {/* Full name (sign-up only) */}
+          {isSignUp && (
+            <input
+              style={{ ...authStyles.input, letterSpacing: 0, textAlign: 'left' }}
+              type="text"
+              placeholder="Your full name"
+              value={fullName}
+              onChange={(e) => { setFullName(e.target.value); setError(''); }}
+              autoFocus
+            />
+          )}
+
+          {/* Email */}
           <input
-            style={{
-              ...authStyles.input,
-              ...(error ? { borderColor: '#DC3545' } : {}),
-            }}
+            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            type="email"
+            placeholder="you@tremendouscare.com"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+            autoFocus={!isSignUp}
+          />
+
+          {/* Password */}
+          <input
+            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="password"
-            placeholder="Team access code"
+            placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
             value={password}
-            onChange={(e) => { setPassword(e.target.value); setError(false); }}
-            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-            autoFocus
+            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           />
-          {error && <p style={authStyles.error}>Incorrect access code. Please try again.</p>}
-          <button style={authStyles.button} onClick={handleLogin}>
-            Sign In
+
+          {error && <p style={authStyles.error}>{error}</p>}
+
+          <button
+            style={{ ...authStyles.button, opacity: submitting || !email.trim() || !password ? 0.5 : 1 }}
+            onClick={handleSubmit}
+            disabled={submitting || !email.trim() || !password}
+          >
+            {submitting ? (isSignUp ? 'Creating Account...' : 'Signing In...') : (isSignUp ? 'Create Account' : 'Sign In')}
           </button>
-          <p style={authStyles.footer}>Contact your administrator if you need access.</p>
+
+          {/* Toggle sign-in / sign-up */}
+          <button
+            style={{
+              ...authStyles.button,
+              background: 'transparent',
+              color: '#2E4E8D',
+              border: '2px solid #E0E4EA',
+              marginTop: 8,
+            }}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError('');
+              setPassword('');
+              setFullName('');
+            }}
+          >
+            {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
+          </button>
+
+          <p style={authStyles.footer}>
+            {isSignUp
+              ? 'Your administrator will need to approve your account.'
+              : 'Contact your administrator if you need access.'}
+          </p>
         </div>
       </div>
     );
   }
 
-  if (needsName) {
-    return (
-      <div style={authStyles.wrapper}>
-        <div style={authStyles.card}>
-          <div style={authStyles.logoIcon}>TC</div>
-          <h1 style={authStyles.title}>Welcome!</h1>
-          <p style={authStyles.subtitle}>Caregiver Portal</p>
-          <div style={authStyles.divider} />
-          <p style={authStyles.prompt}>Enter your name so we can track your activity</p>
-          <input
-            style={authStyles.input}
-            type="text"
-            placeholder="Your name (e.g., Sarah, Mike)"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
-            autoFocus
-          />
-          <button style={{ ...authStyles.button, opacity: userName.trim() ? 1 : 0.5 }} onClick={handleNameSubmit} disabled={!userName.trim()}>
-            Continue
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  // ─── Authenticated ───
   return children;
 }

@@ -57,11 +57,21 @@ CREATE TABLE IF NOT EXISTS app_data (
 ALTER TABLE caregivers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_data ENABLE ROW LEVEL SECURITY;
 
--- Policies: allow all operations for authenticated users
--- (Since this is a team tool with a shared passcode, 
--- we use anon key access. Adjust if you add Supabase Auth later.)
-CREATE POLICY "Allow all access" ON caregivers FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all access" ON app_data FOR ALL USING (true) WITH CHECK (true);
+-- Policies: restrict to authenticated users only (Supabase Auth)
+-- Drop old wide-open policies first (safe to run even if they don't exist)
+DROP POLICY IF EXISTS "Allow all access" ON caregivers;
+DROP POLICY IF EXISTS "Allow all access" ON app_data;
+
+-- Authenticated users get full CRUD access (team tool — all team members equal)
+CREATE POLICY "Authenticated full access" ON caregivers
+  FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated full access" ON app_data
+  FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');
 
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_caregivers_created ON caregivers(created_at DESC);
