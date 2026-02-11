@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom';
 import { AuthGate } from './components/AuthGate';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -8,13 +9,32 @@ import { CaregiverDetail } from './components/CaregiverDetail';
 import { Toast } from './components/Toast';
 import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
-import { loadCaregivers, saveCaregivers, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
+import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
 import { styles } from './styles/theme';
 
+// ─── Route-to-view mapping ───
+const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver' };
+const ROUTE_VIEWS = { '/': 'dashboard', '/board': 'board', '/add': 'add' };
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  // ─── Derive view + selectedId from URL ───
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const view = pathParts[0] === 'caregiver' ? 'detail' : (ROUTE_VIEWS[location.pathname] || 'dashboard');
+  const selectedId = pathParts[0] === 'caregiver' ? pathParts[1] || null : null;
+
+  const setView = useCallback((v) => {
+    if (v === 'dashboard') navigate('/');
+    else if (v === 'board') navigate('/board');
+    else if (v === 'add') navigate('/add');
+  }, [navigate]);
+
+  const selectCaregiver = useCallback((id) => {
+    navigate(`/caregiver/${id}`);
+  }, [navigate]);
+
   const [caregivers, setCaregivers] = useState([]);
-  const [view, setView] = useState('dashboard'); // dashboard | detail | add | board
-  const [selectedId, setSelectedId] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [showScripts, setShowScripts] = useState(null);
   const [filterPhase, setFilterPhase] = useState('all');
@@ -34,11 +54,6 @@ export default function App() {
     });
   }, []);
 
-  // ─── Auto-save caregivers ───
-  useEffect(() => {
-    if (loaded) saveCaregivers(caregivers);
-  }, [caregivers, loaded]);
-
   // ─── Toast auto-dismiss ───
   useEffect(() => {
     if (toast) {
@@ -52,7 +67,7 @@ export default function App() {
   // ─── Caregiver CRUD ───
   const addCaregiver = (data) => {
     const newCg = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       ...data,
       tasks: {},
       notes: [],
@@ -60,13 +75,14 @@ export default function App() {
       createdAt: Date.now(),
     };
     setCaregivers((prev) => [newCg, ...prev]);
-    setView('detail');
-    setSelectedId(newCg.id);
+    navigate(`/caregiver/${newCg.id}`);
+    saveCaregiver(newCg).catch(() => showToast('Failed to save — check your connection'));
     showToast(`${data.firstName} ${data.lastName} added successfully!`);
   };
 
   const updateTask = (cgId, taskId, value) => {
     const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
+    let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
@@ -75,9 +91,11 @@ export default function App() {
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
         }
+        changed = updated;
         return updated;
       })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   };
 
   const updateTasksBulk = (cgId, taskUpdates) => {
@@ -85,6 +103,7 @@ export default function App() {
     for (const [key, val] of Object.entries(taskUpdates)) {
       enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
     }
+    let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
@@ -93,9 +112,11 @@ export default function App() {
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
         }
+        changed = updated;
         return updated;
       })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   };
 
   const addNote = (cgId, noteData) => {
@@ -103,20 +124,23 @@ export default function App() {
     const note = typeof noteData === 'string'
       ? { text: noteData, timestamp: Date.now(), author: currentUser || '' }
       : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUser || '' };
-    setCaregivers((prev) =>
-      prev.map((cg) =>
-        cg.id === cgId
-          ? { ...cg, notes: [...(cg.notes || []), note] }
-          : cg
-      )
-    );
-  };
-
-  const archiveCaregiver = (cgId, reason, detail) => {
+    let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        return {
+        changed = { ...cg, notes: [...(cg.notes || []), note] };
+        return changed;
+      })
+    );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+  };
+
+  const archiveCaregiver = (cgId, reason, detail) => {
+    let changed;
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        changed = {
           ...cg,
           archived: true,
           archivedAt: Date.now(),
@@ -125,17 +149,20 @@ export default function App() {
           archivePhase: getCurrentPhase(cg),
           archivedBy: currentUser || '',
         };
+        return changed;
       })
     );
-    setView('dashboard');
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+    navigate('/');
     showToast('Caregiver archived');
   };
 
   const unarchiveCaregiver = (cgId) => {
+    let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
-        return {
+        changed = {
           ...cg,
           archived: false,
           archivedAt: null,
@@ -143,29 +170,47 @@ export default function App() {
           archiveDetail: null,
           archivePhase: null,
         };
+        return changed;
       })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
     showToast('Caregiver restored to pipeline');
   };
 
   const updateBoardStatus = (cgId, status) => {
+    let changed;
     setCaregivers((prev) =>
-      prev.map((cg) =>
-        cg.id === cgId ? { ...cg, boardStatus: status, boardMovedAt: Date.now() } : cg
-      )
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        changed = { ...cg, boardStatus: status, boardMovedAt: Date.now() };
+        return changed;
+      })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   };
 
   const updateBoardNote = (cgId, note) => {
+    let changed;
     setCaregivers((prev) =>
-      prev.map((cg) => (cg.id === cgId ? { ...cg, boardNote: note } : cg))
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        changed = { ...cg, boardNote: note };
+        return changed;
+      })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   };
 
   const updateCaregiver = (cgId, updates) => {
+    let changed;
     setCaregivers((prev) =>
-      prev.map((cg) => (cg.id === cgId ? { ...cg, ...updates } : cg))
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        changed = { ...cg, ...updates };
+        return changed;
+      })
     );
+    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
     showToast('Profile updated!');
   };
 
@@ -174,22 +219,24 @@ export default function App() {
     setTasksVersion((v) => v + 1);
   };
 
-  // ─── Derived data ───
-  const selected = caregivers.find((c) => c.id === selectedId);
+  // ─── Derived data (memoized) ───
+  const selected = useMemo(() => caregivers.find((c) => c.id === selectedId), [caregivers, selectedId]);
 
   // tasksVersion referenced so React re-computes when PHASE_TASKS loads
-  const _tv = tasksVersion;
-  const activeCaregivers = caregivers.filter((cg) => !cg.archived);
-  const archivedCaregivers = caregivers.filter((cg) => cg.archived);
-  const filtered = (filterPhase === 'archived' ? archivedCaregivers : activeCaregivers).filter((cg) => {
-    const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
-    const matchSearch =
-      !searchTerm ||
-      `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cg.phone?.includes(searchTerm) ||
-      cg.perId?.includes(searchTerm);
-    return searchTerm ? matchSearch : matchPhase && matchSearch;
-  });
+  const activeCaregivers = useMemo(() => caregivers.filter((cg) => !cg.archived), [caregivers, tasksVersion]);
+  const archivedCaregivers = useMemo(() => caregivers.filter((cg) => cg.archived), [caregivers, tasksVersion]);
+  const filtered = useMemo(() => {
+    const base = filterPhase === 'archived' ? archivedCaregivers : activeCaregivers;
+    return base.filter((cg) => {
+      const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
+      const matchSearch =
+        !searchTerm ||
+        `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cg.phone?.includes(searchTerm) ||
+        cg.perId?.includes(searchTerm);
+      return searchTerm ? matchSearch : matchPhase && matchSearch;
+    });
+  }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
     <AuthGate onUserReady={setCurrentUser}>
@@ -217,48 +264,56 @@ export default function App() {
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
                 sidebarWidth={sidebarCollapsed ? 64 : 260}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                  setView('detail');
-                }}
-                onAdd={() => setView('add')}
+                onSelect={(id) => selectCaregiver(id)}
+                onAdd={() => navigate('/add')}
                 onBulkPhaseOverride={(ids, phase) => {
+                  const changed = [];
                   setCaregivers((prev) =>
                     prev.map((cg) => {
                       if (!ids.includes(cg.id)) return cg;
-                      return {
+                      const updated = {
                         ...cg,
                         phaseOverride: phase || null,
                         phaseTimestamps: phase
                           ? { ...cg.phaseTimestamps, [phase]: cg.phaseTimestamps?.[phase] || Date.now() }
                           : cg.phaseTimestamps,
                       };
+                      changed.push(updated);
+                      return updated;
                     })
                   );
+                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
                 }}
                 onBulkAddNote={(ids, text) => {
-                  setCaregivers((prev) =>
-                    prev.map((cg) =>
-                      ids.includes(cg.id)
-                        ? { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUser || '', type: 'note' }] }
-                        : cg
-                    )
-                  );
-                }}
-                onBulkBoardStatus={(ids, status) => {
-                  setCaregivers((prev) =>
-                    prev.map((cg) =>
-                      ids.includes(cg.id)
-                        ? { ...cg, boardStatus: status, boardMovedAt: Date.now() }
-                        : cg
-                    )
-                  );
-                }}
-                onBulkArchive={(ids, reason) => {
+                  const changed = [];
                   setCaregivers((prev) =>
                     prev.map((cg) => {
                       if (!ids.includes(cg.id)) return cg;
-                      return {
+                      const updated = { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUser || '', type: 'note' }] };
+                      changed.push(updated);
+                      return updated;
+                    })
+                  );
+                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
+                }}
+                onBulkBoardStatus={(ids, status) => {
+                  const changed = [];
+                  setCaregivers((prev) =>
+                    prev.map((cg) => {
+                      if (!ids.includes(cg.id)) return cg;
+                      const updated = { ...cg, boardStatus: status, boardMovedAt: Date.now() };
+                      changed.push(updated);
+                      return updated;
+                    })
+                  );
+                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
+                }}
+                onBulkArchive={(ids, reason) => {
+                  const changed = [];
+                  setCaregivers((prev) =>
+                    prev.map((cg) => {
+                      if (!ids.includes(cg.id)) return cg;
+                      const updated = {
                         ...cg,
                         archived: true,
                         archivedAt: Date.now(),
@@ -267,14 +322,17 @@ export default function App() {
                         archivePhase: getCurrentPhase(cg),
                         archivedBy: currentUser || '',
                       };
+                      changed.push(updated);
+                      return updated;
                     })
                   );
+                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
                   showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
                 }}
               />
             )}
             {view === 'add' && (
-              <AddCaregiver onAdd={addCaregiver} onCancel={() => setView('dashboard')} />
+              <AddCaregiver onAdd={addCaregiver} onCancel={() => navigate('/')} />
             )}
             {view === 'board' && (
               <KanbanBoard
@@ -282,10 +340,7 @@ export default function App() {
                 onUpdateStatus={updateBoardStatus}
                 onUpdateNote={updateBoardNote}
                 onAddNote={addNote}
-                onSelect={(id) => {
-                  setSelectedId(id);
-                  setView('detail');
-                }}
+                onSelect={(id) => selectCaregiver(id)}
               />
             )}
             {view === 'detail' && selected && (
@@ -293,7 +348,7 @@ export default function App() {
                 caregiver={selected}
                 allCaregivers={activeCaregivers}
                 currentUser={currentUser}
-                onBack={() => setView('dashboard')}
+                onBack={() => navigate('/')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
                 onAddNote={addNote}
