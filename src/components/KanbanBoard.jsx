@@ -617,7 +617,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                   <div style={boardStyles.modalNotesList}>
                     {(cg.notes || []).slice().reverse().slice(0, 5).map((n, i) => (
                       <div key={i} style={boardStyles.modalNoteItem}>
-                        <span style={boardStyles.modalNoteTime}>{new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                        <span style={boardStyles.modalNoteTime}>{new Date(n.timestamp || n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                         <span style={boardStyles.modalNoteText}>{n.text}</span>
                       </div>
                     ))}
