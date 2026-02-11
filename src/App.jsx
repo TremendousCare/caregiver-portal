@@ -10,6 +10,7 @@ import { Toast } from './components/Toast';
 import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
 import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { styles } from './styles/theme';
 
 // ─── Route-to-view mapping ───
@@ -44,6 +45,19 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
+
+  // ─── Logout handler ───
+  const handleLogout = useCallback(async () => {
+    if (isSupabaseConfigured()) {
+      await supabase.auth.signOut();
+    } else {
+      // Legacy mode: clear localStorage auth
+      localStorage.removeItem('tc-auth-v1');
+      localStorage.removeItem('tc-user-name-v1');
+    }
+    setCurrentUser(null);
+    window.location.reload();
+  }, []);
 
   // ─── Load data on mount ───
   useEffect(() => {
@@ -239,7 +253,7 @@ export default function App() {
   }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
-    <AuthGate onUserReady={setCurrentUser}>
+    <AuthGate onUserReady={setCurrentUser} onLogout={handleLogout}>
       <div style={styles.app}>
         <Toast message={toast} />
 
@@ -252,6 +266,8 @@ export default function App() {
           archivedCount={archivedCaregivers.length}
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
+          currentUser={currentUser}
+          onLogout={handleLogout}
         />
 
         <main style={styles.main}>

@@ -2,7 +2,7 @@ import { PHASES } from '../lib/constants';
 import { getCurrentPhase } from '../lib/utils';
 import { styles } from '../styles/theme';
 
-export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed }) {
+export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed, currentUser, onLogout }) {
   return (
     <aside
       className={`tc-sidebar${collapsed ? ' collapsed' : ''}`}
@@ -186,6 +186,38 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
           )}
         </div>
       )}
+
+      {/* User info & Logout */}
+      <div style={{
+        marginTop: 'auto',
+        padding: collapsed ? '12px 6px' : '12px 16px',
+        borderTop: '1px solid #2A2A2A',
+      }}>
+        {!collapsed && currentUser && (
+          <div style={{
+            fontSize: 12, color: '#8BA3C7', marginBottom: 8,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            👤 {currentUser}
+          </div>
+        )}
+        {onLogout && (
+          <button
+            className="tc-nav-item"
+            style={{
+              ...styles.navItem,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              padding: collapsed ? '10px 0' : '10px 12px',
+              color: '#DC3545',
+            }}
+            onClick={onLogout}
+            title="Sign out"
+          >
+            <span style={styles.navIcon}>⏻</span>
+            {!collapsed && <span className="sidebar-text">Sign Out</span>}
+          </button>
+        )}
+      </div>
     </aside>
   );
 }

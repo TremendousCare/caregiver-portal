@@ -248,23 +248,10 @@ export const saveOrientationData = async (data) => {
 };
 
 // ─── Auth ────────────────────────────────────────────────────
-
-export const loadAuthState = async () => {
-  try {
-    const val = localStorage.getItem(AUTH_KEY);
-    return val === '"authenticated"' || val === 'authenticated';
-  } catch {
-    return false;
-  }
-};
-
-export const saveAuthState = async () => {
-  try {
-    localStorage.setItem(AUTH_KEY, JSON.stringify('authenticated'));
-  } catch (e) {
-    console.error('saveAuthState failed:', e);
-  }
-};
+// Legacy auth functions removed in v4.4 — authentication is now
+// handled by Supabase Auth (magic link) in AuthGate.jsx.
+// The legacy passcode fallback still uses localStorage directly
+// within AuthGate when Supabase is not configured.
 
 // ═══════════════════════════════════════════════════════════════
 // DB ↔ App Field Mapping
