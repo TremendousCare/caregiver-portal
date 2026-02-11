@@ -11,9 +11,12 @@ export function AuthGate({ children, onUserReady, onLogout }) {
   const [session, setSession] = useState(null);
   const [checking, setChecking] = useState(true);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [signUpSuccess, setSignUpSuccess] = useState(false);
 
   // ─── Legacy fallback state (no Supabase) ───
   const [legacyMode] = useState(!isSupabaseConfigured());
@@ -51,7 +54,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       setChecking(false);
     });
 
-    // Listen for auth state changes (magic link callback, logout, etc.)
+    // Listen for auth state changes (login, logout, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       if (s?.user) {
@@ -63,25 +66,53 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ─── Supabase: Send magic link ───
-  const handleMagicLink = async () => {
-    if (!email.trim()) return;
-    setSending(true);
+  // ─── Supabase: Sign in with email + password ───
+  const handleSignIn = async () => {
+    if (!email.trim() || !password) return;
+    setSubmitting(true);
     setError('');
 
-    const { error: authError } = await supabase.auth.signInWithOtp({
+    const { error: authError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
+      password,
+    });
+
+    setSubmitting(false);
+    if (authError) {
+      setError(authError.message);
+    }
+    // On success, onAuthStateChange fires automatically
+  };
+
+  // ─── Supabase: Sign up with email + password ───
+  const handleSignUp = async () => {
+    if (!email.trim() || !password || !fullName.trim()) return;
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+
+    const { error: authError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
       options: {
-        emailRedirectTo: window.location.origin,
+        data: { full_name: fullName.trim() },
       },
     });
 
-    setSending(false);
+    setSubmitting(false);
     if (authError) {
       setError(authError.message);
     } else {
-      setMagicLinkSent(true);
+      setSignUpSuccess(true);
     }
+  };
+
+  const handleSubmit = () => {
+    if (isSignUp) handleSignUp();
+    else handleSignIn();
   };
 
   // ─── Legacy: passcode login ───
@@ -169,26 +200,32 @@ export function AuthGate({ children, onUserReady, onLogout }) {
 
   // ─── Supabase Auth: not logged in ───
   if (!session) {
-    if (magicLinkSent) {
+    // Sign-up success: prompt to check email for confirmation
+    if (signUpSuccess) {
       return (
         <div style={authStyles.wrapper}>
           <div style={authStyles.card}>
             <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Check Your Email</h1>
+            <h1 style={authStyles.title}>Account Created!</h1>
             <p style={authStyles.subtitle}>Caregiver Portal</p>
             <div style={authStyles.divider} />
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📧</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
             <p style={{ ...authStyles.prompt, fontSize: 15, lineHeight: 1.6 }}>
-              We sent a login link to <strong>{email}</strong>
+              Your account has been created for <strong>{email}</strong>
             </p>
             <p style={{ ...authStyles.prompt, color: '#8BA3C7', fontSize: 13 }}>
-              Click the link in your email to sign in. The link expires in 1 hour.
+              Check your email to confirm your account, then sign in below.
             </p>
             <button
-              style={{ ...authStyles.button, background: 'transparent', color: '#2E4E8D', border: '2px solid #E0E4EA', marginTop: 8 }}
-              onClick={() => { setMagicLinkSent(false); setEmail(''); }}
+              style={authStyles.button}
+              onClick={() => {
+                setSignUpSuccess(false);
+                setIsSignUp(false);
+                setPassword('');
+                setFullName('');
+              }}
             >
-              Use a different email
+              Go to Sign In
             </button>
           </div>
         </div>
@@ -202,25 +239,77 @@ export function AuthGate({ children, onUserReady, onLogout }) {
           <h1 style={authStyles.title}>Tremendous Care</h1>
           <p style={authStyles.subtitle}>Caregiver Portal</p>
           <div style={authStyles.divider} />
-          <p style={authStyles.prompt}>Enter your email to receive a login link</p>
+          <p style={authStyles.prompt}>
+            {isSignUp ? 'Create your account' : 'Sign in to your account'}
+          </p>
+
+          {/* Full name (sign-up only) */}
+          {isSignUp && (
+            <input
+              style={{ ...authStyles.input, letterSpacing: 0, textAlign: 'left' }}
+              type="text"
+              placeholder="Your full name"
+              value={fullName}
+              onChange={(e) => { setFullName(e.target.value); setError(''); }}
+              autoFocus
+            />
+          )}
+
+          {/* Email */}
           <input
             style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="email"
             placeholder="you@tremendouscare.com"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setError(''); }}
-            onKeyDown={(e) => e.key === 'Enter' && handleMagicLink()}
-            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+            autoFocus={!isSignUp}
           />
+
+          {/* Password */}
+          <input
+            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            type="password"
+            placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          />
+
           {error && <p style={authStyles.error}>{error}</p>}
+
           <button
-            style={{ ...authStyles.button, opacity: sending || !email.trim() ? 0.5 : 1 }}
-            onClick={handleMagicLink}
-            disabled={sending || !email.trim()}
+            style={{ ...authStyles.button, opacity: submitting || !email.trim() || !password ? 0.5 : 1 }}
+            onClick={handleSubmit}
+            disabled={submitting || !email.trim() || !password}
           >
-            {sending ? 'Sending...' : 'Send Login Link'}
+            {submitting ? (isSignUp ? 'Creating Account...' : 'Signing In...') : (isSignUp ? 'Create Account' : 'Sign In')}
           </button>
-          <p style={authStyles.footer}>You'll receive a magic link — no password needed.</p>
+
+          {/* Toggle sign-in / sign-up */}
+          <button
+            style={{
+              ...authStyles.button,
+              background: 'transparent',
+              color: '#2E4E8D',
+              border: '2px solid #E0E4EA',
+              marginTop: 8,
+            }}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError('');
+              setPassword('');
+              setFullName('');
+            }}
+          >
+            {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
+          </button>
+
+          <p style={authStyles.footer}>
+            {isSignUp
+              ? 'Your administrator will need to approve your account.'
+              : 'Contact your administrator if you need access.'}
+          </p>
         </div>
       </div>
     );
