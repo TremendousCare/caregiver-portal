@@ -10,7 +10,7 @@ function formatMessage(text) {
     .replace(/`(.*?)`/g, '<code style="background:#F0F2F5;padding:2px 6px;border-radius:4px;font-size:13px">$1</code>')
     .replace(/^### (.*$)/gm, '<h4 style="margin:12px 0 4px;font-size:14px;color:#1B2A4A">$1</h4>')
     .replace(/^## (.*$)/gm, '<h3 style="margin:14px 0 6px;font-size:15px;color:#1B2A4A">$1</h3>')
-    .replace(/^- (.*$)/gm, '<div style="padding-left:12px;margin:3px 0">• $1</div>')
+    .replace(/^- (.*$)/gm, '<div style="padding-left:12px;margin:3px 0">&bull; $1</div>')
     .replace(/^\d+\. (.*$)/gm, '<div style="padding-left:12px;margin:3px 0">$&</div>')
     .replace(/\n/g, '<br/>');
 }
@@ -197,10 +197,6 @@ const CHAT_STYLES = {
     padding: '24px 16px',
     color: '#6B7C93',
   },
-  welcomeIcon: {
-    fontSize: 40,
-    marginBottom: 12,
-  },
   welcomeTitle: {
     fontSize: 16,
     fontWeight: 700,
@@ -212,12 +208,44 @@ const CHAT_STYLES = {
     lineHeight: 1.6,
     color: '#8BA3C7',
   },
+  // Confirmation card
+  confirmCard: {
+    alignSelf: 'flex-start',
+    background: '#FFFBEB',
+    border: '1px solid #F59E0B',
+    borderRadius: 12,
+    padding: '12px 14px',
+    maxWidth: '90%',
+    fontSize: 13,
+    lineHeight: 1.5,
+  },
+  confirmLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#B45309',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  confirmActions: {
+    display: 'flex',
+    gap: 8,
+    marginTop: 10,
+  },
+  confirmBtn: {
+    padding: '6px 16px',
+    borderRadius: 8,
+    border: 'none',
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
 };
 
 const QUICK_ACTIONS = [
   { label: 'Pipeline summary', prompt: 'Give me a quick summary of the current pipeline' },
-  { label: 'Who needs follow-up?', prompt: 'Who needs a follow-up? List caregivers that may be falling through the cracks' },
-  { label: 'Bottlenecks', prompt: 'What are the current bottlenecks in our pipeline?' },
+  { label: 'Who needs follow-up?', prompt: 'Who needs a follow-up? Find stale leads that may be falling through the cracks' },
+  { label: 'Compliance check', prompt: 'Run a compliance check across all caregivers' },
   { label: 'Draft follow-up', prompt: 'Draft a follow-up text message for our most stale lead' },
 ];
 
@@ -226,6 +254,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -243,6 +272,19 @@ export function AIChatbot({ caregiverId, currentUser }) {
     }
   }, [isOpen]);
 
+  const callEdgeFunction = useCallback(async (body) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const { data, error } = await supabase.functions.invoke('ai-chat', {
+      body,
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+
+    if (error) throw error;
+    return data;
+  }, []);
+
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || loading) return;
 
@@ -251,44 +293,73 @@ export function AIChatbot({ caregiverId, currentUser }) {
     setMessages(newMessages);
     setInput('');
     setLoading(true);
+    setPendingConfirmation(null);
 
     try {
-      if (!isSupabaseConfigured()) {
-        throw new Error('Supabase not configured');
-      }
+      if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
 
-      // Get current session for auth
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
-
-      // Call the Edge Function with explicit auth header
-      const { data, error } = await supabase.functions.invoke('ai-chat', {
-        body: {
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          caregiverId: caregiverId || null,
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      const data = await callEdgeFunction({
+        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        caregiverId: caregiverId || null,
+        currentUser: currentUser || 'User',
       });
-
-      if (error) throw error;
 
       const aiMessage = { role: 'assistant', content: data.reply || 'No response received.' };
       setMessages([...newMessages, aiMessage]);
+
+      if (data.pendingConfirmation) {
+        setPendingConfirmation(data.pendingConfirmation);
+      }
     } catch (err) {
       console.error('AI chat error:', err);
-      const errorMessage = {
+      setMessages([...newMessages, {
         role: 'assistant',
         content: `Sorry, I couldn't process that request. ${err.message || 'Please try again.'}`,
-      };
-      setMessages([...newMessages, errorMessage]);
+      }]);
     } finally {
       setLoading(false);
     }
-  }, [messages, loading, caregiverId]);
+  }, [messages, loading, caregiverId, currentUser, callEdgeFunction]);
+
+  const handleConfirm = useCallback(async (approved) => {
+    if (!pendingConfirmation) return;
+
+    const confirmation = pendingConfirmation;
+    setPendingConfirmation(null);
+
+    if (!approved) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Action cancelled.',
+      }]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await callEdgeFunction({
+        confirmAction: {
+          action: confirmation.action,
+          caregiver_id: confirmation.caregiver_id,
+          params: confirmation.params,
+        },
+        currentUser: currentUser || 'User',
+      });
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.reply || 'Action completed.',
+      }]);
+    } catch (err) {
+      console.error('Confirm error:', err);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error executing action: ${err.message || 'Please try again.'}`,
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [pendingConfirmation, currentUser, callEdgeFunction]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -310,7 +381,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
         onClick={() => setIsOpen(!isOpen)}
         title="AI Assistant"
       >
-        {isOpen ? '✕' : <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>AI</span>}
+        {isOpen ? '\u2715' : <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>AI</span>}
         {!isOpen && messages.length === 0 && <div style={CHAT_STYLES.fabBadge} />}
       </button>
 
@@ -320,18 +391,11 @@ export function AIChatbot({ caregiverId, currentUser }) {
           {/* Header */}
           <div style={CHAT_STYLES.header}>
             <div>
-              <div style={CHAT_STYLES.headerTitle}>
-                TC Assistant
-              </div>
-              <div style={CHAT_STYLES.headerSub}>
-                Powered by Claude AI
-              </div>
+              <div style={CHAT_STYLES.headerTitle}>TC Assistant</div>
+              <div style={CHAT_STYLES.headerSub}>Powered by Claude AI</div>
             </div>
-            <button
-              style={CHAT_STYLES.closeBtn}
-              onClick={() => setIsOpen(false)}
-            >
-              ✕
+            <button style={CHAT_STYLES.closeBtn} onClick={() => setIsOpen(false)}>
+              {'\u2715'}
             </button>
           </div>
 
@@ -356,11 +420,11 @@ export function AIChatbot({ caregiverId, currentUser }) {
           <div style={CHAT_STYLES.messages}>
             {messages.length === 0 && (
               <div style={CHAT_STYLES.welcome}>
-                <div style={{ ...CHAT_STYLES.welcomeIcon, fontSize: 28, fontWeight: 800, color: '#2E4E8D', background: 'linear-gradient(135deg, #1B2A4A, #2E4E8D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: -1 }}>AI</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#2E4E8D', background: 'linear-gradient(135deg, #1B2A4A, #2E4E8D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: -1, marginBottom: 12 }}>AI</div>
                 <div style={CHAT_STYLES.welcomeTitle}>Hi{currentUser ? `, ${currentUser}` : ''}!</div>
                 <div style={CHAT_STYLES.welcomeText}>
-                  I'm your AI recruiting assistant. I can help with pipeline insights,
-                  caregiver lookups, follow-up drafts, and more. Ask me anything!
+                  I'm your AI recruiting assistant. I can search caregivers, check compliance,
+                  add notes, draft messages, and update records. Ask me anything!
                 </div>
               </div>
             )}
@@ -379,11 +443,37 @@ export function AIChatbot({ caregiverId, currentUser }) {
               </div>
             ))}
 
+            {/* Pending confirmation card */}
+            {pendingConfirmation && !loading && (
+              <div style={CHAT_STYLES.confirmCard}>
+                <div style={CHAT_STYLES.confirmLabel}>Confirm Action</div>
+                <div dangerouslySetInnerHTML={{ __html: formatMessage(pendingConfirmation.summary) }} />
+                <div style={CHAT_STYLES.confirmActions}>
+                  <button
+                    style={{ ...CHAT_STYLES.confirmBtn, background: '#059669', color: '#fff' }}
+                    onClick={() => handleConfirm(true)}
+                    onMouseEnter={(e) => { e.target.style.background = '#047857'; }}
+                    onMouseLeave={(e) => { e.target.style.background = '#059669'; }}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    style={{ ...CHAT_STYLES.confirmBtn, background: '#E5E7EB', color: '#374151' }}
+                    onClick={() => handleConfirm(false)}
+                    onMouseEnter={(e) => { e.target.style.background = '#D1D5DB'; }}
+                    onMouseLeave={(e) => { e.target.style.background = '#E5E7EB'; }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {loading && (
               <div style={CHAT_STYLES.typing}>
-                <span style={{ animation: 'pulse 1.5s infinite' }}>●</span>
-                <span style={{ animation: 'pulse 1.5s infinite 0.3s' }}>●</span>
-                <span style={{ animation: 'pulse 1.5s infinite 0.6s' }}>●</span>
+                <span style={{ animation: 'pulse 1.5s infinite' }}>{'\u25CF'}</span>
+                <span style={{ animation: 'pulse 1.5s infinite 0.3s' }}>{'\u25CF'}</span>
+                <span style={{ animation: 'pulse 1.5s infinite 0.6s' }}>{'\u25CF'}</span>
               </div>
             )}
 
@@ -409,7 +499,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
               onClick={() => sendMessage(input)}
               disabled={!input.trim() || loading}
             >
-              ➤
+              {'\u27A4'}
             </button>
           </div>
         </div>
