@@ -63,6 +63,7 @@ export function CaregiverDetail({
   const [taskDraft, setTaskDraft] = useState([]);
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
+  const [showPortalOnly, setShowPortalOnly] = useState(false);
 
   const overallPct = getOverallProgress(caregiver);
   const greenLight = isGreenLight(caregiver);
@@ -559,7 +560,7 @@ export function CaregiverDetail({
         <h3 style={styles.notesSectionTitle}>📝 Activity Log</h3>
 
         {/* Type selector pills */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           {NOTE_TYPES.map((t) => (
             <button
               key={t.value}
@@ -575,6 +576,19 @@ export function CaregiverDetail({
               {t.icon} {t.label}
             </button>
           ))}
+          <span style={{ width: 1, height: 20, background: '#D1D5DB', margin: '0 4px' }} />
+          <button
+            style={{
+              padding: '5px 12px', borderRadius: 20, border: '1px solid',
+              borderColor: showPortalOnly ? '#2E4E8D' : '#D1D5DB',
+              background: showPortalOnly ? '#EBF0FA' : '#FAFBFC',
+              color: showPortalOnly ? '#2E4E8D' : '#6B7B8F',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+            onClick={() => setShowPortalOnly(!showPortalOnly)}
+          >
+            {showPortalOnly ? '✓ ' : ''}Internal Notes Only
+          </button>
         </div>
 
         {/* Direction + Outcome row for communications */}
@@ -622,7 +636,7 @@ export function CaregiverDetail({
           </div>
         )}
         <div style={styles.notesList}>
-          {mergedTimeline.map((n) => {
+          {(showPortalOnly ? mergedTimeline.filter((n) => n.source !== 'ringcentral') : mergedTimeline).map((n) => {
             const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
             const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
             const isRC = n.source === 'ringcentral';
@@ -661,8 +675,11 @@ export function CaregiverDetail({
               </div>
             );
           })}
-          {mergedTimeline.length === 0 && !rcLoading && (
+          {mergedTimeline.length === 0 && !rcLoading && !showPortalOnly && (
             <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No activity yet. Log your outreach and communications here.</div>
+          )}
+          {showPortalOnly && mergedTimeline.filter((n) => n.source !== 'ringcentral').length === 0 && (
+            <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No internal notes yet.</div>
           )}
         </div>
       </div>
