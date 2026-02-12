@@ -10,7 +10,7 @@ import { Toast } from './components/Toast';
 import { AIChatbot } from './components/AIChatbot';
 import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
-import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
+import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { styles } from './styles/theme';
 
@@ -192,6 +192,17 @@ export default function App() {
     showToast('Caregiver restored to pipeline');
   };
 
+  const deleteCaregiver = async (cgId) => {
+    try {
+      await deleteCaregiversFromDb([cgId]);
+      setCaregivers((prev) => prev.filter((cg) => cg.id !== cgId));
+      navigate('/');
+      showToast('Caregiver permanently deleted');
+    } catch {
+      showToast('Failed to delete — check your connection');
+    }
+  };
+
   const updateBoardStatus = (cgId, status) => {
     let changed;
     setCaregivers((prev) =>
@@ -371,6 +382,7 @@ export default function App() {
                 onAddNote={addNote}
                 onArchive={archiveCaregiver}
                 onUnarchive={unarchiveCaregiver}
+                onDelete={deleteCaregiver}
                 onUpdateCaregiver={updateCaregiver}
                 onRefreshTasks={refreshTasks}
                 showScripts={showScripts}
