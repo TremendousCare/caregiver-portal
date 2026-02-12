@@ -56,7 +56,6 @@ export function CaregiverDetail({
   const [archiveReason, setArchiveReason] = useState('');
   const [archiveDetail, setArchiveDetail] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [editingTasks, setEditingTasks] = useState(false);
@@ -181,29 +180,17 @@ export function CaregiverDetail({
       {showDeleteDialog && (
         <div style={{ ...styles.alertCard, borderColor: '#DC2626', background: '#FEF2F2' }}>
           <strong style={{ color: '#991B1B' }}>Permanently delete this caregiver?</strong>
-          <p style={{ margin: '8px 0 4px', fontSize: 13, color: '#7F1D1D' }}>
-            This will permanently remove <strong>{caregiver.first_name} {caregiver.last_name}</strong> and all their data (notes, tasks, activity history). This action cannot be undone.
+          <p style={{ margin: '8px 0 12px', fontSize: 13, color: '#7F1D1D' }}>
+            This will permanently remove <strong>{caregiver.first_name} {caregiver.last_name}</strong> and all their data including notes, tasks, and activity history. This action cannot be undone.
           </p>
-          <p style={{ margin: '4px 0 12px', fontSize: 13, color: '#991B1B', fontWeight: 600 }}>
-            Type their full name to confirm:
-          </p>
-          <div style={{ marginBottom: 12 }}>
-            <input
-              style={{ ...styles.fieldInput, borderColor: '#FECACA' }}
-              placeholder={`${caregiver.first_name} ${caregiver.last_name}`}
-              value={deleteConfirmName}
-              onChange={(e) => setDeleteConfirmName(e.target.value)}
-            />
-          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              style={{ ...styles.dangerBtn, background: '#DC2626', color: '#fff', opacity: deleteConfirmName.toLowerCase() === `${caregiver.first_name} ${caregiver.last_name}`.toLowerCase() ? 1 : 0.5 }}
-              disabled={deleteConfirmName.toLowerCase() !== `${caregiver.first_name} ${caregiver.last_name}`.toLowerCase()}
+              style={{ ...styles.dangerBtn, background: '#DC2626', color: '#fff' }}
               onClick={() => { onDelete(caregiver.id); setShowDeleteDialog(false); }}
             >
               Delete Permanently
             </button>
-            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => { setShowDeleteDialog(false); setDeleteConfirmName(''); }}>Cancel</button>
+            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setShowDeleteDialog(false)}>Cancel</button>
           </div>
         </div>
       )}
