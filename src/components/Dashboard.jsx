@@ -178,7 +178,7 @@ export function Dashboard({
   onBulkArchive, sidebarWidth,
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
-  const [actionsCollapsed, setActionsCollapsed] = useState(false);
+  const [actionsCollapsed, setActionsCollapsed] = useState(() => localStorage.getItem('tc_actions_collapsed') === 'true');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAction, setBulkAction] = useState(null); // "phase" | "note" | "board" | "delete"
   const [bulkNoteText, setBulkNoteText] = useState('');
@@ -281,7 +281,7 @@ export function Dashboard({
         <div style={actionStyles.panel}>
           <div
             style={{ ...actionStyles.panelHeader, cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => setActionsCollapsed(!actionsCollapsed)}
+            onClick={() => { const next = !actionsCollapsed; setActionsCollapsed(next); localStorage.setItem('tc_actions_collapsed', String(next)); }}
           >
             <div style={actionStyles.panelTitleRow}>
               <span style={actionStyles.panelIcon}>🔔</span>
