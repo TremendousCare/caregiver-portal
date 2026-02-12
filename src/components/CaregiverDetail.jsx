@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PHASES, CHASE_SCRIPTS, GREEN_LIGHT_ITEMS } from '../lib/constants';
 import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, isGreenLight, isTaskDone } from '../lib/utils';
 import { getPhaseTasks } from '../lib/storage';
 import { OrientationBanner } from './KanbanBoard';
 import { styles, taskEditStyles } from '../styles/theme';
+import { supabase } from '../lib/supabase';
 
 function EditField({ label, value, onChange, type = 'text' }) {
   return (
@@ -60,10 +61,71 @@ export function CaregiverDetail({
   const [editForm, setEditForm] = useState({});
   const [editingTasks, setEditingTasks] = useState(false);
   const [taskDraft, setTaskDraft] = useState([]);
+  const [rcData, setRcData] = useState({ sms: [], calls: [] });
+  const [rcLoading, setRcLoading] = useState(false);
+
   const overallPct = getOverallProgress(caregiver);
   const greenLight = isGreenLight(caregiver);
   const days = getDaysSinceApplication(caregiver);
   const PHASE_TASKS = getPhaseTasks();
+
+  // Fetch RingCentral communication data
+  useEffect(() => {
+    if (!caregiver?.id || !supabase) return;
+    let cancelled = false;
+    setRcLoading(true);
+    supabase.functions.invoke('get-communications', {
+      body: { caregiver_id: caregiver.id, days_back: 90 },
+    }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error || !data) {
+        console.warn('RC fetch failed:', error);
+        setRcData({ sms: [], calls: [] });
+      } else {
+        setRcData({ sms: data.sms || [], calls: data.calls || [] });
+      }
+    }).catch((err) => {
+      if (!cancelled) {
+        console.warn('RC fetch error:', err);
+        setRcData({ sms: [], calls: [] });
+      }
+    }).finally(() => {
+      if (!cancelled) setRcLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [caregiver?.id]);
+
+  // Merge portal notes + RC data into unified timeline
+  const mergedTimeline = useMemo(() => {
+    // Portal notes
+    const portalEntries = (caregiver.notes || []).map((n, i) => ({
+      ...n,
+      id: `portal-${i}`,
+      source: n.source || 'portal',
+      timestamp: n.timestamp || n.date,
+    }));
+
+    // RC entries
+    const rcEntries = [...rcData.sms, ...rcData.calls];
+
+    // Deduplication: skip RC outbound texts that match a portal note within 2 minutes
+    const portalOutboundTexts = portalEntries.filter(
+      (n) => n.type === 'text' && n.direction === 'outbound' && n.source === 'portal'
+    );
+    const deduped = rcEntries.filter((rc) => {
+      if (rc.type !== 'text' || rc.direction !== 'outbound') return true;
+      const rcTime = new Date(rc.timestamp).getTime();
+      return !portalOutboundTexts.some((pn) => {
+        const pnTime = new Date(pn.timestamp).getTime();
+        return Math.abs(rcTime - pnTime) < 120000; // 2-minute window
+      });
+    });
+
+    // Merge and sort newest first
+    return [...portalEntries, ...deduped].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }, [caregiver.notes, rcData]);
 
   const startEditing = () => {
     setEditForm({
@@ -552,22 +614,30 @@ export function CaregiverDetail({
           <button className="tc-btn-primary" style={styles.primaryBtn} onClick={handleAddNote}>Add</button>
         </div>
 
-        {/* Notes list */}
+        {/* Merged timeline */}
+        {rcLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', color: '#6B7B8F', fontSize: 13 }}>
+            <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #D1D5DB', borderTopColor: '#2E4E8D', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            Loading communication history...
+          </div>
+        )}
         <div style={styles.notesList}>
-          {(caregiver.notes || []).slice().reverse().map((n, i) => {
+          {mergedTimeline.map((n) => {
             const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
             const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
+            const isRC = n.source === 'ringcentral';
             return (
-              <div key={i} style={styles.noteItem}>
+              <div key={n.id} style={styles.noteItem}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                   <div style={styles.noteTimestamp}>
-                    {new Date(n.timestamp || n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    {new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     {n.author && <span style={{ marginLeft: 8, color: '#2E4E8D', fontWeight: 600 }}>— {n.author}</span>}
+                    {isRC && <span style={{ marginLeft: 8, color: '#9CA3AF', fontSize: 11, fontWeight: 500 }}>(RingCentral)</span>}
                   </div>
                   {(n.type && n.type !== 'note') && (
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#EBF0FA', color: '#2E4E8D', fontWeight: 600 }}>
-                        {typeInfo?.icon || ''} {typeInfo?.label || n.type}
+                        {typeInfo?.icon || (n.type === 'call' ? '📞' : '💬')} {typeInfo?.label || (n.type === 'call' ? 'Phone Call' : 'Text Message')}
                       </span>
                       {n.direction && (
                         <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: n.direction === 'inbound' ? '#E8F5E9' : '#FFF8ED', color: n.direction === 'inbound' ? '#388E3C' : '#D97706', fontWeight: 600 }}>
@@ -579,6 +649,11 @@ export function CaregiverDetail({
                           {outcomeInfo.label}
                         </span>
                       )}
+                      {n.hasRecording && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#E0F2FE', color: '#0284C7', fontWeight: 600 }}>
+                          Recorded
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -586,7 +661,7 @@ export function CaregiverDetail({
               </div>
             );
           })}
-          {(!caregiver.notes || caregiver.notes.length === 0) && (
+          {mergedTimeline.length === 0 && !rcLoading && (
             <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No activity yet. Log your outreach and communications here.</div>
           )}
         </div>
