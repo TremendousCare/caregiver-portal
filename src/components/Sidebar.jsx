@@ -58,7 +58,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
               justifyContent: collapsed ? 'center' : 'flex-start',
               padding: collapsed ? '10px 0' : '10px 12px',
             }}
-            onClick={() => setView(item.id)}
+            onClick={() => { setView(item.id); if (item.id === 'dashboard') setFilterPhase('all'); }}
             title={item.label}
           >
             <span style={styles.navIcon}>{item.icon}</span>
@@ -83,7 +83,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
                     ...(filterPhase === p.id ? { background: 'rgba(41,190,228,0.12)' } : {}),
                   }}
                   onClick={() => {
-                    setFilterPhase(filterPhase === p.id ? 'all' : p.id);
+                    setFilterPhase(p.id);
                     setView('dashboard');
                   }}
                 >
@@ -104,7 +104,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
                   ...(filterPhase === 'archived' ? { background: 'rgba(41,190,228,0.12)' } : {}),
                 }}
                 onClick={() => {
-                  setFilterPhase(filterPhase === 'archived' ? 'all' : 'archived');
+                  setFilterPhase('archived');
                   setView('dashboard');
                 }}
               >
@@ -145,7 +145,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
                   fontFamily: 'inherit', position: 'relative',
                 }}
                 onClick={() => {
-                  setFilterPhase(filterPhase === p.id ? 'all' : p.id);
+                  setFilterPhase(p.id);
                   setView('dashboard');
                 }}
                 title={`${p.short} (${count})`}
@@ -173,7 +173,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
                 marginTop: 4,
               }}
               onClick={() => {
-                setFilterPhase(filterPhase === 'archived' ? 'all' : 'archived');
+                setFilterPhase('archived');
                 setView('dashboard');
               }}
               title={`Archived (${archivedCount})`}

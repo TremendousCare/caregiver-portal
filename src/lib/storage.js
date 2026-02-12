@@ -85,7 +85,10 @@ export const loadCaregivers = async () => {
         .order('created_at', { ascending: false });
       if (error) throw error;
       // Map snake_case DB columns to camelCase app fields
-      return (data || []).map(dbToCaregiver);
+      const mapped = (data || []).map(dbToCaregiver);
+      // Cache to localStorage for offline fallback
+      if (mapped.length > 0) localSet(CAREGIVERS_KEY, mapped);
+      return mapped;
     }
     // Fallback: localStorage
     return localGet(CAREGIVERS_KEY) || [];

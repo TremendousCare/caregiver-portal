@@ -60,13 +60,31 @@ export default function App() {
     window.location.reload();
   }, []);
 
-  // ─── Load data on mount ───
+  // ─── Load data on mount (with retry) ───
   useEffect(() => {
-    Promise.all([loadCaregivers(), loadPhaseTasks()]).then(([data]) => {
-      setCaregivers(data);
-      setTasksVersion((v) => v + 1);
-      setLoaded(true);
-    });
+    let cancelled = false;
+    const load = async (attempt = 1) => {
+      try {
+        const [data] = await Promise.all([loadCaregivers(), loadPhaseTasks()]);
+        if (cancelled) return;
+        setCaregivers(data);
+        setTasksVersion((v) => v + 1);
+        setLoaded(true);
+        // If we got 0 results and Supabase is configured, retry once (may be a cold-start)
+        if (data.length === 0 && isSupabaseConfigured() && attempt === 1) {
+          setTimeout(() => { if (!cancelled) load(2); }, 1500);
+        }
+      } catch (err) {
+        console.error('Data load failed (attempt ' + attempt + '):', err);
+        if (attempt < 3 && !cancelled) {
+          setTimeout(() => load(attempt + 1), 1000 * attempt);
+        } else if (!cancelled) {
+          setLoaded(true); // show UI even if load fails
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   // ─── Toast auto-dismiss ───
@@ -283,7 +301,12 @@ export default function App() {
         />
 
         <main style={styles.main}>
-          <div key={view} className="tc-page-enter">
+          {!loaded && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#7A8BA0', fontSize: 15 }}>
+              Loading caregivers...
+            </div>
+          )}
+          {loaded && <div key={view} className="tc-page-enter">
             {view === 'dashboard' && (
               <Dashboard
                 caregivers={filtered}
@@ -391,7 +414,7 @@ export default function App() {
                 setShowGreenLight={setShowGreenLight}
               />
             )}
-          </div>
+          </div>}
         </main>
       </div>
       <AIChatbot caregiverId={selectedId} currentUser={currentUser} />
