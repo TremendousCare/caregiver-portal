@@ -17,6 +17,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
   const [submitting, setSubmitting] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [signUpSuccess, setSignUpSuccess] = useState(false);
+  const [isResetPassword, setIsResetPassword] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // ─── Legacy fallback state (no Supabase) ───
   const [legacyMode] = useState(!isSupabaseConfigured());
@@ -115,6 +117,27 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     else handleSignIn();
   };
 
+  // ─── Supabase: Reset password ───
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email address first.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    });
+
+    setSubmitting(false);
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setResetSent(true);
+    }
+  };
+
   // ─── Legacy: passcode login ───
   const handleLegacyLogin = () => {
     if (legacyPassword === LEGACY_PASSWORD) {
@@ -200,6 +223,90 @@ export function AuthGate({ children, onUserReady, onLogout }) {
 
   // ─── Supabase Auth: not logged in ───
   if (!session) {
+    // Password reset sent confirmation
+    if (resetSent) {
+      return (
+        <div style={authStyles.wrapper}>
+          <div style={authStyles.card}>
+            <div style={authStyles.logoIcon}>TC</div>
+            <h1 style={authStyles.title}>Check Your Email</h1>
+            <p style={authStyles.subtitle}>Caregiver Portal</p>
+            <div style={authStyles.divider} />
+            <p style={{ ...authStyles.prompt, fontSize: 15, lineHeight: 1.6 }}>
+              We sent a password reset link to <strong>{email}</strong>
+            </p>
+            <p style={{ ...authStyles.prompt, color: '#8BA3C7', fontSize: 13 }}>
+              Click the link in the email to set your password, then come back and sign in.
+            </p>
+            <button
+              style={authStyles.button}
+              onClick={() => {
+                setResetSent(false);
+                setIsResetPassword(false);
+                setPassword('');
+                setError('');
+              }}
+            >
+              Back to Sign In
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Password reset form
+    if (isResetPassword) {
+      return (
+        <div style={authStyles.wrapper}>
+          <div style={authStyles.card}>
+            <div style={authStyles.logoIcon}>TC</div>
+            <h1 style={authStyles.title}>Reset Password</h1>
+            <p style={authStyles.subtitle}>Caregiver Portal</p>
+            <div style={authStyles.divider} />
+            <p style={authStyles.prompt}>
+              Enter your email and we'll send you a link to set your password.
+            </p>
+
+            <input
+              style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+              type="email"
+              placeholder="you@tremendouscare.com"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && handleResetPassword()}
+              autoFocus
+            />
+
+            {error && <p style={authStyles.error}>{error}</p>}
+
+            <button
+              style={{ ...authStyles.button, opacity: submitting || !email.trim() ? 0.5 : 1 }}
+              onClick={handleResetPassword}
+              disabled={submitting || !email.trim()}
+            >
+              {submitting ? 'Sending...' : 'Send Reset Link'}
+            </button>
+
+            <button
+              style={{
+                ...authStyles.button,
+                background: 'transparent',
+                color: '#2E4E8D',
+                border: '2px solid #E0E4EA',
+                marginTop: 8,
+              }}
+              onClick={() => {
+                setIsResetPassword(false);
+                setError('');
+              }}
+            >
+              Back to Sign In
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     // Sign-up success: prompt to check email for confirmation
     if (signUpSuccess) {
       return (
@@ -277,6 +384,21 @@ export function AuthGate({ children, onUserReady, onLogout }) {
           />
 
           {error && <p style={authStyles.error}>{error}</p>}
+
+          {/* Forgot password link (sign-in only) */}
+          {!isSignUp && (
+            <button
+              style={{
+                background: 'none', border: 'none', color: '#2E4E8D',
+                fontSize: 13, cursor: 'pointer', padding: '4px 0',
+                marginBottom: 4, fontFamily: 'inherit', textDecoration: 'underline',
+                opacity: 0.8,
+              }}
+              onClick={() => { setIsResetPassword(true); setError(''); setPassword(''); }}
+            >
+              Forgot password? Set up your password here
+            </button>
+          )}
 
           <button
             style={{ ...authStyles.button, opacity: submitting || !email.trim() || !password ? 0.5 : 1 }}
