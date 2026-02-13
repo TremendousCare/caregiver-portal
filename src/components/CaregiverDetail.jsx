@@ -68,6 +68,9 @@ export function CaregiverDetail({
   const [docsLoading, setDocsLoading] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(null);
   const [docsExpanded, setDocsExpanded] = useState(() => localStorage.getItem('tc_docs_expanded') === 'true');
+  const [docTypes, setDocTypes] = useState(DOCUMENT_TYPES);
+  const [editingDocTypes, setEditingDocTypes] = useState(false);
+  const [docTypeDraft, setDocTypeDraft] = useState([]);
 
   const overallPct = getOverallProgress(caregiver);
   const greenLight = isGreenLight(caregiver);
@@ -119,6 +122,36 @@ export function CaregiverDetail({
   };
 
   useEffect(() => { fetchDocuments(); }, [caregiver?.id]);
+
+  // Fetch custom document types from app_settings
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'document_types')
+      .single()
+      .then(({ data }) => {
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          setDocTypes(data.value);
+        }
+      });
+  }, []);
+
+  const saveDocTypes = async (types) => {
+    if (!supabase) return;
+    const cleaned = types.filter((t) => t.label.trim());
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'document_types', value: cleaned, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
+      setDocTypes(cleaned);
+    } catch (err) {
+      console.error('Failed to save document types:', err);
+      alert('Failed to save document types. Please try again.');
+    }
+  };
 
   // Handle document upload
   const handleDocUpload = async (docType, file) => {
@@ -692,12 +725,12 @@ export function CaregiverDetail({
             )}
             <span style={{
               padding: '4px 10px', borderRadius: 10, fontSize: 12, fontWeight: 600,
-              background: documents.length === DOCUMENT_TYPES.length ? '#DCFCE7' : '#FEF9C3',
-              color: documents.length === DOCUMENT_TYPES.length ? '#166534' : '#854D0E',
+              background: documents.length === docTypes.length ? '#DCFCE7' : '#FEF9C3',
+              color: documents.length === docTypes.length ? '#166534' : '#854D0E',
             }}>
               {(() => {
                 const uploadedTypes = new Set(documents.map((d) => d.document_type));
-                return `${uploadedTypes.size} of ${DOCUMENT_TYPES.length} received`;
+                return `${uploadedTypes.size} of ${docTypes.length} received`;
               })()}
             </span>
           </div>
@@ -707,7 +740,7 @@ export function CaregiverDetail({
         {/* Progress bar */}
         {(() => {
           const uploadedTypes = new Set(documents.map((d) => d.document_type));
-          const pct = Math.round((uploadedTypes.size / DOCUMENT_TYPES.length) * 100);
+          const pct = Math.round((uploadedTypes.size / docTypes.length) * 100);
           return (
             <div style={{ padding: '0 20px 12px' }}>
               <div style={{ height: 6, background: '#E5E7EB', borderRadius: 3, overflow: 'hidden' }}>
@@ -717,9 +750,41 @@ export function CaregiverDetail({
           );
         })()}
 
-        {/* Document list */}
+        {/* Document list header with edit button */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 8px' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>{editingDocTypes ? 'Editing Document Types' : 'Required Documents'}</span>
+          {!editingDocTypes ? (
+            <button style={styles.editBtn} onClick={() => { setDocTypeDraft(docTypes.map((t) => ({ ...t }))); setEditingDocTypes(true); }}>✏️ Edit</button>
+          ) : (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="tc-btn-primary" style={styles.primaryBtn} onClick={() => { saveDocTypes(docTypeDraft); setEditingDocTypes(false); }}>Save</button>
+              <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setEditingDocTypes(false)}>Cancel</button>
+            </div>
+          )}
+        </div>
+
+        {/* Document type editor */}
+        {editingDocTypes ? (
+          <div style={{ padding: '0 20px 16px' }}>
+            {docTypeDraft.map((dt, idx) => (
+              <div key={dt.id} style={taskEditStyles.row}>
+                <span style={taskEditStyles.handle}>⠿</span>
+                <input style={taskEditStyles.input} value={dt.label} onChange={(e) => setDocTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))} placeholder="Document name..." />
+                <label style={taskEditStyles.criticalToggle} title="Mark as required">
+                  <input type="checkbox" checked={!!dt.required} onChange={(e) => setDocTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, required: e.target.checked } : t))} />
+                  <span style={taskEditStyles.criticalLabel}>Required</span>
+                </label>
+                <button style={taskEditStyles.moveBtn} disabled={idx === 0} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]; return arr; })}>↑</button>
+                <button style={taskEditStyles.moveBtn} disabled={idx === docTypeDraft.length - 1} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]; return arr; })}>↓</button>
+                <button style={taskEditStyles.deleteBtn} onClick={() => setDocTypeDraft((prev) => prev.filter((_, i) => i !== idx))}>✕</button>
+              </div>
+            ))}
+            <button style={taskEditStyles.addBtn} onClick={() => setDocTypeDraft((prev) => [...prev, { id: 'doc_' + Date.now().toString(36), label: '', required: false }])}>＋ Add Document Type</button>
+          </div>
+        ) : (
+
         <div style={{ padding: '0 20px 16px' }}>
-          {DOCUMENT_TYPES.map((docType) => {
+          {docTypes.map((docType) => {
             const uploaded = documents.filter((d) => d.document_type === docType.id);
             const hasDoc = uploaded.length > 0;
             const isUploading = uploadingDoc === docType.id;
@@ -810,6 +875,7 @@ export function CaregiverDetail({
             );
           })}
         </div>
+        )}
         </>}
       </div>
 
