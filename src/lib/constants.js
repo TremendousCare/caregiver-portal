@@ -173,3 +173,19 @@ export const DEFAULT_BOARD_COLUMNS = [
 // ─── Kanban UI Constants ────────────────────────────────────
 export const COLUMN_ICONS = ['🚀', '✅', '⏸️', '🔄', '⭐', '📋', '🏠', '💼', '🔒', '📌', '🎯', '❄️', '🔥', '👥', '💤', '🚫'];
 export const COLUMN_COLORS = ['#2E4E8D', '#29BEE4', '#1084C3', '#16A34A', '#D97706', '#8B5CF6', '#DC3545', '#0EA5C9', '#059669', '#7C3AED', '#DB2777', '#EA580C', '#4F46E5', '#0D9488'];
+
+// ─── Document Types for SharePoint Integration ──────────────
+export const DOCUMENT_TYPES = [
+  { id: 'offer_signed', label: 'Offer Letter Signed', required: true },
+  { id: 'wage_notice', label: 'Wage & Employment Notice', required: false },
+  { id: 'direct_deposit', label: 'Direct Deposit Authorization Form', required: false },
+  { id: 'i9_form', label: 'IRS I-9', required: true },
+  { id: 'w4_form', label: 'IRS W-4', required: true },
+  { id: 'emergency_contact', label: 'Employment Emergency Contact', required: true },
+  { id: 'employment_agreement', label: 'Employment Agreement', required: true },
+  { id: 'employee_handbook', label: 'Employee Handbook', required: false },
+  { id: 'harassment_pamphlet', label: 'CA Sexual Harassment Pamphlet', required: false },
+  { id: 'disability_pamphlet', label: 'CA EDD Disability Insurance Pamphlet', required: false },
+  { id: 'family_leave_pamphlet', label: 'CA EDD Paid Family Leave Pamphlet', required: false },
+  { id: 'domestic_violence_notice', label: 'Domestic Violence Leave Notice', required: false },
+];
