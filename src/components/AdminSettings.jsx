@@ -19,62 +19,61 @@ function SettingsCard({ title, description, children }) {
   );
 }
 
-// ─── Outlook Mailbox Setting ───
-function OutlookMailboxSetting({ showToast }) {
-  const [mailbox, setMailbox] = useState('');
+// ─── Reusable Editable Setting ───
+// Loads a single key from app_settings, displays it, and allows inline editing.
+function EditableSetting({ settingKey, label, helpText, editHelpText, placeholder, validate, formatDisplay, showToast }) {
+  const [value, setValue] = useState('');
   const [editValue, setEditValue] = useState('');
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Load current mailbox on mount
   useEffect(() => {
     const load = async () => {
       try {
         const { data, error: fetchErr } = await supabase
           .from('app_settings')
           .select('value')
-          .eq('key', 'outlook_mailbox')
+          .eq('key', settingKey)
           .single();
 
         if (fetchErr) throw fetchErr;
         const val = data?.value || '';
-        setMailbox(typeof val === 'string' ? val : String(val));
+        setValue(typeof val === 'string' ? val : String(val));
       } catch (err) {
-        console.error('Failed to load mailbox setting:', err);
-        setMailbox('(not configured)');
+        console.error(`Failed to load ${settingKey}:`, err);
+        setValue('(not configured)');
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, []);
+  }, [settingKey]);
 
   const startEdit = useCallback(() => {
-    setEditValue(mailbox === '(not configured)' ? '' : mailbox);
+    setEditValue(value === '(not configured)' ? '' : value);
     setEditing(true);
     setError('');
-  }, [mailbox]);
+  }, [value]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
     setError('');
   }, []);
 
-  const validateEmail = (email) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
-
-  const saveMailbox = useCallback(async () => {
+  const save = useCallback(async () => {
     const trimmed = editValue.trim();
     if (!trimmed) {
-      setError('Email address is required.');
+      setError(`${label} is required.`);
       return;
     }
-    if (!validateEmail(trimmed)) {
-      setError('Please enter a valid email address.');
-      return;
+    if (validate) {
+      const validationError = validate(trimmed);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
     }
 
     setSaving(true);
@@ -83,40 +82,46 @@ function OutlookMailboxSetting({ showToast }) {
       const { error: upsertErr } = await supabase
         .from('app_settings')
         .upsert(
-          { key: 'outlook_mailbox', value: trimmed, updated_at: new Date().toISOString() },
+          { key: settingKey, value: trimmed, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         );
 
       if (upsertErr) throw upsertErr;
 
-      setMailbox(trimmed);
+      setValue(trimmed);
       setEditing(false);
-      showToast?.('Outlook mailbox updated successfully!');
+      showToast?.(`${label} updated successfully!`);
     } catch (err) {
-      console.error('Failed to save mailbox:', err);
+      console.error(`Failed to save ${settingKey}:`, err);
       setError('Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
-  }, [editValue, showToast]);
+  }, [editValue, settingKey, label, validate, showToast]);
 
   if (loading) {
     return <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>;
   }
+
+  const isConfigured = value && value !== '(not configured)';
+  const displayValue = formatDisplay ? formatDisplay(value) : value;
 
   return (
     <div>
       {/* Status indicator */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
-        padding: '10px 14px', background: '#F0FDF4', borderRadius: 10, border: '1px solid #BBF7D0',
+        padding: '10px 14px',
+        background: isConfigured ? '#F0FDF4' : '#FFFBEB',
+        borderRadius: 10,
+        border: `1px solid ${isConfigured ? '#BBF7D0' : '#FDE68A'}`,
       }}>
         <div style={{
           width: 8, height: 8, borderRadius: '50%',
-          background: mailbox && mailbox !== '(not configured)' ? '#22C55E' : '#EAB308',
+          background: isConfigured ? '#22C55E' : '#EAB308',
         }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#15803D' }}>
-          {mailbox && mailbox !== '(not configured)' ? 'Connected' : 'Not configured'}
+        <span style={{ fontSize: 12, fontWeight: 600, color: isConfigured ? '#15803D' : '#A16207' }}>
+          {isConfigured ? 'Connected' : 'Not configured'}
         </span>
       </div>
 
@@ -125,14 +130,16 @@ function OutlookMailboxSetting({ showToast }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>
-              Active Mailbox
+              {label}
             </div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#0F1724' }}>
-              {mailbox}
+              {displayValue}
             </div>
-            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-              The AI assistant reads and sends emails from this mailbox via Microsoft Graph API.
-            </div>
+            {helpText && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                {helpText}
+              </div>
+            )}
           </div>
           <button
             style={styles.editBtn}
@@ -146,27 +153,29 @@ function OutlookMailboxSetting({ showToast }) {
       ) : (
         /* Edit mode */
         <div>
-          <label style={styles.fieldLabel}>Mailbox Email Address</label>
+          <label style={styles.fieldLabel}>{label}</label>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ flex: 1 }}>
               <input
-                type="email"
+                type="text"
                 style={{
                   ...styles.fieldInput,
                   borderColor: error ? '#DC4A3A' : '#E0E4EA',
                 }}
                 value={editValue}
                 onChange={(e) => { setEditValue(e.target.value); setError(''); }}
-                placeholder="e.g. recruiting@tremendouscareca.com"
+                placeholder={placeholder}
                 autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') saveMailbox(); if (e.key === 'Escape') cancelEdit(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancelEdit(); }}
               />
               {error && (
                 <div style={{ fontSize: 12, color: '#DC4A3A', fontWeight: 600, marginTop: 6 }}>{error}</div>
               )}
-              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 6 }}>
-                This must be a Microsoft 365 mailbox your Azure AD app has permissions to access.
-              </div>
+              {editHelpText && (
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 6 }}>
+                  {editHelpText}
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
@@ -177,7 +186,7 @@ function OutlookMailboxSetting({ showToast }) {
                 fontSize: 13,
                 opacity: saving ? 0.6 : 1,
               }}
-              onClick={saveMailbox}
+              onClick={save}
               disabled={saving}
             >
               {saving ? 'Saving...' : 'Save'}
@@ -194,6 +203,32 @@ function OutlookMailboxSetting({ showToast }) {
       )}
     </div>
   );
+}
+
+// ─── Validators ───
+function validateEmail(value) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Please enter a valid email address.';
+  return null;
+}
+
+function validatePhoneNumber(value) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 10) return 'Please enter a valid phone number (at least 10 digits).';
+  if (digits.length > 11) return 'Phone number is too long.';
+  return null;
+}
+
+function formatPhoneDisplay(value) {
+  if (!value || value === '(not configured)') return value;
+  // Format +19498732367 as +1 (949) 873-2367
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return value;
 }
 
 // ─── Integration Info Card (read-only) ───
@@ -251,11 +286,32 @@ export function AdminSettings({ showToast }) {
 
       {/* Outlook Email Integration */}
       <div style={{ marginBottom: 20 }}>
-        <SettingsCard
-          title="Outlook Email Integration"
-          description="Microsoft 365"
-        >
-          <OutlookMailboxSetting showToast={showToast} />
+        <SettingsCard title="Outlook Email Integration" description="Microsoft 365">
+          <EditableSetting
+            settingKey="outlook_mailbox"
+            label="Active Mailbox"
+            helpText="The AI assistant reads and sends emails from this mailbox via Microsoft Graph API."
+            editHelpText="This must be a Microsoft 365 mailbox your Azure AD app has permissions to access."
+            placeholder="e.g. recruiting@tremendouscareca.com"
+            validate={validateEmail}
+            showToast={showToast}
+          />
+        </SettingsCard>
+      </div>
+
+      {/* RingCentral Integration */}
+      <div style={{ marginBottom: 20 }}>
+        <SettingsCard title="RingCentral SMS & Calls" description="Voice & Messaging">
+          <EditableSetting
+            settingKey="ringcentral_from_number"
+            label="From Phone Number"
+            helpText="SMS messages and call logs use this number as the company line."
+            editHelpText="Enter a US phone number in any format (e.g. +19498732367 or 949-873-2367). Must be a number assigned to your RingCentral account."
+            placeholder="e.g. +19498732367"
+            validate={validatePhoneNumber}
+            formatDisplay={formatPhoneDisplay}
+            showToast={showToast}
+          />
         </SettingsCard>
       </div>
 
@@ -268,11 +324,6 @@ export function AdminSettings({ showToast }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-        <IntegrationInfoCard
-          title="RingCentral SMS & Calls"
-          status="connected"
-          details="SMS send/receive and call log access via RingCentral API. Configured via environment secrets."
-        />
         <IntegrationInfoCard
           title="SharePoint Documents"
           status="connected"
