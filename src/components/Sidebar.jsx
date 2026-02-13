@@ -48,6 +48,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
           { id: 'dashboard', icon: '⊞', label: 'Dashboard' },
           { id: 'board', icon: '▤', label: 'Caregiver Board' },
           { id: 'add', icon: '＋', label: 'New Caregiver' },
+          { id: 'settings', icon: '⚙', label: 'Settings' },
         ].map((item) => (
           <button
             key={item.id}

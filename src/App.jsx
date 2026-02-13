@@ -6,6 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { KanbanBoard } from './components/KanbanBoard';
 import { AddCaregiver } from './components/AddCaregiver';
 import { CaregiverDetail } from './components/CaregiverDetail';
+import { AdminSettings } from './components/AdminSettings';
 import { Toast } from './components/Toast';
 import { AIChatbot } from './components/AIChatbot';
 import { PHASES } from './lib/constants';
@@ -15,8 +16,8 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { styles } from './styles/theme';
 
 // ─── Route-to-view mapping ───
-const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver' };
-const ROUTE_VIEWS = { '/': 'dashboard', '/board': 'board', '/add': 'add' };
+const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver', settings: '/settings' };
+const ROUTE_VIEWS = { '/': 'dashboard', '/board': 'board', '/add': 'add', '/settings': 'settings' };
 
 export default function App() {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export default function App() {
     if (v === 'dashboard') navigate('/');
     else if (v === 'board') navigate('/board');
     else if (v === 'add') navigate('/add');
+    else if (v === 'settings') navigate('/settings');
   }, [navigate]);
 
   const selectCaregiver = useCallback((id) => {
@@ -393,6 +395,9 @@ export default function App() {
                 onAddNote={addNote}
                 onSelect={(id) => selectCaregiver(id)}
               />
+            )}
+            {view === 'settings' && (
+              <AdminSettings showToast={showToast} />
             )}
             {view === 'detail' && selected && (
               <CaregiverDetail
