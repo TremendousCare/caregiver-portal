@@ -272,16 +272,173 @@ function IntegrationInfoCard({ title, status, details }) {
   );
 }
 
+// ─── User Management ───
+function UserManagement({ showToast, currentUserEmail }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [changing, setChanging] = useState(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select('*')
+          .order('role', { ascending: true });
+        if (error) throw error;
+        setUsers(data || []);
+      } catch (err) {
+        console.error('Failed to load user roles:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const changeRole = useCallback(async (email, newRole) => {
+    const action = newRole === 'admin' ? 'grant admin access to' : 'remove admin access from';
+    if (!window.confirm(`Are you sure you want to ${action} ${email}?`)) return;
+
+    setChanging(email);
+    try {
+      const { error } = await supabase
+        .from('user_roles')
+        .update({
+          role: newRole,
+          updated_at: new Date().toISOString(),
+          updated_by: currentUserEmail,
+        })
+        .eq('email', email);
+
+      if (error) throw error;
+      setUsers((prev) => prev.map((u) => u.email === email ? { ...u, role: newRole } : u));
+      showToast?.(`${email} is now ${newRole === 'admin' ? 'an admin' : 'a member'}`);
+    } catch (err) {
+      console.error('Failed to update role:', err);
+      showToast?.('Failed to update role. Please try again.');
+    } finally {
+      setChanging(null);
+    }
+  }, [currentUserEmail, showToast]);
+
+  if (loading) {
+    return (
+      <SettingsCard title="Team Members" description="Roles & Access">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  const admins = users.filter((u) => u.role === 'admin');
+  const members = users.filter((u) => u.role === 'member');
+
+  return (
+    <SettingsCard title="Team Members" description={`${users.length} user${users.length !== 1 ? 's' : ''}`}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
+          Admins can access Settings, change integration configurations, and manage team roles.
+          Members can view and manage caregivers but cannot access this page.
+        </div>
+      </div>
+
+      {/* User list */}
+      <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+        {/* Header row */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 100px 120px',
+          padding: '10px 16px', background: '#F8F9FB',
+          fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+          textTransform: 'uppercase', letterSpacing: 1,
+          borderBottom: '1px solid #E0E4EA',
+        }}>
+          <span>Email</span>
+          <span>Role</span>
+          <span style={{ textAlign: 'right' }}>Action</span>
+        </div>
+
+        {/* Admins first, then members */}
+        {[...admins, ...members].map((user, i) => {
+          const isCurrentUser = user.email === currentUserEmail?.toLowerCase();
+          const isAdminRole = user.role === 'admin';
+          return (
+            <div key={user.email} style={{
+              display: 'grid', gridTemplateColumns: '1fr 100px 120px',
+              alignItems: 'center',
+              padding: '12px 16px',
+              borderBottom: i < users.length - 1 ? '1px solid #F0F3F7' : 'none',
+              background: isCurrentUser ? '#F8FAFF' : '#fff',
+            }}>
+              {/* Email */}
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user.email}
+                {isCurrentUser && (
+                  <span style={{ fontSize: 10, color: '#7A8BA0', marginLeft: 6, fontWeight: 600 }}>(you)</span>
+                )}
+              </div>
+
+              {/* Role badge */}
+              <div>
+                <span style={{
+                  display: 'inline-block',
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: isAdminRole ? '#F0FDF4' : '#F0F4FA',
+                  color: isAdminRole ? '#15803D' : '#2E4E8D',
+                  border: `1px solid ${isAdminRole ? '#BBF7D0' : '#D5DCE6'}`,
+                }}>
+                  {isAdminRole ? 'Admin' : 'Member'}
+                </span>
+              </div>
+
+              {/* Action button */}
+              <div style={{ textAlign: 'right' }}>
+                {isCurrentUser ? (
+                  <span style={{ fontSize: 11, color: '#94A3B8' }}>—</span>
+                ) : (
+                  <button
+                    style={{
+                      ...styles.editBtn,
+                      padding: '5px 12px',
+                      fontSize: 11,
+                      opacity: changing === user.email ? 0.5 : 1,
+                      color: isAdminRole ? '#DC4A3A' : '#15803D',
+                      borderColor: isAdminRole ? '#FECACA' : '#BBF7D0',
+                    }}
+                    onClick={() => changeRole(user.email, isAdminRole ? 'member' : 'admin')}
+                    disabled={!!changing}
+                    onMouseEnter={(e) => { e.target.style.background = isAdminRole ? '#FEF2F2' : '#F0FDF4'; }}
+                    onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+                  >
+                    {changing === user.email ? '...' : isAdminRole ? 'Make Member' : 'Make Admin'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </SettingsCard>
+  );
+}
+
 // ─── Main Admin Settings Page ───
-export function AdminSettings({ showToast }) {
+export function AdminSettings({ showToast, currentUserEmail }) {
   return (
     <div>
       {/* Header */}
       <div style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>Settings</h1>
-          <p style={styles.pageSubtitle}>Manage integrations and portal configuration</p>
+          <p style={styles.pageSubtitle}>Manage team roles and portal configuration</p>
         </div>
+      </div>
+
+      {/* User Management */}
+      <div style={{ marginBottom: 20 }}>
+        <UserManagement showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* Outlook Email Integration */}

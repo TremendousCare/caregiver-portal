@@ -2,7 +2,7 @@ import { PHASES } from '../lib/constants';
 import { getCurrentPhase } from '../lib/utils';
 import { styles } from '../styles/theme';
 
-export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed, currentUser, onLogout }) {
+export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed, currentUser, isAdmin, onLogout }) {
   return (
     <aside
       className={`tc-sidebar${collapsed ? ' collapsed' : ''}`}
@@ -48,7 +48,7 @@ export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers
           { id: 'dashboard', icon: '⊞', label: 'Dashboard' },
           { id: 'board', icon: '▤', label: 'Caregiver Board' },
           { id: 'add', icon: '＋', label: 'New Caregiver' },
-          { id: 'settings', icon: '⚙', label: 'Settings' },
+          ...(isAdmin ? [{ id: 'settings', icon: '⚙', label: 'Settings' }] : []),
         ].map((item) => (
           <button
             key={item.id}

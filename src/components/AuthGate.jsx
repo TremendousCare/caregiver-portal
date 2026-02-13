@@ -34,7 +34,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
         const stored = localStorage.getItem(USER_NAME_KEY);
         if (stored) {
           setLegacyAuth(true);
-          onUserReady(stored);
+          onUserReady({ displayName: stored, email: null });
         } else {
           setLegacyAuth(true);
           setNeedsName(true);
@@ -49,7 +49,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       setSession(s);
       if (s?.user) {
         const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
-        onUserReady(displayName);
+        onUserReady({ displayName, email: s.user.email });
       }
       setChecking(false);
     });
@@ -59,7 +59,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       setSession(s);
       if (s?.user) {
         const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
-        onUserReady(displayName);
+        onUserReady({ displayName, email: s.user.email });
       }
     });
 
@@ -123,7 +123,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       const stored = localStorage.getItem(USER_NAME_KEY);
       if (stored) {
         setLegacyAuth(true);
-        onUserReady(stored);
+        onUserReady({ displayName: stored, email: null });
       } else {
         setLegacyAuth(true);
         setNeedsName(true);
@@ -138,7 +138,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     const name = userName.trim();
     localStorage.setItem(USER_NAME_KEY, name);
     setNeedsName(false);
-    onUserReady(name);
+    onUserReady({ displayName: name, email: null });
   };
 
   if (checking) return null;

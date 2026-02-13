@@ -49,6 +49,43 @@ export default function App() {
   const [tasksVersion, setTasksVersion] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
 
+  // ─── Derived user info ───
+  const currentUserName = currentUser?.displayName || '';
+  const currentUserEmail = currentUser?.email || '';
+  const isAdmin = currentUser?.isAdmin || false;
+
+  // ─── Role lookup on login ───
+  const handleUserReady = useCallback(async (userInfo) => {
+    // userInfo = { displayName, email } from AuthGate
+    let userIsAdmin = false;
+    if (userInfo.email && isSupabaseConfigured()) {
+      try {
+        const { data } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('email', userInfo.email.toLowerCase())
+          .single();
+        if (data) {
+          userIsAdmin = data.role === 'admin';
+        } else {
+          // New user — auto-register as member
+          await supabase.from('user_roles').insert({
+            email: userInfo.email.toLowerCase(),
+            role: 'member',
+            updated_by: 'self-registration',
+          });
+        }
+      } catch (err) {
+        console.warn('Role lookup failed:', err.message);
+      }
+    }
+    setCurrentUser({
+      displayName: userInfo.displayName,
+      email: userInfo.email,
+      isAdmin: userIsAdmin,
+    });
+  }, []);
+
   // ─── Logout handler ───
   const handleLogout = useCallback(async () => {
     if (isSupabaseConfigured()) {
@@ -116,7 +153,7 @@ export default function App() {
   };
 
   const updateTask = (cgId, taskId, value) => {
-    const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
+    const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
@@ -136,7 +173,7 @@ export default function App() {
   const updateTasksBulk = (cgId, taskUpdates) => {
     const enriched = {};
     for (const [key, val] of Object.entries(taskUpdates)) {
-      enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUser || '' } : false;
+      enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     }
     let changed;
     setCaregivers((prev) =>
@@ -157,8 +194,8 @@ export default function App() {
   const addNote = (cgId, noteData) => {
     // noteData can be a string (legacy) or an object with structured fields
     const note = typeof noteData === 'string'
-      ? { text: noteData, timestamp: Date.now(), author: currentUser || '' }
-      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUser || '' };
+      ? { text: noteData, timestamp: Date.now(), author: currentUserName }
+      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUserName };
     let changed;
     setCaregivers((prev) =>
       prev.map((cg) => {
@@ -182,7 +219,7 @@ export default function App() {
           archiveReason: reason,
           archiveDetail: detail || '',
           archivePhase: getCurrentPhase(cg),
-          archivedBy: currentUser || '',
+          archivedBy: currentUserName,
         };
         return changed;
       })
@@ -285,7 +322,7 @@ export default function App() {
   }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
-    <AuthGate onUserReady={setCurrentUser} onLogout={handleLogout}>
+    <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
       <div style={styles.app}>
         <Toast message={toast} />
 
@@ -298,7 +335,8 @@ export default function App() {
           archivedCount={archivedCaregivers.length}
           collapsed={sidebarCollapsed}
           setCollapsed={setSidebarCollapsed}
-          currentUser={currentUser}
+          currentUser={currentUserName}
+          isAdmin={isAdmin}
           onLogout={handleLogout}
         />
 
@@ -342,7 +380,7 @@ export default function App() {
                   setCaregivers((prev) =>
                     prev.map((cg) => {
                       if (!ids.includes(cg.id)) return cg;
-                      const updated = { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUser || '', type: 'note' }] };
+                      const updated = { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUserName, type: 'note' }] };
                       changed.push(updated);
                       return updated;
                     })
@@ -373,7 +411,7 @@ export default function App() {
                         archiveReason: reason,
                         archiveDetail: '',
                         archivePhase: getCurrentPhase(cg),
-                        archivedBy: currentUser || '',
+                        archivedBy: currentUserName,
                       };
                       changed.push(updated);
                       return updated;
@@ -396,14 +434,23 @@ export default function App() {
                 onSelect={(id) => selectCaregiver(id)}
               />
             )}
-            {view === 'settings' && (
-              <AdminSettings showToast={showToast} />
+            {view === 'settings' && isAdmin && (
+              <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+            )}
+            {view === 'settings' && !isAdmin && (
+              <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
+                <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
+                <p>You need admin privileges to view Settings.</p>
+                <button style={{ ...styles.secondaryBtn, marginTop: 16 }} onClick={() => navigate('/')}>
+                  Back to Dashboard
+                </button>
+              </div>
             )}
             {view === 'detail' && selected && (
               <CaregiverDetail
                 caregiver={selected}
                 allCaregivers={activeCaregivers}
-                currentUser={currentUser}
+                currentUser={{ displayName: currentUserName, email: currentUserEmail }}
                 onBack={() => navigate('/')}
                 onUpdateTask={updateTask}
                 onUpdateTasksBulk={updateTasksBulk}
@@ -422,7 +469,7 @@ export default function App() {
           </div>}
         </main>
       </div>
-      <AIChatbot caregiverId={selectedId} currentUser={currentUser} />
+      <AIChatbot caregiverId={selectedId} currentUser={currentUserName} />
     </AuthGate>
   );
 }
