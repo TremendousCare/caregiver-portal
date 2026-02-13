@@ -456,6 +456,21 @@ export function AdminSettings({ showToast, currentUserEmail }) {
         </SettingsCard>
       </div>
 
+      {/* Outlook Calendar Integration */}
+      <div style={{ marginBottom: 20 }}>
+        <SettingsCard title="Outlook Calendar Integration" description="Microsoft 365">
+          <EditableSetting
+            settingKey="calendar_mailbox"
+            label="Calendar Mailbox"
+            helpText="The AI assistant reads calendar events and checks availability from this mailbox. If not set, uses the email mailbox above."
+            editHelpText="This must be a Microsoft 365 mailbox with Calendars.Read permissions granted in Azure AD."
+            placeholder="e.g. kevinnash@tremendouscareca.com"
+            validate={validateEmail}
+            showToast={showToast}
+          />
+        </SettingsCard>
+      </div>
+
       {/* RingCentral Integration */}
       <div style={{ marginBottom: 20 }}>
         <SettingsCard title="RingCentral SMS & Calls" description="Voice & Messaging">
