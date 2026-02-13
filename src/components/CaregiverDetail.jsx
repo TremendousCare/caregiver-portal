@@ -67,6 +67,7 @@ export function CaregiverDetail({
   const [documents, setDocuments] = useState([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(null);
+  const [docsExpanded, setDocsExpanded] = useState(() => localStorage.getItem('tc_docs_expanded') === 'true');
 
   const overallPct = getOverallProgress(caregiver);
   const greenLight = isGreenLight(caregiver);
@@ -677,8 +678,14 @@ export function CaregiverDetail({
 
       {/* Documents Section */}
       <div style={styles.profileCard}>
-        <div style={styles.profileCardHeader}>
-          <h3 style={styles.profileCardTitle}>📄 Documents</h3>
+        <div
+          style={{ ...styles.profileCardHeader, cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => { const next = !docsExpanded; setDocsExpanded(next); localStorage.setItem('tc_docs_expanded', String(next)); }}
+        >
+          <h3 style={styles.profileCardTitle}>
+            <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: docsExpanded ? 'rotate(90deg)' : 'rotate(0deg)', marginRight: 6, fontSize: 12 }}>▶</span>
+            📄 Documents
+          </h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {docsLoading && (
               <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #D1D5DB', borderTopColor: '#2E4E8D', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
@@ -696,6 +703,7 @@ export function CaregiverDetail({
           </div>
         </div>
 
+        {docsExpanded && <>
         {/* Progress bar */}
         {(() => {
           const uploadedTypes = new Set(documents.map((d) => d.document_type));
@@ -802,6 +810,7 @@ export function CaregiverDetail({
             );
           })}
         </div>
+        </>}
       </div>
 
       {/* Notes Section */}
