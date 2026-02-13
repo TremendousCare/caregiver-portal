@@ -19,6 +19,9 @@ export function AuthGate({ children, onUserReady, onLogout }) {
   const [signUpSuccess, setSignUpSuccess] = useState(false);
   const [isResetPassword, setIsResetPassword] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [isSettingPassword, setIsSettingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // ─── Legacy fallback state (no Supabase) ───
   const [legacyMode] = useState(!isSupabaseConfigured());
@@ -56,10 +59,15 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       setChecking(false);
     });
 
-    // Listen for auth state changes (login, logout, etc.)
+    // Listen for auth state changes (login, logout, password recovery, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
-      if (s?.user) {
+      if (_event === 'PASSWORD_RECOVERY') {
+        // User clicked the reset link — show password form instead of entering the app
+        setIsSettingPassword(true);
+        return;
+      }
+      if (s?.user && !isSettingPassword) {
         const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
         onUserReady({ displayName, email: s.user.email });
       }
@@ -135,6 +143,40 @@ export function AuthGate({ children, onUserReady, onLogout }) {
       setError(resetError.message);
     } else {
       setResetSent(true);
+    }
+  };
+
+  // ─── Supabase: Set new password (after clicking reset link) ───
+  const handleSetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    setSubmitting(false);
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      // Password set successfully — proceed to app
+      setIsSettingPassword(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      // The session is already active, so trigger onUserReady
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (s?.user) {
+        const displayName = s.user.user_metadata?.full_name || s.user.email?.split('@')[0] || 'User';
+        onUserReady({ displayName, email: s.user.email });
+      }
     }
   };
 
@@ -432,6 +474,52 @@ export function AuthGate({ children, onUserReady, onLogout }) {
               ? 'Your administrator will need to approve your account.'
               : 'Contact your administrator if you need access.'}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Set New Password (after clicking reset link) ───
+  if (isSettingPassword) {
+    return (
+      <div style={authStyles.wrapper}>
+        <div style={authStyles.card}>
+          <div style={authStyles.logoIcon}>TC</div>
+          <h1 style={authStyles.title}>Set Your Password</h1>
+          <p style={authStyles.subtitle}>Caregiver Portal</p>
+          <div style={authStyles.divider} />
+          <p style={authStyles.prompt}>
+            {session?.user?.email ? `Setting password for ${session.user.email}` : 'Create a password for your account.'}
+          </p>
+
+          <input
+            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            type="password"
+            placeholder="New password (min 6 characters)"
+            value={newPassword}
+            onChange={(e) => { setNewPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && confirmPassword && handleSetPassword()}
+            autoFocus
+          />
+
+          <input
+            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            type="password"
+            placeholder="Confirm password"
+            value={confirmPassword}
+            onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSetPassword()}
+          />
+
+          {error && <p style={authStyles.error}>{error}</p>}
+
+          <button
+            style={{ ...authStyles.button, opacity: submitting || !newPassword || !confirmPassword ? 0.5 : 1 }}
+            onClick={handleSetPassword}
+            disabled={submitting || !newPassword || !confirmPassword}
+          >
+            {submitting ? 'Setting Password...' : 'Set Password & Continue'}
+          </button>
         </div>
       </div>
     );
