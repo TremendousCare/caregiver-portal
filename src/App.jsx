@@ -466,6 +466,7 @@ export default function App() {
                 setShowScripts={setShowScripts}
                 showGreenLight={showGreenLight}
                 setShowGreenLight={setShowGreenLight}
+                showToast={showToast}
               />
             )}
           </div>}

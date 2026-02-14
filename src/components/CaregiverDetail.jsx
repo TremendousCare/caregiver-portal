@@ -46,7 +46,7 @@ const NOTE_OUTCOMES = [
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
   onAddNote, onArchive, onUnarchive, onDelete, onUpdateCaregiver, onRefreshTasks,
-  showScripts, setShowScripts, showGreenLight, setShowGreenLight,
+  showScripts, setShowScripts, showGreenLight, setShowGreenLight, showToast,
 }) {
   const [noteText, setNoteText] = useState('');
   const [noteType, setNoteType] = useState('note');
@@ -149,7 +149,7 @@ export function CaregiverDetail({
       setDocTypes(cleaned);
     } catch (err) {
       console.error('Failed to save document types:', err);
-      alert('Failed to save document types. Please try again.');
+      if (showToast) showToast('Failed to save document types');
     }
   };
 
@@ -198,7 +198,7 @@ export function CaregiverDetail({
       }
     } catch (err) {
       console.error('Upload failed:', err);
-      alert(`Upload failed: ${err.message || 'Unknown error'}`);
+      if (showToast) showToast(`Upload failed: ${err.message || 'Unknown error'}`);
     } finally {
       setUploadingDoc(null);
     }
@@ -216,7 +216,7 @@ export function CaregiverDetail({
       if (data?.download_url) window.open(data.download_url, '_blank');
     } catch (err) {
       console.error('Download failed:', err);
-      alert(`Download failed: ${err.message || 'Unknown error'}`);
+      if (showToast) showToast(`Download failed: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -246,7 +246,7 @@ export function CaregiverDetail({
       }
     } catch (err) {
       console.error('Delete failed:', err);
-      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+      if (showToast) showToast(`Delete failed: ${err.message || 'Unknown error'}`);
     }
   };
 
