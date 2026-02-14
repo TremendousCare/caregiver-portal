@@ -87,7 +87,24 @@ src/
 │   └── global.css        # Animations, hover states, scrollbar
 ```
 
+## Roadmap
+
+### v6.0 — Automation Engine (Next)
+A configurable automation system where all rules, message templates, timing, and behavior are managed through the admin UI — no code changes required to adjust workflows.
+
+- **Automation Rules**: Stored in Supabase, each rule defines a trigger, conditions, action, message template, and timing
+- **Admin UI**: Create, edit, delete, and toggle automation rules from Settings
+- **Editable Templates**: Message content uses merge fields (e.g. `{{first_name}}`) and can be edited in-app
+- **Candidate Triggers**: New caregiver added, document uploaded, days of inactivity, phase change, interview scheduled, inbound communication received
+- **Actions**: Send SMS, send email, update phase, complete task, add note, schedule follow-up
+- **Execution Log**: Track what automations have fired and their results
+
+### Indeed Integration (Pending Partner Approval)
+- Applied for Indeed Integration Partner Program (ATS Sync / Indeed Apply)
+- Once approved: build webhook endpoint to auto-create caregiver records from Indeed applications
+
 ## Version History
 
-- **v4.2** — Current version. Collapsible action items, animations, visual overhaul.
+- **v5.1** — Current version. Full Outlook integration (email + calendar read/write), admin roles, password reset, 20 AI tools.
+- **v4.2** — Collapsible action items, animations, visual overhaul.
 - See session handoff document for full changelog.

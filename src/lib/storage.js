@@ -263,7 +263,7 @@ export const saveOrientationData = async (data) => {
 // Supabase uses snake_case, our app uses camelCase.
 // These mappers handle the translation.
 
-const dbToCaregiver = (row) => ({
+export const dbToCaregiver = (row) => ({
   id: row.id,
   firstName: row.first_name,
   lastName: row.last_name,

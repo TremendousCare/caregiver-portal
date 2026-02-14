@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DOCUMENT_TYPES } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
+import { fireEventTriggers } from '../../lib/automations';
 import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
 import cg from './caregiver.module.css';
@@ -104,6 +105,13 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
           onUpdateCaregiver(caregiver.id, { tasks: updated.tasks });
         }
       }
+
+      // Fire document_uploaded automation trigger
+      const docLabel = docTypes.find((d) => d.id === docType)?.label || docType;
+      fireEventTriggers('document_uploaded', caregiver, {
+        document_type: docType,
+        document_label: docLabel,
+      });
     } catch (err) {
       console.error('Upload failed:', err);
       if (showToast) showToast(`Upload failed: ${err.message || 'Unknown error'}`);

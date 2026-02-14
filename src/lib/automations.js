@@ -1,21 +1,48 @@
 import { supabase, isSupabaseConfigured } from './supabase';
+import { getCurrentPhase } from './utils';
 
 // ═══════════════════════════════════════════════════════════════
 // Automation Event Triggers
 //
 // Fires matching automation rules when events occur (e.g. new
-// caregiver added). This is fire-and-forget — it never blocks
-// the UI or shows errors to the user. All failures are logged
-// in the automation_log table.
+// caregiver added, phase changed, task completed). This is
+// fire-and-forget — it never blocks the UI or shows errors to
+// the user. All failures are logged in the automation_log table.
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Evaluate whether a rule's conditions match the current caregiver + trigger context.
+ * Returns true if the rule should fire, false if it should be skipped.
+ */
+function evaluateConditions(rule, caregiver, triggerContext) {
+  const conds = rule.conditions || {};
+
+  // Phase filter: only fire if caregiver is currently in a specific phase
+  if (conds.phase && getCurrentPhase(caregiver) !== conds.phase) return false;
+
+  // For phase_change trigger: match target phase
+  if (conds.to_phase && triggerContext.to_phase !== conds.to_phase) return false;
+
+  // For task_completed trigger: match specific task ID
+  if (conds.task_id && triggerContext.task_id !== conds.task_id) return false;
+
+  // For document_uploaded trigger: match specific document type
+  if (conds.document_type && triggerContext.document_type !== conds.document_type) return false;
+
+  // For days_inactive: condition is evaluated server-side by automation-cron, skip here
+  // (days_inactive rules are triggered by cron, not by client events)
+
+  return true;
+}
 
 /**
  * Fire all enabled automation rules matching a trigger type.
  *
- * @param {string} triggerType - The trigger to match (e.g. 'new_caregiver')
+ * @param {string} triggerType - The trigger to match (e.g. 'new_caregiver', 'phase_change')
  * @param {Object} caregiver - Caregiver data (camelCase from the app)
+ * @param {Object} [triggerContext={}] - Event-specific context data (e.g. { task_id, to_phase })
  */
-export async function fireEventTriggers(triggerType, caregiver) {
+export async function fireEventTriggers(triggerType, caregiver, triggerContext = {}) {
   if (!isSupabaseConfigured()) return;
 
   try {
@@ -39,11 +66,14 @@ export async function fireEventTriggers(triggerType, caregiver) {
       last_name: caregiver.lastName || '',
       phone: caregiver.phone || '',
       email: caregiver.email || '',
-      phase: caregiver.phase || 'intake',
+      phase: getCurrentPhase(caregiver) || 'intake',
     };
 
     // Fire each rule (fire-and-forget, never blocks UI)
     for (const rule of rules) {
+      // Client-side condition check before firing
+      if (!evaluateConditions(rule, caregiver, triggerContext)) continue;
+
       supabase.functions.invoke('execute-automation', {
         body: {
           rule_id: rule.id,
@@ -53,6 +83,7 @@ export async function fireEventTriggers(triggerType, caregiver) {
           action_config: rule.action_config,
           rule_name: rule.name,
           caregiver: cgPayload,
+          trigger_context: triggerContext,
         },
         headers: { Authorization: `Bearer ${session.access_token}` },
       }).catch((err) => console.warn('Automation fire error:', err));
