@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-// ─── Simple markdown-like formatting ───
+// ─── Simple markdown-like formatting (sanitized) ───
 function formatMessage(text) {
   if (!text) return '';
-  return text
+  const html = text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`(.*?)`/g, '<code style="background:#F0F2F5;padding:2px 6px;border-radius:4px;font-size:13px">$1</code>')
@@ -13,6 +14,7 @@ function formatMessage(text) {
     .replace(/^- (.*$)/gm, '<div style="padding-left:12px;margin:3px 0">&bull; $1</div>')
     .replace(/^\d+\. (.*$)/gm, '<div style="padding-left:12px;margin:3px 0">$&</div>')
     .replace(/\n/g, '<br/>');
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['style'] });
 }
 
 const CHAT_STYLES = {
