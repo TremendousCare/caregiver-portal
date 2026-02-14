@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { authStyles } from '../styles/theme';
+import s from './AuthGate.module.css';
 
 // ─── Fallback: localStorage-based auth (when Supabase not configured) ───
 const LEGACY_PASSWORD = 'TremendousCare2025';
@@ -212,15 +212,16 @@ export function AuthGate({ children, onUserReady, onLogout }) {
   if (legacyMode) {
     if (!legacyAuth) {
       return (
-        <div style={authStyles.wrapper}>
-          <div style={authStyles.card}>
-            <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Tremendous Care</h1>
-            <p style={authStyles.subtitle}>Caregiver Portal</p>
-            <div style={authStyles.divider} />
-            <p style={authStyles.prompt}>Enter your team access code to continue</p>
+        <div className={s.wrapper}>
+          <div className={s.card}>
+            <div className={s.logoIcon}>TC</div>
+            <h1 className={s.title}>Tremendous Care</h1>
+            <p className={s.subtitle}>Caregiver Portal</p>
+            <div className={s.divider} />
+            <p className={s.prompt}>Enter your team access code to continue</p>
             <input
-              style={{ ...authStyles.input, ...(legacyError ? { borderColor: '#DC3545' } : {}) }}
+              className={s.input}
+              style={legacyError ? { borderColor: '#DC3545' } : {}}
               type="password"
               placeholder="Team access code"
               value={legacyPassword}
@@ -228,24 +229,24 @@ export function AuthGate({ children, onUserReady, onLogout }) {
               onKeyDown={(e) => e.key === 'Enter' && handleLegacyLogin()}
               autoFocus
             />
-            {legacyError && <p style={authStyles.error}>Incorrect access code. Please try again.</p>}
-            <button style={authStyles.button} onClick={handleLegacyLogin}>Sign In</button>
-            <p style={authStyles.footer}>Contact your administrator if you need access.</p>
+            {legacyError && <p className={s.error}>Incorrect access code. Please try again.</p>}
+            <button className={s.button} onClick={handleLegacyLogin}>Sign In</button>
+            <p className={s.footer}>Contact your administrator if you need access.</p>
           </div>
         </div>
       );
     }
     if (needsName) {
       return (
-        <div style={authStyles.wrapper}>
-          <div style={authStyles.card}>
-            <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Welcome!</h1>
-            <p style={authStyles.subtitle}>Caregiver Portal</p>
-            <div style={authStyles.divider} />
-            <p style={authStyles.prompt}>Enter your name so we can track your activity</p>
+        <div className={s.wrapper}>
+          <div className={s.card}>
+            <div className={s.logoIcon}>TC</div>
+            <h1 className={s.title}>Welcome!</h1>
+            <p className={s.subtitle}>Caregiver Portal</p>
+            <div className={s.divider} />
+            <p className={s.prompt}>Enter your name so we can track your activity</p>
             <input
-              style={authStyles.input}
+              className={s.input}
               type="text"
               placeholder="Your name (e.g., Sarah, Mike)"
               value={userName}
@@ -253,7 +254,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
               onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
               autoFocus
             />
-            <button style={{ ...authStyles.button, opacity: userName.trim() ? 1 : 0.5 }} onClick={handleNameSubmit} disabled={!userName.trim()}>
+            <button className={s.button} style={{ opacity: userName.trim() ? 1 : 0.5 }} onClick={handleNameSubmit} disabled={!userName.trim()}>
               Continue
             </button>
           </div>
@@ -268,20 +269,20 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     // Password reset sent confirmation
     if (resetSent) {
       return (
-        <div style={authStyles.wrapper}>
-          <div style={authStyles.card}>
-            <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Check Your Email</h1>
-            <p style={authStyles.subtitle}>Caregiver Portal</p>
-            <div style={authStyles.divider} />
-            <p style={{ ...authStyles.prompt, fontSize: 15, lineHeight: 1.6 }}>
+        <div className={s.wrapper}>
+          <div className={s.card}>
+            <div className={s.logoIcon}>TC</div>
+            <h1 className={s.title}>Check Your Email</h1>
+            <p className={s.subtitle}>Caregiver Portal</p>
+            <div className={s.divider} />
+            <p className={s.prompt} style={{ fontSize: 15, lineHeight: 1.6 }}>
               We sent a password reset link to <strong>{email}</strong>
             </p>
-            <p style={{ ...authStyles.prompt, color: '#8BA3C7', fontSize: 13 }}>
+            <p className={s.prompt} style={{ color: '#8BA3C7', fontSize: 13 }}>
               Click the link in the email to set your password, then come back and sign in.
             </p>
             <button
-              style={authStyles.button}
+              className={s.button}
               onClick={() => {
                 setResetSent(false);
                 setIsResetPassword(false);
@@ -299,18 +300,19 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     // Password reset form
     if (isResetPassword) {
       return (
-        <div style={authStyles.wrapper}>
-          <div style={authStyles.card}>
-            <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Reset Password</h1>
-            <p style={authStyles.subtitle}>Caregiver Portal</p>
-            <div style={authStyles.divider} />
-            <p style={authStyles.prompt}>
+        <div className={s.wrapper}>
+          <div className={s.card}>
+            <div className={s.logoIcon}>TC</div>
+            <h1 className={s.title}>Reset Password</h1>
+            <p className={s.subtitle}>Caregiver Portal</p>
+            <div className={s.divider} />
+            <p className={s.prompt}>
               Enter your email and we'll send you a link to set your password.
             </p>
 
             <input
-              style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+              className={s.input}
+              style={{ ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
               type="email"
               placeholder="you@tremendouscare.com"
               value={email}
@@ -319,10 +321,11 @@ export function AuthGate({ children, onUserReady, onLogout }) {
               autoFocus
             />
 
-            {error && <p style={authStyles.error}>{error}</p>}
+            {error && <p className={s.error}>{error}</p>}
 
             <button
-              style={{ ...authStyles.button, opacity: submitting || !email.trim() ? 0.5 : 1 }}
+              className={s.button}
+              style={{ opacity: submitting || !email.trim() ? 0.5 : 1 }}
               onClick={handleResetPassword}
               disabled={submitting || !email.trim()}
             >
@@ -330,8 +333,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
             </button>
 
             <button
+              className={s.button}
               style={{
-                ...authStyles.button,
                 background: 'transparent',
                 color: '#2E4E8D',
                 border: '2px solid #E0E4EA',
@@ -352,21 +355,21 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     // Sign-up success: prompt to check email for confirmation
     if (signUpSuccess) {
       return (
-        <div style={authStyles.wrapper}>
-          <div style={authStyles.card}>
-            <div style={authStyles.logoIcon}>TC</div>
-            <h1 style={authStyles.title}>Account Created!</h1>
-            <p style={authStyles.subtitle}>Caregiver Portal</p>
-            <div style={authStyles.divider} />
+        <div className={s.wrapper}>
+          <div className={s.card}>
+            <div className={s.logoIcon}>TC</div>
+            <h1 className={s.title}>Account Created!</h1>
+            <p className={s.subtitle}>Caregiver Portal</p>
+            <div className={s.divider} />
             <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-            <p style={{ ...authStyles.prompt, fontSize: 15, lineHeight: 1.6 }}>
+            <p className={s.prompt} style={{ fontSize: 15, lineHeight: 1.6 }}>
               Your account has been created for <strong>{email}</strong>
             </p>
-            <p style={{ ...authStyles.prompt, color: '#8BA3C7', fontSize: 13 }}>
+            <p className={s.prompt} style={{ color: '#8BA3C7', fontSize: 13 }}>
               Check your email to confirm your account, then sign in below.
             </p>
             <button
-              style={authStyles.button}
+              className={s.button}
               onClick={() => {
                 setSignUpSuccess(false);
                 setIsSignUp(false);
@@ -382,20 +385,21 @@ export function AuthGate({ children, onUserReady, onLogout }) {
     }
 
     return (
-      <div style={authStyles.wrapper}>
-        <div style={authStyles.card}>
-          <div style={authStyles.logoIcon}>TC</div>
-          <h1 style={authStyles.title}>Tremendous Care</h1>
-          <p style={authStyles.subtitle}>Caregiver Portal</p>
-          <div style={authStyles.divider} />
-          <p style={authStyles.prompt}>
+      <div className={s.wrapper}>
+        <div className={s.card}>
+          <div className={s.logoIcon}>TC</div>
+          <h1 className={s.title}>Tremendous Care</h1>
+          <p className={s.subtitle}>Caregiver Portal</p>
+          <div className={s.divider} />
+          <p className={s.prompt}>
             {isSignUp ? 'Create your account' : 'Sign in to your account'}
           </p>
 
           {/* Full name (sign-up only) */}
           {isSignUp && (
             <input
-              style={{ ...authStyles.input, letterSpacing: 0, textAlign: 'left' }}
+              className={s.input}
+              style={{ letterSpacing: 0, textAlign: 'left' }}
               type="text"
               placeholder="Your full name"
               value={fullName}
@@ -406,7 +410,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
 
           {/* Email */}
           <input
-            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            className={s.input}
+            style={{ ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="email"
             placeholder="you@tremendouscare.com"
             value={email}
@@ -417,7 +422,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
 
           {/* Password */}
           <input
-            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            className={s.input}
+            style={{ ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="password"
             placeholder={isSignUp ? 'Create a password (min 6 chars)' : 'Password'}
             value={password}
@@ -425,7 +431,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           />
 
-          {error && <p style={authStyles.error}>{error}</p>}
+          {error && <p className={s.error}>{error}</p>}
 
           {/* Forgot password link (sign-in only) */}
           {!isSignUp && (
@@ -443,7 +449,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
           )}
 
           <button
-            style={{ ...authStyles.button, opacity: submitting || !email.trim() || !password ? 0.5 : 1 }}
+            className={s.button}
+            style={{ opacity: submitting || !email.trim() || !password ? 0.5 : 1 }}
             onClick={handleSubmit}
             disabled={submitting || !email.trim() || !password}
           >
@@ -452,8 +459,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
 
           {/* Toggle sign-in / sign-up */}
           <button
+            className={s.button}
             style={{
-              ...authStyles.button,
               background: 'transparent',
               color: '#2E4E8D',
               border: '2px solid #E0E4EA',
@@ -469,7 +476,7 @@ export function AuthGate({ children, onUserReady, onLogout }) {
             {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
           </button>
 
-          <p style={authStyles.footer}>
+          <p className={s.footer}>
             {isSignUp
               ? 'Your administrator will need to approve your account.'
               : 'Contact your administrator if you need access.'}
@@ -482,18 +489,19 @@ export function AuthGate({ children, onUserReady, onLogout }) {
   // ─── Set New Password (after clicking reset link) ───
   if (isSettingPassword) {
     return (
-      <div style={authStyles.wrapper}>
-        <div style={authStyles.card}>
-          <div style={authStyles.logoIcon}>TC</div>
-          <h1 style={authStyles.title}>Set Your Password</h1>
-          <p style={authStyles.subtitle}>Caregiver Portal</p>
-          <div style={authStyles.divider} />
-          <p style={authStyles.prompt}>
+      <div className={s.wrapper}>
+        <div className={s.card}>
+          <div className={s.logoIcon}>TC</div>
+          <h1 className={s.title}>Set Your Password</h1>
+          <p className={s.subtitle}>Caregiver Portal</p>
+          <div className={s.divider} />
+          <p className={s.prompt}>
             {session?.user?.email ? `Setting password for ${session.user.email}` : 'Create a password for your account.'}
           </p>
 
           <input
-            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            className={s.input}
+            style={{ ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="password"
             placeholder="New password (min 6 characters)"
             value={newPassword}
@@ -503,7 +511,8 @@ export function AuthGate({ children, onUserReady, onLogout }) {
           />
 
           <input
-            style={{ ...authStyles.input, ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
+            className={s.input}
+            style={{ ...(error ? { borderColor: '#DC3545' } : {}), letterSpacing: 0, textAlign: 'left' }}
             type="password"
             placeholder="Confirm password"
             value={confirmPassword}
@@ -511,10 +520,11 @@ export function AuthGate({ children, onUserReady, onLogout }) {
             onKeyDown={(e) => e.key === 'Enter' && handleSetPassword()}
           />
 
-          {error && <p style={authStyles.error}>{error}</p>}
+          {error && <p className={s.error}>{error}</p>}
 
           <button
-            style={{ ...authStyles.button, opacity: submitting || !newPassword || !confirmPassword ? 0.5 : 1 }}
+            className={s.button}
+            style={{ opacity: submitting || !newPassword || !confirmPassword ? 0.5 : 1 }}
             onClick={handleSetPassword}
             disabled={submitting || !newPassword || !confirmPassword}
           >

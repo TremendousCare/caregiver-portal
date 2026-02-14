@@ -1,0 +1,187 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Form Styles Module
+   Converted from theme.js styles object
+   ═══════════════════════════════════════════════════════════════ */
+
+.field {
+  margin-bottom: 4px;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  margin-bottom: 7px;
+  letter-spacing: 0.2px;
+}
+
+.fieldInput {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-primary);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-weight: 500;
+}
+
+.fieldInput:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+  outline: none;
+}
+
+.radioRow {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.radio {
+  accent-color: var(--tc-navy);
+}
+
+.textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-primary);
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  font-weight: 500;
+}
+
+.textarea:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+  outline: none;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.formCard {
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.05);
+  padding: 32px 36px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.formSection {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tc-navy);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin: 28px 0 16px;
+  font-family: var(--tc-font-heading);
+  border-bottom: 2px solid #EDF0F4;
+  padding-bottom: 10px;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 2px solid #EDF0F4;
+}
+
+.searchBar {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  opacity: 0.5;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 14px 18px 14px 48px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--tc-text-primary);
+  outline: none;
+  box-sizing: border-box;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-weight: 500;
+}
+
+.searchInput:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+  outline: none;
+}
+
+.clearSearch {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--tc-text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.noteInputRow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.noteInput {
+  flex: 1;
+  padding: 11px 14px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-primary);
+  outline: none;
+  font-weight: 500;
+}
+
+.noteInput:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+  outline: none;
+}

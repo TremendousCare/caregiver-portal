@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { styles } from '../styles/theme';
-import { boardStyles } from '../styles/theme';
+import btn from '../styles/buttons.module.css';
+import forms from '../styles/forms.module.css';
+import cards from '../styles/cards.module.css';
+import s from './AutomationSettings.module.css';
 
 // ─── Trigger & Action Config ───
 const TRIGGER_OPTIONS = [
@@ -26,10 +28,10 @@ const MERGE_FIELDS = [
 // ─── Settings Section Card (reused from AdminSettings pattern) ───
 function SettingsCard({ title, description, headerRight, children }) {
   return (
-    <div style={styles.profileCard}>
-      <div style={styles.profileCardHeader}>
+    <div className={cards.profileCard}>
+      <div className={cards.profileCardHeader}>
         <div>
-          <h3 style={styles.profileCardTitle}>{title}</h3>
+          <h3 className={cards.profileCardTitle}>{title}</h3>
           {description && (
             <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>{description}</span>
           )}
@@ -153,18 +155,19 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
   };
 
   return (
-    <div style={boardStyles.colFormOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div style={{ ...boardStyles.colFormModal, maxWidth: 560 }}>
-        <h3 style={{ ...styles.profileCardTitle, marginBottom: 20 }}>
+    <div className={s.formOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className={s.formModal} style={{ maxWidth: 560 }}>
+        <h3 className={cards.profileCardTitle} style={{ marginBottom: 20 }}>
           {rule?.id ? 'Edit Automation Rule' : 'Create Automation Rule'}
         </h3>
 
         {/* Rule Name */}
         <div style={{ marginBottom: 16 }}>
-          <label style={styles.fieldLabel}>Rule Name</label>
+          <label className={forms.fieldLabel}>Rule Name</label>
           <input
             type="text"
-            style={{ ...styles.fieldInput, borderColor: error && !name.trim() ? '#DC4A3A' : '#E0E4EA' }}
+            className={forms.fieldInput}
+            style={{ borderColor: error && !name.trim() ? '#DC4A3A' : '#E0E4EA' }}
             value={name}
             onChange={(e) => { setName(e.target.value); setError(''); }}
             placeholder="e.g. Welcome SMS"
@@ -174,9 +177,10 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
 
         {/* Trigger Type */}
         <div style={{ marginBottom: 16 }}>
-          <label style={styles.fieldLabel}>Trigger</label>
+          <label className={forms.fieldLabel}>Trigger</label>
           <select
-            style={{ ...styles.fieldInput, cursor: 'pointer' }}
+            className={forms.fieldInput}
+            style={{ cursor: 'pointer' }}
             value={triggerType}
             onChange={(e) => setTriggerType(e.target.value)}
           >
@@ -194,10 +198,11 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         {/* Conditions — days_inactive */}
         {triggerType === 'days_inactive' && (
           <div style={{ marginBottom: 16 }}>
-            <label style={styles.fieldLabel}>Days of Inactivity</label>
+            <label className={forms.fieldLabel}>Days of Inactivity</label>
             <input
               type="number"
-              style={{ ...styles.fieldInput, maxWidth: 120 }}
+              className={forms.fieldInput}
+              style={{ maxWidth: 120 }}
               value={daysInactive}
               onChange={(e) => { setDaysInactive(e.target.value); setError(''); }}
               min="1"
@@ -211,9 +216,10 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
 
         {/* Action Type */}
         <div style={{ marginBottom: 16 }}>
-          <label style={styles.fieldLabel}>Action</label>
+          <label className={forms.fieldLabel}>Action</label>
           <select
-            style={{ ...styles.fieldInput, cursor: 'pointer' }}
+            className={forms.fieldInput}
+            style={{ cursor: 'pointer' }}
             value={actionType}
             onChange={(e) => setActionType(e.target.value)}
           >
@@ -226,10 +232,11 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         {/* Email Subject (only for email) */}
         {actionType === 'send_email' && (
           <div style={{ marginBottom: 16 }}>
-            <label style={styles.fieldLabel}>Email Subject</label>
+            <label className={forms.fieldLabel}>Email Subject</label>
             <input
               type="text"
-              style={{ ...styles.fieldInput, borderColor: error && actionType === 'send_email' && !emailSubject.trim() ? '#DC4A3A' : '#E0E4EA' }}
+              className={forms.fieldInput}
+              style={{ borderColor: error && actionType === 'send_email' && !emailSubject.trim() ? '#DC4A3A' : '#E0E4EA' }}
               value={emailSubject}
               onChange={(e) => { setEmailSubject(e.target.value); setError(''); }}
               placeholder="e.g. Welcome to Tremendous Care!"
@@ -239,10 +246,11 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
 
         {/* Message Template */}
         <div style={{ marginBottom: 8 }}>
-          <label style={styles.fieldLabel}>Message Template</label>
+          <label className={forms.fieldLabel}>Message Template</label>
           <textarea
             ref={templateRef}
-            style={{ ...styles.textarea, minHeight: 100, borderColor: error && !messageTemplate.trim() ? '#DC4A3A' : '#E0E4EA' }}
+            className={forms.textarea}
+            style={{ minHeight: 100, borderColor: error && !messageTemplate.trim() ? '#DC4A3A' : '#E0E4EA' }}
             value={messageTemplate}
             onChange={(e) => { setMessageTemplate(e.target.value); setError(''); }}
             placeholder={`Hi {{first_name}}, welcome to Tremendous Care! We're excited to have you on board.`}
@@ -282,14 +290,16 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
-            style={{ ...styles.secondaryBtn, padding: '9px 20px', fontSize: 13 }}
+            className={btn.secondaryBtn}
+            style={{ padding: '9px 20px', fontSize: 13 }}
             onClick={onCancel}
             disabled={saving}
           >
             Cancel
           </button>
           <button
-            style={{ ...styles.primaryBtn, padding: '9px 20px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
+            className={btn.primaryBtn}
+            style={{ padding: '9px 20px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
             onClick={handleSave}
             disabled={saving}
           >
@@ -377,7 +387,8 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
           {/* Edit / Delete buttons */}
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             <button
-              style={{ ...styles.editBtn, padding: '5px 12px', fontSize: 11 }}
+              className={btn.editBtn}
+              style={{ padding: '5px 12px', fontSize: 11 }}
               onClick={() => onEdit(rule)}
               onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
               onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
@@ -385,8 +396,9 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
               Edit
             </button>
             <button
+              className={btn.editBtn}
               style={{
-                ...styles.editBtn, padding: '5px 12px', fontSize: 11,
+                padding: '5px 12px', fontSize: 11,
                 color: '#DC4A3A', borderColor: '#FECACA',
               }}
               onClick={() => onDelete(rule)}
@@ -668,7 +680,8 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
         description={`${rules.length} rule${rules.length !== 1 ? 's' : ''}`}
         headerRight={
           <button
-            style={{ ...styles.primaryBtn, padding: '8px 18px', fontSize: 13 }}
+            className={btn.primaryBtn}
+            style={{ padding: '8px 18px', fontSize: 13 }}
             onClick={handleCreate}
           >
             Add Rule

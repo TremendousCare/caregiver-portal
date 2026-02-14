@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { DOCUMENT_TYPES } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
-import { styles, taskEditStyles } from '../../styles/theme';
+import cards from '../../styles/cards.module.css';
+import btn from '../../styles/buttons.module.css';
+import cg from './caregiver.module.css';
 
 export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCaregiver }) {
   const [documents, setDocuments] = useState([]);
@@ -155,12 +157,13 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
   const uploadedTypes = new Set(documents.map((d) => d.document_type));
 
   return (
-    <div style={styles.profileCard}>
+    <div className={cards.profileCard}>
       <div
-        style={{ ...styles.profileCardHeader, cursor: 'pointer', userSelect: 'none' }}
+        className={cards.profileCardHeader}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
         onClick={() => { const next = !docsExpanded; setDocsExpanded(next); localStorage.setItem('tc_docs_expanded', String(next)); }}
       >
-        <h3 style={styles.profileCardTitle}>
+        <h3 className={cards.profileCardTitle}>
           <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: docsExpanded ? 'rotate(90deg)' : 'rotate(0deg)', marginRight: 6, fontSize: 12 }}>▶</span>
           📄 Documents
         </h3>
@@ -190,11 +193,11 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 8px' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>{editingDocTypes ? 'Editing Document Types' : 'Required Documents'}</span>
           {!editingDocTypes ? (
-            <button style={styles.editBtn} onClick={() => { setDocTypeDraft(docTypes.map((t) => ({ ...t }))); setEditingDocTypes(true); }}>✏️ Edit</button>
+            <button className={btn.editBtn} onClick={() => { setDocTypeDraft(docTypes.map((t) => ({ ...t }))); setEditingDocTypes(true); }}>✏️ Edit</button>
           ) : (
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="tc-btn-primary" style={styles.primaryBtn} onClick={() => { saveDocTypes(docTypeDraft); setEditingDocTypes(false); }}>Save</button>
-              <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setEditingDocTypes(false)}>Cancel</button>
+              <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { saveDocTypes(docTypeDraft); setEditingDocTypes(false); }}>Save</button>
+              <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setEditingDocTypes(false)}>Cancel</button>
             </div>
           )}
         </div>
@@ -203,19 +206,19 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
         {editingDocTypes ? (
           <div style={{ padding: '0 20px 16px' }}>
             {docTypeDraft.map((dt, idx) => (
-              <div key={dt.id} style={taskEditStyles.row}>
-                <span style={taskEditStyles.handle}>⠿</span>
-                <input style={taskEditStyles.input} value={dt.label} onChange={(e) => setDocTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))} placeholder="Document name..." />
-                <label style={taskEditStyles.criticalToggle} title="Mark as required">
+              <div key={dt.id} className={cg.row}>
+                <span className={cg.handle}>⠿</span>
+                <input className={cg.input} value={dt.label} onChange={(e) => setDocTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))} placeholder="Document name..." />
+                <label className={cg.criticalToggle} title="Mark as required">
                   <input type="checkbox" checked={!!dt.required} onChange={(e) => setDocTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, required: e.target.checked } : t))} />
-                  <span style={taskEditStyles.criticalLabel}>Required</span>
+                  <span className={cg.criticalLabel}>Required</span>
                 </label>
-                <button style={taskEditStyles.moveBtn} disabled={idx === 0} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]; return arr; })}>↑</button>
-                <button style={taskEditStyles.moveBtn} disabled={idx === docTypeDraft.length - 1} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]; return arr; })}>↓</button>
-                <button style={taskEditStyles.deleteBtn} onClick={() => setDocTypeDraft((prev) => prev.filter((_, i) => i !== idx))}>✕</button>
+                <button className={cg.moveBtn} disabled={idx === 0} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]; return arr; })}>↑</button>
+                <button className={cg.moveBtn} disabled={idx === docTypeDraft.length - 1} onClick={() => setDocTypeDraft((prev) => { const arr = [...prev]; [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]; return arr; })}>↓</button>
+                <button className={cg.deleteBtn} onClick={() => setDocTypeDraft((prev) => prev.filter((_, i) => i !== idx))}>✕</button>
               </div>
             ))}
-            <button style={taskEditStyles.addBtn} onClick={() => setDocTypeDraft((prev) => [...prev, { id: 'doc_' + Date.now().toString(36), label: '', required: false }])}>＋ Add Document Type</button>
+            <button className={cg.addBtn} onClick={() => setDocTypeDraft((prev) => [...prev, { id: 'doc_' + Date.now().toString(36), label: '', required: false }])}>＋ Add Document Type</button>
           </div>
         ) : (
 

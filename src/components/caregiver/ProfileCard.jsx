@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { PHASES } from '../../lib/constants';
 import { getDaysSinceApplication } from '../../lib/utils';
-import { styles } from '../../styles/theme';
+import cards from '../../styles/cards.module.css';
+import forms from '../../styles/forms.module.css';
+import btn from '../../styles/buttons.module.css';
 import { EditField } from './constants';
 
 export function ProfileCard({ caregiver, onUpdateCaregiver }) {
@@ -57,39 +59,39 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   ];
 
   return (
-    <div style={styles.profileCard}>
-      <div style={styles.profileCardHeader}>
-        <h3 style={styles.profileCardTitle}>👤 Profile Information</h3>
+    <div className={cards.profileCard}>
+      <div className={cards.profileCardHeader}>
+        <h3 className={cards.profileCardTitle}>👤 Profile Information</h3>
         {!editing ? (
-          <button style={styles.editBtn} onClick={startEditing}>✏️ Edit</button>
+          <button className={btn.editBtn} onClick={startEditing}>✏️ Edit</button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="tc-btn-primary" style={styles.primaryBtn} onClick={saveEdits}>Save</button>
-            <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
+            <button className={btn.primaryBtn} onClick={saveEdits}>Save</button>
+            <button className={btn.secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
           </div>
         )}
       </div>
 
       {!editing ? (
         <>
-          <div style={styles.profileGrid}>
+          <div className={cards.profileGrid}>
             {profileFields.map((item) => (
-              <div key={item.label} style={styles.profileItem}>
-                <div style={styles.profileLabel}>{item.label}</div>
-                <div style={styles.profileValue}>{item.value || '—'}</div>
+              <div key={item.label} className={cards.profileItem}>
+                <div className={cards.profileLabel}>{item.label}</div>
+                <div className={cards.profileValue}>{item.value || '—'}</div>
               </div>
             ))}
           </div>
           {caregiver.initialNotes && (
             <div style={{ padding: '0 20px 16px' }}>
-              <div style={styles.profileLabel}>Initial Notes</div>
-              <div style={{ ...styles.profileValue, marginTop: 4 }}>{caregiver.initialNotes}</div>
+              <div className={cards.profileLabel}>Initial Notes</div>
+              <div className={cards.profileValue} style={{ marginTop: 4 }}>{caregiver.initialNotes}</div>
             </div>
           )}
         </>
       ) : (
         <div style={{ padding: '16px 20px' }}>
-          <div style={styles.formGrid}>
+          <div className={forms.formGrid}>
             <EditField label="First Name" value={editForm.firstName} onChange={(v) => editField('firstName', v)} />
             <EditField label="Last Name" value={editForm.lastName} onChange={(v) => editField('lastName', v)} />
             <EditField label="Phone" value={editForm.phone} onChange={(v) => editField('phone', v)} />
@@ -100,30 +102,30 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <EditField label="Zip Code" value={editForm.zip} onChange={(v) => editField('zip', v)} />
             <EditField label="HCA PER ID" value={editForm.perId} onChange={(v) => editField('perId', v)} />
             <EditField label="HCA Expiration Date" value={editForm.hcaExpiration} onChange={(v) => editField('hcaExpiration', v)} type="date" />
-            <div style={styles.field}>
-              <label style={styles.fieldLabel}>HCA Status</label>
-              <select style={styles.fieldInput} value={editForm.hasHCA} onChange={(e) => editField('hasHCA', e.target.value)}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>HCA Status</label>
+              <select className={forms.fieldInput} value={editForm.hasHCA} onChange={(e) => editField('hasHCA', e.target.value)}>
                 <option value="yes">Valid HCA ID</option><option value="no">No HCA ID</option><option value="willing">Willing to register</option>
               </select>
             </div>
-            <div style={styles.field}>
-              <label style={styles.fieldLabel}>Driver's License & Car</label>
-              <select style={styles.fieldInput} value={editForm.hasDL} onChange={(e) => editField('hasDL', e.target.value)}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Driver's License & Car</label>
+              <select className={forms.fieldInput} value={editForm.hasDL} onChange={(e) => editField('hasDL', e.target.value)}>
                 <option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
             <EditField label="Availability" value={editForm.availability} onChange={(v) => editField('availability', v)} />
-            <div style={styles.field}>
-              <label style={styles.fieldLabel}>Source</label>
-              <select style={styles.fieldInput} value={editForm.source} onChange={(e) => editField('source', e.target.value)}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Source</label>
+              <select className={forms.fieldInput} value={editForm.source} onChange={(e) => editField('source', e.target.value)}>
                 <option>Indeed</option><option>Website</option><option>Referral</option><option>Craigslist</option><option>Facebook</option><option>Job Fair</option><option>Walk-In</option><option>Agency Transfer</option><option>Other</option>
               </select>
             </div>
             <EditField label={editForm.source === 'Referral' ? 'Referred By' : 'Source Details'} value={editForm.sourceDetail} onChange={(v) => editField('sourceDetail', v)} />
             <EditField label="Application Date" value={editForm.applicationDate} onChange={(v) => editField('applicationDate', v)} type="date" />
-            <div style={styles.field}>
-              <label style={styles.fieldLabel}>Years of Experience</label>
-              <select style={styles.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Years of Experience</label>
+              <select className={forms.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
                 <option value="">Select...</option>
                 <option value="0-1">Less than 1 year</option>
                 <option value="1-3">1–3 years</option>
@@ -132,9 +134,9 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
                 <option value="10+">10+ years</option>
               </select>
             </div>
-            <div style={styles.field}>
-              <label style={styles.fieldLabel}>Preferred Shift</label>
-              <select style={styles.fieldInput} value={editForm.preferredShift} onChange={(e) => editField('preferredShift', e.target.value)}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Preferred Shift</label>
+              <select className={forms.fieldInput} value={editForm.preferredShift} onChange={(e) => editField('preferredShift', e.target.value)}>
                 <option value="">Select...</option>
                 <option value="days">Days</option>
                 <option value="evenings">Evenings</option>
@@ -149,8 +151,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <EditField label="Additional Certifications" value={editForm.certifications} onChange={(v) => editField('certifications', v)} />
           </div>
           <div style={{ marginTop: 16 }}>
-            <label style={styles.fieldLabel}>Initial Notes</label>
-            <textarea style={styles.textarea} rows={3} value={editForm.initialNotes} onChange={(e) => editField('initialNotes', e.target.value)} />
+            <label className={forms.fieldLabel}>Initial Notes</label>
+            <textarea className={forms.textarea} rows={3} value={editForm.initialNotes} onChange={(e) => editField('initialNotes', e.target.value)} />
           </div>
         </div>
       )}

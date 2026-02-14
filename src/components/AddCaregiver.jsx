@@ -1,14 +1,16 @@
 import { useState, useCallback } from 'react';
-import { styles } from '../styles/theme';
+import btn from '../styles/buttons.module.css';
+import forms from '../styles/forms.module.css';
+import layout from '../styles/layout.module.css';
 
 function FormField({ label, field, type = 'text', required, placeholder, value, onChange }) {
   return (
-    <div style={styles.field}>
-      <label style={styles.fieldLabel}>
+    <div className={forms.field}>
+      <label className={forms.fieldLabel}>
         {label} {required && <span style={{ color: '#DC3545' }}>*</span>}
       </label>
       <input
-        style={styles.fieldInput}
+        className={forms.fieldInput}
         type={type}
         value={value}
         placeholder={placeholder}
@@ -55,16 +57,16 @@ export function AddCaregiver({ onAdd, onCancel }) {
 
   return (
     <div>
-      <div style={styles.header}>
+      <div className={layout.header}>
         <div>
-          <h1 style={styles.pageTitle}>Add New Caregiver</h1>
-          <p style={styles.pageSubtitle}>Enter candidate information to begin the onboarding pipeline</p>
+          <h1 className={layout.pageTitle}>Add New Caregiver</h1>
+          <p className={layout.pageSubtitle}>Enter candidate information to begin the onboarding pipeline</p>
         </div>
       </div>
 
-      <div style={styles.formCard}>
-        <h3 style={styles.formSection}>Personal Information</h3>
-        <div style={styles.formGrid}>
+      <div className={forms.formCard}>
+        <h3 className={forms.formSection}>Personal Information</h3>
+        <div className={forms.formGrid}>
           <FormField label="First Name" field="firstName" required placeholder="Jane" value={form.firstName} onChange={handleFieldChange} />
           <FormField label="Last Name" field="lastName" required placeholder="Doe" value={form.lastName} onChange={handleFieldChange} />
           <FormField label="Phone" field="phone" type="tel" placeholder="(949) 555-1234" value={form.phone} onChange={handleFieldChange} />
@@ -75,13 +77,13 @@ export function AddCaregiver({ onAdd, onCancel }) {
           <FormField label="Zip Code" field="zip" placeholder="92627" value={form.zip} onChange={handleFieldChange} />
         </div>
 
-        <h3 style={styles.formSection}>Application Details</h3>
-        <div style={styles.formGrid}>
+        <h3 className={forms.formSection}>Application Details</h3>
+        <div className={forms.formGrid}>
           <FormField label="HCA PER ID" field="perId" placeholder="PER12345" value={form.perId} onChange={handleFieldChange} />
           <FormField label="HCA Expiration Date" field="hcaExpiration" type="date" value={form.hcaExpiration} onChange={handleFieldChange} />
-          <div style={styles.field}>
-            <label style={styles.fieldLabel}>Source</label>
-            <select style={styles.fieldInput} value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Source</label>
+            <select className={forms.fieldInput} value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}>
               <option>Indeed</option>
               <option>Website</option>
               <option>Referral</option>
@@ -104,24 +106,24 @@ export function AddCaregiver({ onAdd, onCancel }) {
           <FormField label="Availability" field="availability" placeholder="Mon-Fri, Days" value={form.availability} onChange={handleFieldChange} />
         </div>
 
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.fieldLabel}>Has valid HCA ID?</label>
-            <div style={styles.radioRow}>
+        <div className={forms.formGrid}>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Has valid HCA ID?</label>
+            <div className={forms.radioRow}>
               {['yes', 'no', 'willing'].map((v) => (
-                <label key={v} style={styles.radioLabel}>
-                  <input type="radio" name="hasHCA" checked={form.hasHCA === v} onChange={() => setForm((f) => ({ ...f, hasHCA: v }))} style={styles.radio} />
+                <label key={v} className={forms.radioLabel}>
+                  <input type="radio" name="hasHCA" checked={form.hasHCA === v} onChange={() => setForm((f) => ({ ...f, hasHCA: v }))} className={forms.radio} />
                   {v === 'willing' ? 'Willing to register' : v.charAt(0).toUpperCase() + v.slice(1)}
                 </label>
               ))}
             </div>
           </div>
-          <div style={styles.field}>
-            <label style={styles.fieldLabel}>Has valid DL & Car?</label>
-            <div style={styles.radioRow}>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Has valid DL & Car?</label>
+            <div className={forms.radioRow}>
               {['yes', 'no'].map((v) => (
-                <label key={v} style={styles.radioLabel}>
-                  <input type="radio" name="hasDL" checked={form.hasDL === v} onChange={() => setForm((f) => ({ ...f, hasDL: v }))} style={styles.radio} />
+                <label key={v} className={forms.radioLabel}>
+                  <input type="radio" name="hasDL" checked={form.hasDL === v} onChange={() => setForm((f) => ({ ...f, hasDL: v }))} className={forms.radio} />
                   {v.charAt(0).toUpperCase() + v.slice(1)}
                 </label>
               ))}
@@ -129,11 +131,11 @@ export function AddCaregiver({ onAdd, onCancel }) {
           </div>
         </div>
 
-        <h3 style={styles.formSection}>Skills & Qualifications</h3>
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.fieldLabel}>Years of Experience</label>
-            <select style={styles.fieldInput} value={form.yearsExperience} onChange={(e) => setForm((f) => ({ ...f, yearsExperience: e.target.value }))}>
+        <h3 className={forms.formSection}>Skills & Qualifications</h3>
+        <div className={forms.formGrid}>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Years of Experience</label>
+            <select className={forms.fieldInput} value={form.yearsExperience} onChange={(e) => setForm((f) => ({ ...f, yearsExperience: e.target.value }))}>
               <option value="">Select...</option>
               <option value="0-1">Less than 1 year</option>
               <option value="1-3">1–3 years</option>
@@ -142,9 +144,9 @@ export function AddCaregiver({ onAdd, onCancel }) {
               <option value="10+">10+ years</option>
             </select>
           </div>
-          <div style={styles.field}>
-            <label style={styles.fieldLabel}>Preferred Shift</label>
-            <select style={styles.fieldInput} value={form.preferredShift} onChange={(e) => setForm((f) => ({ ...f, preferredShift: e.target.value }))}>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Preferred Shift</label>
+            <select className={forms.fieldInput} value={form.preferredShift} onChange={(e) => setForm((f) => ({ ...f, preferredShift: e.target.value }))}>
               <option value="">Select...</option>
               <option value="days">Days</option>
               <option value="evenings">Evenings</option>
@@ -159,18 +161,18 @@ export function AddCaregiver({ onAdd, onCancel }) {
           <FormField label="Additional Certifications" field="certifications" placeholder="CNA, CPR, First Aid..." value={form.certifications} onChange={handleFieldChange} />
         </div>
 
-        <h3 style={styles.formSection}>Notes</h3>
+        <h3 className={forms.formSection}>Notes</h3>
         <textarea
-          style={styles.textarea}
+          className={forms.textarea}
           rows={3}
           placeholder="Initial notes about the candidate..."
           value={form.initialNotes}
           onChange={(e) => setForm((f) => ({ ...f, initialNotes: e.target.value }))}
         />
 
-        <div style={styles.formActions}>
-          <button className="tc-btn-secondary" style={styles.secondaryBtn} onClick={onCancel}>Cancel</button>
-          <button className="tc-btn-primary" style={styles.primaryBtn} onClick={handleSubmit}>Add to Pipeline</button>
+        <div className={forms.formActions}>
+          <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={onCancel}>Cancel</button>
+          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleSubmit}>Add to Pipeline</button>
         </div>
       </div>
     </div>

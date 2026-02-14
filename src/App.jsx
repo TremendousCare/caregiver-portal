@@ -14,7 +14,8 @@ import { getCurrentPhase } from './lib/utils';
 import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { fireEventTriggers } from './lib/automations';
-import { styles } from './styles/theme';
+import layout from './styles/layout.module.css';
+import btn from './styles/buttons.module.css';
 
 // ─── Route-to-view mapping ───
 const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver', settings: '/settings' };
@@ -325,7 +326,7 @@ export default function App() {
 
   return (
     <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
-      <div style={styles.app}>
+      <div className={layout.app}>
         <Toast message={toast} />
 
         <Sidebar
@@ -342,7 +343,7 @@ export default function App() {
           onLogout={handleLogout}
         />
 
-        <main style={styles.main}>
+        <main className={layout.main}>
           {!loaded && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#7A8BA0', fontSize: 15 }}>
               Loading caregivers...
@@ -443,7 +444,7 @@ export default function App() {
               <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
                 <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
                 <p>You need admin privileges to view Settings.</p>
-                <button style={{ ...styles.secondaryBtn, marginTop: 16 }} onClick={() => navigate('/')}>
+                <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
                   Back to Dashboard
                 </button>
               </div>

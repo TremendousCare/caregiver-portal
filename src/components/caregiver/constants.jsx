@@ -1,10 +1,10 @@
-import { styles } from '../../styles/theme';
+import forms from '../../styles/forms.module.css';
 
 export function EditField({ label, value, onChange, type = 'text' }) {
   return (
-    <div style={styles.field}>
-      <label style={styles.fieldLabel}>{label}</label>
-      <input style={styles.fieldInput} type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+    <div className={forms.field}>
+      <label className={forms.fieldLabel}>{label}</label>
+      <input className={forms.fieldInput} type={type} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
