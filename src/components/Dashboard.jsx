@@ -5,7 +5,12 @@ import { generateActionItems } from '../lib/actionEngine';
 import { loadBoardColumns } from '../lib/storage';
 import { exportToCSV } from '../lib/export';
 import { OrientationBanner } from './KanbanBoard';
-import { styles, actionStyles, bulkStyles } from '../styles/theme';
+import cards from '../styles/cards.module.css';
+import btn from '../styles/buttons.module.css';
+import forms from '../styles/forms.module.css';
+import progress from '../styles/progress.module.css';
+import layout from '../styles/layout.module.css';
+import d from './Dashboard.module.css';
 
 // ─── EXPORT BUTTON ───────────────────────────────────────────
 function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered, onExportAll }) {
@@ -23,37 +28,35 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        className="tc-btn-secondary" style={styles.exportBtn}
+        className={btn.exportBtn}
         onClick={() => setOpen(!open)}
       >
         📥 Export
       </button>
       {open && (
-        <div className="tc-dropdown" style={styles.exportDropdown}>
-          <div style={styles.exportDropdownTitle}>Export to Excel</div>
+        <div className={layout.exportDropdown}>
+          <div className={layout.exportDropdownTitle}>Export to Excel</div>
           {filterPhase !== 'all' && (
             <button
-              style={styles.exportDropdownItem}
-              className="bulk-dropdown-item"
+              className={layout.exportDropdownItem}
               onClick={() => { onExportFiltered(); setOpen(false); }}
             >
-              <div style={styles.exportItemLabel}>
+              <div className={layout.exportItemLabel}>
                 📋 Current View ({filteredCount})
               </div>
-              <div style={styles.exportItemDesc}>
+              <div className={layout.exportItemDesc}>
                 {PHASES.find((p) => p.id === filterPhase)?.label} caregivers only
               </div>
             </button>
           )}
           <button
-            style={styles.exportDropdownItem}
-            className="bulk-dropdown-item"
+            className={layout.exportDropdownItem}
             onClick={() => { onExportAll(); setOpen(false); }}
           >
-            <div style={styles.exportItemLabel}>
+            <div className={layout.exportItemLabel}>
               👥 All Caregivers ({totalCount})
             </div>
-            <div style={styles.exportItemDesc}>
+            <div className={layout.exportItemDesc}>
               Full pipeline with task detail, notes & summary
             </div>
           </button>
@@ -66,12 +69,12 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
 // ─── STAT CARD ───────────────────────────────────────────────
 function StatCard({ label, value, accent, icon }) {
   return (
-    <div className="tc-stat-card" style={styles.statCard}>
+    <div className={cards.statCard}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 24 }}>{icon}</span>
-        <span style={{ ...styles.statValue, color: accent }}>{value}</span>
+        <span className={cards.statValue} style={{ color: accent }}>{value}</span>
       </div>
-      <div style={styles.statLabel}>{label}</div>
+      <div className={cards.statLabel}>{label}</div>
     </div>
   );
 }
@@ -80,7 +83,7 @@ function StatCard({ label, value, accent, icon }) {
 function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode }) {
   const phase = getCurrentPhase(caregiver);
   const phaseInfo = PHASES.find((p) => p.id === phase);
-  const progress = getOverallProgress(caregiver);
+  const progressPct = getOverallProgress(caregiver);
   const days = getDaysSinceApplication(caregiver);
   const daysInPhase = getDaysInPhase(caregiver);
   const urgent = (phase === 'onboarding' && daysInPhase >= 5) || (phase === 'intake' && daysInPhase >= 2);
@@ -88,22 +91,12 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
 
   return (
     <button
-      className="cg-card"
-      style={{
-        ...styles.cgCard,
-        ...(urgent ? styles.cgCardUrgent : {}),
-        ...(isSelected ? bulkStyles.cgCardSelected : {}),
-      }}
+      className={`${cards.cgCard} ${urgent ? cards.cgCardUrgent : ''} ${isSelected ? d.cgCardSelected : ''}`}
       onClick={onClick}
     >
       {/* Selection checkbox */}
       <div
-        className="cg-card-checkbox"
-        style={{
-          ...bulkStyles.cardCheckbox,
-          ...(isSelected ? bulkStyles.cardCheckboxChecked : {}),
-          ...(selectionMode ? { opacity: 1 } : {}),
-        }}
+        className={`${d.cardCheckbox} ${isSelected ? d.cardCheckboxChecked : ''} ${selectionMode ? d.cardCheckboxVisible : ''}`}
         onClick={(e) => {
           e.stopPropagation();
           onToggleSelect();
@@ -112,28 +105,28 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
         {isSelected && '✓'}
       </div>
 
-      <div style={styles.cgCardHeader}>
-        <div style={styles.cgAvatar}>
+      <div className={cards.cgCardHeader}>
+        <div className={cards.cgAvatar}>
           {caregiver.firstName?.[0]}
           {caregiver.lastName?.[0]}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={styles.cgName}>
+          <div className={cards.cgName}>
             {caregiver.firstName} {caregiver.lastName}
           </div>
-          <div style={styles.cgMeta}>
+          <div className={cards.cgMeta}>
             {caregiver.phone || 'No phone'} {caregiver.perId ? `· PER ${caregiver.perId}` : ''}
           </div>
         </div>
-        {greenLight && <span style={styles.greenLightBadge}>🟢 Green Light</span>}
-        {urgent && !greenLight && <span style={styles.urgentBadge}>⚠️ Attention</span>}
+        {greenLight && <span className={progress.greenLightBadge}>🟢 Green Light</span>}
+        {urgent && !greenLight && <span className={progress.urgentBadge}>⚠️ Attention</span>}
       </div>
 
-      <div style={styles.cgPhaseRow}>
+      <div className={cards.cgPhaseRow}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span
+            className={progress.phaseBadge}
             style={{
-              ...styles.phaseBadge,
               background: `${phaseInfo.color}18`,
               color: phaseInfo.color,
               border: `1px solid ${phaseInfo.color}30`,
@@ -145,19 +138,18 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
             <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }} title="Phase manually overridden">⚙️</span>
           )}
         </span>
-        <span style={styles.cgDays}>Day {days}</span>
+        <span className={cards.cgDays}>Day {days}</span>
       </div>
 
       {/* Mini Progress */}
-      <div style={styles.miniProgressTrack}>
+      <div className={progress.miniProgressTrack}>
         {PHASES.map((p) => {
           const { pct } = getPhaseProgress(caregiver, p.id);
           return (
-            <div key={p.id} style={styles.miniSegment}>
+            <div key={p.id} className={progress.miniSegment}>
               <div
-                className="tc-mini-fill"
+                className={progress.miniSegmentFill}
                 style={{
-                  ...styles.miniSegmentFill,
                   width: `${pct}%`,
                   background: p.color,
                 }}
@@ -166,7 +158,7 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
           );
         })}
       </div>
-      <div style={styles.miniProgressLabel}>{progress}% complete</div>
+      <div className={progress.miniProgressLabel}>{progressPct}% complete</div>
     </button>
   );
 }
@@ -237,10 +229,10 @@ export function Dashboard({
 
   return (
     <div>
-      <div style={styles.header}>
+      <div className={layout.header}>
         <div>
-          <h1 style={styles.pageTitle}>Dashboard</h1>
-          <p style={styles.pageSubtitle}>
+          <h1 className={layout.pageTitle}>Dashboard</h1>
+          <p className={layout.pageSubtitle}>
             {filterPhase === 'archived'
               ? 'Showing: Archived caregivers'
               : filterPhase !== 'all'
@@ -256,14 +248,14 @@ export function Dashboard({
             onExportFiltered={() => exportToCSV(sortedCaregivers, filterPhase)}
             onExportAll={() => exportToCSV(allCaregivers, 'all')}
           />
-          <button className="tc-btn-primary" style={styles.primaryBtn} onClick={onAdd}>
+          <button className={btn.primaryBtn} onClick={onAdd}>
             ＋ New Caregiver
           </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div style={styles.statsRow}>
+      <div className={cards.statsRow}>
         {[
           { label: 'Active Pipeline', value: totalActive, accent: '#2E4E8D', icon: '👥' },
           { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
@@ -278,25 +270,26 @@ export function Dashboard({
 
       {/* Action Items */}
       {actionItems.length > 0 && (
-        <div style={actionStyles.panel}>
+        <div className={d.panel}>
           <div
-            style={{ ...actionStyles.panelHeader, cursor: 'pointer', userSelect: 'none' }}
+            className={d.panelHeader}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
             onClick={() => { const next = !actionsCollapsed; setActionsCollapsed(next); localStorage.setItem('tc_actions_collapsed', String(next)); }}
           >
-            <div style={actionStyles.panelTitleRow}>
-              <span style={actionStyles.panelIcon}>🔔</span>
-              <h3 style={actionStyles.panelTitle}>Today's Action Items</h3>
-              <span style={actionStyles.panelCount}>{actionItems.length}</span>
+            <div className={d.panelTitleRow}>
+              <span className={d.panelIcon}>🔔</span>
+              <h3 className={d.panelTitle}>Today's Action Items</h3>
+              <span className={d.panelCount}>{actionItems.length}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={actionStyles.panelBadges}>
+              <div className={d.panelBadges}>
                 {actionItems.filter((a) => a.urgency === 'critical').length > 0 && (
-                  <span style={actionStyles.criticalCount}>
+                  <span className={d.criticalCount}>
                     {actionItems.filter((a) => a.urgency === 'critical').length} critical
                   </span>
                 )}
                 {actionItems.filter((a) => a.urgency === 'warning').length > 0 && (
-                  <span style={actionStyles.warningCount}>
+                  <span className={d.warningCount}>
                     {actionItems.filter((a) => a.urgency === 'warning').length} warning
                   </span>
                 )}
@@ -315,30 +308,28 @@ export function Dashboard({
           </div>
           {!actionsCollapsed && (
             <>
-              <div style={actionStyles.list}>
+              <div className={d.list}>
                 {visibleActions.map((item, i) => (
                   <div
                     key={i}
-                    className="tc-action-item"
+                    className={d.item}
                     style={{
-                      ...actionStyles.item,
                       borderLeftColor:
                         item.urgency === 'critical' ? '#DC3545' :
                         item.urgency === 'warning' ? '#D97706' : '#1084C3',
                       animation: `slideInLeft 0.3s cubic-bezier(0.4,0,0.2,1) ${i * 0.05}s both`,
-                      cursor: 'pointer',
                     }}
                     onClick={() => onSelect(item.cgId)}
                   >
-                    <div style={actionStyles.itemTop}>
-                      <span style={actionStyles.itemIcon}>{item.icon}</span>
+                    <div className={d.itemTop}>
+                      <span className={d.itemIcon}>{item.icon}</span>
                       <div style={{ flex: 1 }}>
-                        <div style={actionStyles.itemTitle}>{item.title}</div>
-                        <div style={actionStyles.itemName}>{item.name}</div>
+                        <div className={d.itemTitle}>{item.title}</div>
+                        <div className={d.itemName}>{item.name}</div>
                       </div>
                       <span
+                        className={d.urgencyBadge}
                         style={{
-                          ...actionStyles.urgencyBadge,
                           background:
                             item.urgency === 'critical' ? '#FEF2F0' :
                             item.urgency === 'warning' ? '#FFF8ED' : '#EBF5FB',
@@ -350,14 +341,14 @@ export function Dashboard({
                         {item.urgency === 'critical' ? 'Urgent' : item.urgency === 'warning' ? 'Attention' : 'Info'}
                       </span>
                     </div>
-                    <div style={actionStyles.itemDetail}>{item.detail}</div>
-                    <div style={actionStyles.itemAction}>→ {item.action}</div>
+                    <div className={d.itemDetail}>{item.detail}</div>
+                    <div className={d.itemAction}>→ {item.action}</div>
                   </div>
                 ))}
               </div>
               {actionItems.length > 5 && (
                 <button
-                  style={actionStyles.showMore}
+                  className={d.showMore}
                   onClick={(e) => { e.stopPropagation(); setShowAllActions(!showAllActions); }}
                 >
                   {showAllActions ? 'Show less' : `Show all ${actionItems.length} items`}
@@ -376,16 +367,16 @@ export function Dashboard({
       )}
 
       {/* Search */}
-      <div className="tc-search" style={styles.searchBar}>
-        <span style={styles.searchIcon}>🔍</span>
+      <div className={forms.searchBar}>
+        <span className={forms.searchIcon}>🔍</span>
         <input
-          style={styles.searchInput}
+          className={forms.searchInput}
           placeholder="Search by name, phone, or PER ID..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
         {searchTerm && (
-          <button style={styles.clearSearch} onClick={() => setSearchTerm('')}>
+          <button className={forms.clearSearch} onClick={() => setSearchTerm('')}>
             ✕
           </button>
         )}
@@ -393,7 +384,7 @@ export function Dashboard({
 
       {/* Caregiver Cards */}
       {sortedCaregivers.length === 0 ? (
-        <div style={styles.emptyState}>
+        <div className={layout.emptyState}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0F1724', margin: '0 0 8px' }}>
             {searchTerm ? 'No matches found' : 'No caregivers yet'}
@@ -407,31 +398,31 @@ export function Dashboard({
       ) : (
         <>
           {/* Selection Controls */}
-          <div style={bulkStyles.selectionBar}>
-            <div style={bulkStyles.selectionLeft}>
+          <div className={d.selectionBar}>
+            <div className={d.selectionLeft}>
               {selectionMode ? (
                 <>
-                  <span style={bulkStyles.selectionCount}>
+                  <span className={d.selectionCount}>
                     {selectedIds.size} selected
                   </span>
                   {selectedIds.size < sortedCaregivers.length && (
-                    <button style={bulkStyles.selectAllLink} onClick={selectAll}>
+                    <button className={d.selectAllLink} onClick={selectAll}>
                       Select all {sortedCaregivers.length}
                     </button>
                   )}
-                  <button style={bulkStyles.clearLink} onClick={clearSelection}>
+                  <button className={d.clearLink} onClick={clearSelection}>
                     Clear
                   </button>
                 </>
               ) : (
-                <span style={bulkStyles.selectHint}>
+                <span className={d.selectHint}>
                   Click checkboxes to select caregivers for bulk actions
                 </span>
               )}
             </div>
           </div>
 
-          <div style={styles.cardGrid}>
+          <div className={cards.cardGrid}>
             {sortedCaregivers.map((cg, idx) => (
               <div key={cg.id} style={{ animation: `fadeInUp 0.35s cubic-bezier(0.4,0,0.2,1) ${Math.min(idx * 0.04, 0.5)}s both` }}>
                 <CaregiverCard
@@ -449,30 +440,27 @@ export function Dashboard({
 
       {/* Bulk Action Bar — fixed at bottom when items are selected */}
       {selectionMode && (
-        <div className="tc-bulk-bar" style={{ ...bulkStyles.actionBar, left: sidebarWidth || 260 }}>
-          <div style={bulkStyles.actionBarInner}>
-            <div style={bulkStyles.actionBarLeft}>
-              <span style={bulkStyles.actionBarCount}>
+        <div className={`tc-bulk-bar ${d.actionBar}`} style={{ left: sidebarWidth || 260 }}>
+          <div className={d.actionBarInner}>
+            <div className={d.actionBarLeft}>
+              <span className={d.actionBarCount}>
                 {selectedIds.size} caregiver{selectedIds.size !== 1 ? 's' : ''} selected
               </span>
             </div>
 
-            <div style={bulkStyles.actionBarActions}>
+            <div className={d.actionBarActions}>
               {/* Set Phase */}
-              <div style={bulkStyles.actionGroup}>
+              <div className={d.actionGroup}>
                 <button
-                  style={{
-                    ...bulkStyles.actionBtn,
-                    ...(bulkAction === 'phase' ? bulkStyles.actionBtnActive : {}),
-                  }}
+                  className={`${d.actionBtn} ${bulkAction === 'phase' ? d.actionBtnActive : ''}`}
                   onClick={() => setBulkAction(bulkAction === 'phase' ? null : 'phase')}
                 >
                   📋 Set Phase
                 </button>
                 {bulkAction === 'phase' && (
-                  <div className="tc-dropdown" style={bulkStyles.actionDropdown}>
+                  <div className={d.actionDropdown}>
                     <button
-                      className="bulk-dropdown-item" style={bulkStyles.dropdownItem}
+                      className={d.dropdownItem}
                       onClick={() => executeBulkAction('phase', '')}
                     >
                       🔄 Auto (clear override)
@@ -480,7 +468,7 @@ export function Dashboard({
                     {PHASES.map((p) => (
                       <button
                         key={p.id}
-                        className="bulk-dropdown-item" style={bulkStyles.dropdownItem}
+                        className={d.dropdownItem}
                         onClick={() => executeBulkAction('phase', p.id)}
                       >
                         {p.icon} {p.label}
@@ -491,20 +479,17 @@ export function Dashboard({
               </div>
 
               {/* Add Note */}
-              <div style={bulkStyles.actionGroup}>
+              <div className={d.actionGroup}>
                 <button
-                  style={{
-                    ...bulkStyles.actionBtn,
-                    ...(bulkAction === 'note' ? bulkStyles.actionBtnActive : {}),
-                  }}
+                  className={`${d.actionBtn} ${bulkAction === 'note' ? d.actionBtnActive : ''}`}
                   onClick={() => setBulkAction(bulkAction === 'note' ? null : 'note')}
                 >
                   📝 Add Note
                 </button>
                 {bulkAction === 'note' && (
-                  <div style={{ ...bulkStyles.actionDropdown, minWidth: 280 }}>
+                  <div className={`${d.actionDropdown} ${d.actionDropdownWide}`}>
                     <input
-                      style={bulkStyles.dropdownInput}
+                      className={d.dropdownInput}
                       placeholder="Note for all selected caregivers..."
                       value={bulkNoteText}
                       onChange={(e) => setBulkNoteText(e.target.value)}
@@ -516,7 +501,7 @@ export function Dashboard({
                       autoFocus
                     />
                     <button
-                      style={bulkStyles.dropdownApply}
+                      className={d.dropdownApply}
                       onClick={() => {
                         if (bulkNoteText.trim()) executeBulkAction('note', bulkNoteText.trim());
                       }}
@@ -528,22 +513,19 @@ export function Dashboard({
               </div>
 
               {/* Move to Board */}
-              <div style={bulkStyles.actionGroup}>
+              <div className={d.actionGroup}>
                 <button
-                  style={{
-                    ...bulkStyles.actionBtn,
-                    ...(bulkAction === 'board' ? bulkStyles.actionBtnActive : {}),
-                  }}
+                  className={`${d.actionBtn} ${bulkAction === 'board' ? d.actionBtnActive : ''}`}
                   onClick={() => setBulkAction(bulkAction === 'board' ? null : 'board')}
                 >
                   ▤ Board Column
                 </button>
                 {bulkAction === 'board' && (
-                  <div className="tc-dropdown" style={bulkStyles.actionDropdown}>
+                  <div className={d.actionDropdown}>
                     {boardColumns.map((col) => (
                       <button
                         key={col.id}
-                        className="bulk-dropdown-item" style={bulkStyles.dropdownItem}
+                        className={d.dropdownItem}
                         onClick={() => executeBulkAction('board', col.id)}
                       >
                         {col.icon} {col.label}
@@ -554,19 +536,15 @@ export function Dashboard({
               </div>
 
               {/* Archive */}
-              <div style={bulkStyles.actionGroup}>
+              <div className={d.actionGroup}>
                 <button
-                  style={{
-                    ...bulkStyles.actionBtn,
-                    ...(bulkAction === 'archive' ? bulkStyles.actionBtnActive : {}),
-                    ...(bulkAction !== 'archive' ? { color: '#E85D4A' } : {}),
-                  }}
+                  className={`${d.actionBtn} ${bulkAction === 'archive' ? d.actionBtnActive : ''} ${bulkAction !== 'archive' ? d.actionBtnArchive : ''}`}
                   onClick={() => setBulkAction(bulkAction === 'archive' ? null : 'archive')}
                 >
                   📦 Archive
                 </button>
                 {bulkAction === 'archive' && (
-                  <div className="tc-dropdown" style={{ ...bulkStyles.actionDropdown, minWidth: 240 }}>
+                  <div className={d.actionDropdown} style={{ minWidth: 240 }}>
                     <div style={{ padding: '8px 12px', fontSize: 12, color: '#6B7B8F', borderBottom: '1px solid #E5E7EB' }}>
                       Archive {selectedIds.size} caregiver{selectedIds.size !== 1 ? 's' : ''} as:
                     </div>
@@ -579,14 +557,14 @@ export function Dashboard({
                     ].map((r) => (
                       <button
                         key={r.value}
-                        className="bulk-dropdown-item" style={bulkStyles.dropdownItem}
+                        className={d.dropdownItem}
                         onClick={() => executeBulkAction('archive', r.value)}
                       >
                         {r.label}
                       </button>
                     ))}
                     <button
-                      style={bulkStyles.dropdownCancel}
+                      className={d.dropdownCancel}
                       onClick={() => setBulkAction(null)}
                     >
                       Cancel
@@ -596,7 +574,7 @@ export function Dashboard({
               </div>
             </div>
 
-            <button style={bulkStyles.actionBarClose} onClick={clearSelection}>
+            <button className={d.actionBarClose} onClick={clearSelection}>
               ✕
             </button>
           </div>

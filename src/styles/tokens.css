@@ -1,0 +1,106 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Design Tokens
+   CSS custom properties for colors, typography, spacing, etc.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Colors: Primary ── */
+  --tc-navy: #2E4E8D;
+  --tc-navy-dark: #1B2A4A;
+  --tc-cyan: #29BEE4;
+  --tc-cyan-dark: #1084C3;
+
+  /* ── Colors: Text ── */
+  --tc-text-primary: #1A1A1A;
+  --tc-text-secondary: #556270;
+  --tc-text-tertiary: #6B7B8F;
+  --tc-text-muted: #7A8BA0;
+  --tc-text-light: #9CA3AF;
+
+  /* ── Colors: Backgrounds ── */
+  --tc-bg-page: #F0F2F5;
+  --tc-bg-card: #FAFBFC;
+  --tc-bg-hover: #F8F9FB;
+  --tc-bg-input: #F4F6FA;
+  --tc-bg-selected: #EBF0FA;
+  --tc-bg-white: #FFFFFF;
+
+  /* ── Colors: Semantic ── */
+  --tc-success: #5BA88B;
+  --tc-success-light: #DCFCE7;
+  --tc-success-dark: #166534;
+  --tc-danger: #DC3545;
+  --tc-danger-dark: #DC2626;
+  --tc-danger-darker: #991B1B;
+  --tc-danger-darkest: #7F1D1D;
+  --tc-danger-light: #FEF2F0;
+  --tc-danger-bg: #FEE2E2;
+  --tc-warning: #D97706;
+  --tc-warning-light: #FEF9C3;
+  --tc-warning-dark: #854D0E;
+  --tc-info: #0284C7;
+  --tc-info-light: #E0F2FE;
+
+  /* ── Colors: Borders ── */
+  --tc-border: #DDE4EE;
+  --tc-border-light: #E5E7EB;
+  --tc-border-lighter: #F0F0F0;
+  --tc-border-input: #D1D5DB;
+  --tc-border-focus: var(--tc-cyan);
+
+  /* ── Colors: Sidebar ── */
+  --tc-sidebar-bg: linear-gradient(180deg, #0F1724 0%, #162036 50%, #1A2744 100%);
+  --tc-sidebar-border: rgba(41, 190, 228, 0.08);
+  --tc-sidebar-text: rgba(255, 255, 255, 0.45);
+  --tc-sidebar-text-active: rgba(255, 255, 255, 0.95);
+  --tc-sidebar-hover: rgba(41, 190, 228, 0.06);
+  --tc-sidebar-active-bg: rgba(41, 190, 228, 0.12);
+  --tc-sidebar-divider: rgba(255, 255, 255, 0.06);
+
+  /* ── Typography ── */
+  --tc-font-base: 'Plus Jakarta Sans', 'Helvetica Neue', sans-serif;
+  --tc-font-heading: 'Outfit', sans-serif;
+
+  /* ── Spacing ── */
+  --tc-space-xs: 4px;
+  --tc-space-sm: 8px;
+  --tc-space-md: 12px;
+  --tc-space-lg: 16px;
+  --tc-space-xl: 20px;
+  --tc-space-2xl: 24px;
+  --tc-space-3xl: 28px;
+  --tc-space-4xl: 32px;
+
+  /* ── Border Radius ── */
+  --tc-radius-sm: 6px;
+  --tc-radius-md: 10px;
+  --tc-radius-lg: 14px;
+  --tc-radius-xl: 16px;
+  --tc-radius-2xl: 20px;
+  --tc-radius-pill: 20px;
+  --tc-radius-round: 50%;
+
+  /* ── Shadows ── */
+  --tc-shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --tc-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --tc-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --tc-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.1);
+  --tc-shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.1);
+  --tc-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.03);
+  --tc-shadow-card-hover: 0 12px 32px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(46, 78, 141, 0.08);
+  --tc-shadow-toast: 0 12px 40px rgba(26, 26, 26, 0.35), 0 0 0 1px rgba(41, 190, 228, 0.15);
+  --tc-shadow-sidebar: 4px 0 24px rgba(0, 0, 0, 0.15);
+  --tc-shadow-btn-primary: 0 4px 16px rgba(46, 78, 141, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --tc-shadow-btn-primary-hover: 0 6px 20px rgba(46, 78, 141, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+
+  /* ── Transitions ── */
+  --tc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --tc-transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --tc-transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --tc-transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Gradients ── */
+  --tc-gradient-primary: linear-gradient(135deg, var(--tc-navy), var(--tc-navy-dark));
+  --tc-gradient-accent: linear-gradient(135deg, var(--tc-cyan) 0%, var(--tc-navy) 100%);
+  --tc-gradient-orient: linear-gradient(135deg, #0EA5C9 0%, var(--tc-navy) 100%);
+}

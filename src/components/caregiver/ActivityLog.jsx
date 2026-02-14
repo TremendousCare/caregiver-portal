@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
-import { styles } from '../../styles/theme';
+import cg from './caregiver.module.css';
+import forms from '../../styles/forms.module.css';
+import btn from '../../styles/buttons.module.css';
 import { NOTE_TYPES, NOTE_OUTCOMES } from './constants';
 
 export function ActivityLog({ caregiver, onAddNote }) {
@@ -82,8 +84,8 @@ export function ActivityLog({ caregiver, onAddNote }) {
   };
 
   return (
-    <div style={styles.notesSection}>
-      <h3 style={styles.notesSectionTitle}>📝 Activity Log</h3>
+    <div className={cg.notesSection}>
+      <h3 className={cg.notesSectionTitle}>📝 Activity Log</h3>
 
       {/* Type selector pills */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -138,7 +140,8 @@ export function ActivityLog({ caregiver, onAddNote }) {
             ))}
           </div>
           <select
-            style={{ ...styles.fieldInput, padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
+            className={forms.fieldInput}
+            style={{ padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
             value={noteOutcome}
             onChange={(e) => setNoteOutcome(e.target.value)}
           >
@@ -149,9 +152,9 @@ export function ActivityLog({ caregiver, onAddNote }) {
       )}
 
       {/* Note text input */}
-      <div style={styles.noteInputRow}>
-        <input style={styles.noteInput} placeholder={isCommunication ? 'What was discussed or attempted...' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
-        <button className="tc-btn-primary" style={styles.primaryBtn} onClick={handleAddNote}>Add</button>
+      <div className={forms.noteInputRow}>
+        <input className={forms.noteInput} placeholder={isCommunication ? 'What was discussed or attempted...' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+        <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleAddNote}>Add</button>
       </div>
 
       {/* Merged timeline */}
@@ -161,15 +164,15 @@ export function ActivityLog({ caregiver, onAddNote }) {
           Loading communication history...
         </div>
       )}
-      <div style={styles.notesList}>
+      <div className={cg.notesList}>
         {(showPortalOnly ? mergedTimeline.filter((n) => n.source !== 'ringcentral') : mergedTimeline).map((n) => {
           const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
           const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
           const isRC = n.source === 'ringcentral';
           return (
-            <div key={n.id} style={styles.noteItem}>
+            <div key={n.id} className={cg.noteItem}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                <div style={styles.noteTimestamp}>
+                <div className={cg.noteTimestamp}>
                   {new Date(n.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                   {n.author && <span style={{ marginLeft: 8, color: '#2E4E8D', fontWeight: 600 }}>— {n.author}</span>}
                   {isRC && <span style={{ marginLeft: 8, color: '#9CA3AF', fontSize: 11, fontWeight: 500 }}>(RingCentral)</span>}
@@ -197,7 +200,7 @@ export function ActivityLog({ caregiver, onAddNote }) {
                   </div>
                 )}
               </div>
-              <div style={styles.noteText}>{n.text}</div>
+              <div className={cg.noteText}>{n.text}</div>
             </div>
           );
         })}

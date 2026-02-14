@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { styles } from '../styles/theme';
+import btn from '../styles/buttons.module.css';
+import forms from '../styles/forms.module.css';
+import cards from '../styles/cards.module.css';
+import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
   return (
-    <div style={styles.profileCard}>
-      <div style={styles.profileCardHeader}>
-        <h3 style={styles.profileCardTitle}>{title}</h3>
+    <div className={cards.profileCard}>
+      <div className={cards.profileCardHeader}>
+        <h3 className={cards.profileCardTitle}>{title}</h3>
         {description && (
           <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>{description}</span>
         )}
@@ -143,7 +146,7 @@ function EditableSetting({ settingKey, label, helpText, editHelpText, placeholde
             )}
           </div>
           <button
-            style={styles.editBtn}
+            className={btn.editBtn}
             onClick={startEdit}
             onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
             onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
@@ -154,15 +157,13 @@ function EditableSetting({ settingKey, label, helpText, editHelpText, placeholde
       ) : (
         /* Edit mode */
         <div>
-          <label style={styles.fieldLabel}>{label}</label>
+          <label className={forms.fieldLabel}>{label}</label>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ flex: 1 }}>
               <input
                 type="text"
-                style={{
-                  ...styles.fieldInput,
-                  borderColor: error ? '#DC4A3A' : '#E0E4EA',
-                }}
+                className={forms.fieldInput}
+                style={{ borderColor: error ? '#DC4A3A' : '#E0E4EA' }}
                 value={editValue}
                 onChange={(e) => { setEditValue(e.target.value); setError(''); }}
                 placeholder={placeholder}
@@ -181,19 +182,16 @@ function EditableSetting({ settingKey, label, helpText, editHelpText, placeholde
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button
-              style={{
-                ...styles.primaryBtn,
-                padding: '9px 20px',
-                fontSize: 13,
-                opacity: saving ? 0.6 : 1,
-              }}
+              className={btn.primaryBtn}
+              style={{ padding: '9px 20px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
               onClick={save}
               disabled={saving}
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button
-              style={{ ...styles.secondaryBtn, padding: '9px 20px', fontSize: 13 }}
+              className={btn.secondaryBtn}
+              style={{ padding: '9px 20px', fontSize: 13 }}
               onClick={cancelEdit}
               disabled={saving}
             >
@@ -236,14 +234,10 @@ function formatPhoneDisplay(value) {
 function IntegrationInfoCard({ title, status, details }) {
   const isConnected = status === 'connected';
   return (
-    <div style={styles.profileCard}>
-      <div style={{
-        ...styles.profileCardHeader,
-        borderBottom: 'none',
-        paddingBottom: 20,
-      }}>
+    <div className={cards.profileCard}>
+      <div className={cards.profileCardHeader} style={{ borderBottom: 'none', paddingBottom: 20 }}>
         <div>
-          <h3 style={{ ...styles.profileCardTitle, marginBottom: 4 }}>{title}</h3>
+          <h3 className={cards.profileCardTitle} style={{ marginBottom: 4 }}>{title}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
               width: 7, height: 7, borderRadius: '50%',
@@ -400,8 +394,8 @@ function UserManagement({ showToast, currentUserEmail }) {
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>—</span>
                 ) : (
                   <button
+                    className={btn.editBtn}
                     style={{
-                      ...styles.editBtn,
                       padding: '5px 12px',
                       fontSize: 11,
                       opacity: changing === user.email ? 0.5 : 1,
@@ -430,10 +424,10 @@ export function AdminSettings({ showToast, currentUserEmail }) {
   return (
     <div>
       {/* Header */}
-      <div style={styles.header}>
+      <div className={layout.header}>
         <div>
-          <h1 style={styles.pageTitle}>Settings</h1>
-          <p style={styles.pageSubtitle}>Manage team roles and portal configuration</p>
+          <h1 className={layout.pageTitle}>Settings</h1>
+          <p className={layout.pageSubtitle}>Manage team roles and portal configuration</p>
         </div>
       </div>
 

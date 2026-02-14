@@ -1,6 +1,6 @@
 import { PHASES } from '../../lib/constants';
 import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication } from '../../lib/utils';
-import { styles } from '../../styles/theme';
+import progress from '../../styles/progress.module.css';
 
 export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpdateCaregiver }) {
   const overallPct = getOverallProgress(caregiver);
@@ -11,27 +11,27 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
   const currentPhaseInfo = PHASES.find((p) => p.id === currentPhase);
 
   return (
-    <div style={styles.progressOverview}>
-      <div style={styles.progressHeader}>
-        <span style={styles.progressTitle}>Onboarding Progress</span>
-        <span style={styles.progressPct}>{overallPct}%</span>
-        <span style={styles.progressDays}>Day {days}</span>
+    <div className={progress.progressOverview}>
+      <div className={progress.progressHeader}>
+        <span className={progress.progressTitle}>Onboarding Progress</span>
+        <span className={progress.progressPct}>{overallPct}%</span>
+        <span className={progress.progressDays}>Day {days}</span>
       </div>
-      <div style={styles.progressTrack}>
-        <div className="tc-progress-fill" style={{ ...styles.progressFill, width: `${overallPct}%` }} />
+      <div className={progress.progressTrack}>
+        <div className={progress.progressFill} style={{ width: `${overallPct}%` }} />
       </div>
 
       {/* Phase Override */}
-      <div style={styles.phaseOverrideRow}>
-        <div style={styles.phaseOverrideLeft}>
-          <span style={styles.phaseOverrideLabel}>Current Phase:</span>
-          <span style={{ ...styles.phaseBadge, background: `${currentPhaseInfo.color}18`, color: currentPhaseInfo.color, border: `1px solid ${currentPhaseInfo.color}30` }}>
+      <div className={progress.phaseOverrideRow}>
+        <div className={progress.phaseOverrideLeft}>
+          <span className={progress.phaseOverrideLabel}>Current Phase:</span>
+          <span className={progress.phaseBadge} style={{ background: `${currentPhaseInfo.color}18`, color: currentPhaseInfo.color, border: `1px solid ${currentPhaseInfo.color}30` }}>
             {currentPhaseInfo.icon} {currentPhaseInfo.label}
           </span>
-          {isOverridden && <span style={styles.overrideBadge}>⚙️ Manual Override</span>}
+          {isOverridden && <span className={progress.overrideBadge}>⚙️ Manual Override</span>}
         </div>
-        <div style={styles.phaseOverrideRight}>
-          <select style={styles.phaseOverrideSelect} value={caregiver.phaseOverride || ''}
+        <div className={progress.phaseOverrideRight}>
+          <select className={progress.phaseOverrideSelect} value={caregiver.phaseOverride || ''}
             onChange={(e) => {
               const val = e.target.value;
               if (val === '') {
@@ -48,14 +48,14 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
         </div>
       </div>
 
-      <div style={styles.phaseNav}>
+      <div className={progress.phaseNav}>
         {PHASES.map((p) => {
           const { pct } = getPhaseProgress(caregiver, p.id);
           return (
-            <button key={p.id} style={{ ...styles.phaseTab, ...(activePhase === p.id ? { background: `${p.color}18`, borderColor: p.color, color: p.color } : {}) }} onClick={() => onPhaseChange(p.id)}>
+            <button key={p.id} className={progress.phaseTab} style={activePhase === p.id ? { background: `${p.color}18`, borderColor: p.color, color: p.color } : {}} onClick={() => onPhaseChange(p.id)}>
               <span>{p.icon}</span>
-              <span style={styles.phaseTabLabel}>{p.short}</span>
-              <span style={styles.phaseTabPct}>{pct}%</span>
+              <span className={progress.phaseTabLabel}>{p.short}</span>
+              <span className={progress.phaseTabPct}>{pct}%</span>
             </button>
           );
         })}

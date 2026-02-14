@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    Tremendous Care — Global Styles
-   Animations, hover states, transitions, scrollbar, focus rings
+   Keyframes, base reset, scrollbar, page transitions
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── Keyframe Animations ── */
@@ -29,13 +29,6 @@
   70% { transform: scale(1.05); }
   100% { transform: scale(1); opacity: 1; }
 }
-@keyframes toastIn {
-  0% { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(0.95); }
-  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-}
-@keyframes barFill {
-  from { width: 0%; }
-}
 @keyframes checkPop {
   0% { transform: scale(1); }
   40% { transform: scale(1.25); }
@@ -57,143 +50,25 @@
   to { transform: rotate(360deg); }
 }
 
-/* ── Card hover & entrance ── */
-.cg-card {
-  transition: all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
-}
-.cg-card:hover .cg-card-checkbox { opacity: 1 !important; }
-.cg-card:hover {
-  box-shadow: 0 12px 32px rgba(0,0,0,0.1), 0 0 0 1px rgba(46,78,141,0.08) !important;
-  transform: translateY(-3px) !important;
-}
-.cg-card:active {
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
-}
-
-/* ── Stat card hover ── */
-.tc-stat-card {
-  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
-}
-.tc-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.03);
-}
-
-/* ── Button hover states ── */
-.tc-btn-primary {
-  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
-}
-.tc-btn-primary:hover {
-  transform: translateY(-1px) !important;
-  box-shadow: 0 6px 20px rgba(46,78,141,0.4), inset 0 1px 0 rgba(255,255,255,0.2) !important;
-  filter: brightness(1.08);
-}
-.tc-btn-primary:active {
-  transform: translateY(0) !important;
-  box-shadow: 0 2px 8px rgba(46,78,141,0.3) !important;
-}
-.tc-btn-secondary {
-  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
-}
-.tc-btn-secondary:hover {
-  background: #F8F9FB !important;
-  border-color: #29BEE4 !important;
-  color: #1084C3 !important;
-  box-shadow: 0 2px 8px rgba(41,190,228,0.1) !important;
-}
-
-/* ── Sidebar nav hover ── */
-.tc-nav-item {
-  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
-  position: relative;
-}
-.tc-nav-item:hover {
-  color: rgba(255,255,255,0.8) !important;
-  background: rgba(41,190,228,0.06) !important;
-}
-.tc-pipeline-item {
-  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
-}
-.tc-pipeline-item:hover {
-  color: rgba(255,255,255,0.75) !important;
-  background: rgba(41,190,228,0.06) !important;
-  padding-left: 18px !important;
-}
-
-/* ── Action item hover ── */
-.tc-action-item {
-  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
-}
-.tc-action-item:hover {
-  transform: translateX(4px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-}
-
-/* ── Task row hover ── */
-.tc-task-row {
-  transition: all 0.2s ease !important;
-}
-.tc-task-row:hover {
-  background: #F4F6FA !important;
-  padding-left: 20px !important;
-}
-
-/* ── Checkbox animation ── */
+/* ── Checkbox animation (used via className in PhaseDetail) ── */
 .tc-checkbox-done {
   animation: checkPop 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
-/* ── Dropdown animation ── */
-.tc-dropdown {
-  animation: scaleIn 0.15s cubic-bezier(0.4,0,0.2,1);
-  transform-origin: top right;
-}
-
-/* ── Bulk action bar ── */
+/* ── Bulk action bar entrance ── */
 .tc-bulk-bar {
   animation: slideUpBar 0.3s cubic-bezier(0.4,0,0.2,1);
 }
-
-/* ── Toast ── */
-.tc-toast {
-  animation: toastIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* ── Progress fill animation ── */
-.tc-progress-fill {
-  animation: barFill 0.8s cubic-bezier(0.4,0,0.2,1);
-}
-.tc-mini-fill {
-  animation: barFill 0.6s cubic-bezier(0.4,0,0.2,1);
-}
-
-/* ── Sidebar transitions ── */
-.tc-sidebar { transition: width 0.3s cubic-bezier(0.4,0,0.2,1), min-width 0.3s cubic-bezier(0.4,0,0.2,1); }
-.tc-main { transition: margin-left 0.3s cubic-bezier(0.4,0,0.2,1); }
-.tc-sidebar .sidebar-text { transition: opacity 0.2s ease; white-space: nowrap; overflow: hidden; }
-.tc-sidebar.collapsed .sidebar-text { opacity: 0; width: 0; }
-.tc-collapse-btn:hover { background: rgba(41,190,228,0.08) !important; }
-
-/* ── Input focus ── */
-input:focus, select:focus, textarea:focus {
-  border-color: #29BEE4 !important;
-  box-shadow: 0 0 0 3px rgba(41,190,228,0.12) !important;
-  outline: none !important;
-}
-
-/* ── Bulk dropdown items ── */
-.bulk-dropdown-item:hover { background: #F0F4FA !important; }
 
 /* ── Page entrance ── */
 .tc-page-enter {
   animation: fadeInUp 0.35s cubic-bezier(0.4,0,0.2,1);
 }
 
-/* ── Search bar focus effect ── */
-.tc-search:focus-within {
-  transform: translateY(-1px);
-}
+/* ── Sidebar collapse transitions ── */
+.sidebar-text { transition: opacity 0.2s ease; white-space: nowrap; overflow: hidden; }
+.tc-sidebar.collapsed .sidebar-text { opacity: 0; width: 0; }
+.tc-collapse-btn:hover { background: rgba(41,190,228,0.08) !important; }
 
 /* ── Scrollbar styling ── */
 ::-webkit-scrollbar { width: 6px; }

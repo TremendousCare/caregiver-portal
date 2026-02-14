@@ -1,0 +1,228 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Card Styles Module
+   Converted from theme.js styles object
+   ═══════════════════════════════════════════════════════════════ */
+
+.statCard {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 22px;
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02);
+  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.03);
+}
+
+.statValue {
+  font-size: 30px;
+  font-weight: 800;
+  font-family: var(--tc-font-heading);
+  letter-spacing: -0.5px;
+}
+
+.statLabel {
+  font-size: 11px;
+  color: var(--tc-text-muted);
+  margin-top: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.profileCard {
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.05);
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+
+.profileCardHeader {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #EDF0F4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.profileCardTitle {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+  font-family: var(--tc-font-heading);
+  color: #0F1724;
+  letter-spacing: -0.2px;
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0;
+  padding: 4px 0;
+}
+
+.profileItem {
+  padding: 14px 24px;
+  border-bottom: 1px solid #F0F3F7;
+}
+
+.profileLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tc-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 5px;
+}
+
+.profileValue {
+  font-size: 14px;
+  color: #0F1724;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.cgCard {
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 18px;
+  padding: 22px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02);
+  position: relative;
+}
+
+.cgCard:hover {
+  box-shadow: 0 12px 32px rgba(0,0,0,0.1), 0 0 0 1px rgba(46,78,141,0.08);
+  transform: translateY(-3px);
+}
+
+.cgCard:active {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.cgCardUrgent {
+  border-color: #FECDC8;
+  background: linear-gradient(135deg, #FFFBFA, #FFF5F3);
+}
+
+.cgCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.cgAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--tc-navy-dark), var(--tc-navy));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(46,78,141,0.2);
+}
+
+.cgName {
+  font-weight: 700;
+  font-size: 15px;
+  color: #0F1724;
+  font-family: var(--tc-font-heading);
+  letter-spacing: -0.1px;
+}
+
+.cgMeta {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+.alertCard {
+  background: linear-gradient(135deg, #FFFBFA, #FFF5F3);
+  border: 1px solid #FECDC8;
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: var(--tc-text-primary);
+}
+
+.greenLightCard {
+  background: linear-gradient(135deg, #F0FDF4, #ECFDF3);
+  border: 1px solid #BBF7D0;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.greenLightRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #D1FAE5;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.ruleCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  margin-bottom: 2px;
+}
+
+.ruleEmoji {
+  font-size: 13px;
+}
+
+.ruleText {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.cgPhaseRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cgDays {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  font-weight: 600;
+}

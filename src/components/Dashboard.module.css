@@ -1,0 +1,410 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Dashboard Component Styles
+   Converted from theme.js actionStyles object
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Action Items Panel ── */
+.panel {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #E2E8F0;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #E2E8F0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panelTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelIcon {
+  font-size: 18px;
+}
+
+.panelTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--tc-text-primary);
+  font-family: var(--tc-font-heading);
+}
+
+.panelCount {
+  background: var(--tc-navy);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.panelBadges {
+  display: flex;
+  gap: 6px;
+}
+
+.criticalCount {
+  background: #FEF2F0;
+  color: #DC3545;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.warningCount {
+  background: #FFF8ED;
+  color: var(--tc-warning);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.list {
+  padding: 4px 12px;
+}
+
+.item {
+  padding: 14px 16px;
+  border-left: 3px solid;
+  border-radius: 0 8px 8px 0;
+  margin: 6px 0;
+  background: #F9FAFB;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.item:hover {
+  background: #F0F3F7;
+  transform: translateX(2px);
+}
+
+.item:active {
+  background: #E8ECF0;
+}
+
+.itemTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.itemIcon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.itemTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+}
+
+.itemName {
+  font-size: 12px;
+  color: var(--tc-text-tertiary);
+  font-weight: 500;
+}
+
+.urgencyBadge {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.itemDetail {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  margin-left: 28px;
+  line-height: 1.4;
+}
+
+.itemAction {
+  font-size: 12px;
+  color: var(--tc-navy);
+  font-weight: 600;
+  margin-left: 28px;
+  margin-top: 6px;
+}
+
+.showMore {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-top: 1px solid #E2E8F0;
+  background: transparent;
+  color: var(--tc-navy);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.showMore:hover {
+  background: #F9FAFB;
+}
+
+/* ── Bulk Selection Bar ── */
+.selectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.selectionLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selectionCount {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2E4E8D;
+}
+
+.selectAllLink {
+  background: none;
+  border: none;
+  color: #1084C3;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.clearLink {
+  background: none;
+  border: none;
+  color: #6B7B8F;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.selectHint {
+  font-size: 12px;
+  color: #A0AEC0;
+  font-style: italic;
+}
+
+/* ── Card Selection Checkbox ── */
+.cardCheckbox {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid #D0D9E4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  background: #fff;
+  transition: all 0.15s;
+  opacity: 0;
+  z-index: 2;
+}
+
+.cardCheckboxChecked {
+  background: #2E4E8D;
+  border-color: #2E4E8D;
+  opacity: 1;
+}
+
+.cardCheckboxVisible {
+  opacity: 1;
+}
+
+.cgCardSelected {
+  border-color: #2E4E8D;
+  box-shadow: 0 0 0 2px rgba(46,78,141,0.2);
+  background: #F0F4FA;
+}
+
+/* ── Floating Bulk Action Bar ── */
+.actionBar {
+  position: fixed;
+  bottom: 0;
+  left: 260px;
+  right: 0;
+  z-index: 9000;
+  padding: 0 20px 20px;
+  pointer-events: none;
+}
+
+.actionBarInner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #1A1A1A;
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+  pointer-events: auto;
+  flex-wrap: wrap;
+}
+
+.actionBarLeft {
+  flex-shrink: 0;
+}
+
+.actionBarCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.actionBarActions {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.actionGroup {
+  position: relative;
+}
+
+.actionBtn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.1s;
+  white-space: nowrap;
+}
+
+.actionBtnActive {
+  background: #2E4E8D;
+  border-color: #29BEE4;
+}
+
+.actionBtnArchive {
+  color: #E85D4A;
+}
+
+.actionDropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  border: 1px solid #E2E8F0;
+  padding: 6px;
+  min-width: 200px;
+  z-index: 10;
+}
+
+.actionDropdownWide {
+  min-width: 280px;
+}
+
+.dropdownItem {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1A1A1A;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.dropdownItem:hover {
+  background: #F0F3F7;
+}
+
+.dropdownInput {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1A1A1A;
+  outline: none;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+
+.dropdownApply {
+  width: 100%;
+  padding: 8px;
+  background: linear-gradient(135deg, #2E4E8D, #1084C3);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.dropdownCancel {
+  flex: 1;
+  padding: 8px;
+  background: #EEF2F7;
+  color: #1A1A1A;
+  border: 1px solid #D0D9E4;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.actionBarClose {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
