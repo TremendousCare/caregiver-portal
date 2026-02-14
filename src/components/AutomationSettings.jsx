@@ -1,0 +1,711 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../lib/supabase';
+import { styles } from '../styles/theme';
+import { boardStyles } from '../styles/theme';
+
+// ─── Trigger & Action Config ───
+const TRIGGER_OPTIONS = [
+  { value: 'new_caregiver', label: 'New Caregiver Added', description: 'Fires immediately when a new caregiver is created' },
+  { value: 'days_inactive', label: 'Days Inactive', description: 'Fires when a caregiver has no activity for N days' },
+  { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
+];
+
+const ACTION_OPTIONS = [
+  { value: 'send_sms', label: 'Send SMS' },
+  { value: 'send_email', label: 'Send Email' },
+];
+
+const MERGE_FIELDS = [
+  { key: 'first_name', label: 'First Name' },
+  { key: 'last_name', label: 'Last Name' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email' },
+  { key: 'phase', label: 'Phase' },
+];
+
+// ─── Settings Section Card (reused from AdminSettings pattern) ───
+function SettingsCard({ title, description, headerRight, children }) {
+  return (
+    <div style={styles.profileCard}>
+      <div style={styles.profileCardHeader}>
+        <div>
+          <h3 style={styles.profileCardTitle}>{title}</h3>
+          {description && (
+            <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>{description}</span>
+          )}
+        </div>
+        {headerRight}
+      </div>
+      <div style={{ padding: '20px 24px' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Trigger Badge ───
+function TriggerBadge({ type }) {
+  const colors = {
+    new_caregiver: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+    days_inactive: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
+    interview_scheduled: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
+  };
+  const labels = {
+    new_caregiver: 'New Caregiver',
+    days_inactive: 'Days Inactive',
+    interview_scheduled: 'Interview',
+  };
+  const c = colors[type] || colors.new_caregiver;
+  return (
+    <span style={{
+      display: 'inline-block', padding: '3px 10px', borderRadius: 6,
+      fontSize: 11, fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+    }}>
+      {labels[type] || type}
+    </span>
+  );
+}
+
+// ─── Action Badge ───
+function ActionBadge({ type }) {
+  const isEmail = type === 'send_email';
+  return (
+    <span style={{
+      display: 'inline-block', padding: '3px 10px', borderRadius: 6,
+      fontSize: 11, fontWeight: 700,
+      background: isEmail ? '#F0F4FA' : '#F5F3FF',
+      color: isEmail ? '#2E4E8D' : '#6D28D9',
+      border: `1px solid ${isEmail ? '#D5DCE6' : '#DDD6FE'}`,
+    }}>
+      {isEmail ? 'Email' : 'SMS'}
+    </span>
+  );
+}
+
+// ─── Status Badge ───
+function StatusBadge({ status }) {
+  const config = {
+    success: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0', label: 'Success' },
+    failed: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA', label: 'Failed' },
+    skipped: { bg: '#F8F9FB', color: '#7A8BA0', border: '#E0E4EA', label: 'Skipped' },
+  };
+  const c = config[status] || config.skipped;
+  return (
+    <span style={{
+      display: 'inline-block', padding: '3px 10px', borderRadius: 6,
+      fontSize: 11, fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+    }}>
+      {c.label}
+    </span>
+  );
+}
+
+// ─── Rule Form Modal ───
+function RuleForm({ rule, onSave, onCancel, saving }) {
+  const [name, setName] = useState(rule?.name || '');
+  const [triggerType, setTriggerType] = useState(rule?.trigger_type || 'new_caregiver');
+  const [daysInactive, setDaysInactive] = useState(rule?.conditions?.days || 3);
+  const [actionType, setActionType] = useState(rule?.action_type || 'send_sms');
+  const [emailSubject, setEmailSubject] = useState(rule?.action_config?.subject || '');
+  const [messageTemplate, setMessageTemplate] = useState(rule?.message_template || '');
+  const [error, setError] = useState('');
+  const templateRef = useRef(null);
+
+  const insertMergeField = (field) => {
+    const tag = `{{${field}}}`;
+    const textarea = templateRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newVal = messageTemplate.substring(0, start) + tag + messageTemplate.substring(end);
+      setMessageTemplate(newVal);
+      // Reset cursor position after React re-renders
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+        textarea.focus();
+      }, 0);
+    } else {
+      setMessageTemplate(messageTemplate + tag);
+    }
+  };
+
+  const handleSave = () => {
+    if (!name.trim()) { setError('Rule name is required.'); return; }
+    if (!messageTemplate.trim()) { setError('Message template is required.'); return; }
+    if (triggerType === 'days_inactive' && (!daysInactive || daysInactive <= 0)) {
+      setError('Days of inactivity must be a positive number.'); return;
+    }
+    if (actionType === 'send_email' && !emailSubject.trim()) {
+      setError('Email subject is required.'); return;
+    }
+
+    const ruleData = {
+      name: name.trim(),
+      trigger_type: triggerType,
+      conditions: triggerType === 'days_inactive' ? { days: parseInt(daysInactive, 10) } : {},
+      action_type: actionType,
+      action_config: actionType === 'send_email' ? { subject: emailSubject.trim() } : {},
+      message_template: messageTemplate.trim(),
+    };
+
+    if (rule?.id) ruleData.id = rule.id;
+    onSave(ruleData);
+  };
+
+  return (
+    <div style={boardStyles.colFormOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div style={{ ...boardStyles.colFormModal, maxWidth: 560 }}>
+        <h3 style={{ ...styles.profileCardTitle, marginBottom: 20 }}>
+          {rule?.id ? 'Edit Automation Rule' : 'Create Automation Rule'}
+        </h3>
+
+        {/* Rule Name */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={styles.fieldLabel}>Rule Name</label>
+          <input
+            type="text"
+            style={{ ...styles.fieldInput, borderColor: error && !name.trim() ? '#DC4A3A' : '#E0E4EA' }}
+            value={name}
+            onChange={(e) => { setName(e.target.value); setError(''); }}
+            placeholder="e.g. Welcome SMS"
+            autoFocus
+          />
+        </div>
+
+        {/* Trigger Type */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={styles.fieldLabel}>Trigger</label>
+          <select
+            style={{ ...styles.fieldInput, cursor: 'pointer' }}
+            value={triggerType}
+            onChange={(e) => setTriggerType(e.target.value)}
+          >
+            {TRIGGER_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value} disabled={t.disabled}>
+                {t.label}{t.disabled ? ' (Coming soon)' : ''}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+            {TRIGGER_OPTIONS.find((t) => t.value === triggerType)?.description}
+          </div>
+        </div>
+
+        {/* Conditions — days_inactive */}
+        {triggerType === 'days_inactive' && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={styles.fieldLabel}>Days of Inactivity</label>
+            <input
+              type="number"
+              style={{ ...styles.fieldInput, maxWidth: 120 }}
+              value={daysInactive}
+              onChange={(e) => { setDaysInactive(e.target.value); setError(''); }}
+              min="1"
+              placeholder="3"
+            />
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Fires when a caregiver has had no activity (notes, messages) for this many days.
+            </div>
+          </div>
+        )}
+
+        {/* Action Type */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={styles.fieldLabel}>Action</label>
+          <select
+            style={{ ...styles.fieldInput, cursor: 'pointer' }}
+            value={actionType}
+            onChange={(e) => setActionType(e.target.value)}
+          >
+            {ACTION_OPTIONS.map((a) => (
+              <option key={a.value} value={a.value}>{a.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Email Subject (only for email) */}
+        {actionType === 'send_email' && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={styles.fieldLabel}>Email Subject</label>
+            <input
+              type="text"
+              style={{ ...styles.fieldInput, borderColor: error && actionType === 'send_email' && !emailSubject.trim() ? '#DC4A3A' : '#E0E4EA' }}
+              value={emailSubject}
+              onChange={(e) => { setEmailSubject(e.target.value); setError(''); }}
+              placeholder="e.g. Welcome to Tremendous Care!"
+            />
+          </div>
+        )}
+
+        {/* Message Template */}
+        <div style={{ marginBottom: 8 }}>
+          <label style={styles.fieldLabel}>Message Template</label>
+          <textarea
+            ref={templateRef}
+            style={{ ...styles.textarea, minHeight: 100, borderColor: error && !messageTemplate.trim() ? '#DC4A3A' : '#E0E4EA' }}
+            value={messageTemplate}
+            onChange={(e) => { setMessageTemplate(e.target.value); setError(''); }}
+            placeholder={`Hi {{first_name}}, welcome to Tremendous Care! We're excited to have you on board.`}
+          />
+        </div>
+
+        {/* Merge Field Chips */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+            Insert Merge Field
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {MERGE_FIELDS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                style={{
+                  background: '#F0F4FA', border: '1px solid #D5DCE6', borderRadius: 6,
+                  padding: '4px 10px', fontSize: 11, fontWeight: 600, color: '#2E4E8D',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+                onClick={() => insertMergeField(f.key)}
+                onMouseEnter={(e) => { e.target.style.background = '#E0E8F5'; }}
+                onMouseLeave={(e) => { e.target.style.background = '#F0F4FA'; }}
+              >
+                {`{{${f.key}}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{ fontSize: 12, color: '#DC4A3A', fontWeight: 600, marginBottom: 12 }}>{error}</div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            style={{ ...styles.secondaryBtn, padding: '9px 20px', fontSize: 13 }}
+            onClick={onCancel}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            style={{ ...styles.primaryBtn, padding: '9px 20px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : rule?.id ? 'Update Rule' : 'Create Rule'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Rules List ───
+function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
+  if (rules.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 16px', color: '#7A8BA0', fontSize: 13 }}>
+        No automation rules yet. Click "Add Rule" to create your first automation.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+      {/* Header row */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 110px 80px 70px 130px',
+        padding: '10px 16px', background: '#F8F9FB',
+        fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+        textTransform: 'uppercase', letterSpacing: 1,
+        borderBottom: '1px solid #E0E4EA',
+      }}>
+        <span>Rule</span>
+        <span>Trigger</span>
+        <span>Action</span>
+        <span>Status</span>
+        <span style={{ textAlign: 'right' }}>Actions</span>
+      </div>
+
+      {rules.map((rule, i) => (
+        <div key={rule.id} style={{
+          display: 'grid', gridTemplateColumns: '1fr 110px 80px 70px 130px',
+          alignItems: 'center', padding: '12px 16px',
+          borderBottom: i < rules.length - 1 ? '1px solid #F0F3F7' : 'none',
+          background: '#fff',
+        }}>
+          {/* Name + condition detail */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724' }}>{rule.name}</div>
+            {rule.trigger_type === 'days_inactive' && rule.conditions?.days && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                After {rule.conditions.days} day{rule.conditions.days !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+
+          {/* Trigger badge */}
+          <div><TriggerBadge type={rule.trigger_type} /></div>
+
+          {/* Action badge */}
+          <div><ActionBadge type={rule.action_type} /></div>
+
+          {/* Enabled toggle */}
+          <div>
+            <button
+              style={{
+                width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                background: rule.enabled ? '#22C55E' : '#D5DCE6',
+                position: 'relative', transition: 'background 0.2s',
+                opacity: toggling === rule.id ? 0.5 : 1,
+              }}
+              onClick={() => onToggle(rule)}
+              disabled={toggling === rule.id}
+              title={rule.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+            >
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 3,
+                left: rule.enabled ? 21 : 3,
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              }} />
+            </button>
+          </div>
+
+          {/* Edit / Delete buttons */}
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button
+              style={{ ...styles.editBtn, padding: '5px 12px', fontSize: 11 }}
+              onClick={() => onEdit(rule)}
+              onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+              onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+            >
+              Edit
+            </button>
+            <button
+              style={{
+                ...styles.editBtn, padding: '5px 12px', fontSize: 11,
+                color: '#DC4A3A', borderColor: '#FECACA',
+              }}
+              onClick={() => onDelete(rule)}
+              onMouseEnter={(e) => { e.target.style.background = '#FEF2F2'; }}
+              onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Execution Log ───
+function ExecutionLog({ logs, loading }) {
+  if (loading) {
+    return <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>;
+  }
+
+  if (logs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '24px 16px', color: '#7A8BA0', fontSize: 13 }}>
+        No automations have fired yet. Create a rule above to get started.
+      </div>
+    );
+  }
+
+  const formatTimestamp = (ts) => {
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  return (
+    <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
+        padding: '10px 16px', background: '#F8F9FB',
+        fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+        textTransform: 'uppercase', letterSpacing: 1,
+        borderBottom: '1px solid #E0E4EA',
+      }}>
+        <span>Time</span>
+        <span>Rule</span>
+        <span>Caregiver</span>
+        <span>Action</span>
+        <span>Status</span>
+      </div>
+
+      {logs.map((log, i) => (
+        <div key={log.id} style={{
+          display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
+          alignItems: 'center', padding: '10px 16px',
+          borderBottom: i < logs.length - 1 ? '1px solid #F0F3F7' : 'none',
+          background: '#fff',
+        }}>
+          <div style={{ fontSize: 11, color: '#7A8BA0', fontWeight: 500 }}>
+            {formatTimestamp(log.executed_at)}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {log.rule_name || log.rule_id}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {log.caregiver_name || log.caregiver_id}
+          </div>
+          <div><ActionBadge type={log.action_type} /></div>
+          <div>
+            <StatusBadge status={log.status} />
+            {log.error_detail && (
+              <div style={{ fontSize: 10, color: '#DC2626', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={log.error_detail}
+              >
+                {log.error_detail}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main AutomationSettings Component ───
+export function AutomationSettings({ showToast, currentUserEmail }) {
+  const [rules, setRules] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [loadingRules, setLoadingRules] = useState(true);
+  const [loadingLogs, setLoadingLogs] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(null);
+
+  // Load rules
+  const loadRules = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('automation_rules')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setRules(data || []);
+    } catch (err) {
+      console.error('Failed to load automation rules:', err);
+    } finally {
+      setLoadingRules(false);
+    }
+  }, []);
+
+  // Load logs with rule names and caregiver names
+  const loadLogs = useCallback(async () => {
+    try {
+      const { data: logData, error: logErr } = await supabase
+        .from('automation_log')
+        .select('*')
+        .order('executed_at', { ascending: false })
+        .limit(50);
+      if (logErr) throw logErr;
+
+      if (!logData || logData.length === 0) {
+        setLogs([]);
+        setLoadingLogs(false);
+        return;
+      }
+
+      // Fetch rule names
+      const ruleIds = [...new Set(logData.map((l) => l.rule_id))];
+      const { data: rulesData } = await supabase
+        .from('automation_rules')
+        .select('id, name')
+        .in('id', ruleIds);
+      const ruleMap = {};
+      (rulesData || []).forEach((r) => { ruleMap[r.id] = r.name; });
+
+      // Fetch caregiver names
+      const cgIds = [...new Set(logData.map((l) => l.caregiver_id))];
+      const { data: cgData } = await supabase
+        .from('caregivers')
+        .select('id, first_name, last_name')
+        .in('id', cgIds);
+      const cgMap = {};
+      (cgData || []).forEach((c) => { cgMap[c.id] = `${c.first_name} ${c.last_name}`; });
+
+      // Enrich logs
+      const enriched = logData.map((l) => ({
+        ...l,
+        rule_name: ruleMap[l.rule_id] || null,
+        caregiver_name: cgMap[l.caregiver_id] || null,
+      }));
+
+      setLogs(enriched);
+    } catch (err) {
+      console.error('Failed to load automation logs:', err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, []);
+
+  useEffect(() => { loadRules(); loadLogs(); }, [loadRules, loadLogs]);
+
+  // Toggle rule enabled/disabled
+  const handleToggle = useCallback(async (rule) => {
+    setToggling(rule.id);
+    try {
+      const { error } = await supabase
+        .from('automation_rules')
+        .update({
+          enabled: !rule.enabled,
+          updated_at: new Date().toISOString(),
+          updated_by: currentUserEmail,
+        })
+        .eq('id', rule.id);
+      if (error) throw error;
+      setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled: !r.enabled } : r));
+      showToast?.(`${rule.name} ${!rule.enabled ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      console.error('Failed to toggle rule:', err);
+      showToast?.('Failed to update rule. Please try again.');
+    } finally {
+      setToggling(null);
+    }
+  }, [currentUserEmail, showToast]);
+
+  // Save rule (create or update)
+  const handleSave = useCallback(async (ruleData) => {
+    setSaving(true);
+    try {
+      const payload = {
+        ...ruleData,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUserEmail,
+      };
+
+      if (ruleData.id) {
+        // Update
+        const { error } = await supabase
+          .from('automation_rules')
+          .update(payload)
+          .eq('id', ruleData.id);
+        if (error) throw error;
+        showToast?.(`${ruleData.name} updated`);
+      } else {
+        // Create
+        payload.created_by = currentUserEmail;
+        const { error } = await supabase
+          .from('automation_rules')
+          .insert(payload);
+        if (error) throw error;
+        showToast?.(`${ruleData.name} created`);
+      }
+
+      setShowForm(false);
+      setEditingRule(null);
+      await loadRules();
+    } catch (err) {
+      console.error('Failed to save rule:', err);
+      showToast?.('Failed to save rule. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [currentUserEmail, showToast, loadRules]);
+
+  // Delete rule
+  const handleDelete = useCallback(async (rule) => {
+    if (!window.confirm(`Are you sure you want to delete "${rule.name}"? This cannot be undone.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('automation_rules')
+        .delete()
+        .eq('id', rule.id);
+      if (error) throw error;
+      setRules((prev) => prev.filter((r) => r.id !== rule.id));
+      showToast?.(`${rule.name} deleted`);
+    } catch (err) {
+      console.error('Failed to delete rule:', err);
+      showToast?.('Failed to delete rule. Please try again.');
+    }
+  }, [showToast]);
+
+  // Edit rule
+  const handleEdit = useCallback((rule) => {
+    setEditingRule(rule);
+    setShowForm(true);
+  }, []);
+
+  // Open create form
+  const handleCreate = useCallback(() => {
+    setEditingRule(null);
+    setShowForm(true);
+  }, []);
+
+  if (loadingRules) {
+    return (
+      <SettingsCard title="Automation Rules" description="Automated Actions">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  return (
+    <>
+      {/* Rules Section */}
+      <SettingsCard
+        title="Automation Rules"
+        description={`${rules.length} rule${rules.length !== 1 ? 's' : ''}`}
+        headerRight={
+          <button
+            style={{ ...styles.primaryBtn, padding: '8px 18px', fontSize: 13 }}
+            onClick={handleCreate}
+          >
+            Add Rule
+          </button>
+        }
+      >
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
+            Automation rules send SMS or email automatically when triggers fire. All message content and timing is editable here — no code changes needed.
+          </div>
+        </div>
+
+        <RulesList
+          rules={rules}
+          onToggle={handleToggle}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          toggling={toggling}
+        />
+      </SettingsCard>
+
+      {/* Execution Log */}
+      <div style={{ marginTop: 20 }}>
+        <SettingsCard title="Execution Log" description="Recent automation activity">
+          <ExecutionLog logs={logs} loading={loadingLogs} />
+        </SettingsCard>
+      </div>
+
+      {/* Rule Form Modal */}
+      {showForm && (
+        <RuleForm
+          rule={editingRule}
+          onSave={handleSave}
+          onCancel={() => { setShowForm(false); setEditingRule(null); }}
+          saving={saving}
+        />
+      )}
+    </>
+  );
+}

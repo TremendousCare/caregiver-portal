@@ -13,6 +13,7 @@ import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
 import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { fireEventTriggers } from './lib/automations';
 import { styles } from './styles/theme';
 
 // ─── Route-to-view mapping ───
@@ -149,6 +150,7 @@ export default function App() {
     setCaregivers((prev) => [newCg, ...prev]);
     navigate(`/caregiver/${newCg.id}`);
     saveCaregiver(newCg).catch(() => showToast('Failed to save — check your connection'));
+    fireEventTriggers('new_caregiver', newCg);
     showToast(`${data.firstName} ${data.lastName} added successfully!`);
   };
 

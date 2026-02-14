@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { styles } from '../styles/theme';
+import { AutomationSettings } from './AutomationSettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -439,6 +440,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* User Management */}
       <div style={{ marginBottom: 20 }}>
         <UserManagement showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Automation Engine */}
+      <div style={{ marginBottom: 20 }}>
+        <AutomationSettings showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* Outlook Email Integration */}
