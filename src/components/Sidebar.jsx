@@ -5,7 +5,7 @@ import layout from '../styles/layout.module.css';
 export function Sidebar({ view, setView, filterPhase, setFilterPhase, caregivers, archivedCount = 0, collapsed, setCollapsed, currentUser, isAdmin, onLogout }) {
   return (
     <aside
-      className={`tc-sidebar${collapsed ? ' collapsed' : ''}`}
+      className={`${layout.sidebar} tc-sidebar${collapsed ? ' collapsed' : ''}`}
       style={{
         width: collapsed ? 64 : 260,
         minWidth: collapsed ? 64 : 260,

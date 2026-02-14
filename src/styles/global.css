@@ -67,6 +67,7 @@
 
 /* ── Sidebar collapse transitions ── */
 .sidebar-text { transition: opacity 0.2s ease; white-space: nowrap; overflow: hidden; }
+.tc-sidebar.collapsed .sidebar-text { opacity: 0; width: 0; }
 .tc-collapse-btn:hover { background: rgba(41,190,228,0.08) !important; }
 
 /* ── Scrollbar styling ── */
