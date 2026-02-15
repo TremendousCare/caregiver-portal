@@ -175,6 +175,17 @@ export const COLUMN_ICONS = ['🚀', '✅', '⏸️', '🔄', '⭐', '📋', '�
 export const COLUMN_COLORS = ['#2E4E8D', '#29BEE4', '#1084C3', '#16A34A', '#D97706', '#8B5CF6', '#DC3545', '#0EA5C9', '#059669', '#7C3AED', '#DB2777', '#EA580C', '#4F46E5', '#0D9488'];
 
 // ─── Document Types for SharePoint Integration ──────────────
+// ─── DocuSign Envelope Statuses ─────────────────────────────
+export const DOCUSIGN_STATUSES = {
+  sent: { label: 'Sent', color: '#6B7280', bg: '#F3F4F6', border: '#D1D5DB' },
+  delivered: { label: 'Delivered', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
+  viewed: { label: 'Viewed', color: '#A16207', bg: '#FFFBEB', border: '#FDE68A' },
+  completed: { label: 'Completed', color: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' },
+  declined: { label: 'Declined', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+  voided: { label: 'Voided', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+};
+
+// ─── Document Types for SharePoint Integration ──────────────
 export const DOCUMENT_TYPES = [
   { id: 'offer_signed', label: 'Offer Letter Signed', required: true },
   { id: 'wage_notice', label: 'Wage & Employment Notice', required: false },
