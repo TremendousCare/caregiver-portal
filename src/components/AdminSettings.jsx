@@ -430,6 +430,22 @@ function DocuSignSettings({ showToast }) {
   const [draft, setDraft] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [docTypes, setDocTypes] = useState([]);
+
+  // Load document types for the documentType dropdown
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'document_types')
+      .single()
+      .then(({ data }) => {
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          setDocTypes(data.value);
+        }
+      });
+  }, []);
 
   // Load templates
   useEffect(() => {
@@ -512,6 +528,7 @@ function DocuSignSettings({ showToast }) {
       templateId: '',
       name: '',
       taskName: '',
+      documentType: '',
     }]);
   };
 
@@ -688,6 +705,19 @@ function DocuSignSettings({ showToast }) {
                     })}
                   </select>
                 </div>
+                <div style={{ display: 'flex', gap: 8, paddingLeft: 28 }}>
+                  <select
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 12, cursor: 'pointer' }}
+                    value={tmpl.documentType || ''}
+                    onChange={(e) => updateDraft(idx, 'documentType', e.target.value)}
+                  >
+                    <option value="">No document type (skip SharePoint upload)</option>
+                    {docTypes.map((dt) => (
+                      <option key={dt.id} value={dt.id}>{dt.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             ))}
             <button
@@ -725,6 +755,11 @@ function DocuSignSettings({ showToast }) {
                           Task: {allTasks.find(t => t.id === tmpl.taskName)?.label || tmpl.taskName}
                         </span>
                       )}
+                      {tmpl.documentType && (
+                        <span style={{ color: '#2563EB' }}>
+                          Doc: {docTypes.find(d => d.id === tmpl.documentType)?.label || tmpl.documentType}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -736,7 +771,8 @@ function DocuSignSettings({ showToast }) {
 
       <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 12, lineHeight: 1.5 }}>
         Create templates in the DocuSign web app, then paste their Template IDs here.
-        Optionally link each template to an onboarding task to auto-complete it when signed.
+        Optionally link each template to an onboarding task to auto-complete it when signed,
+        and set a document type to auto-upload signed documents to SharePoint.
       </div>
     </SettingsCard>
   );
