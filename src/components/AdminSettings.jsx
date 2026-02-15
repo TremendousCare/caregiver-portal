@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { PHASES } from '../lib/constants';
+import { getPhaseTasks } from '../lib/storage';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
@@ -419,6 +421,327 @@ function UserManagement({ showToast, currentUserEmail }) {
   );
 }
 
+// ─── DocuSign Template Settings ───
+function DocuSignSettings({ showToast }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  // Load templates
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'docusign_templates')
+          .single();
+        if (data?.value && Array.isArray(data.value)) {
+          setTemplates(data.value);
+        }
+      } catch (err) {
+        // Not configured yet
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  // Get all tasks for the linked task dropdown
+  const allTasks = [];
+  const phaseTasks = getPhaseTasks();
+  PHASES.forEach((phase) => {
+    const tasks = phaseTasks[phase.id] || [];
+    tasks.forEach((t) => {
+      allTasks.push({ id: t.id, label: t.label, phase: phase.label, phaseIcon: phase.icon });
+    });
+  });
+
+  // Test connection
+  const testConnection = useCallback(async () => {
+    setTesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('docusign-integration', {
+        body: { action: 'test_connection' },
+      });
+      if (error) throw error;
+      setConnectionStatus(data);
+    } catch (err) {
+      setConnectionStatus({ connected: false, error: err.message });
+    } finally {
+      setTesting(false);
+    }
+  }, []);
+
+  // Save templates
+  const saveTemplates = useCallback(async () => {
+    const cleaned = draft.filter((t) => t.name.trim() && t.templateId.trim());
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert(
+          { key: 'docusign_templates', value: cleaned, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      setTemplates(cleaned);
+      setEditing(false);
+      showToast?.('DocuSign templates saved successfully!');
+    } catch (err) {
+      console.error('Failed to save DocuSign templates:', err);
+      showToast?.('Failed to save templates. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, showToast]);
+
+  const startEdit = () => {
+    setDraft(templates.map((t) => ({ ...t })));
+    setEditing(true);
+  };
+
+  const addTemplate = () => {
+    setDraft((prev) => [...prev, {
+      id: 'ds_' + Date.now().toString(36),
+      templateId: '',
+      name: '',
+      taskName: '',
+    }]);
+  };
+
+  const updateDraft = (index, field, value) => {
+    setDraft((prev) => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
+  };
+
+  const removeDraft = (index) => {
+    setDraft((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  if (loading) {
+    return (
+      <SettingsCard title="DocuSign eSignature" description="Document Signing">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  return (
+    <SettingsCard title="DocuSign eSignature" description="Document Signing">
+      {/* Environment setting */}
+      <div style={{ marginBottom: 20 }}>
+        <EditableSetting
+          settingKey="docusign_environment"
+          label="Environment"
+          helpText="Controls whether API calls go to DocuSign sandbox or production."
+          editHelpText="Enter 'sandbox' for testing or 'production' for live signing."
+          placeholder="sandbox"
+          formatDisplay={(val) => {
+            if (val === 'production') return 'Production';
+            if (val === '(not configured)') return 'Sandbox (default)';
+            return 'Sandbox';
+          }}
+          showToast={showToast}
+        />
+      </div>
+
+      {/* Connection test */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 14px', background: '#F8F9FB', borderRadius: 10,
+          border: '1px solid #E0E4EA',
+        }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+              Connection Status
+            </div>
+            {connectionStatus ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: connectionStatus.connected ? '#22C55E' : '#DC2626',
+                }} />
+                <span style={{
+                  fontSize: 12, fontWeight: 600,
+                  color: connectionStatus.connected ? '#15803D' : '#DC2626',
+                }}>
+                  {connectionStatus.connected ? 'Connected' : `Failed: ${connectionStatus.error}`}
+                </span>
+              </div>
+            ) : (
+              <span style={{ fontSize: 12, color: '#7A8BA0' }}>Not tested yet</span>
+            )}
+          </div>
+          <button
+            className={btn.editBtn}
+            style={{ padding: '6px 14px', fontSize: 11, opacity: testing ? 0.5 : 1 }}
+            onClick={testConnection}
+            disabled={testing}
+            onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+            onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+          >
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+      </div>
+
+      {/* Templates */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Signing Templates ({templates.length})
+          </div>
+          {!editing ? (
+            <button
+              className={btn.editBtn}
+              style={{ padding: '5px 12px', fontSize: 11 }}
+              onClick={startEdit}
+              onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+              onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+            >
+              Edit Templates
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className={btn.primaryBtn}
+                style={{ padding: '6px 14px', fontSize: 11, opacity: saving ? 0.6 : 1 }}
+                onClick={saveTemplates}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                className={btn.secondaryBtn}
+                style={{ padding: '6px 14px', fontSize: 11 }}
+                onClick={() => setEditing(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        {editing ? (
+          <div>
+            {draft.map((tmpl, idx) => (
+              <div key={tmpl.id} style={{
+                display: 'flex', flexDirection: 'column', gap: 8,
+                padding: '12px 14px', background: '#F9FAFB', borderRadius: 10,
+                border: '1px solid #E2E8F0', marginBottom: 8,
+              }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 700, minWidth: 20 }}>
+                    {idx + 1}.
+                  </span>
+                  <input
+                    type="text"
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 13 }}
+                    value={tmpl.name}
+                    onChange={(e) => updateDraft(idx, 'name', e.target.value)}
+                    placeholder="Template name (e.g. Employment Agreement)"
+                  />
+                  <button
+                    style={{
+                      background: 'none', border: 'none', fontSize: 14, cursor: 'pointer',
+                      color: '#DC2626', padding: '2px 4px', flexShrink: 0,
+                    }}
+                    onClick={() => removeDraft(idx)}
+                    title="Remove template"
+                  >
+                    &#10005;
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, paddingLeft: 28 }}>
+                  <input
+                    type="text"
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 12 }}
+                    value={tmpl.templateId}
+                    onChange={(e) => updateDraft(idx, 'templateId', e.target.value)}
+                    placeholder="DocuSign Template ID"
+                  />
+                  <select
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 12, cursor: 'pointer' }}
+                    value={tmpl.taskName || ''}
+                    onChange={(e) => updateDraft(idx, 'taskName', e.target.value)}
+                  >
+                    <option value="">No linked task</option>
+                    {PHASES.map((phase) => {
+                      const tasks = phaseTasks[phase.id] || [];
+                      return tasks.length > 0 ? (
+                        <optgroup key={phase.id} label={`${phase.icon} ${phase.label}`}>
+                          {tasks.map((t) => (
+                            <option key={t.id} value={t.id}>{t.label}</option>
+                          ))}
+                        </optgroup>
+                      ) : null;
+                    })}
+                  </select>
+                </div>
+              </div>
+            ))}
+            <button
+              style={{
+                width: '100%', padding: 10, border: '2px dashed #D0D9E4', borderRadius: 8,
+                background: 'transparent', color: '#2E4E8D', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit', marginTop: 4,
+              }}
+              onClick={addTemplate}
+              onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+              onMouseLeave={(e) => { e.target.style.background = 'transparent'; }}
+            >
+              + Add Template
+            </button>
+          </div>
+        ) : (
+          <div>
+            {templates.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '20px 16px', color: '#7A8BA0', fontSize: 13 }}>
+                No templates configured yet. Click "Edit Templates" to add DocuSign templates.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid #E0E4EA', borderRadius: 10, overflow: 'hidden' }}>
+                {templates.map((tmpl, i) => (
+                  <div key={tmpl.id || i} style={{
+                    padding: '12px 16px',
+                    borderBottom: i < templates.length - 1 ? '1px solid #F0F3F7' : 'none',
+                    background: '#fff',
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724' }}>{tmpl.name}</div>
+                    <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 3, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <span>ID: {tmpl.templateId?.substring(0, 12)}...</span>
+                      {tmpl.taskName && (
+                        <span style={{ color: '#15803D' }}>
+                          Task: {allTasks.find(t => t.id === tmpl.taskName)?.label || tmpl.taskName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 12, lineHeight: 1.5 }}>
+        Create templates in the DocuSign web app, then paste their Template IDs here.
+        Optionally link each template to an onboarding task to auto-complete it when signed.
+      </div>
+    </SettingsCard>
+  );
+}
+
 // ─── Main Admin Settings Page ───
 export function AdminSettings({ showToast, currentUserEmail }) {
   return (
@@ -487,6 +810,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
         </SettingsCard>
       </div>
 
+      {/* DocuSign eSignature Integration */}
+      <div style={{ marginBottom: 20 }}>
+        <DocuSignSettings showToast={showToast} />
+      </div>
+
       {/* Other Integrations (read-only info) */}
       <div style={{
         fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase',
@@ -500,6 +828,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
           title="SharePoint Documents"
           status="connected"
           details="Caregiver document upload, download, and management via Microsoft Graph API. Configured via environment secrets."
+        />
+        <IntegrationInfoCard
+          title="DocuSign eSignature"
+          status="connected"
+          details="Document signing via DocuSign REST API. Templates and environment configured above. Secrets managed via Supabase environment."
         />
       </div>
     </div>
