@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { DOCUMENT_TYPES } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
 import { fireEventTriggers } from '../../lib/automations';
+import { DocuSignSection } from './DocuSignSection';
 import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
 import cg from './caregiver.module.css';
@@ -324,6 +325,13 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
         </div>
         )}
       </>}
+
+      {/* DocuSign eSignatures Section */}
+      <DocuSignSection
+        caregiver={caregiver}
+        currentUser={currentUser}
+        showToast={showToast}
+      />
     </div>
   );
 }
