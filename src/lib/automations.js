@@ -29,6 +29,14 @@ function evaluateConditions(rule, caregiver, triggerContext) {
   // For document_uploaded trigger: match specific document type
   if (conds.document_type && triggerContext.document_type !== conds.document_type) return false;
 
+  // For document_signed trigger: match template name (case-insensitive partial match)
+  if (conds.template_name) {
+    const templateNames = triggerContext.template_names || [];
+    const filter = conds.template_name.toLowerCase();
+    const hasMatch = templateNames.some(n => n && n.toLowerCase().includes(filter));
+    if (!hasMatch) return false;
+  }
+
   // For days_inactive: condition is evaluated server-side by automation-cron, skip here
   // (days_inactive rules are triggered by cron, not by client events)
 

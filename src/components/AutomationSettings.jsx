@@ -14,6 +14,7 @@ const TRIGGER_OPTIONS = [
   { value: 'phase_change', label: 'Phase Changed', description: 'Fires when a caregiver moves to a new onboarding phase' },
   { value: 'task_completed', label: 'Task Completed', description: 'Fires when a specific onboarding task is marked complete' },
   { value: 'document_uploaded', label: 'Document Uploaded', description: 'Fires when a document is uploaded to SharePoint' },
+  { value: 'document_signed', label: 'Document Signed', description: 'Fires when a DocuSign envelope is fully signed' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
@@ -24,6 +25,7 @@ const ACTION_OPTIONS = [
   { value: 'complete_task', label: 'Complete Task', description: 'Mark a specific onboarding task as done' },
   { value: 'add_note', label: 'Add Note', description: 'Add a note to the caregiver record' },
   { value: 'update_field', label: 'Update Field', description: 'Change a caregiver field value' },
+  { value: 'send_docusign_envelope', label: 'Send DocuSign Envelope', description: 'Send document(s) for eSignature via DocuSign' },
 ];
 
 const MERGE_FIELDS = [
@@ -37,6 +39,7 @@ const MERGE_FIELDS = [
   { key: 'overall_progress', label: 'Progress %' },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
+  { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
 ];
 
 // ─── Settings Section Card (reused from AdminSettings pattern) ───
@@ -68,6 +71,7 @@ function TriggerBadge({ type }) {
     phase_change: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
     task_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     document_uploaded: { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
+    document_signed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -76,6 +80,7 @@ function TriggerBadge({ type }) {
     phase_change: 'Phase Change',
     task_completed: 'Task Done',
     document_uploaded: 'Doc Upload',
+    document_signed: 'Doc Signed',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -97,6 +102,7 @@ function ActionBadge({ type }) {
     complete_task: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0', label: 'Task' },
     add_note: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A', label: 'Note' },
     update_field: { bg: '#F8F9FB', color: '#4B5563', border: '#E0E4EA', label: 'Field' },
+    send_docusign_envelope: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE', label: 'DocuSign' },
   };
   const c = config[type] || config.send_sms;
   return (
@@ -144,11 +150,15 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
   const [documentType, setDocumentType] = useState(rule?.conditions?.document_type || '');
   const [phaseFilter, setPhaseFilter] = useState(rule?.conditions?.phase || '');
 
+  // Document signed trigger condition
+  const [templateNameFilter, setTemplateNameFilter] = useState(rule?.conditions?.template_name || '');
+
   // New action-specific config states
   const [targetPhase, setTargetPhase] = useState(rule?.action_config?.target_phase || '');
   const [actionTaskId, setActionTaskId] = useState(rule?.action_config?.task_id || '');
   const [fieldName, setFieldName] = useState(rule?.action_config?.field_name || '');
   const [fieldValue, setFieldValue] = useState(rule?.action_config?.field_value || '');
+  const [docusignSendAll, setDocusignSendAll] = useState(rule?.action_config?.send_all ?? true);
 
   const insertMergeField = (field) => {
     const tag = `{{${field}}}`;
@@ -190,6 +200,7 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         ...(triggerType === 'phase_change' && toPhase ? { to_phase: toPhase } : {}),
         ...(triggerType === 'task_completed' && taskId ? { task_id: taskId } : {}),
         ...(triggerType === 'document_uploaded' && documentType ? { document_type: documentType } : {}),
+        ...(triggerType === 'document_signed' && templateNameFilter.trim() ? { template_name: templateNameFilter.trim() } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
       action_type: actionType,
@@ -198,6 +209,7 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         ...(actionType === 'update_phase' ? { target_phase: targetPhase } : {}),
         ...(actionType === 'complete_task' ? { task_id: actionTaskId } : {}),
         ...(actionType === 'update_field' ? { field_name: fieldName, field_value: fieldValue } : {}),
+        ...(actionType === 'send_docusign_envelope' ? { send_all: docusignSendAll } : {}),
       },
       message_template: messageTemplate.trim(),
     };
@@ -309,6 +321,23 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
           </div>
         )}
 
+        {/* Conditions — document_signed */}
+        {triggerType === 'document_signed' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Template Name Filter (optional)</label>
+            <input
+              type="text"
+              className={forms.fieldInput}
+              value={templateNameFilter}
+              onChange={(e) => setTemplateNameFilter(e.target.value)}
+              placeholder="e.g. Employment Agreement (leave empty for any)"
+            />
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Only fire when the signed envelope contains a template with this name. Leave empty to fire on any signed document.
+            </div>
+          </div>
+        )}
+
         {/* Universal phase filter — all trigger types */}
         <div style={{ marginBottom: 16 }}>
           <label className={forms.fieldLabel}>Only in Phase (optional)</label>
@@ -405,6 +434,20 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
                 placeholder="e.g. ready" />
             </div>
           </>
+        )}
+
+        {/* Action config — send_docusign_envelope */}
+        {actionType === 'send_docusign_envelope' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>What to Send</label>
+            <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={docusignSendAll ? 'all' : 'specific'} onChange={(e) => setDocusignSendAll(e.target.value === 'all')}>
+              <option value="all">Full Onboarding Packet (all templates)</option>
+              <option value="specific">Specific templates (configure in Settings)</option>
+            </select>
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Templates are configured in Settings &gt; DocuSign eSignature.
+            </div>
+          </div>
         )}
 
         {/* Message Template */}
@@ -541,6 +584,11 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
                 Doc: {DOCUMENT_TYPES.find(d => d.id === rule.conditions.document_type)?.label || rule.conditions.document_type}
               </div>
             )}
+            {rule.trigger_type === 'document_signed' && rule.conditions?.template_name && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Template: {rule.conditions.template_name}
+              </div>
+            )}
             {rule.conditions?.phase && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 Only in: {PHASES.find(p => p.id === rule.conditions.phase)?.label || rule.conditions.phase}
@@ -555,6 +603,11 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             {rule.action_type === 'complete_task' && rule.action_config?.task_id && (
               <div style={{ fontSize: 11, color: '#15803D', marginTop: 2 }}>
                 &rarr; {rule.action_config.task_id}
+              </div>
+            )}
+            {rule.action_type === 'send_docusign_envelope' && (
+              <div style={{ fontSize: 11, color: '#6D28D9', marginTop: 2 }}>
+                &rarr; {rule.action_config?.send_all !== false ? 'Full Packet' : 'Specific templates'}
               </div>
             )}
           </div>
@@ -894,7 +947,7 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       >
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
-            Automation rules execute actions automatically when triggers fire. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload) with actions (SMS, email, phase move, task completion, notes, field updates).
+            Automation rules execute actions automatically when triggers fire. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload, document signed) with actions (SMS, email, phase move, task completion, notes, field updates, DocuSign envelopes).
           </div>
         </div>
 
