@@ -11,7 +11,7 @@ import { Toast } from './components/Toast';
 import { AIChatbot } from './components/AIChatbot';
 import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
-import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks } from './lib/storage';
+import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver } from './lib/storage';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { fireEventTriggers } from './lib/automations';
 import layout from './styles/layout.module.css';
@@ -128,6 +128,28 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // ─── Realtime subscription for automation-driven changes ───
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const channel = supabase
+      .channel('caregivers-changes')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'caregivers' },
+        (payload) => {
+          const updatedRow = payload.new;
+          if (!updatedRow?.id) return;
+          const mapped = dbToCaregiver(updatedRow);
+          setCaregivers((prev) =>
+            prev.map((cg) => cg.id === mapped.id ? { ...cg, ...mapped } : cg)
+          );
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   // ─── Toast auto-dismiss ───
   useEffect(() => {
     if (toast) {
@@ -158,9 +180,11 @@ export default function App() {
   const updateTask = (cgId, taskId, value) => {
     const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     let changed;
+    let oldPhase;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
+        oldPhase = getCurrentPhase(cg);
         const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: taskValue } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
@@ -170,7 +194,20 @@ export default function App() {
         return updated;
       })
     );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+    if (changed) {
+      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+
+      // Fire task_completed trigger when a task is checked
+      if (value) {
+        fireEventTriggers('task_completed', changed, { task_id: taskId });
+      }
+
+      // Fire phase_change trigger if the phase actually changed
+      const newPhase = getCurrentPhase(changed);
+      if (oldPhase && newPhase !== oldPhase) {
+        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+      }
+    }
   };
 
   const updateTasksBulk = (cgId, taskUpdates) => {
@@ -179,9 +216,11 @@ export default function App() {
       enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     }
     let changed;
+    let oldPhase;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
+        oldPhase = getCurrentPhase(cg);
         const updated = { ...cg, tasks: { ...cg.tasks, ...enriched } };
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
@@ -191,7 +230,20 @@ export default function App() {
         return updated;
       })
     );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+    if (changed) {
+      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+
+      // Fire task_completed for each newly completed task
+      for (const [key, val] of Object.entries(taskUpdates)) {
+        if (val) fireEventTriggers('task_completed', changed, { task_id: key });
+      }
+
+      // Fire phase_change if phase shifted
+      const newPhase = getCurrentPhase(changed);
+      if (oldPhase && newPhase !== oldPhase) {
+        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+      }
+    }
   };
 
   const addNote = (cgId, noteData) => {
@@ -289,14 +341,24 @@ export default function App() {
 
   const updateCaregiver = (cgId, updates) => {
     let changed;
+    let oldPhase;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
+        oldPhase = getCurrentPhase(cg);
         changed = { ...cg, ...updates };
         return changed;
       })
     );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+    if (changed) {
+      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+
+      // Fire phase_change trigger if phase changed (manual override or data change)
+      const newPhase = getCurrentPhase(changed);
+      if (oldPhase && newPhase !== oldPhase) {
+        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+      }
+    }
     showToast('Profile updated!');
   };
 
