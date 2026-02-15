@@ -36,6 +36,29 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
 
   useEffect(() => { fetchDocuments(); }, [caregiver?.id]);
 
+  // Realtime subscription: auto-refresh when documents are inserted (e.g., DocuSign auto-upload)
+  useEffect(() => {
+    if (!caregiver?.id || !supabase) return;
+    const channel = supabase
+      .channel(`caregiver-docs-${caregiver.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'caregiver_documents', filter: `caregiver_id=eq.${caregiver.id}` },
+        (payload) => {
+          setDocuments((prev) => [payload.new, ...prev]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'caregiver_documents', filter: `caregiver_id=eq.${caregiver.id}` },
+        (payload) => {
+          setDocuments((prev) => prev.filter((d) => d.id !== payload.old.id));
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [caregiver?.id]);
+
   // Fetch custom document types from app_settings
   useEffect(() => {
     if (!supabase) return;
