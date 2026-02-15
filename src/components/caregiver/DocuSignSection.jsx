@@ -9,6 +9,7 @@ export function DocuSignSection({ caregiver, currentUser, showToast }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(null);
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_docusign_expanded') === 'true');
   const [showDropdown, setShowDropdown] = useState(false);
   const [confirmSend, setConfirmSend] = useState(null);
@@ -61,6 +62,54 @@ export function DocuSignSection({ caregiver, currentUser, showToast }) {
   }, []);
 
   useEffect(() => { fetchEnvelopes(); fetchTemplates(); }, [fetchEnvelopes, fetchTemplates]);
+
+  // Realtime subscription for envelope status changes (webhook/automation updates)
+  useEffect(() => {
+    if (!caregiver?.id || !supabase) return;
+    const channel = supabase
+      .channel(`docusign-envelopes-${caregiver.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'docusign_envelopes', filter: `caregiver_id=eq.${caregiver.id}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setEnvelopes((prev) => [payload.new, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setEnvelopes((prev) =>
+              prev.map((env) => env.id === payload.new.id ? { ...env, ...payload.new } : env)
+            );
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [caregiver?.id]);
+
+  // Manually refresh a single envelope's status from DocuSign
+  const handleRefreshStatus = useCallback(async (envelopeId) => {
+    setRefreshing(envelopeId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const { data, error } = await supabase.functions.invoke('docusign-integration', {
+        body: { action: 'get_envelope_status', envelope_id: envelopeId },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      // Realtime will update the UI, but also refetch as fallback
+      await fetchEnvelopes();
+      if (data?.status === 'completed') {
+        showToast?.('Documents signed! Processing completion chain...');
+      } else {
+        showToast?.(`Status: ${data?.status || 'unknown'}`);
+      }
+    } catch (err) {
+      console.error('Status refresh failed:', err);
+      showToast?.(`Failed to refresh: ${err.message || 'Unknown error'}`);
+    } finally {
+      setRefreshing(null);
+    }
+  }, [showToast, fetchEnvelopes]);
 
   // Send envelope
   const handleSend = useCallback(async (templateIds, templateNames, isPacket) => {
@@ -248,6 +297,16 @@ export function DocuSignSection({ caregiver, currentUser, showToast }) {
                     >
                       {statusConfig.label}
                     </span>
+                    {!['completed', 'declined', 'voided'].includes(env.status) && (
+                      <button
+                        className={s.resendBtn}
+                        onClick={() => handleRefreshStatus(env.envelope_id)}
+                        disabled={refreshing === env.envelope_id}
+                        title="Check current status with DocuSign"
+                      >
+                        {refreshing === env.envelope_id ? '...' : 'Refresh'}
+                      </button>
+                    )}
                     {canResend && (
                       <button className={s.resendBtn} onClick={() => handleResend(env)}>
                         Resend
