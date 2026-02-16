@@ -167,7 +167,8 @@ export const saveCaregiversBulk = async (caregivers) => {
 
 export const deleteCaregiversFromDb = async (ids) => {
   if (isSupabaseConfigured()) {
-    await supabase.from('caregivers').delete().in('id', ids);
+    const { error } = await supabase.from('caregivers').delete().in('id', ids);
+    if (error) throw new Error(error.message);
   }
 };
 
