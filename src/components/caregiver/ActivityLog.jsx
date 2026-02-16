@@ -51,17 +51,23 @@ export function ActivityLog({ caregiver, onAddNote }) {
 
     const rcEntries = [...rcData.sms, ...rcData.calls];
 
-    // Deduplication: skip RC outbound texts that match a portal note within 2 minutes
+    // Deduplication: skip RC entries that match portal notes within 2 minutes
     const portalOutboundTexts = portalEntries.filter(
       (n) => n.type === 'text' && n.direction === 'outbound' && n.source === 'portal'
     );
+    const portalRCNotes = portalEntries.filter((n) => n.source === 'ringcentral');
     const deduped = rcEntries.filter((rc) => {
-      if (rc.type !== 'text' || rc.direction !== 'outbound') return true;
       const rcTime = new Date(rc.timestamp).getTime();
-      return !portalOutboundTexts.some((pn) => {
-        const pnTime = new Date(pn.timestamp).getTime();
-        return Math.abs(rcTime - pnTime) < 120000;
-      });
+      // Skip RC outbound texts matching portal outbound notes (automation-sent SMS)
+      if (rc.type === 'text' && rc.direction === 'outbound') {
+        if (portalOutboundTexts.some((pn) => Math.abs(rcTime - new Date(pn.timestamp).getTime()) < 120000)) return false;
+      }
+      // Skip RC entries matching webhook-written notes (inbound SMS logged by webhook)
+      if (portalRCNotes.some((pn) => {
+        if (pn.type !== rc.type || pn.direction !== rc.direction) return false;
+        return Math.abs(rcTime - new Date(pn.timestamp).getTime()) < 120000;
+      })) return false;
+      return true;
     });
 
     return [...portalEntries, ...deduped].sort(

@@ -15,6 +15,7 @@ const TRIGGER_OPTIONS = [
   { value: 'task_completed', label: 'Task Completed', description: 'Fires when a specific onboarding task is marked complete' },
   { value: 'document_uploaded', label: 'Document Uploaded', description: 'Fires when a document is uploaded to SharePoint' },
   { value: 'document_signed', label: 'Document Signed', description: 'Fires when a DocuSign envelope is fully signed' },
+  { value: 'inbound_sms', label: 'Inbound SMS Received', description: 'Fires when an SMS is received from a caregiver via RingCentral' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
@@ -40,6 +41,8 @@ const MERGE_FIELDS = [
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
+  { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },
+  { key: 'sender_number', label: 'Sender Number', triggers: ['inbound_sms'] },
 ];
 
 // ─── Settings Section Card (reused from AdminSettings pattern) ───
@@ -72,6 +75,7 @@ function TriggerBadge({ type }) {
     task_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     document_uploaded: { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
     document_signed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+    inbound_sms: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -81,6 +85,7 @@ function TriggerBadge({ type }) {
     task_completed: 'Task Done',
     document_uploaded: 'Doc Upload',
     document_signed: 'Doc Signed',
+    inbound_sms: 'Inbound SMS',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -153,6 +158,9 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
   // Document signed trigger condition
   const [templateNameFilter, setTemplateNameFilter] = useState(rule?.conditions?.template_name || '');
 
+  // Inbound SMS trigger condition
+  const [keywordFilter, setKeywordFilter] = useState(rule?.conditions?.keyword || '');
+
   // New action-specific config states
   const [targetPhase, setTargetPhase] = useState(rule?.action_config?.target_phase || '');
   const [actionTaskId, setActionTaskId] = useState(rule?.action_config?.task_id || '');
@@ -201,6 +209,7 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
         ...(triggerType === 'task_completed' && taskId ? { task_id: taskId } : {}),
         ...(triggerType === 'document_uploaded' && documentType ? { document_type: documentType } : {}),
         ...(triggerType === 'document_signed' && templateNameFilter.trim() ? { template_name: templateNameFilter.trim() } : {}),
+        ...(triggerType === 'inbound_sms' && keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
       action_type: actionType,
@@ -334,6 +343,23 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
             />
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
               Only fire when the signed envelope contains a template with this name. Leave empty to fire on any signed document.
+            </div>
+          </div>
+        )}
+
+        {/* Conditions — inbound_sms */}
+        {triggerType === 'inbound_sms' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Keyword Filter (optional)</label>
+            <input
+              type="text"
+              className={forms.fieldInput}
+              value={keywordFilter}
+              onChange={(e) => setKeywordFilter(e.target.value)}
+              placeholder="e.g. interested (leave empty for any message)"
+            />
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Only fire when the inbound message contains this keyword. Leave empty to fire on any inbound SMS.
             </div>
           </div>
         )}
@@ -587,6 +613,11 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             {rule.trigger_type === 'document_signed' && rule.conditions?.template_name && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 Template: {rule.conditions.template_name}
+              </div>
+            )}
+            {rule.trigger_type === 'inbound_sms' && rule.conditions?.keyword && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Keyword: &ldquo;{rule.conditions.keyword}&rdquo;
               </div>
             )}
             {rule.conditions?.phase && (

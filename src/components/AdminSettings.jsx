@@ -778,6 +778,97 @@ function DocuSignSettings({ showToast }) {
   );
 }
 
+// ─── RingCentral Webhook Status ───
+function WebhookStatus({ showToast }) {
+  const [status, setStatus] = useState(null); // null = loading, 'active', 'inactive', 'error'
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkStatus() {
+      try {
+        const { data: setting } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'ringcentral_webhook_subscription_id')
+          .single();
+        if (cancelled) return;
+        setStatus(setting?.value ? 'active' : 'inactive');
+      } catch {
+        if (!cancelled) setStatus('inactive');
+      }
+    }
+    checkStatus();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSubscribe = async () => {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL || 'https://zocrnurvazyxdpyqimgj.supabase.co'}/functions/v1/ringcentral-webhook?action=subscribe`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({}),
+        }
+      );
+      const result = await resp.json();
+      if (result.success) {
+        setStatus('active');
+        showToast?.(`Webhook ${result.action === 'renewed' ? 'renewed' : 'enabled'} successfully`);
+      } else {
+        showToast?.(`Failed: ${result.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      showToast?.(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 20, borderTop: '1px solid #E0E4EA', paddingTop: 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 14px', background: '#F8F9FB', borderRadius: 10,
+        border: '1px solid #E0E4EA',
+      }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+            Inbound SMS Webhook
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: status === 'active' ? '#22C55E' : '#D5DCE6',
+              display: 'inline-block',
+            }} />
+            <span style={{ fontSize: 12, color: status === 'active' ? '#15803D' : '#7A8BA0', fontWeight: 500 }}>
+              {status === null ? 'Checking...' : status === 'active' ? 'Active' : 'Not configured'}
+            </span>
+          </div>
+        </div>
+        <button
+          className={btn.primaryBtn}
+          style={{ padding: '6px 14px', fontSize: 12, opacity: loading ? 0.6 : 1 }}
+          onClick={handleSubscribe}
+          disabled={loading}
+        >
+          {loading ? 'Setting up...' : status === 'active' ? 'Refresh' : 'Enable Webhook'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 6, lineHeight: 1.5 }}>
+        When enabled, inbound SMS messages from caregivers are automatically logged to their activity timeline and can trigger automation rules.
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Settings Page ───
 export function AdminSettings({ showToast, currentUserEmail }) {
   return (
@@ -843,6 +934,7 @@ export function AdminSettings({ showToast, currentUserEmail }) {
             formatDisplay={formatPhoneDisplay}
             showToast={showToast}
           />
+          <WebhookStatus showToast={showToast} />
         </SettingsCard>
       </div>
 
