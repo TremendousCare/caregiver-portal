@@ -26,3 +26,65 @@
   max-width: 480px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.25);
 }
+
+/* ─── Execution Log: Collapsible + Scrollable ─── */
+
+.logToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4B5563;
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: 12px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.logToggleBtn:hover {
+  background: #F0F4FA;
+  border-color: #C5CDD8;
+}
+
+.logCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #E0E4EA;
+  font-size: 10px;
+  font-weight: 700;
+  color: #4B5563;
+}
+
+.logScrollContainer {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 12px;
+}
+
+/* Subtle scrollbar styling */
+.logScrollContainer::-webkit-scrollbar {
+  width: 6px;
+}
+
+.logScrollContainer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.logScrollContainer::-webkit-scrollbar-thumb {
+  background: #D5DCE6;
+  border-radius: 3px;
+}
+
+.logScrollContainer::-webkit-scrollbar-thumb:hover {
+  background: #B0BAC7;
+}

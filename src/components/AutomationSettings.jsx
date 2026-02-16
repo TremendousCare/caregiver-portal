@@ -672,19 +672,7 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
 }
 
 // ─── Execution Log ───
-function ExecutionLog({ logs, loading }) {
-  if (loading) {
-    return <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>;
-  }
-
-  if (logs.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: '24px 16px', color: '#7A8BA0', fontSize: 13 }}>
-        No automations have fired yet. Create a rule above to get started.
-      </div>
-    );
-  }
-
+function ExecutionLog({ logs, loading, collapsed, onToggleCollapse }) {
   const formatTimestamp = (ts) => {
     const d = new Date(ts);
     const now = new Date();
@@ -701,53 +689,87 @@ function ExecutionLog({ logs, loading }) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
 
-  return (
-    <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
-        padding: '10px 16px', background: '#F8F9FB',
-        fontSize: 10, fontWeight: 700, color: '#7A8BA0',
-        textTransform: 'uppercase', letterSpacing: 1,
-        borderBottom: '1px solid #E0E4EA',
-      }}>
-        <span>Time</span>
-        <span>Rule</span>
-        <span>Caregiver</span>
-        <span>Action</span>
-        <span>Status</span>
-      </div>
+  if (loading) {
+    return <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>;
+  }
 
-      {logs.map((log, i) => (
-        <div key={log.id} style={{
-          display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
-          alignItems: 'center', padding: '10px 16px',
-          borderBottom: i < logs.length - 1 ? '1px solid #F0F3F7' : 'none',
-          background: '#fff',
-        }}>
-          <div style={{ fontSize: 11, color: '#7A8BA0', fontWeight: 500 }}>
-            {formatTimestamp(log.executed_at)}
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {log.rule_name || log.rule_id}
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {log.caregiver_name || log.caregiver_id}
-          </div>
-          <div><ActionBadge type={log.action_type} /></div>
-          <div>
-            <StatusBadge status={log.status} />
-            {log.error_detail && (
-              <div style={{ fontSize: 10, color: '#DC2626', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={log.error_detail}
-              >
-                {log.error_detail}
+  if (logs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '24px 16px', color: '#7A8BA0', fontSize: 13 }}>
+        No automations have fired yet. Create a rule above to get started.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Collapse / Expand toggle */}
+      <button
+        className={s.logToggleBtn}
+        onClick={onToggleCollapse}
+      >
+        <svg
+          width="12" height="12" viewBox="0 0 12 12" fill="none"
+          style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+        >
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>{collapsed ? 'Show' : 'Hide'} log entries</span>
+        <span className={s.logCountBadge}>{logs.length}</span>
+      </button>
+
+      {!collapsed && (
+        <div className={s.logScrollContainer}>
+          <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
+              padding: '10px 16px', background: '#F8F9FB',
+              fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+              textTransform: 'uppercase', letterSpacing: 1,
+              borderBottom: '1px solid #E0E4EA',
+              position: 'sticky', top: 0, zIndex: 1,
+            }}>
+              <span>Time</span>
+              <span>Rule</span>
+              <span>Caregiver</span>
+              <span>Action</span>
+              <span>Status</span>
+            </div>
+
+            {logs.map((log, i) => (
+              <div key={log.id} style={{
+                display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
+                alignItems: 'center', padding: '10px 16px',
+                borderBottom: i < logs.length - 1 ? '1px solid #F0F3F7' : 'none',
+                background: '#fff',
+              }}>
+                <div style={{ fontSize: 11, color: '#7A8BA0', fontWeight: 500 }}>
+                  {formatTimestamp(log.executed_at)}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {log.rule_name || log.rule_id}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {log.caregiver_name || log.caregiver_id}
+                </div>
+                <div><ActionBadge type={log.action_type} /></div>
+                <div>
+                  <StatusBadge status={log.status} />
+                  {log.error_detail && (
+                    <div style={{ fontSize: 10, color: '#DC2626', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={log.error_detail}
+                    >
+                      {log.error_detail}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 
@@ -761,6 +783,7 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
   const [editingRule, setEditingRule] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(null);
+  const [logCollapsed, setLogCollapsed] = useState(true);
 
   // Load rules
   const loadRules = useCallback(async () => {
@@ -963,7 +986,12 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       {/* Execution Log */}
       <div style={{ marginTop: 20 }}>
         <SettingsCard title="Execution Log" description="Recent automation activity">
-          <ExecutionLog logs={logs} loading={loadingLogs} />
+          <ExecutionLog
+            logs={logs}
+            loading={loadingLogs}
+            collapsed={logCollapsed}
+            onToggleCollapse={() => setLogCollapsed((prev) => !prev)}
+          />
         </SettingsCard>
       </div>
 
