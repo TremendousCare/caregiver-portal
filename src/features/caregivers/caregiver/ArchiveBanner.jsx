@@ -1,4 +1,4 @@
-import { PHASES } from '../../lib/constants';
+import { PHASES } from '../../../lib/constants';
 import { ARCHIVE_REASONS } from './constants';
 import cg from './caregiver.module.css';
 

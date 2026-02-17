@@ -1,4 +1,4 @@
-import layout from '../styles/layout.module.css';
+import layout from '../../styles/layout.module.css';
 
 export function Toast({ message }) {
   if (!message) return null;

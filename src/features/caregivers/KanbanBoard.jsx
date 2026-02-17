@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS } from '../lib/constants';
-import { getCurrentPhase, getOverallProgress, getPhaseProgress } from '../lib/utils';
-import { loadBoardColumns, saveBoardColumns } from '../lib/storage';
+import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS } from '../../lib/constants';
+import { getCurrentPhase, getOverallProgress, getPhaseProgress } from '../../lib/utils';
+import { loadBoardColumns, saveBoardColumns } from '../../lib/storage';
 import kb from './KanbanBoard.module.css';
-import btn from '../styles/buttons.module.css';
-import forms from '../styles/forms.module.css';
-import layout from '../styles/layout.module.css';
+import btn from '../../styles/buttons.module.css';
+import forms from '../../styles/forms.module.css';
+import layout from '../../styles/layout.module.css';
 
 // ─── Fireworks celebration canvas ────────────────────────────
 function Fireworks() {
@@ -82,7 +82,7 @@ export function OrientationBanner({ caregivers }) {
 
   // Use dynamic import to avoid circular deps — orientation storage
   useEffect(() => {
-    import('../lib/storage').then(({ loadOrientationData }) => {
+    import('../../lib/storage').then(({ loadOrientationData }) => {
       loadOrientationData().then((data) => {
         setOrientationData(data);
         setLoaded(true);
@@ -92,7 +92,7 @@ export function OrientationBanner({ caregivers }) {
 
   useEffect(() => {
     if (loaded) {
-      import('../lib/storage').then(({ saveOrientationData }) => {
+      import('../../lib/storage').then(({ saveOrientationData }) => {
         saveOrientationData(orientationData);
       });
     }

@@ -1,7 +1,7 @@
-import { GREEN_LIGHT_ITEMS } from '../../lib/constants';
-import { isTaskDone } from '../../lib/utils';
-import cards from '../../styles/cards.module.css';
-import btn from '../../styles/buttons.module.css';
+import { GREEN_LIGHT_ITEMS } from '../../../lib/constants';
+import { isTaskDone } from '../../../lib/utils';
+import cards from '../../../styles/cards.module.css';
+import btn from '../../../styles/buttons.module.css';
 
 const TASK_KEYS = [
   ['offer_signed'],

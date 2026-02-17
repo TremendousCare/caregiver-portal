@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import cards from '../../styles/cards.module.css';
-import forms from '../../styles/forms.module.css';
-import btn from '../../styles/buttons.module.css';
+import cards from '../../../styles/cards.module.css';
+import forms from '../../../styles/forms.module.css';
+import btn from '../../../styles/buttons.module.css';
 import { ARCHIVE_REASONS } from './constants';
 
 export function ArchiveDialog({ isOpen, onArchive, onCancel }) {

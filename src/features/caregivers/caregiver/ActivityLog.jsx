@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../../../lib/supabase';
 import cg from './caregiver.module.css';
-import forms from '../../styles/forms.module.css';
-import btn from '../../styles/buttons.module.css';
+import forms from '../../../styles/forms.module.css';
+import btn from '../../../styles/buttons.module.css';
 import { NOTE_TYPES, NOTE_OUTCOMES } from './constants';
 
 export function ActivityLog({ caregiver, onAddNote }) {

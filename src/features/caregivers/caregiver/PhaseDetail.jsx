@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { PHASES, CHASE_SCRIPTS } from '../../lib/constants';
-import { isTaskDone } from '../../lib/utils';
-import { getPhaseTasks } from '../../lib/storage';
+import { PHASES, CHASE_SCRIPTS } from '../../../lib/constants';
+import { isTaskDone } from '../../../lib/utils';
+import { getPhaseTasks } from '../../../lib/storage';
 import { OrientationBanner } from '../KanbanBoard';
-import progress from '../../styles/progress.module.css';
-import btn from '../../styles/buttons.module.css';
+import progress from '../../../styles/progress.module.css';
+import btn from '../../../styles/buttons.module.css';
 import cg from './caregiver.module.css';
 
 export function PhaseDetail({ caregiver, allCaregivers, activePhase, showScripts, onToggleScripts, onUpdateTask, onUpdateTasksBulk, onRefreshTasks }) {
