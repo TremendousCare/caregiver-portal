@@ -5,9 +5,9 @@ import { isTaskDone } from '../utils';
 import progress from '../../../styles/progress.module.css';
 import btn from '../../../styles/buttons.module.css';
 import cl from './client.module.css';
+// Phase Notes section removed — all notes consolidated in Activity Log
 
-export function ClientPhaseDetail({ client, activePhase, showScripts, onToggleScripts, onUpdateTask, onUpdateTasksBulk, onAddNote, onRefreshTasks }) {
-  const [noteText, setNoteText] = useState('');
+export function ClientPhaseDetail({ client, activePhase, showScripts, onToggleScripts, onUpdateTask, onUpdateTasksBulk, onRefreshTasks }) {
   const [editingTasks, setEditingTasks] = useState(false);
   const [taskDraft, setTaskDraft] = useState([]);
 
@@ -16,17 +16,6 @@ export function ClientPhaseDetail({ client, activePhase, showScripts, onToggleSc
   const phaseTasks = CLIENT_PHASE_TASKS[activePhase] || [];
   const allDone = phaseTasks.length > 0 && phaseTasks.every((t) => isTaskDone(client.tasks?.[t.id]));
   const noneDone = phaseTasks.every((t) => !isTaskDone(client.tasks?.[t.id]));
-
-  const handleAddNote = () => {
-    if (!noteText.trim()) return;
-    onAddNote(client.id, { text: noteText.trim(), type: 'note', phase: activePhase });
-    setNoteText('');
-  };
-
-  // Filter notes for this phase
-  const phaseNotes = (client.notes || [])
-    .filter((n) => n.phase === activePhase || !n.phase)
-    .sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0));
 
   return (
     <div className={progress.phaseDetail}>
@@ -130,42 +119,6 @@ export function ClientPhaseDetail({ client, activePhase, showScripts, onToggleSc
         </>
       )}
 
-      {/* Phase Notes */}
-      <div style={{ marginTop: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F', marginBottom: 8 }}>Phase Notes</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            style={{
-              flex: 1,
-              padding: '10px 14px',
-              border: '1px solid #E2E8F0',
-              borderRadius: 10,
-              fontSize: 13,
-              fontFamily: 'inherit',
-              outline: 'none',
-            }}
-            placeholder={`Add a note for ${phaseInfo?.label || 'this phase'}...`}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
-          />
-          <button className={btn.primaryBtn} onClick={handleAddNote}>Add</button>
-        </div>
-
-        {phaseNotes.length > 0 && (
-          <div className={cl.notesList} style={{ maxHeight: 200 }}>
-            {phaseNotes.slice(0, 10).map((n, i) => (
-              <div key={i} className={cl.noteItem}>
-                <div className={cl.noteTimestamp}>
-                  {new Date(n.timestamp || n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                  {n.author && <span style={{ marginLeft: 8, color: '#2E4E8D', fontWeight: 600 }}>— {n.author}</span>}
-                </div>
-                <div className={cl.noteText}>{n.text}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

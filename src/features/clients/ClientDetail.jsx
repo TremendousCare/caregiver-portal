@@ -7,7 +7,6 @@ import { ClientNextSteps } from './client/ClientNextSteps';
 import { ClientProfileCard } from './client/ClientProfileCard';
 import { ClientProgressOverview } from './client/ClientProgressOverview';
 import { ClientPhaseDetail } from './client/ClientPhaseDetail';
-import { ClientCommunicationTimeline } from './client/ClientCommunicationTimeline';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import cl from './client/client.module.css';
 import cards from '../../styles/cards.module.css';
@@ -177,18 +176,12 @@ export function ClientDetail({
         onToggleScripts={setShowScripts}
         onUpdateTask={onUpdateTask}
         onUpdateTasksBulk={onUpdateTasksBulk}
-        onAddNote={onAddNote}
         onRefreshTasks={onRefreshTasks}
-      />
-
-      <ClientCommunicationTimeline
-        client={client}
-        currentUser={currentUser}
-        onAddNote={onAddNote}
       />
 
       <ClientActivityLog
         client={client}
+        currentUser={currentUser}
         onAddNote={onAddNote}
       />
     </div>
