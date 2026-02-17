@@ -1,9 +1,32 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { getClientPhase } from '../../features/clients/utils';
-import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClient } from '../../features/clients/storage';
+import { getClientPhase, isTaskDone } from '../../features/clients/utils';
+import { CLIENT_PHASES } from '../../features/clients/constants';
+import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClient, getClientPhaseTasks, saveClientPhaseTasks, loadClientPhaseTasks } from '../../features/clients/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireClientEventTriggers } from '../../features/clients/automations';
 import { useApp } from './AppContext';
+
+// ─── Auto-advance helper ────────────────────────────────────
+// Returns the next pipeline phase if all tasks in the current phase are done.
+// Skips terminal phases (won/lost/nurture) — those require manual selection.
+const ADVANCEABLE_PHASES = CLIENT_PHASES
+  .filter((p) => !['won', 'lost', 'nurture'].includes(p.id))
+  .map((p) => p.id);
+
+function getAutoAdvancePhase(client, tasksObj) {
+  const currentPhase = getClientPhase(client);
+  // Only auto-advance through pipeline phases
+  const idx = ADVANCEABLE_PHASES.indexOf(currentPhase);
+  if (idx < 0 || idx >= ADVANCEABLE_PHASES.length - 1) return null;
+
+  const phaseTasks = getClientPhaseTasks()[currentPhase] || [];
+  if (phaseTasks.length === 0) return null;
+
+  const allDone = phaseTasks.every((t) => isTaskDone(tasksObj?.[t.id]));
+  if (!allDone) return null;
+
+  return ADVANCEABLE_PHASES[idx + 1];
+}
 
 const ClientContext = createContext();
 
@@ -20,6 +43,7 @@ export function ClientProvider({ children }) {
     let cancelled = false;
     const load = async (attempt = 1) => {
       try {
+        await loadClientPhaseTasks();
         const data = await loadClients();
         if (cancelled) return;
         setClients(data);
@@ -134,14 +158,28 @@ export function ClientProvider({ children }) {
   const updateTask = useCallback((clientId, taskId, value) => {
     const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     let changed;
+    let oldPhase;
     setClients((prev) =>
       prev.map((cl) => {
         if (cl.id !== clientId) return cl;
+        oldPhase = getClientPhase(cl);
+        const newTasks = { ...cl.tasks, [taskId]: taskValue };
         changed = {
           ...cl,
-          tasks: { ...cl.tasks, [taskId]: taskValue },
+          tasks: newTasks,
           updatedAt: Date.now(),
         };
+        // Auto-advance: if all tasks in current phase are done, move to next phase
+        if (value) {
+          const nextPhase = getAutoAdvancePhase(cl, newTasks);
+          if (nextPhase) {
+            changed.phase = nextPhase;
+            changed.phaseTimestamps = {
+              ...changed.phaseTimestamps,
+              [nextPhase]: changed.phaseTimestamps?.[nextPhase] || Date.now(),
+            };
+          }
+        }
         return changed;
       })
     );
@@ -149,6 +187,11 @@ export function ClientProvider({ children }) {
       saveClient(changed).catch(() => showToast('Failed to save \u2014 check your connection'));
       if (value) {
         fireClientEventTriggers('client_task_completed', changed, { task_id: taskId });
+      }
+      const newPhase = getClientPhase(changed);
+      if (oldPhase && newPhase !== oldPhase) {
+        fireClientEventTriggers('client_phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+        showToast(`Advanced to ${CLIENT_PHASES.find((p) => p.id === newPhase)?.label || newPhase}!`);
       }
     }
   }, [showToast, currentUserName]);
@@ -159,14 +202,29 @@ export function ClientProvider({ children }) {
       enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     }
     let changed;
+    let oldPhase;
     setClients((prev) =>
       prev.map((cl) => {
         if (cl.id !== clientId) return cl;
+        oldPhase = getClientPhase(cl);
+        const newTasks = { ...cl.tasks, ...enriched };
         changed = {
           ...cl,
-          tasks: { ...cl.tasks, ...enriched },
+          tasks: newTasks,
           updatedAt: Date.now(),
         };
+        // Auto-advance: if all tasks in current phase are done, move to next phase
+        const hasAnyChecked = Object.values(taskUpdates).some(Boolean);
+        if (hasAnyChecked) {
+          const nextPhase = getAutoAdvancePhase(cl, newTasks);
+          if (nextPhase) {
+            changed.phase = nextPhase;
+            changed.phaseTimestamps = {
+              ...changed.phaseTimestamps,
+              [nextPhase]: changed.phaseTimestamps?.[nextPhase] || Date.now(),
+            };
+          }
+        }
         return changed;
       })
     );
@@ -174,6 +232,11 @@ export function ClientProvider({ children }) {
       saveClient(changed).catch(() => showToast('Failed to save \u2014 check your connection'));
       for (const [key, val] of Object.entries(taskUpdates)) {
         if (val) fireClientEventTriggers('client_task_completed', changed, { task_id: key });
+      }
+      const newPhase = getClientPhase(changed);
+      if (oldPhase && newPhase !== oldPhase) {
+        fireClientEventTriggers('client_phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+        showToast(`Advanced to ${CLIENT_PHASES.find((p) => p.id === newPhase)?.label || newPhase}!`);
       }
     }
   }, [showToast, currentUserName]);
@@ -243,6 +306,12 @@ export function ClientProvider({ children }) {
     }
   }, [showToast]);
 
+  // ─── Task definition refresh (for editable checklists) ───
+  const refreshClientTasks = useCallback(() => {
+    saveClientPhaseTasks();
+    setTasksVersion((v) => v + 1);
+  }, []);
+
   // ─── Derived data (memoized) ───
   const activeClients = useMemo(
     () => clients.filter((cl) => !cl.archived && getClientPhase(cl) !== 'lost'),
@@ -267,7 +336,7 @@ export function ClientProvider({ children }) {
       activeClients, archivedClients, wonClients, lostClients,
       filterPhase, setFilterPhase,
       addClient, updateClient, updatePhase, updateTask, updateTasksBulk,
-      addNote, archiveClient, unarchiveClient, deleteClient,
+      addNote, archiveClient, unarchiveClient, deleteClient, refreshClientTasks,
     }}>
       {children}
     </ClientContext.Provider>

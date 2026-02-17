@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { CLIENT_PHASES, DEFAULT_CLIENT_TASKS } from '../constants';
+import { CLIENT_PHASES } from '../constants';
+import { getClientPhaseTasks } from '../storage';
 import { getClientPhase, isTaskDone, getClientPhaseProgress } from '../utils';
 
 // ─── Overdue Thresholds (in milliseconds) ────────────────────
@@ -50,7 +51,7 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
     // Terminal phases handled separately
     if (['won', 'lost', 'nurture'].includes(phase)) return [];
 
-    const tasks = DEFAULT_CLIENT_TASKS[phase];
+    const tasks = getClientPhaseTasks()[phase];
     if (!tasks) return [];
 
     const threshold = OVERDUE_THRESHOLDS[phase];

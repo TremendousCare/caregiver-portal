@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { PHASES, DOCUMENT_TYPES } from '../lib/constants';
 import { getPhaseTasks } from '../lib/storage';
-import { CLIENT_PHASES, DEFAULT_CLIENT_TASKS } from '../features/clients/constants';
+import { CLIENT_PHASES } from '../features/clients/constants';
+import { getClientPhaseTasks } from '../features/clients/storage';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
@@ -79,7 +80,7 @@ function getPhases(entityType) {
   return entityType === 'client' ? CLIENT_PHASES : PHASES;
 }
 function getTasksByPhase(entityType) {
-  if (entityType === 'client') return DEFAULT_CLIENT_TASKS;
+  if (entityType === 'client') return getClientPhaseTasks();
   return getPhaseTasks();
 }
 

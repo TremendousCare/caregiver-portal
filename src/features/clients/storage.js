@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { DEFAULT_CLIENT_TASKS } from './constants';
 
 // ═══════════════════════════════════════════════════════════════
 // Client Storage Abstraction Layer
@@ -11,6 +12,62 @@ import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 // ═══════════════════════════════════════════════════════════════
 
 const CLIENTS_KEY = 'tc-clients-v1';
+const CLIENT_PHASE_TASKS_KEY = 'tc-client-phase-tasks-v1';
+
+// ─── Client Phase Tasks (editable checklists) ────────────────
+// Module-level state for client phase tasks, same pattern as caregiver storage.
+let _clientPhaseTasks = JSON.parse(JSON.stringify(DEFAULT_CLIENT_TASKS));
+
+export const getClientPhaseTasks = () => _clientPhaseTasks;
+
+export const setClientPhaseTasks = (tasks) => {
+  _clientPhaseTasks = tasks;
+};
+
+const supabaseGetKV = async (key) => {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('app_data')
+    .select('value')
+    .eq('key', key)
+    .single();
+  if (error || !data) return null;
+  return data.value;
+};
+
+const supabaseSetKV = async (key, value) => {
+  if (!supabase) return;
+  await supabase
+    .from('app_data')
+    .upsert({ key, value }, { onConflict: 'key' });
+};
+
+export const loadClientPhaseTasks = async () => {
+  try {
+    if (isSupabaseConfigured()) {
+      const val = await supabaseGetKV('client_phase_tasks');
+      if (val) {
+        _clientPhaseTasks = typeof val === 'string' ? JSON.parse(val) : val;
+        return;
+      }
+    }
+    const local = localGet(CLIENT_PHASE_TASKS_KEY);
+    if (local) _clientPhaseTasks = local;
+  } catch (e) {
+    console.error('loadClientPhaseTasks failed:', e);
+  }
+};
+
+export const saveClientPhaseTasks = async () => {
+  try {
+    if (isSupabaseConfigured()) {
+      await supabaseSetKV('client_phase_tasks', _clientPhaseTasks);
+    }
+    localSet(CLIENT_PHASE_TASKS_KEY, _clientPhaseTasks);
+  } catch (e) {
+    console.error('saveClientPhaseTasks failed:', e);
+  }
+};
 
 // ─── localStorage Helpers ────────────────────────────────────
 const localGet = (key) => {

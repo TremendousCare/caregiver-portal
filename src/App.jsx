@@ -209,6 +209,7 @@ function ClientDetailPage() {
     clients, activeClients,
     updateTask, updateTasksBulk, addNote, updatePhase,
     archiveClient, unarchiveClient, deleteClient, updateClient,
+    refreshClientTasks,
   } = useClients();
 
   const client = useMemo(() => clients.find((c) => c.id === id), [clients, id]);
@@ -244,6 +245,7 @@ function ClientDetailPage() {
         navigate('/clients');
       }}
       onUpdateClient={updateClient}
+      onRefreshTasks={refreshClientTasks}
       showToast={showToast}
     />
   );

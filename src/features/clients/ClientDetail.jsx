@@ -115,7 +115,7 @@ export function ClientDetail({
   client, allClients, currentUser,
   onBack, onUpdateTask, onUpdateTasksBulk, onAddNote, onUpdatePhase,
   onArchive, onUnarchive, onDelete, onUpdateClient,
-  showToast,
+  onRefreshTasks, showToast,
 }) {
   const [activePhase, setActivePhase] = useState(getClientPhase(client));
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
@@ -178,6 +178,7 @@ export function ClientDetail({
         onUpdateTask={onUpdateTask}
         onUpdateTasksBulk={onUpdateTasksBulk}
         onAddNote={onAddNote}
+        onRefreshTasks={onRefreshTasks}
       />
 
       <ClientCommunicationTimeline

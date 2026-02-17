@@ -73,6 +73,7 @@ export async function fireClientEventTriggers(triggerType, client, triggerContex
         body: {
           rule_id: rule.id,
           caregiver_id: client.id,
+          entity_type: 'client',
           action_type: rule.action_type,
           message_template: rule.message_template,
           action_config: rule.action_config,

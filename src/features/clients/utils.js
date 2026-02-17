@@ -1,4 +1,5 @@
-import { CLIENT_PHASES, DEFAULT_CLIENT_TASKS } from './constants';
+import { CLIENT_PHASES } from './constants';
+import { getClientPhaseTasks } from './storage';
 
 // ─── Task Value Helpers ─────────────────────────────────────
 // Tasks can be stored as:
@@ -22,7 +23,7 @@ export const getClientPhase = (client) => {
 // ─── Phase Progress ─────────────────────────────────────────
 
 export const getClientPhaseProgress = (client, phaseId) => {
-  const tasks = DEFAULT_CLIENT_TASKS[phaseId];
+  const tasks = getClientPhaseTasks()[phaseId];
   if (!tasks || tasks.length === 0) return { done: 0, total: 0, pct: 0 };
   const done = tasks.filter((t) => isTaskDone(client.tasks?.[t.id])).length;
   return { done, total: tasks.length, pct: Math.round((done / tasks.length) * 100) };
@@ -38,7 +39,7 @@ export const getClientOverallProgress = (client) => {
   let doneTasks = 0;
 
   for (const phaseId of activePhaseIds) {
-    const tasks = DEFAULT_CLIENT_TASKS[phaseId];
+    const tasks = getClientPhaseTasks()[phaseId];
     if (!tasks) continue;
     totalTasks += tasks.length;
     doneTasks += tasks.filter((t) => isTaskDone(client.tasks?.[t.id])).length;
@@ -69,7 +70,7 @@ export const getDaysSinceCreated = (client) => {
 
 export const isClientOverdue = (client) => {
   const phase = getClientPhase(client);
-  const tasks = DEFAULT_CLIENT_TASKS[phase];
+  const tasks = getClientPhaseTasks()[phase];
   if (!tasks) return false;
 
   const hasCriticalIncomplete = tasks.some(
@@ -96,7 +97,7 @@ export const isClientOverdue = (client) => {
 
 export const getNextStep = (client) => {
   const phase = getClientPhase(client);
-  const tasks = DEFAULT_CLIENT_TASKS[phase];
+  const tasks = getClientPhaseTasks()[phase];
   if (!tasks) return null;
 
   // Find the first incomplete task in current phase
