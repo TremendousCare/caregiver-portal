@@ -3,7 +3,7 @@ import { getClientPhase, isTaskDone } from '../../features/clients/utils';
 import { CLIENT_PHASES } from '../../features/clients/constants';
 import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClient, getClientPhaseTasks, saveClientPhaseTasks, loadClientPhaseTasks } from '../../features/clients/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import { fireClientEventTriggers } from '../../features/clients/automations';
+import { fireClientEventTriggers, fireClientSequences } from '../../features/clients/automations';
 import { useApp } from './AppContext';
 
 // ─── Auto-advance helper ────────────────────────────────────
@@ -103,6 +103,7 @@ export function ClientProvider({ children }) {
     setClients((prev) => [newClient, ...prev]);
     saveClient(newClient).catch(() => showToast('Failed to save \u2014 check your connection'));
     fireClientEventTriggers('new_client', newClient);
+    fireClientSequences(newClient); // Immediately execute zero-delay sequence steps
     showToast(`${data.firstName || ''} ${data.lastName || ''} added as new client!`);
     return newClient;
   }, [showToast]);
@@ -151,6 +152,7 @@ export function ClientProvider({ children }) {
       saveClient(changed).catch(() => showToast('Failed to save \u2014 check your connection'));
       if (oldPhase && newPhase !== oldPhase) {
         fireClientEventTriggers('client_phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+        fireClientSequences(changed); // Immediately execute zero-delay sequence steps for new phase
       }
     }
   }, [showToast]);
@@ -191,6 +193,7 @@ export function ClientProvider({ children }) {
       const newPhase = getClientPhase(changed);
       if (oldPhase && newPhase !== oldPhase) {
         fireClientEventTriggers('client_phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+        fireClientSequences(changed); // Trigger sequences for auto-advanced phase
         showToast(`Advanced to ${CLIENT_PHASES.find((p) => p.id === newPhase)?.label || newPhase}!`);
       }
     }
@@ -236,6 +239,7 @@ export function ClientProvider({ children }) {
       const newPhase = getClientPhase(changed);
       if (oldPhase && newPhase !== oldPhase) {
         fireClientEventTriggers('client_phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
+        fireClientSequences(changed); // Trigger sequences for auto-advanced phase
         showToast(`Advanced to ${CLIENT_PHASES.find((p) => p.id === newPhase)?.label || newPhase}!`);
       }
     }
