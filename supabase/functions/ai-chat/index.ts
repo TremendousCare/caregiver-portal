@@ -8,6 +8,7 @@ import "./tools/communication.ts";
 import "./tools/email.ts";
 import "./tools/calendar.ts";
 import "./tools/docusign.ts";
+import "./tools/client.ts";
 
 import {
   ANTHROPIC_API_KEY,
@@ -68,16 +69,24 @@ Deno.serve(async (req: Request) => {
       throw new Error("messages array is required");
     }
 
-    // Fetch all caregivers
+    // Fetch all caregivers (select only needed columns to avoid payload bloat)
     const { data: allCaregivers, error: cgErr } = await supabase
       .from("caregivers")
-      .select("*")
+      .select("id, first_name, last_name, phone, email, address, city, state, zip, phase_override, phase_timestamps, tasks, notes, created_at, archived, archive_reason, archive_phase, archive_detail, board_status, board_note, board_moved_at, source, source_detail, has_hca, has_dl, hca_expiration, per_id, years_experience, languages, specializations, certifications, preferred_shift, availability, application_date")
       .order("created_at", { ascending: false });
     if (cgErr) throw new Error(`DB error: ${cgErr.message}`);
     const caregivers = allCaregivers || [];
 
+    // Fetch all clients
+    const { data: allClients, error: clErr } = await supabase
+      .from("clients")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (clErr) console.error(`Clients fetch error: ${clErr.message}`);
+    const clients = allClients || [];
+
     // Build context-aware system prompt
-    const systemPrompt = buildSystemPrompt(caregivers, caregiverId);
+    const systemPrompt = buildSystemPrompt(caregivers, caregiverId, clients);
 
     // Get tool definitions from registry
     const TOOLS = getToolDefinitions();
@@ -98,90 +107,112 @@ Deno.serve(async (req: Request) => {
     while (iterations < MAX_ITERATIONS) {
       iterations++;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: MAX_TOKENS,
-          system: systemPrompt,
-          messages: currentMessages,
-          tools: TOOLS,
-        }),
-      });
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: CLAUDE_MODEL,
+            max_tokens: MAX_TOKENS,
+            system: systemPrompt,
+            messages: currentMessages,
+            tools: TOOLS,
+          }),
+        });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Claude API error: ${response.status} ${errText}`);
-      }
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error(`Claude API error: ${response.status} ${errText}`);
+          finalReply = "I'm having trouble connecting to the AI service right now. Please try again in a moment.";
+          break;
+        }
 
-      const data = await response.json();
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (parseErr) {
+          console.error("Failed to parse Claude API response:", parseErr);
+          finalReply = "I received an unexpected response. Please try again.";
+          break;
+        }
 
-      const textBlocks: string[] = [];
-      const toolUseBlocks: any[] = [];
-      for (const block of data.content) {
-        if (block.type === "text") textBlocks.push(block.text);
-        if (block.type === "tool_use") toolUseBlocks.push(block);
-      }
+        if (!data.content || !Array.isArray(data.content)) {
+          console.error("Claude API returned unexpected content structure:", JSON.stringify(data).slice(0, 500));
+          finalReply = "I received an unexpected response format. Please try again.";
+          break;
+        }
 
-      // No tool calls — return text response
-      if (toolUseBlocks.length === 0) {
-        finalReply = textBlocks.join("\n");
-        break;
-      }
+        const textBlocks: string[] = [];
+        const toolUseBlocks: any[] = [];
+        for (const block of data.content) {
+          if (block.type === "text") textBlocks.push(block.text);
+          if (block.type === "tool_use") toolUseBlocks.push(block);
+        }
 
-      // Process tool calls
-      const toolResultBlocks: any[] = [];
-      const ctx = { supabase, caregivers, currentUser: currentUser || "User" };
+        // No tool calls — return text response
+        if (toolUseBlocks.length === 0) {
+          finalReply = textBlocks.join("\n");
+          break;
+        }
 
-      for (const toolUse of toolUseBlocks) {
-        const toolName = toolUse.name;
-        const toolInput = toolUse.input;
+        // Process tool calls
+        const toolResultBlocks: any[] = [];
+        const ctx = { supabase, caregivers, clients, currentUser: currentUser || "User" };
 
-        if (CONFIRM_TOOLS.has(toolName)) {
-          const result = await executeTool(toolName, toolInput, ctx);
-          if (result.requires_confirmation) {
-            pendingConfirmation = result;
-            toolResultBlocks.push({
-              type: "tool_result",
-              tool_use_id: toolUse.id,
-              content: JSON.stringify({
-                status: "pending_confirmation",
-                summary: result.summary,
-              }),
-            });
-          } else {
+        for (const toolUse of toolUseBlocks) {
+          const toolName = toolUse.name;
+          const toolInput = toolUse.input;
+
+          if (CONFIRM_TOOLS.has(toolName)) {
+            const result = await executeTool(toolName, toolInput, ctx);
+            if (result.requires_confirmation) {
+              pendingConfirmation = result;
+              toolResultBlocks.push({
+                type: "tool_result",
+                tool_use_id: toolUse.id,
+                content: JSON.stringify({
+                  status: "pending_confirmation",
+                  summary: result.summary,
+                }),
+              });
+            } else {
+              toolResultBlocks.push({
+                type: "tool_result",
+                tool_use_id: toolUse.id,
+                content: JSON.stringify(result),
+              });
+            }
+          } else if (AUTO_EXECUTE_TOOLS.has(toolName)) {
+            const result = await executeTool(toolName, toolInput, ctx);
+            toolResults.push({ tool: toolName, input: toolInput, result });
             toolResultBlocks.push({
               type: "tool_result",
               tool_use_id: toolUse.id,
               content: JSON.stringify(result),
             });
+          } else {
+            toolResultBlocks.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({
+                error: `Tool ${toolName} is not available.`,
+              }),
+            });
           }
-        } else if (AUTO_EXECUTE_TOOLS.has(toolName)) {
-          const result = await executeTool(toolName, toolInput, ctx);
-          toolResults.push({ tool: toolName, input: toolInput, result });
-          toolResultBlocks.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: JSON.stringify(result),
-          });
-        } else {
-          toolResultBlocks.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: JSON.stringify({
-              error: `Tool ${toolName} is not available.`,
-            }),
-          });
         }
-      }
 
-      currentMessages.push({ role: "assistant", content: data.content });
-      currentMessages.push({ role: "user", content: toolResultBlocks });
+        currentMessages.push({ role: "assistant", content: data.content });
+        currentMessages.push({ role: "user", content: toolResultBlocks });
+
+      } catch (loopErr) {
+        console.error(`Agentic loop iteration ${iterations} failed:`, loopErr);
+        finalReply = "Something went wrong while processing your request. Please try again.";
+        break;
+      }
     }
 
     const responseBody: any = {

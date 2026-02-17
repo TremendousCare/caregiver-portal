@@ -1,0 +1,253 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Client Dashboard Component Styles
+   Mirrors the caregiver Dashboard.module.css pattern
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Action Items Panel ── */
+.panel {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #E2E8F0;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #E2E8F0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panelTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelIcon {
+  font-size: 18px;
+}
+
+.panelTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--tc-text-primary);
+  font-family: var(--tc-font-heading);
+}
+
+.panelCount {
+  background: var(--tc-navy);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.panelBadges {
+  display: flex;
+  gap: 6px;
+}
+
+.criticalCount {
+  background: #FEF2F0;
+  color: #DC3545;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.warningCount {
+  background: #FFF8ED;
+  color: var(--tc-warning);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.list {
+  padding: 4px 12px;
+}
+
+.item {
+  padding: 14px 16px;
+  border-left: 3px solid;
+  border-radius: 0 8px 8px 0;
+  margin: 6px 0;
+  background: #F9FAFB;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.item:hover {
+  background: #F0F3F7;
+  transform: translateX(2px);
+}
+
+.item:active {
+  background: #E8ECF0;
+}
+
+.itemTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.itemIcon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.itemTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+}
+
+.itemName {
+  font-size: 12px;
+  color: var(--tc-text-tertiary);
+  font-weight: 500;
+}
+
+.urgencyBadge {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.itemMessage {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  margin-left: 28px;
+  line-height: 1.4;
+}
+
+.showMore {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-top: 1px solid #E2E8F0;
+  background: transparent;
+  color: var(--tc-navy);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.showMore:hover {
+  background: #F9FAFB;
+}
+
+/* ── Client Cards ── */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.clientCard {
+  position: relative;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.clientCard:hover {
+  border-color: #C6DFF0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.clientCardUrgent {
+  border-left: 3px solid #DC3545;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.cardAvatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2E4E8D, #1084C3);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardName {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  font-family: var(--tc-font-heading);
+}
+
+.cardMeta {
+  font-size: 12px;
+  color: var(--tc-text-tertiary);
+  font-weight: 500;
+}
+
+.cardPhaseRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cardDays {
+  font-size: 11px;
+  color: var(--tc-text-tertiary);
+  font-weight: 600;
+}
+
+.cardNextStep {
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  margin-top: 6px;
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.cardNextStepOverdue {
+  color: #DC3545;
+  font-weight: 600;
+}
+
+.cardOverdueDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #DC3545;
+  flex-shrink: 0;
+  margin-top: 4px;
+}

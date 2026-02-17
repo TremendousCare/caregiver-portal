@@ -57,7 +57,12 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const handler = toolHandlers.get(name);
   if (!handler) return { error: `Tool ${name} is not available.` };
-  return handler(input, ctx);
+  try {
+    return await handler(input, ctx);
+  } catch (err) {
+    console.error(`Tool ${name} threw an exception:`, err);
+    return { error: `Tool "${name}" failed: ${(err as Error).message || "Unknown error"}` };
+  }
 }
 
 export async function executeConfirmedAction(
@@ -69,5 +74,10 @@ export async function executeConfirmedAction(
 ): Promise<ToolResult> {
   const handler = confirmHandlers.get(action);
   if (!handler) return { error: `Unknown action: ${action}` };
-  return handler(action, caregiverId, params, supabase, currentUser);
+  try {
+    return await handler(action, caregiverId, params, supabase, currentUser);
+  } catch (err) {
+    console.error(`Confirmed action ${action} threw an exception:`, err);
+    return { error: `Action "${action}" failed: ${(err as Error).message || "Unknown error"}` };
+  }
 }

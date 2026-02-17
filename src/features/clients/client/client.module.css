@@ -1,0 +1,292 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Client Detail Shared Styles Module
+   Task editing, notes, scripts, and other client-specific styles
+   Mirrors caregiver.module.css
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Task Editing Styles ────────────────────────────────────── */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #F9FAFB;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  border: 1px solid #E2E8F0;
+}
+
+.handle {
+  font-size: 12px;
+  color: #B0B9C6;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tc-text-primary);
+  outline: none;
+  background: #fff;
+}
+
+.input:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 2px rgba(41,190,228,0.12);
+}
+
+.criticalToggle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.criticalLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tc-text-tertiary);
+}
+
+.moveBtn {
+  background: none;
+  border: 1px solid #E2E8F0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--tc-text-tertiary);
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.moveBtn:hover {
+  background: var(--tc-bg-hover);
+  border-color: var(--tc-cyan);
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--tc-danger);
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.deleteBtn:hover {
+  color: var(--tc-danger-dark);
+}
+
+.addBtn {
+  width: 100%;
+  padding: 10px;
+  border: 2px dashed #D0D9E4;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tc-navy);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 4px;
+}
+
+.addBtn:hover {
+  background: var(--tc-bg-hover);
+  border-color: var(--tc-cyan);
+}
+
+/* ─── Notes Section Styles ────────────────────────────────────── */
+
+.notesSection {
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.05);
+  padding: 26px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.notesSectionTitle {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 18px;
+  font-family: var(--tc-font-heading);
+  color: #0F1724;
+  letter-spacing: -0.2px;
+}
+
+.notesList {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.noteItem {
+  padding: 12px 0;
+  border-bottom: 1px solid #EDF1F5;
+}
+
+.noteTimestamp {
+  font-size: 11px;
+  color: var(--tc-cyan-dark);
+  font-weight: 700;
+  margin-bottom: 4px;
+  letter-spacing: 0.2px;
+}
+
+.noteText {
+  font-size: 14px;
+  color: var(--tc-text-primary);
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+/* ─── Scripts Panel Styles ────────────────────────────────────── */
+
+.scriptsPanel {
+  background: linear-gradient(135deg, #F0F7FC, #EBF5FB);
+  border: 1px solid #C6DFF0;
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+.scriptsPanelTitle {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tc-cyan-dark);
+  font-family: var(--tc-font-heading);
+}
+
+.scriptRow {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid #C6DFF0;
+}
+
+.scriptRow:last-child {
+  border-bottom: none;
+}
+
+.scriptDay {
+  font-weight: 800;
+  font-size: 11px;
+  color: var(--tc-cyan-dark);
+  min-width: 60px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scriptAction {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0F1724;
+  margin-bottom: 4px;
+}
+
+.scriptText {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  font-style: italic;
+  line-height: 1.6;
+}
+
+/* ─── Task List Styles ───────────────────────────────────────── */
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 14px;
+  color: var(--tc-text-primary);
+  font-weight: 500;
+}
+
+.taskRow:hover {
+  background: var(--tc-bg-hover);
+}
+
+.taskRowDone {
+  background: var(--tc-bg-hover);
+}
+
+.checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 2px solid #D5DCE6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+
+.checkboxDone {
+  background: linear-gradient(135deg, #22C55E, #16A34A);
+  border-color: #16A34A;
+  box-shadow: 0 2px 6px rgba(22,163,74,0.25);
+}
+
+/* ─── Archive Banner Styles ──────────────────────────────────── */
+
+.archiveBanner {
+  background: #FEF2F0;
+  border: 1px solid #FECACA;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.archiveBannerHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.archiveBannerIcon {
+  font-size: 20px;
+}
+
+.archiveBannerTitle {
+  color: #DC3545;
+  font-family: 'Outfit', sans-serif;
+}
+
+.archiveBannerDetails {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #556270;
+}
+
+.archiveBannerLabel {
+  font-weight: 600;
+}

@@ -68,14 +68,20 @@ export function buildCaregiverProfile(cg: any): string {
     })
     .join("\n");
 
-  const notes = (cg.notes || [])
+  const allNotes = cg.notes || [];
+  const MAX_NOTES = 50;
+  const truncatedNotes = allNotes.length > MAX_NOTES ? allNotes.slice(-MAX_NOTES) : allNotes;
+  const notesOmitted = allNotes.length > MAX_NOTES ? allNotes.length - MAX_NOTES : 0;
+  const notes = truncatedNotes
     .map((n: any, i: number) => {
-      if (typeof n === "string") return `  ${i + 1}. ${n}`;
+      const idx = notesOmitted + i + 1;
+      if (typeof n === "string") return `  ${idx}. ${n}`;
       const ts = n.timestamp || n.date;
       const dateStr = ts ? new Date(ts).toLocaleDateString() : "";
-      return `  ${i + 1}. [${dateStr}] ${n.type || "note"}${n.direction ? ` (${n.direction})` : ""}${n.outcome ? ` \u2014 ${n.outcome}` : ""}: ${n.text || ""} ${n.author ? `(by ${n.author})` : ""}`;
+      return `  ${idx}. [${dateStr}] ${n.type || "note"}${n.direction ? ` (${n.direction})` : ""}${n.outcome ? ` \u2014 ${n.outcome}` : ""}: ${n.text || ""} ${n.author ? `(by ${n.author})` : ""}`;
     })
     .join("\n");
+  const notesHeader = notesOmitted > 0 ? `  (${notesOmitted} older notes not shown)\n` : "";
 
   return `### ${cg.first_name} ${cg.last_name} (ID: ${cg.id})${cg.archived ? " [ARCHIVED]" : ""}
 - Phase: ${phase} | Tasks: ${completedTasks}/${totalTasks} | Days in pipeline: ${daysInPipeline}
@@ -90,7 +96,7 @@ export function buildCaregiverProfile(cg: any): string {
 - Application Date: ${cg.application_date || "N/A"}
 - Board Status: ${cg.board_status || "N/A"}${cg.board_note ? ` (${cg.board_note})` : ""}
 ${cg.archived ? `- Archive Reason: ${cg.archive_reason || "N/A"} | Phase at archive: ${cg.archive_phase || "N/A"}\n- Archive Detail: ${cg.archive_detail || "N/A"}` : ""}- Tasks:\n${taskList || "  None"}
-- Activity Log:\n${notes || "  No notes"}`;
+- Activity Log:\n${notesHeader}${notes || "  No notes"}`;
 }
 
 export async function resolveCaregiver(

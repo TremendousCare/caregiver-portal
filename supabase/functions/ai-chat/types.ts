@@ -22,6 +22,7 @@ export interface ToolResult {
 export interface ToolContext {
   supabase: any;
   caregivers: any[];
+  clients: any[];
   currentUser: string;
 }
 

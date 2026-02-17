@@ -17,5 +17,5 @@ export const corsHeaders = {
 };
 
 export const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
-export const MAX_TOKENS = 1536;
+export const MAX_TOKENS = 4096;
 export const MAX_ITERATIONS = 5;
