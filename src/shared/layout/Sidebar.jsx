@@ -1,53 +1,108 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import layout from '../../styles/layout.module.css';
 
+// ─── LocalStorage key for persisting collapsed sections ───
+const STORAGE_KEY = 'tc_sidebar_collapsed_sections';
+
+function loadCollapsedSections() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveCollapsedSections(state) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
 // ─── Collapsible sidebar section ───
-function SidebarSection({ section, collapsed }) {
-  const [expanded, setExpanded] = useState(true);
+function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const contentRef = useRef(null);
+  const [contentHeight, setContentHeight] = useState(isExpanded ? 'auto' : 0);
+  const isFirstRender = useRef(true);
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 
+  // Measure and animate content height
+  useEffect(() => {
+    if (isFirstRender.current) {
+      // No animation on first render — just set immediately
+      setContentHeight(isExpanded ? 'auto' : 0);
+      isFirstRender.current = false;
+      return;
+    }
+    if (!contentRef.current) return;
+    if (isExpanded) {
+      const h = contentRef.current.scrollHeight;
+      setContentHeight(h);
+      const timer = setTimeout(() => setContentHeight('auto'), 250);
+      return () => clearTimeout(timer);
+    } else {
+      // Force a reflow before collapsing to animate from actual height
+      const h = contentRef.current.scrollHeight;
+      setContentHeight(h);
+      requestAnimationFrame(() => { setContentHeight(0); });
+    }
+  }, [isExpanded]);
+
   return (
-    <div>
+    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
       {/* Section header — collapsible when sidebar is expanded */}
-      {!collapsed && (
+      {!sidebarCollapsed && (
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={onToggle}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            width: '100%', padding: '14px 14px 8px', border: 'none',
+            width: '100%', padding: '14px 16px 8px', border: 'none',
             background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'background 0.15s',
           }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
         >
           <span style={{
             fontSize: 10, textTransform: 'uppercase', letterSpacing: '1.8px',
-            color: 'rgba(255,255,255,0.25)', fontWeight: 700,
+            color: isExpanded ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.2)',
+            fontWeight: 700, transition: 'color 0.2s',
           }}>
             {section.label}
           </span>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', transition: 'transform 0.2s', transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+          <span style={{
+            fontSize: 9, color: 'rgba(255,255,255,0.2)',
+            transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
+            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            display: 'inline-block',
+          }}>
             ▾
           </span>
         </button>
       )}
 
-      {/* Nav items */}
-      {(expanded || collapsed) && (
-        <nav style={{ padding: collapsed ? '0 6px' : '0 12px' }}>
+      {/* Animated collapsible content */}
+      <div
+        ref={contentRef}
+        style={{
+          height: sidebarCollapsed ? 'auto' : contentHeight,
+          overflow: (sidebarCollapsed || contentHeight === 'auto') ? 'visible' : 'hidden',
+          transition: contentHeight === 'auto' ? 'none' : 'height 0.25s cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
+        {/* Nav items */}
+        <nav style={{ padding: sidebarCollapsed ? '0 6px' : '0 12px 4px' }}>
           {section.items.map((item) => (
             <button
               key={item.id}
               className={`${layout.navItem} ${isActive(item.path) ? layout.navActive : ''}`}
               style={{
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                padding: collapsed ? '10px 0' : '10px 12px',
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                padding: sidebarCollapsed ? '10px 0' : '10px 12px',
               }}
               onClick={() => {
                 navigate(item.path);
@@ -56,14 +111,14 @@ function SidebarSection({ section, collapsed }) {
               title={item.label}
             >
               <span className={layout.navIcon}>{item.icon}</span>
-              {!collapsed && <span className="sidebar-text">{item.label}</span>}
+              {!sidebarCollapsed && <span className="sidebar-text">{item.label}</span>}
             </button>
           ))}
         </nav>
-      )}
 
-      {/* Extra content (e.g. Pipeline Overview, Golden Rules) */}
-      {expanded && section.extra}
+        {/* Extra content (e.g. Pipeline Overview) */}
+        {!sidebarCollapsed && section.extra}
+      </div>
     </div>
   );
 }
@@ -74,6 +129,29 @@ export function Sidebar({ sections }) {
   const navigate = useNavigate();
   const location = useLocation();
   const collapsed = sidebarCollapsed;
+
+  // Persistent expand/collapse state per section
+  const [collapsedSections, setCollapsedSections] = useState(loadCollapsedSections);
+
+  const toggleSection = useCallback((sectionId) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [sectionId]: !prev[sectionId] };
+      saveCollapsedSections(next);
+      return next;
+    });
+  }, []);
+
+  // Build full sections list including Settings (admin only)
+  const allSections = [...sections];
+  if (isAdmin) {
+    allSections.push({
+      id: 'settings',
+      label: 'Settings',
+      items: [
+        { id: 'settings-main', path: '/settings', icon: '⚙', label: 'Admin Settings' },
+      ],
+    });
+  }
 
   return (
     <aside
@@ -115,27 +193,15 @@ export function Sidebar({ sections }) {
 
       {/* Module Sections */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {sections.map((section) => (
-          <SidebarSection key={section.id} section={section} collapsed={collapsed} />
+        {allSections.map((section) => (
+          <SidebarSection
+            key={section.id}
+            section={section}
+            sidebarCollapsed={collapsed}
+            isExpanded={!collapsedSections[section.id]}
+            onToggle={() => toggleSection(section.id)}
+          />
         ))}
-
-        {/* Settings (admin only, always at bottom of nav) */}
-        {isAdmin && (
-          <nav style={{ padding: collapsed ? '4px 6px' : '4px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: 4 }}>
-            <button
-              className={`${layout.navItem} ${location.pathname === '/settings' ? layout.navActive : ''}`}
-              style={{
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                padding: collapsed ? '10px 0' : '10px 12px',
-              }}
-              onClick={() => navigate('/settings')}
-              title="Settings"
-            >
-              <span className={layout.navIcon}>⚙</span>
-              {!collapsed && <span className="sidebar-text">Settings</span>}
-            </button>
-          </nav>
-        )}
       </div>
 
       {/* User info & Logout */}
