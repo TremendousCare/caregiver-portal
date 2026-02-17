@@ -2,13 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { PHASES, DOCUMENT_TYPES } from '../lib/constants';
 import { getPhaseTasks } from '../lib/storage';
+import { CLIENT_PHASES, DEFAULT_CLIENT_TASKS } from '../features/clients/constants';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import s from './AutomationSettings.module.css';
 
-// ─── Trigger & Action Config ───
-const TRIGGER_OPTIONS = [
+// ─── Entity Types ───
+const ENTITY_TYPES = [
+  { value: 'caregiver', label: 'Caregiver', icon: '\uD83D\uDC64' },
+  { value: 'client', label: 'Client', icon: '\uD83C\uDFE0' },
+];
+
+// ─── Trigger & Action Config (Caregiver) ───
+const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'new_caregiver', label: 'New Caregiver Added', description: 'Fires when a new caregiver is created' },
   { value: 'days_inactive', label: 'Days Inactive', description: 'Fires when a caregiver has no activity for N days' },
   { value: 'phase_change', label: 'Phase Changed', description: 'Fires when a caregiver moves to a new onboarding phase' },
@@ -19,7 +26,14 @@ const TRIGGER_OPTIONS = [
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
-const ACTION_OPTIONS = [
+const CLIENT_TRIGGER_OPTIONS = [
+  { value: 'new_client', label: 'New Client Lead', description: 'Fires when a new client lead is created' },
+  { value: 'days_inactive', label: 'Days Inactive', description: 'Fires when a client has no activity for N days' },
+  { value: 'client_phase_change', label: 'Phase Changed', description: 'Fires when a client moves to a new pipeline phase' },
+  { value: 'client_task_completed', label: 'Task Completed', description: 'Fires when a specific client task is marked complete' },
+];
+
+const CAREGIVER_ACTION_OPTIONS = [
   { value: 'send_sms', label: 'Send SMS', description: 'Send a text message via RingCentral' },
   { value: 'send_email', label: 'Send Email', description: 'Send an email via Outlook' },
   { value: 'update_phase', label: 'Move to Phase', description: 'Move caregiver to a specific onboarding phase' },
@@ -27,6 +41,15 @@ const ACTION_OPTIONS = [
   { value: 'add_note', label: 'Add Note', description: 'Add a note to the caregiver record' },
   { value: 'update_field', label: 'Update Field', description: 'Change a caregiver field value' },
   { value: 'send_docusign_envelope', label: 'Send DocuSign Envelope', description: 'Send document(s) for eSignature via DocuSign' },
+];
+
+const CLIENT_ACTION_OPTIONS = [
+  { value: 'send_sms', label: 'Send SMS', description: 'Send a text message via RingCentral' },
+  { value: 'send_email', label: 'Send Email', description: 'Send an email via Outlook' },
+  { value: 'update_phase', label: 'Move to Phase', description: 'Move client to a specific pipeline phase' },
+  { value: 'complete_task', label: 'Complete Task', description: 'Mark a specific client task as done' },
+  { value: 'add_note', label: 'Add Note', description: 'Add a note to the client record' },
+  { value: 'update_field', label: 'Update Field', description: 'Change a client field value' },
 ];
 
 const MERGE_FIELDS = [
@@ -38,12 +61,27 @@ const MERGE_FIELDS = [
   { key: 'phase_name', label: 'Phase Name' },
   { key: 'days_in_phase', label: 'Days in Phase' },
   { key: 'overall_progress', label: 'Progress %' },
-  { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed'] },
+  { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
   { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },
   { key: 'sender_number', label: 'Sender Number', triggers: ['inbound_sms'] },
 ];
+
+// Helper: get trigger/action options based on entity type
+function getTriggerOptions(entityType) {
+  return entityType === 'client' ? CLIENT_TRIGGER_OPTIONS : CAREGIVER_TRIGGER_OPTIONS;
+}
+function getActionOptions(entityType) {
+  return entityType === 'client' ? CLIENT_ACTION_OPTIONS : CAREGIVER_ACTION_OPTIONS;
+}
+function getPhases(entityType) {
+  return entityType === 'client' ? CLIENT_PHASES : PHASES;
+}
+function getTasksByPhase(entityType) {
+  if (entityType === 'client') return DEFAULT_CLIENT_TASKS;
+  return getPhaseTasks();
+}
 
 // ─── Settings Section Card (reused from AdminSettings pattern) ───
 function SettingsCard({ title, description, headerRight, children }) {
@@ -69,20 +107,26 @@ function SettingsCard({ title, description, headerRight, children }) {
 function TriggerBadge({ type }) {
   const colors = {
     new_caregiver: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+    new_client: { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
     days_inactive: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
     interview_scheduled: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
     phase_change: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
+    client_phase_change: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
     task_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+    client_task_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     document_uploaded: { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
     document_signed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     inbound_sms: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
+    new_client: 'New Client',
     days_inactive: 'Days Inactive',
     interview_scheduled: 'Interview',
     phase_change: 'Phase Change',
+    client_phase_change: 'Phase Change',
     task_completed: 'Task Done',
+    client_task_completed: 'Task Done',
     document_uploaded: 'Doc Upload',
     document_signed: 'Doc Signed',
     inbound_sms: 'Inbound SMS',
@@ -139,9 +183,10 @@ function StatusBadge({ status }) {
 }
 
 // ─── Rule Form Modal ───
-function RuleForm({ rule, onSave, onCancel, saving }) {
+function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [name, setName] = useState(rule?.name || '');
-  const [triggerType, setTriggerType] = useState(rule?.trigger_type || 'new_caregiver');
+  const defaultTrigger = entityType === 'client' ? 'new_client' : 'new_caregiver';
+  const [triggerType, setTriggerType] = useState(rule?.trigger_type || defaultTrigger);
   const [daysInactive, setDaysInactive] = useState(rule?.conditions?.days || 3);
   const [actionType, setActionType] = useState(rule?.action_type || 'send_sms');
   const [emailSubject, setEmailSubject] = useState(rule?.action_config?.subject || '');
@@ -149,7 +194,7 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
   const [error, setError] = useState('');
   const templateRef = useRef(null);
 
-  // New trigger-specific condition states
+  // Trigger-specific condition states
   const [toPhase, setToPhase] = useState(rule?.conditions?.to_phase || '');
   const [taskId, setTaskId] = useState(rule?.conditions?.task_id || '');
   const [documentType, setDocumentType] = useState(rule?.conditions?.document_type || '');
@@ -160,6 +205,13 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
 
   // Inbound SMS trigger condition
   const [keywordFilter, setKeywordFilter] = useState(rule?.conditions?.keyword || '');
+
+  // Derived options based on entity type
+  const triggerOptions = getTriggerOptions(entityType);
+  const actionOptions = getActionOptions(entityType);
+  const phases = getPhases(entityType);
+  const tasksByPhase = getTasksByPhase(entityType);
+  const entityLabel = entityType === 'client' ? 'client' : 'caregiver';
 
   // New action-specific config states
   const [targetPhase, setTargetPhase] = useState(rule?.action_config?.target_phase || '');
@@ -200,13 +252,17 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
     if (actionType === 'complete_task' && !actionTaskId) { setError('Select a task to complete.'); return; }
     if (actionType === 'update_field' && !fieldName) { setError('Select a field to update.'); return; }
 
+    const phaseChangeTriggers = ['phase_change', 'client_phase_change'];
+    const taskCompletedTriggers = ['task_completed', 'client_task_completed'];
+
     const ruleData = {
       name: name.trim(),
       trigger_type: triggerType,
+      entity_type: entityType,
       conditions: {
         ...(triggerType === 'days_inactive' ? { days: parseInt(daysInactive, 10) } : {}),
-        ...(triggerType === 'phase_change' && toPhase ? { to_phase: toPhase } : {}),
-        ...(triggerType === 'task_completed' && taskId ? { task_id: taskId } : {}),
+        ...(phaseChangeTriggers.includes(triggerType) && toPhase ? { to_phase: toPhase } : {}),
+        ...(taskCompletedTriggers.includes(triggerType) && taskId ? { task_id: taskId } : {}),
         ...(triggerType === 'document_uploaded' && documentType ? { document_type: documentType } : {}),
         ...(triggerType === 'document_signed' && templateNameFilter.trim() ? { template_name: templateNameFilter.trim() } : {}),
         ...(triggerType === 'inbound_sms' && keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
@@ -257,14 +313,14 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
             value={triggerType}
             onChange={(e) => setTriggerType(e.target.value)}
           >
-            {TRIGGER_OPTIONS.map((t) => (
+            {triggerOptions.map((t) => (
               <option key={t.value} value={t.value} disabled={t.disabled}>
                 {t.label}{t.disabled ? ' (Coming soon)' : ''}
               </option>
             ))}
           </select>
           <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-            {TRIGGER_OPTIONS.find((t) => t.value === triggerType)?.description}
+            {triggerOptions.find((t) => t.value === triggerType)?.description}
           </div>
         </div>
 
@@ -282,18 +338,18 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
               placeholder="3"
             />
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-              Fires when a caregiver has had no activity (notes, messages) for this many days.
+              Fires when a {entityLabel} has had no activity (notes, messages) for this many days.
             </div>
           </div>
         )}
 
-        {/* Conditions — phase_change */}
-        {triggerType === 'phase_change' && (
+        {/* Conditions — phase_change / client_phase_change */}
+        {['phase_change', 'client_phase_change'].includes(triggerType) && (
           <div style={{ marginBottom: 16 }}>
             <label className={forms.fieldLabel}>Target Phase (optional)</label>
             <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={toPhase} onChange={(e) => setToPhase(e.target.value)}>
               <option value="">Any phase change</option>
-              {PHASES.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
+              {phases.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
             </select>
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
               Leave empty to fire on any phase change, or select a specific target phase.
@@ -301,14 +357,14 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
           </div>
         )}
 
-        {/* Conditions — task_completed */}
-        {triggerType === 'task_completed' && (
+        {/* Conditions — task_completed / client_task_completed */}
+        {['task_completed', 'client_task_completed'].includes(triggerType) && (
           <div style={{ marginBottom: 16 }}>
             <label className={forms.fieldLabel}>Specific Task (optional)</label>
             <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={taskId} onChange={(e) => setTaskId(e.target.value)}>
               <option value="">Any task completed</option>
-              {PHASES.map((phase) => {
-                const tasks = getPhaseTasks()[phase.id] || [];
+              {phases.map((phase) => {
+                const tasks = tasksByPhase[phase.id] || [];
                 return tasks.length > 0 ? (
                   <optgroup key={phase.id} label={`${phase.icon} ${phase.label}`}>
                     {tasks.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
@@ -369,10 +425,10 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
           <label className={forms.fieldLabel}>Only in Phase (optional)</label>
           <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}>
             <option value="">Any phase</option>
-            {PHASES.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
+            {phases.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
           </select>
           <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-            Restrict this rule to only fire when the caregiver is in a specific phase.
+            Restrict this rule to only fire when the {entityLabel} is in a specific phase.
           </div>
         </div>
 
@@ -385,13 +441,13 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
             value={actionType}
             onChange={(e) => setActionType(e.target.value)}
           >
-            {ACTION_OPTIONS.map((a) => (
+            {actionOptions.map((a) => (
               <option key={a.value} value={a.value}>{a.label}</option>
             ))}
           </select>
-          {ACTION_OPTIONS.find((a) => a.value === actionType)?.description && (
+          {actionOptions.find((a) => a.value === actionType)?.description && (
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-              {ACTION_OPTIONS.find((a) => a.value === actionType)?.description}
+              {actionOptions.find((a) => a.value === actionType)?.description}
             </div>
           )}
         </div>
@@ -417,7 +473,7 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
             <label className={forms.fieldLabel}>Move to Phase</label>
             <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={targetPhase} onChange={(e) => { setTargetPhase(e.target.value); setError(''); }}>
               <option value="">Select phase...</option>
-              {PHASES.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
+              {phases.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
             </select>
           </div>
         )}
@@ -428,8 +484,8 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
             <label className={forms.fieldLabel}>Task to Complete</label>
             <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={actionTaskId} onChange={(e) => { setActionTaskId(e.target.value); setError(''); }}>
               <option value="">Select task...</option>
-              {PHASES.map((phase) => {
-                const tasks = getPhaseTasks()[phase.id] || [];
+              {phases.map((phase) => {
+                const tasks = tasksByPhase[phase.id] || [];
                 return tasks.length > 0 ? (
                   <optgroup key={phase.id} label={`${phase.icon} ${phase.label}`}>
                     {tasks.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
@@ -447,10 +503,21 @@ function RuleForm({ rule, onSave, onCancel, saving }) {
               <label className={forms.fieldLabel}>Field to Update</label>
               <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={fieldName} onChange={(e) => { setFieldName(e.target.value); setError(''); }}>
                 <option value="">Select field...</option>
-                <option value="board_status">Board Status</option>
-                <option value="board_note">Board Note</option>
-                <option value="availability">Availability</option>
-                <option value="preferred_shift">Preferred Shift</option>
+                {entityType === 'client' ? (
+                  <>
+                    <option value="priority">Priority</option>
+                    <option value="source">Source</option>
+                    <option value="care_type">Care Type</option>
+                    <option value="assigned_to">Assigned To</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="board_status">Board Status</option>
+                    <option value="board_note">Board Note</option>
+                    <option value="availability">Availability</option>
+                    <option value="preferred_shift">Preferred Shift</option>
+                  </>
+                )}
               </select>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -595,12 +662,12 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
                 After {rule.conditions.days} day{rule.conditions.days !== 1 ? 's' : ''}
               </div>
             )}
-            {rule.trigger_type === 'phase_change' && rule.conditions?.to_phase && (
+            {['phase_change', 'client_phase_change'].includes(rule.trigger_type) && rule.conditions?.to_phase && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
-                When entering: {PHASES.find(p => p.id === rule.conditions.to_phase)?.label || rule.conditions.to_phase}
+                When entering: {[...PHASES, ...CLIENT_PHASES].find(p => p.id === rule.conditions.to_phase)?.label || rule.conditions.to_phase}
               </div>
             )}
-            {rule.trigger_type === 'task_completed' && rule.conditions?.task_id && (
+            {['task_completed', 'client_task_completed'].includes(rule.trigger_type) && rule.conditions?.task_id && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 Task: {rule.conditions.task_id}
               </div>
@@ -622,13 +689,13 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             )}
             {rule.conditions?.phase && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
-                Only in: {PHASES.find(p => p.id === rule.conditions.phase)?.label || rule.conditions.phase}
+                Only in: {[...PHASES, ...CLIENT_PHASES].find(p => p.id === rule.conditions.phase)?.label || rule.conditions.phase}
               </div>
             )}
             {/* Action details for mutation actions */}
             {rule.action_type === 'update_phase' && rule.action_config?.target_phase && (
               <div style={{ fontSize: 11, color: '#1D4ED8', marginTop: 2 }}>
-                &rarr; {PHASES.find(p => p.id === rule.action_config.target_phase)?.label || rule.action_config.target_phase}
+                &rarr; {[...PHASES, ...CLIENT_PHASES].find(p => p.id === rule.action_config.target_phase)?.label || rule.action_config.target_phase}
               </div>
             )}
             {rule.action_type === 'complete_task' && rule.action_config?.task_id && (
@@ -815,6 +882,7 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(null);
   const [logCollapsed, setLogCollapsed] = useState(true);
+  const [activeEntityType, setActiveEntityType] = useState('caregiver');
 
   // Load rules
   const loadRules = useCallback(async () => {
@@ -857,20 +925,30 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       const ruleMap = {};
       (rulesData || []).forEach((r) => { ruleMap[r.id] = r.name; });
 
-      // Fetch caregiver names
-      const cgIds = [...new Set(logData.map((l) => l.caregiver_id))];
+      // Fetch caregiver AND client names
+      const entityIds = [...new Set(logData.map((l) => l.caregiver_id))];
       const { data: cgData } = await supabase
         .from('caregivers')
         .select('id, first_name, last_name')
-        .in('id', cgIds);
-      const cgMap = {};
-      (cgData || []).forEach((c) => { cgMap[c.id] = `${c.first_name} ${c.last_name}`; });
+        .in('id', entityIds);
+      const nameMap = {};
+      (cgData || []).forEach((c) => { nameMap[c.id] = `${c.first_name} ${c.last_name}`; });
+
+      // Also check clients table for IDs not found in caregivers
+      const unmatchedIds = entityIds.filter(id => !nameMap[id]);
+      if (unmatchedIds.length > 0) {
+        const { data: clientData } = await supabase
+          .from('clients')
+          .select('id, first_name, last_name')
+          .in('id', unmatchedIds);
+        (clientData || []).forEach((c) => { nameMap[c.id] = `${c.first_name} ${c.last_name}`; });
+      }
 
       // Enrich logs
       const enriched = logData.map((l) => ({
         ...l,
         rule_name: ruleMap[l.rule_id] || null,
-        caregiver_name: cgMap[l.caregiver_id] || null,
+        caregiver_name: nameMap[l.caregiver_id] || null,
       }));
 
       setLogs(enriched);
@@ -983,12 +1061,50 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
     );
   }
 
+  // Filter rules by active entity type
+  const filteredRules = rules.filter(r => (r.entity_type || 'caregiver') === activeEntityType);
+
   return (
     <>
+      {/* Entity Type Tabs */}
+      <div style={{
+        display: 'flex', gap: 4, marginBottom: 20, padding: 4,
+        background: '#F0F3F7', borderRadius: 10, width: 'fit-content',
+      }}>
+        {ENTITY_TYPES.map((et) => {
+          const count = rules.filter(r => (r.entity_type || 'caregiver') === et.value).length;
+          const isActive = activeEntityType === et.value;
+          return (
+            <button
+              key={et.value}
+              onClick={() => setActiveEntityType(et.value)}
+              style={{
+                padding: '8px 20px', borderRadius: 8, border: 'none',
+                background: isActive ? '#fff' : 'transparent',
+                color: isActive ? '#0F1724' : '#7A8BA0',
+                fontWeight: isActive ? 700 : 500, fontSize: 13,
+                cursor: 'pointer', fontFamily: 'inherit',
+                boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span>{et.icon}</span>
+              <span>{et.label}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 8,
+                background: isActive ? '#E0E8F5' : '#E0E4EA',
+                color: isActive ? '#2E4E8D' : '#7A8BA0',
+              }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Rules Section */}
       <SettingsCard
-        title="Automation Rules"
-        description={`${rules.length} rule${rules.length !== 1 ? 's' : ''}`}
+        title={`${activeEntityType === 'client' ? 'Client' : 'Caregiver'} Automation Rules`}
+        description={`${filteredRules.length} rule${filteredRules.length !== 1 ? 's' : ''}`}
         headerRight={
           <button
             className={btn.primaryBtn}
@@ -1001,12 +1117,15 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       >
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
-            Automation rules execute actions automatically when triggers fire. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload, document signed) with actions (SMS, email, phase move, task completion, notes, field updates, DocuSign envelopes).
+            {activeEntityType === 'client'
+              ? 'Automation rules for the Client Pipeline. Configure triggers (new client, days inactive, phase change, task completion) with actions (SMS, email, phase move, task completion, notes, field updates).'
+              : 'Automation rules for the Caregiver Pipeline. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload, document signed) with actions (SMS, email, phase move, task completion, notes, field updates, DocuSign envelopes).'
+            }
           </div>
         </div>
 
         <RulesList
-          rules={rules}
+          rules={filteredRules}
           onToggle={handleToggle}
           onEdit={handleEdit}
           onDelete={handleDelete}
@@ -1033,6 +1152,7 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
           onSave={handleSave}
           onCancel={() => { setShowForm(false); setEditingRule(null); }}
           saving={saving}
+          entityType={editingRule?.entity_type || activeEntityType}
         />
       )}
     </>
