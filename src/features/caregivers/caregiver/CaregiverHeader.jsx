@@ -1,6 +1,6 @@
-import layout from '../../styles/layout.module.css';
-import btn from '../../styles/buttons.module.css';
-import progress from '../../styles/progress.module.css';
+import layout from '../../../styles/layout.module.css';
+import btn from '../../../styles/buttons.module.css';
+import progress from '../../../styles/progress.module.css';
 
 export function CaregiverHeader({ caregiver, greenLight, onBack, onToggleGreenLight, onShowArchive, onUnarchive, onShowDelete }) {
   return (

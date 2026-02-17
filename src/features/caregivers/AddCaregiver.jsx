@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
-import btn from '../styles/buttons.module.css';
-import forms from '../styles/forms.module.css';
-import layout from '../styles/layout.module.css';
+import btn from '../../styles/buttons.module.css';
+import forms from '../../styles/forms.module.css';
+import layout from '../../styles/layout.module.css';
 
 function FormField({ label, field, type = 'text', required, placeholder, value, onChange }) {
   return (

@@ -1,5 +1,5 @@
-import cards from '../../styles/cards.module.css';
-import btn from '../../styles/buttons.module.css';
+import cards from '../../../styles/cards.module.css';
+import btn from '../../../styles/buttons.module.css';
 
 export function DeleteDialog({ isOpen, caregiverName, onDelete, onCancel }) {
   if (!isOpen) return null;

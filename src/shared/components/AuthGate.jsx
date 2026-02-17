@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import s from './AuthGate.module.css';
 
 // ─── Fallback: localStorage-based auth (when Supabase not configured) ───

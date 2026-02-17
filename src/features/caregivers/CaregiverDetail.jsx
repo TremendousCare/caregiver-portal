@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getCurrentPhase, isGreenLight } from '../lib/utils';
+import { getCurrentPhase, isGreenLight } from '../../lib/utils';
 
 import { CaregiverHeader } from './caregiver/CaregiverHeader';
 import { ArchiveBanner } from './caregiver/ArchiveBanner';

@@ -1,378 +1,31 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom';
-import { AuthGate } from './components/AuthGate';
-import { Sidebar } from './components/Sidebar';
-import { Dashboard } from './components/Dashboard';
-import { KanbanBoard } from './components/KanbanBoard';
-import { AddCaregiver } from './components/AddCaregiver';
-import { CaregiverDetail } from './components/CaregiverDetail';
+import { useState, useMemo } from 'react';
+import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { useApp } from './shared/context/AppContext';
+import { useCaregivers } from './shared/context/CaregiverContext';
+import { CaregiverProvider } from './shared/context/CaregiverContext';
+import { AuthGate } from './shared/components/AuthGate';
+import { AIChatbot } from './shared/components/AIChatbot';
+import { AppShell } from './shared/layout/AppShell';
+import { ErrorBoundary } from './shared/components/ErrorBoundary';
+import { Dashboard } from './features/caregivers/Dashboard';
+import { KanbanBoard } from './features/caregivers/KanbanBoard';
+import { AddCaregiver } from './features/caregivers/AddCaregiver';
+import { CaregiverDetail } from './features/caregivers/CaregiverDetail';
 import { AdminSettings } from './components/AdminSettings';
-import { Toast } from './components/Toast';
-import { AIChatbot } from './components/AIChatbot';
-import { PHASES } from './lib/constants';
 import { getCurrentPhase } from './lib/utils';
-import { loadCaregivers, saveCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver } from './lib/storage';
-import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { fireEventTriggers } from './lib/automations';
-import layout from './styles/layout.module.css';
 import btn from './styles/buttons.module.css';
 
-// ─── Route-to-view mapping ───
-const VIEW_ROUTES = { dashboard: '/', board: '/board', add: '/add', detail: '/caregiver', settings: '/settings' };
-const ROUTE_VIEWS = { '/': 'dashboard', '/board': 'board', '/add': 'add', '/settings': 'settings' };
+// ─── Route Pages (bridge context → component props) ───
 
-export default function App() {
+function DashboardPage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  // ─── Derive view + selectedId from URL ───
-  const pathParts = location.pathname.split('/').filter(Boolean);
-  const view = pathParts[0] === 'caregiver' ? 'detail' : (ROUTE_VIEWS[location.pathname] || 'dashboard');
-  const selectedId = pathParts[0] === 'caregiver' ? pathParts[1] || null : null;
-
-  const setView = useCallback((v) => {
-    if (v === 'dashboard') navigate('/');
-    else if (v === 'board') navigate('/board');
-    else if (v === 'add') navigate('/add');
-    else if (v === 'settings') navigate('/settings');
-  }, [navigate]);
-
-  const selectCaregiver = useCallback((id) => {
-    navigate(`/caregiver/${id}`);
-  }, [navigate]);
-
-  const [caregivers, setCaregivers] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [showScripts, setShowScripts] = useState(null);
-  const [filterPhase, setFilterPhase] = useState('all');
+  const { sidebarCollapsed } = useApp();
+  const {
+    activeCaregivers, archivedCaregivers, filterPhase, tasksVersion,
+    bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive,
+  } = useCaregivers();
   const [searchTerm, setSearchTerm] = useState('');
-  const [showGreenLight, setShowGreenLight] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [tasksVersion, setTasksVersion] = useState(0);
-  const [currentUser, setCurrentUser] = useState(null);
 
-  // ─── Derived user info ───
-  const currentUserName = currentUser?.displayName || '';
-  const currentUserEmail = currentUser?.email || '';
-  const isAdmin = currentUser?.isAdmin || false;
-
-  // ─── Role lookup on login ───
-  const handleUserReady = useCallback(async (userInfo) => {
-    // userInfo = { displayName, email } from AuthGate
-    let userIsAdmin = false;
-    if (userInfo.email && isSupabaseConfigured()) {
-      try {
-        const { data } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('email', userInfo.email.toLowerCase())
-          .single();
-        if (data) {
-          userIsAdmin = data.role === 'admin';
-        } else {
-          // New user — auto-register as member
-          await supabase.from('user_roles').insert({
-            email: userInfo.email.toLowerCase(),
-            role: 'member',
-            updated_by: 'self-registration',
-          });
-        }
-      } catch (err) {
-        console.warn('Role lookup failed:', err.message);
-      }
-    }
-    setCurrentUser({
-      displayName: userInfo.displayName,
-      email: userInfo.email,
-      isAdmin: userIsAdmin,
-    });
-  }, []);
-
-  // ─── Logout handler ───
-  const handleLogout = useCallback(async () => {
-    if (isSupabaseConfigured()) {
-      await supabase.auth.signOut();
-    } else {
-      // Legacy mode: clear localStorage auth
-      localStorage.removeItem('tc-auth-v1');
-      localStorage.removeItem('tc-user-name-v1');
-    }
-    setCurrentUser(null);
-    window.location.reload();
-  }, []);
-
-  // ─── Load data on mount (with retry) ───
-  useEffect(() => {
-    let cancelled = false;
-    const load = async (attempt = 1) => {
-      try {
-        const [data] = await Promise.all([loadCaregivers(), loadPhaseTasks()]);
-        if (cancelled) return;
-        setCaregivers(data);
-        setTasksVersion((v) => v + 1);
-        setLoaded(true);
-        // If we got 0 results and Supabase is configured, retry once (may be a cold-start)
-        if (data.length === 0 && isSupabaseConfigured() && attempt === 1) {
-          setTimeout(() => { if (!cancelled) load(2); }, 1500);
-        }
-      } catch (err) {
-        console.error('Data load failed (attempt ' + attempt + '):', err);
-        if (attempt < 3 && !cancelled) {
-          setTimeout(() => load(attempt + 1), 1000 * attempt);
-        } else if (!cancelled) {
-          setLoaded(true); // show UI even if load fails
-        }
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, []);
-
-  // ─── Realtime subscription for automation-driven changes ───
-  useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-
-    const channel = supabase
-      .channel('caregivers-changes')
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'caregivers' },
-        (payload) => {
-          const updatedRow = payload.new;
-          if (!updatedRow?.id) return;
-          const mapped = dbToCaregiver(updatedRow);
-          setCaregivers((prev) =>
-            prev.map((cg) => cg.id === mapped.id ? { ...cg, ...mapped } : cg)
-          );
-        }
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  // ─── Toast auto-dismiss ───
-  useEffect(() => {
-    if (toast) {
-      const t = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [toast]);
-
-  const showToast = (msg) => setToast(msg);
-
-  // ─── Caregiver CRUD ───
-  const addCaregiver = (data) => {
-    const newCg = {
-      id: crypto.randomUUID(),
-      ...data,
-      tasks: {},
-      notes: [],
-      phaseTimestamps: { intake: Date.now() },
-      createdAt: Date.now(),
-    };
-    setCaregivers((prev) => [newCg, ...prev]);
-    navigate(`/caregiver/${newCg.id}`);
-    saveCaregiver(newCg).catch(() => showToast('Failed to save — check your connection'));
-    fireEventTriggers('new_caregiver', newCg);
-    showToast(`${data.firstName} ${data.lastName} added successfully!`);
-  };
-
-  const updateTask = (cgId, taskId, value) => {
-    const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
-    let changed;
-    let oldPhase;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        oldPhase = getCurrentPhase(cg);
-        const updated = { ...cg, tasks: { ...cg.tasks, [taskId]: taskValue } };
-        const newPhase = getCurrentPhase(updated);
-        if (!updated.phaseTimestamps[newPhase]) {
-          updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
-        }
-        changed = updated;
-        return updated;
-      })
-    );
-    if (changed) {
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-
-      // Fire task_completed trigger when a task is checked
-      if (value) {
-        fireEventTriggers('task_completed', changed, { task_id: taskId });
-      }
-
-      // Fire phase_change trigger if the phase actually changed
-      const newPhase = getCurrentPhase(changed);
-      if (oldPhase && newPhase !== oldPhase) {
-        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
-      }
-    }
-  };
-
-  const updateTasksBulk = (cgId, taskUpdates) => {
-    const enriched = {};
-    for (const [key, val] of Object.entries(taskUpdates)) {
-      enriched[key] = val ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
-    }
-    let changed;
-    let oldPhase;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        oldPhase = getCurrentPhase(cg);
-        const updated = { ...cg, tasks: { ...cg.tasks, ...enriched } };
-        const newPhase = getCurrentPhase(updated);
-        if (!updated.phaseTimestamps[newPhase]) {
-          updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
-        }
-        changed = updated;
-        return updated;
-      })
-    );
-    if (changed) {
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-
-      // Fire task_completed for each newly completed task
-      for (const [key, val] of Object.entries(taskUpdates)) {
-        if (val) fireEventTriggers('task_completed', changed, { task_id: key });
-      }
-
-      // Fire phase_change if phase shifted
-      const newPhase = getCurrentPhase(changed);
-      if (oldPhase && newPhase !== oldPhase) {
-        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
-      }
-    }
-  };
-
-  const addNote = (cgId, noteData) => {
-    // noteData can be a string (legacy) or an object with structured fields
-    const note = typeof noteData === 'string'
-      ? { text: noteData, timestamp: Date.now(), author: currentUserName }
-      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUserName };
-    let changed;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        changed = { ...cg, notes: [...(cg.notes || []), note] };
-        return changed;
-      })
-    );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-  };
-
-  const archiveCaregiver = (cgId, reason, detail) => {
-    let changed;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        changed = {
-          ...cg,
-          archived: true,
-          archivedAt: Date.now(),
-          archiveReason: reason,
-          archiveDetail: detail || '',
-          archivePhase: getCurrentPhase(cg),
-          archivedBy: currentUserName,
-        };
-        return changed;
-      })
-    );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-    navigate('/');
-    showToast('Caregiver archived');
-  };
-
-  const unarchiveCaregiver = (cgId) => {
-    let changed;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        changed = {
-          ...cg,
-          archived: false,
-          archivedAt: null,
-          archiveReason: null,
-          archiveDetail: null,
-          archivePhase: null,
-        };
-        return changed;
-      })
-    );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-    showToast('Caregiver restored to pipeline');
-  };
-
-  const deleteCaregiver = async (cgId) => {
-    try {
-      await deleteCaregiversFromDb([cgId]);
-      setCaregivers((prev) => prev.filter((cg) => cg.id !== cgId));
-      navigate('/');
-      showToast('Caregiver permanently deleted');
-    } catch {
-      showToast('Failed to delete — check your connection');
-    }
-  };
-
-  const updateBoardStatus = (cgId, status) => {
-    let changed;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        changed = { ...cg, boardStatus: status, boardMovedAt: Date.now() };
-        return changed;
-      })
-    );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-  };
-
-  const updateBoardNote = (cgId, note) => {
-    let changed;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        changed = { ...cg, boardNote: note };
-        return changed;
-      })
-    );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-  };
-
-  const updateCaregiver = (cgId, updates) => {
-    let changed;
-    let oldPhase;
-    setCaregivers((prev) =>
-      prev.map((cg) => {
-        if (cg.id !== cgId) return cg;
-        oldPhase = getCurrentPhase(cg);
-        changed = { ...cg, ...updates };
-        return changed;
-      })
-    );
-    if (changed) {
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-
-      // Fire phase_change trigger if phase changed (manual override or data change)
-      const newPhase = getCurrentPhase(changed);
-      if (oldPhase && newPhase !== oldPhase) {
-        fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
-      }
-    }
-    showToast('Profile updated!');
-  };
-
-  const refreshTasks = () => {
-    savePhaseTasks();
-    setTasksVersion((v) => v + 1);
-  };
-
-  // ─── Derived data (memoized) ───
-  const selected = useMemo(() => caregivers.find((c) => c.id === selectedId), [caregivers, selectedId]);
-
-  // tasksVersion referenced so React re-computes when PHASE_TASKS loads
-  const activeCaregivers = useMemo(() => caregivers.filter((cg) => !cg.archived), [caregivers, tasksVersion]);
-  const archivedCaregivers = useMemo(() => caregivers.filter((cg) => cg.archived), [caregivers, tasksVersion]);
   const filtered = useMemo(() => {
     const base = filterPhase === 'archived' ? archivedCaregivers : activeCaregivers;
     return base.filter((cg) => {
@@ -387,155 +40,148 @@ export default function App() {
   }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
-    <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
-      <div className={layout.app}>
-        <Toast message={toast} />
+    <Dashboard
+      caregivers={filtered}
+      allCaregivers={filterPhase === 'archived' ? archivedCaregivers : activeCaregivers}
+      filterPhase={filterPhase}
+      searchTerm={searchTerm}
+      setSearchTerm={setSearchTerm}
+      sidebarWidth={sidebarCollapsed ? 64 : 260}
+      onSelect={(id) => navigate(`/caregiver/${id}`)}
+      onAdd={() => navigate('/add')}
+      onBulkPhaseOverride={bulkPhaseOverride}
+      onBulkAddNote={bulkAddNote}
+      onBulkBoardStatus={bulkBoardStatus}
+      onBulkArchive={bulkArchive}
+    />
+  );
+}
 
-        <Sidebar
-          view={view}
-          setView={setView}
-          filterPhase={filterPhase}
-          setFilterPhase={setFilterPhase}
-          caregivers={activeCaregivers}
-          archivedCount={archivedCaregivers.length}
-          collapsed={sidebarCollapsed}
-          setCollapsed={setSidebarCollapsed}
-          currentUser={currentUserName}
-          isAdmin={isAdmin}
-          onLogout={handleLogout}
-        />
+function BoardPage() {
+  const navigate = useNavigate();
+  const { activeCaregivers, updateBoardStatus, updateBoardNote, addNote } = useCaregivers();
 
-        <main className={layout.main}>
-          {!loaded && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#7A8BA0', fontSize: 15 }}>
-              Loading caregivers...
-            </div>
-          )}
-          {loaded && <div key={view} className="tc-page-enter">
-            {view === 'dashboard' && (
-              <Dashboard
-                caregivers={filtered}
-                allCaregivers={filterPhase === 'archived' ? archivedCaregivers : activeCaregivers}
-                filterPhase={filterPhase}
-                searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
-                sidebarWidth={sidebarCollapsed ? 64 : 260}
-                onSelect={(id) => selectCaregiver(id)}
-                onAdd={() => navigate('/add')}
-                onBulkPhaseOverride={(ids, phase) => {
-                  const changed = [];
-                  setCaregivers((prev) =>
-                    prev.map((cg) => {
-                      if (!ids.includes(cg.id)) return cg;
-                      const updated = {
-                        ...cg,
-                        phaseOverride: phase || null,
-                        phaseTimestamps: phase
-                          ? { ...cg.phaseTimestamps, [phase]: cg.phaseTimestamps?.[phase] || Date.now() }
-                          : cg.phaseTimestamps,
-                      };
-                      changed.push(updated);
-                      return updated;
-                    })
-                  );
-                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
-                }}
-                onBulkAddNote={(ids, text) => {
-                  const changed = [];
-                  setCaregivers((prev) =>
-                    prev.map((cg) => {
-                      if (!ids.includes(cg.id)) return cg;
-                      const updated = { ...cg, notes: [...(cg.notes || []), { text, timestamp: Date.now(), author: currentUserName, type: 'note' }] };
-                      changed.push(updated);
-                      return updated;
-                    })
-                  );
-                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
-                }}
-                onBulkBoardStatus={(ids, status) => {
-                  const changed = [];
-                  setCaregivers((prev) =>
-                    prev.map((cg) => {
-                      if (!ids.includes(cg.id)) return cg;
-                      const updated = { ...cg, boardStatus: status, boardMovedAt: Date.now() };
-                      changed.push(updated);
-                      return updated;
-                    })
-                  );
-                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
-                }}
-                onBulkArchive={(ids, reason) => {
-                  const changed = [];
-                  setCaregivers((prev) =>
-                    prev.map((cg) => {
-                      if (!ids.includes(cg.id)) return cg;
-                      const updated = {
-                        ...cg,
-                        archived: true,
-                        archivedAt: Date.now(),
-                        archiveReason: reason,
-                        archiveDetail: '',
-                        archivePhase: getCurrentPhase(cg),
-                        archivedBy: currentUserName,
-                      };
-                      changed.push(updated);
-                      return updated;
-                    })
-                  );
-                  if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
-                  showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
-                }}
-              />
-            )}
-            {view === 'add' && (
-              <AddCaregiver onAdd={addCaregiver} onCancel={() => navigate('/')} />
-            )}
-            {view === 'board' && (
-              <KanbanBoard
-                caregivers={activeCaregivers}
-                onUpdateStatus={updateBoardStatus}
-                onUpdateNote={updateBoardNote}
-                onAddNote={addNote}
-                onSelect={(id) => selectCaregiver(id)}
-              />
-            )}
-            {view === 'settings' && isAdmin && (
-              <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />
-            )}
-            {view === 'settings' && !isAdmin && (
-              <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
-                <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
-                <p>You need admin privileges to view Settings.</p>
-                <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
-                  Back to Dashboard
-                </button>
-              </div>
-            )}
-            {view === 'detail' && selected && (
-              <CaregiverDetail
-                caregiver={selected}
-                allCaregivers={activeCaregivers}
-                currentUser={{ displayName: currentUserName, email: currentUserEmail }}
-                onBack={() => navigate('/')}
-                onUpdateTask={updateTask}
-                onUpdateTasksBulk={updateTasksBulk}
-                onAddNote={addNote}
-                onArchive={archiveCaregiver}
-                onUnarchive={unarchiveCaregiver}
-                onDelete={deleteCaregiver}
-                onUpdateCaregiver={updateCaregiver}
-                onRefreshTasks={refreshTasks}
-                showScripts={showScripts}
-                setShowScripts={setShowScripts}
-                showGreenLight={showGreenLight}
-                setShowGreenLight={setShowGreenLight}
-                showToast={showToast}
-              />
-            )}
-          </div>}
-        </main>
+  return (
+    <KanbanBoard
+      caregivers={activeCaregivers}
+      onUpdateStatus={updateBoardStatus}
+      onUpdateNote={updateBoardNote}
+      onAddNote={addNote}
+      onSelect={(id) => navigate(`/caregiver/${id}`)}
+    />
+  );
+}
+
+function AddCaregiverPage() {
+  const navigate = useNavigate();
+  const { addCaregiver } = useCaregivers();
+
+  return (
+    <AddCaregiver
+      onAdd={(data) => {
+        const newCg = addCaregiver(data);
+        navigate(`/caregiver/${newCg.id}`);
+      }}
+      onCancel={() => navigate('/')}
+    />
+  );
+}
+
+function CaregiverDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { showToast, currentUserName, currentUserEmail } = useApp();
+  const {
+    caregivers, activeCaregivers,
+    updateTask, updateTasksBulk, addNote,
+    archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
+    updateCaregiver, refreshTasks,
+  } = useCaregivers();
+
+  const [showScripts, setShowScripts] = useState(null);
+  const [showGreenLight, setShowGreenLight] = useState(false);
+
+  const caregiver = useMemo(() => caregivers.find((c) => c.id === id), [caregivers, id]);
+
+  if (!caregiver) {
+    return (
+      <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
+        <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Caregiver not found</h2>
+        <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
+          Back to Dashboard
+        </button>
       </div>
-      <AIChatbot caregiverId={selectedId} currentUser={currentUserName} />
+    );
+  }
+
+  return (
+    <CaregiverDetail
+      caregiver={caregiver}
+      allCaregivers={activeCaregivers}
+      currentUser={{ displayName: currentUserName, email: currentUserEmail }}
+      onBack={() => navigate('/')}
+      onUpdateTask={updateTask}
+      onUpdateTasksBulk={updateTasksBulk}
+      onAddNote={addNote}
+      onArchive={(cgId, reason, detail) => {
+        archiveCaregiver(cgId, reason, detail);
+        navigate('/');
+      }}
+      onUnarchive={unarchiveCaregiver}
+      onDelete={(cgId) => {
+        deleteCaregiver(cgId);
+        navigate('/');
+      }}
+      onUpdateCaregiver={updateCaregiver}
+      onRefreshTasks={refreshTasks}
+      showScripts={showScripts}
+      setShowScripts={setShowScripts}
+      showGreenLight={showGreenLight}
+      setShowGreenLight={setShowGreenLight}
+      showToast={showToast}
+    />
+  );
+}
+
+function SettingsPage() {
+  const navigate = useNavigate();
+  const { showToast, currentUserEmail, isAdmin } = useApp();
+
+  if (!isAdmin) {
+    return (
+      <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
+        <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
+        <p>You need admin privileges to view Settings.</p>
+        <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  return <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />;
+}
+
+// ─── App (thin shell: auth + providers + routes) ───
+
+export default function App() {
+  const { handleUserReady, handleLogout, currentUserName } = useApp();
+
+  return (
+    <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
+      <CaregiverProvider>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route index element={<DashboardPage />} />
+            <Route path="board" element={<BoardPage />} />
+            <Route path="add" element={<AddCaregiverPage />} />
+            <Route path="caregiver/:id" element={<CaregiverDetailPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+        <AIChatbot caregiverId={null} currentUser={currentUserName} />
+      </CaregiverProvider>
     </AuthGate>
   );
 }

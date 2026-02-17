@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { PHASES } from '../../lib/constants';
-import { getDaysSinceApplication } from '../../lib/utils';
-import cards from '../../styles/cards.module.css';
-import forms from '../../styles/forms.module.css';
-import btn from '../../styles/buttons.module.css';
+import { PHASES } from '../../../lib/constants';
+import { getDaysSinceApplication } from '../../../lib/utils';
+import cards from '../../../styles/cards.module.css';
+import forms from '../../../styles/forms.module.css';
+import btn from '../../../styles/buttons.module.css';
 import { EditField } from './constants';
 
 export function ProfileCard({ caregiver, onUpdateCaregiver }) {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../../lib/supabase';
-import { DOCUSIGN_STATUSES } from '../../lib/constants';
-import btn from '../../styles/buttons.module.css';
+import { supabase } from '../../../lib/supabase';
+import { DOCUSIGN_STATUSES } from '../../../lib/constants';
+import btn from '../../../styles/buttons.module.css';
 import s from './DocuSignSection.module.css';
 
 export function DocuSignSection({ caregiver, currentUser, showToast }) {

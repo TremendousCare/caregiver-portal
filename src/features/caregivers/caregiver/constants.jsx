@@ -1,4 +1,4 @@
-import forms from '../../styles/forms.module.css';
+import forms from '../../../styles/forms.module.css';
 
 export function EditField({ label, value, onChange, type = 'text' }) {
   return (

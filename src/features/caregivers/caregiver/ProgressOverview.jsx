@@ -1,6 +1,6 @@
-import { PHASES } from '../../lib/constants';
-import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication } from '../../lib/utils';
-import progress from '../../styles/progress.module.css';
+import { PHASES } from '../../../lib/constants';
+import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication } from '../../../lib/utils';
+import progress from '../../../styles/progress.module.css';
 
 export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpdateCaregiver }) {
   const overallPct = getOverallProgress(caregiver);

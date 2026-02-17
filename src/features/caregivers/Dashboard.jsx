@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { PHASES, DEFAULT_BOARD_COLUMNS } from '../lib/constants';
-import { getCurrentPhase, getOverallProgress, getDaysInPhase, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../lib/utils';
-import { generateActionItems } from '../lib/actionEngine';
-import { loadBoardColumns } from '../lib/storage';
-import { exportToCSV } from '../lib/export';
+import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
+import { getCurrentPhase, getOverallProgress, getDaysInPhase, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../../lib/utils';
+import { generateActionItems } from '../../lib/actionEngine';
+import { loadBoardColumns } from '../../lib/storage';
+import { exportToCSV } from '../../lib/export';
 import { OrientationBanner } from './KanbanBoard';
-import cards from '../styles/cards.module.css';
-import btn from '../styles/buttons.module.css';
-import forms from '../styles/forms.module.css';
-import progress from '../styles/progress.module.css';
-import layout from '../styles/layout.module.css';
+import cards from '../../styles/cards.module.css';
+import btn from '../../styles/buttons.module.css';
+import forms from '../../styles/forms.module.css';
+import progress from '../../styles/progress.module.css';
+import layout from '../../styles/layout.module.css';
 import d from './Dashboard.module.css';
 
 // ─── EXPORT BUTTON ───────────────────────────────────────────
