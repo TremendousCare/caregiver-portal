@@ -22,6 +22,17 @@ function StatCard({ label, value, accent, icon }) {
   );
 }
 
+// ─── HELPERS ────────────────────────────────────────────────
+function fmtPhone(val) {
+  if (!val) return 'No phone';
+  const digits = val.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1'))
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10)
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return val;
+}
+
 // ─── CLIENT CARD ─────────────────────────────────────────────
 function ClientCard({ client, onClick }) {
   const phase = getClientPhase(client);
@@ -46,8 +57,8 @@ function ClientCard({ client, onClick }) {
             {client.firstName} {client.lastName}
           </div>
           <div className={d.cardMeta}>
-            {client.phone || 'No phone'}
-            {client.careRecipientName ? ` · Care for: ${client.careRecipientName}` : ''}
+            {fmtPhone(client.phone)}
+            {client.careRecipientName ? ` · ${client.careRecipientName}` : ''}
           </div>
         </div>
         {overdue && <span className={progress.urgentBadge}>⚠️ Overdue</span>}

@@ -156,62 +156,74 @@
 /* ── Client Cards ── */
 .cardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
 }
 
 .clientCard {
   position: relative;
   background: #fff;
-  border: 1px solid #E2E8F0;
-  border-radius: 14px;
-  padding: 18px 20px;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 18px;
+  padding: 22px;
   cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02);
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
 }
 
 .clientCard:hover {
-  border-color: #C6DFF0;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.1), 0 0 0 1px rgba(46,78,141,0.08);
+  transform: translateY(-3px);
+}
+
+.clientCard:active {
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .clientCardUrgent {
-  border-left: 3px solid #DC3545;
+  border-color: #FECDC8;
+  background: linear-gradient(135deg, #FFFBFA, #FFF5F3);
 }
 
 .cardHeader {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
 
 .cardAvatar {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2E4E8D, #1084C3);
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--tc-navy-dark, #1E3A6E), var(--tc-navy));
   color: #fff;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  letter-spacing: 1px;
+  box-shadow: 0 2px 8px rgba(46,78,141,0.2);
 }
 
 .cardName {
   font-size: 15px;
   font-weight: 700;
-  color: var(--tc-text-primary);
+  color: #0F1724;
   font-family: var(--tc-font-heading);
+  letter-spacing: -0.1px;
 }
 
 .cardMeta {
   font-size: 12px;
-  color: var(--tc-text-tertiary);
+  color: var(--tc-text-muted, var(--tc-text-tertiary));
+  margin-top: 3px;
   font-weight: 500;
 }
 
@@ -219,12 +231,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
 
 .cardDays {
-  font-size: 11px;
-  color: var(--tc-text-tertiary);
+  font-size: 12px;
+  color: var(--tc-text-muted, var(--tc-text-tertiary));
   font-weight: 600;
 }
 
