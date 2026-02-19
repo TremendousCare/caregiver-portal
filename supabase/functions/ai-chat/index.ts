@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
     if (confirmAction) {
       const result = await executeConfirmedAction(
         confirmAction.action,
-        confirmAction.caregiver_id,
+        confirmAction.caregiver_id || confirmAction.client_id,
         confirmAction.params,
         supabase,
         currentUser || "User",

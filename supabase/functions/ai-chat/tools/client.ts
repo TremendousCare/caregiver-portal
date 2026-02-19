@@ -244,7 +244,7 @@ registerTool(
       requires_confirmation: true,
       action: "update_client_phase",
       summary: `Move **${client.first_name} ${client.last_name}** from **${getClientPhaseLabel(client)}** to **${input.phase}**${input.reason ? ` — ${input.reason}` : ""}`,
-      caregiver_id: client.id,
+      client_id: client.id,
       params: { phase: input.phase, reason: input.reason },
     };
   },
@@ -285,7 +285,7 @@ registerTool(
       requires_confirmation: true,
       action: "complete_client_task",
       summary: `Mark task **"${input.task_id}"** as complete for **${client.first_name} ${client.last_name}**`,
-      caregiver_id: client.id,
+      client_id: client.id,
       params: { task_id: input.task_id },
     };
   },
@@ -333,7 +333,7 @@ registerTool(
       requires_confirmation: true,
       action: "update_client_field",
       summary: `Update **${client.first_name} ${client.last_name}**'s **${input.field}** from "${client[input.field] || "(empty)"}" to "${input.value}"`,
-      caregiver_id: client.id,
+      client_id: client.id,
       params: { field: input.field, value: input.value },
     };
   },

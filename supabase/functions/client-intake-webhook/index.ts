@@ -54,12 +54,49 @@ const FIELD_MAP: Record<string, string> = {
   insuranceInfo: "insurance_info",
   contactName: "contact_name",
 
-  // Forminator auto-generated field IDs
-  "name-1": "first_name",
-  "name-2": "last_name",
+  // Forminator auto-generated field IDs — hyphen format (older forms)
+  "name-1": "_full_name",
+  "name-2": "_full_name",
   "email-1": "email",
+  "email-2": "email",
   "phone-1": "phone",
+  "phone-2": "phone",
   "textarea-1": "care_needs",
+  "textarea-2": "care_needs",
+  "text-1": "first_name",
+  "text-2": "last_name",
+  "address-1": "address",
+  "select-1": "care_needs",
+  "radio-1": "care_needs",
+
+  // Forminator underscore format (Multi-Step form 3709 and newer forms)
+  "name_1_first_name": "first_name",
+  "name_1_last_name": "last_name",
+  "name_2_first_name": "first_name",
+  "name_2_last_name": "last_name",
+  "email_1": "email",
+  "email_2": "email",
+  "phone_1": "phone",
+  "phone_2": "phone",
+  "textarea_1": "care_needs",
+  "textarea_2": "care_needs",
+  "text_1": "first_name",
+  "text_2": "last_name",
+  "address_1_street_address": "address",
+  "address_1_city": "city",
+  "address_1_state": "state",
+  "address_1_zip": "zip",
+  "address_2_street_address": "address",
+  "address_2_city": "city",
+  "address_2_state": "state",
+  "address_2_zip": "zip",
+  "radio_1": "care_needs",
+  "select_1": "care_needs",
+
+  // Forminator sub-field names (when name field sends sub-properties)
+  "first-name": "first_name",
+  "last-name": "last_name",
+  "middle-name": "_skip",
 
   // Common generic names
   name: "_full_name",
@@ -98,7 +135,57 @@ const SKIP_FIELDS = new Set([
   "referer_url",
   "current_url",
   "entry",
+  // Forminator/WordPress metadata fields
+  "page_id",
+  "form_type",
+  "site_url",
+  "referer",
+  "submission_id",
+  "submission_time",
+  "date_created_sql",
+  "entry_id",
+  "captcha-1",
+  "html-1",
+  "section-1",
+  "stripe-1",
+  "paypal-1",
+  "postdata-1",
+  "upload-1",
+  "signature-1",
+  "_wp_http_referer",
+  "nonce",
+  "is_submit",
+  "render_id",
+  "form_module_id",
+  // Forminator underscore-format metadata
+  "checkbox_1",
+  "consent_1",
+  "form_title",
+  "entry_time",
 ]);
+
+// ─── Placeholder Detection ──────────────────────────────────
+// Forminator test pings send literal field labels as values.
+// Detect these so we don't create junk client records.
+const PLACEHOLDER_VALUES = new Set([
+  "first name", "last name", "first", "last", "name",
+  "your name", "your first name", "your last name",
+  "email address", "email", "your email",
+  "phone", "phone number", "your phone",
+  "i'm interested in home care services for:",
+]);
+
+function isPlaceholderData(clientData: Record<string, any>): boolean {
+  const fn = (clientData.first_name || "").toLowerCase().trim();
+  const ln = (clientData.last_name || "").toLowerCase().trim();
+  const em = (clientData.email || "").toLowerCase().trim();
+  const ph = (clientData.phone || "").toLowerCase().trim();
+
+  // If ALL present fields are placeholder values, it's a test ping
+  const fields = [fn, ln, em, ph].filter(Boolean);
+  if (fields.length === 0) return true;
+  return fields.every((f) => PLACEHOLDER_VALUES.has(f));
+}
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -183,7 +270,54 @@ function mapIncomingFields(
     if (SKIP_FIELDS.has(key)) continue;
     if (value === null || value === undefined || value === "") continue;
 
+    // Handle Forminator's Name field — may send as object with sub-fields
+    // e.g. {"name-1": {"first-name": "Kevin", "last-name": "Nash"}}
+    // or {"name-1": "Kevin Nash"} (single string)
+    if (key.startsWith("name-") && typeof value === "object" && value !== null) {
+      const nameObj = value as Record<string, any>;
+      if (nameObj["first-name"] && !clientData.first_name) {
+        clientData.first_name = String(nameObj["first-name"]).trim();
+      }
+      if (nameObj["last-name"] && !clientData.last_name) {
+        clientData.last_name = String(nameObj["last-name"]).trim();
+      }
+      if (nameObj["first_name"] && !clientData.first_name) {
+        clientData.first_name = String(nameObj["first_name"]).trim();
+      }
+      if (nameObj["last_name"] && !clientData.last_name) {
+        clientData.last_name = String(nameObj["last_name"]).trim();
+      }
+      // Fallback: if it's an object but no sub-fields matched, try concatenation
+      if (!clientData.first_name && !clientData.last_name) {
+        const vals = Object.values(nameObj).filter(v => typeof v === "string" && v.trim());
+        if (vals.length >= 2) {
+          clientData.first_name = String(vals[0]).trim();
+          clientData.last_name = String(vals.slice(1).join(" ")).trim();
+        } else if (vals.length === 1) {
+          const parts = String(vals[0]).trim().split(/\s+/);
+          clientData.first_name = parts[0] || "";
+          clientData.last_name = parts.slice(1).join(" ") || "";
+        }
+      }
+      continue;
+    }
+
+    // Handle any other Forminator object fields (e.g. address-1 as object)
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      // Flatten object values — check sub-keys against FIELD_MAP too
+      for (const [subKey, subVal] of Object.entries(value as Record<string, any>)) {
+        if (subVal === null || subVal === undefined || subVal === "") continue;
+        const subMapped = effectiveMap[subKey];
+        if (subMapped && !clientData[subMapped]) {
+          clientData[subMapped] = String(subVal).trim();
+        }
+      }
+      continue;
+    }
+
     const mappedField = effectiveMap[key];
+
+    if (mappedField === "_skip") continue;
 
     if (mappedField === "_full_name") {
       // Split full name into first + last
@@ -463,7 +597,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ status: "ok", service: "client-intake-webhook", version: 1 }),
+      JSON.stringify({ status: "ok", service: "client-intake-webhook", version: 8 }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -477,14 +611,43 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Parse body
+    // Parse body (JSON or form-urlencoded)
     let body: Record<string, any>;
     try {
-      body = await req.json();
+      const contentType = req.headers.get("content-type") || "";
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        const formData = await req.formData();
+        body = {};
+        formData.forEach((value, key) => { body[key] = value; });
+      } else if (contentType.includes("multipart/form-data")) {
+        const formData = await req.formData();
+        body = {};
+        formData.forEach((value, key) => {
+          if (typeof value === "string") body[key] = value;
+        });
+      } else {
+        const text = await req.text();
+        if (!text || text.trim() === "") {
+          // Empty body — Forminator test ping or health check
+          return new Response(
+            JSON.stringify({ status: "ok", message: "Webhook is active. Send form data to create clients." }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        body = JSON.parse(text);
+      }
     } catch {
       return new Response(
-        JSON.stringify({ error: "Request body must be JSON", code: "INVALID_BODY" }),
+        JSON.stringify({ error: "Could not parse request body. Send JSON or form-urlencoded data.", code: "INVALID_BODY" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Empty object — test ping from Forminator or similar
+    if (!body || Object.keys(body).length === 0) {
+      return new Response(
+        JSON.stringify({ status: "ok", message: "Webhook is active. Send form data to create clients." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -517,6 +680,18 @@ Deno.serve(async (req: Request) => {
       !clientData.phone &&
       !clientData.email
     ) {
+      // If API key was valid but no client data, treat as a successful test ping
+      // (Forminator sends form metadata on "test connection" with no real fields)
+      if (keyResult.valid) {
+        return new Response(
+          JSON.stringify({
+            status: "ok",
+            message: "Webhook connected successfully. No client data in this request (test ping).",
+            source: keyResult.source,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       return new Response(
         JSON.stringify({
           error:
@@ -524,6 +699,19 @@ Deno.serve(async (req: Request) => {
           code: "VALIDATION_ERROR",
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Guard against Forminator test pings that send placeholder field labels as values
+    // (e.g. first_name="First Name", email="Email Address")
+    if (isPlaceholderData(clientData)) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          message: "Webhook connected successfully. Placeholder/test data detected — no client created.",
+          source: keyResult.source,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -637,24 +825,20 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Fire automations + sequences (fire-and-forget, don't block response)
-    const automationPromise = fireAutomationRules(supabase, newClient).catch(
+    // Fire automations + sequences in background — do NOT await
+    // (Forminator times out if webhook takes too long to respond)
+    fireAutomationRules(supabase, newClient).catch(
       (err) => console.error("Automation rules error:", err)
     );
-    const sequencePromise = fireSequences(supabase, newClient).catch((err) =>
+    fireSequences(supabase, newClient).catch((err) =>
       console.error("Sequences error:", err)
     );
-
-    // Wait briefly for automations (but don't block too long)
-    await Promise.race([
-      Promise.all([automationPromise, sequencePromise]),
-      new Promise((resolve) => setTimeout(resolve, 8000)), // 8s max wait
-    ]);
 
     const clientName = [newClient.first_name, newClient.last_name]
       .filter(Boolean)
       .join(" ") || "Unknown";
 
+    // Return immediately — don't wait for automations
     return new Response(
       JSON.stringify({
         success: true,

@@ -116,7 +116,8 @@ export function AIChatbot({ caregiverId, currentUser }) {
       const data = await callEdgeFunction({
         confirmAction: {
           action: confirmation.action,
-          caregiver_id: confirmation.caregiver_id,
+          caregiver_id: confirmation.caregiver_id || confirmation.client_id,
+          client_id: confirmation.client_id,
           params: confirmation.params,
         },
         currentUser: currentUser || 'User',
