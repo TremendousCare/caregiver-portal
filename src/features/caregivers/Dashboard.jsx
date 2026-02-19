@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
 import { getCurrentPhase, getOverallProgress, getDaysInPhase, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../../lib/utils';
-import { generateActionItems } from '../../lib/actionEngine';
+import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
 import { OrientationBanner } from './KanbanBoard';

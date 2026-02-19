@@ -7,6 +7,7 @@ import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
+import ActionItemRuleSettings from './ActionItemRuleSettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -889,6 +890,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Automation Engine */}
       <div style={{ marginBottom: 20 }}>
         <AutomationSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Action Item Rules */}
+      <div style={{ marginBottom: 20 }}>
+        <ActionItemRuleSettings showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* Outlook Email Integration */}
