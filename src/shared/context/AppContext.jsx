@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { loadActionItemRules } from '../../lib/actionItemEngine';
 
 const AppContext = createContext();
 
@@ -7,6 +8,11 @@ export function AppProvider({ children }) {
   const [toast, setToast] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+
+  // ─── Load action item rules cache on mount ───
+  useEffect(() => {
+    loadActionItemRules();
+  }, []);
 
   // ─── Toast auto-dismiss ───
   useEffect(() => {

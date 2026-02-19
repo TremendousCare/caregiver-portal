@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CLIENT_PHASES, CLIENT_PRIORITIES } from './constants';
 import { getClientPhase, getDaysSinceCreated, isClientOverdue, getNextStep } from './utils';
-import { generateClientActionItems } from './actionEngine';
+import { generateClientActionItems } from '../../lib/actionItemEngine';
 import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
