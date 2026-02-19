@@ -147,13 +147,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
     setNoteOutcome('');
   };
 
-  // ─── Quick-log shortcut ─────────────────────────────────
-  const handleQuickLog = (type) => {
-    setNoteType(type);
-    setNoteDirection('outbound');
-    setNoteOutcome('');
-  };
-
   // ─── Type helpers ───────────────────────────────────────
   const getTypeInfo = (type) => NOTE_TYPES.find((t) => t.value === type || (t.value === 'text' && type === 'sms'));
   const outcomeInfo = (val) => NOTE_OUTCOMES.find((o) => o.value === val);
@@ -169,25 +162,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
   return (
     <div className={cl.notesSection}>
       <h3 className={cl.notesSectionTitle}>📋 Activity Log</h3>
-
-      {/* Quick-log buttons for communication types */}
-      <div style={styles.quickActions}>
-        {COMM_TYPES.map((type) => {
-          const info = NOTE_TYPES.find((t) => t.value === type);
-          return (
-            <button
-              key={type}
-              style={{
-                ...styles.quickBtn,
-                ...(noteType === type ? styles.quickBtnActive : {}),
-              }}
-              onClick={() => handleQuickLog(type)}
-            >
-              {info.icon} Log {info.label}
-            </button>
-          );
-        })}
-      </div>
 
       {/* Input section */}
       <div style={styles.inputSection}>
@@ -358,31 +332,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
 // ─── Inline Styles ──────────────────────────────────────────
 const styles = {
-  quickActions: {
-    display: 'flex',
-    gap: 8,
-    marginBottom: 16,
-    flexWrap: 'wrap',
-  },
-  quickBtn: {
-    padding: '8px 16px',
-    borderRadius: 10,
-    border: '1px solid #D5DCE6',
-    background: '#FFFFFF',
-    color: '#2E4E8D',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    transition: 'all 0.15s',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-  },
-  quickBtnActive: {
-    background: '#EBF0FA',
-    borderColor: '#2E4E8D',
-    color: '#2E4E8D',
-    boxShadow: '0 2px 8px rgba(46,78,141,0.12)',
-  },
   inputSection: {
     background: '#F8F9FB',
     borderRadius: 12,
