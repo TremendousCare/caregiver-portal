@@ -9,6 +9,7 @@ import "./tools/email.ts";
 import "./tools/calendar.ts";
 import "./tools/docusign.ts";
 import "./tools/client.ts";
+import "./tools/awareness.ts";
 
 import {
   ANTHROPIC_API_KEY,
