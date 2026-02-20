@@ -208,8 +208,8 @@ registerTool(
           const result = call.result || "Unknown";
           const dur = call.duration || 0;
           const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m ${dur % 60}s` : `${dur}s`;
-          const hasRecording = call.recording ? " [Recorded]" : "";
-          return `[${date}] ${direction} | ${result} | Duration: ${durStr}${hasRecording}`;
+          const recordingInfo = call.recording ? ` [Recorded - ID: ${call.recording.id}]` : "";
+          return `[${date}] ${direction} | ${result} | Duration: ${durStr}${recordingInfo}`;
         });
       return {
         caregiver: `${cg.first_name} ${cg.last_name}`,
@@ -228,6 +228,64 @@ registerTool(
     } catch (err) {
       console.error("get_call_log error:", err);
       return { error: `Failed to retrieve call log: ${(err as Error).message}` };
+    }
+  },
+);
+
+// ── get_call_recording (auto) ──
+
+registerTool(
+  {
+    name: "get_call_recording",
+    description:
+      "Get a playable recording URL for a specific call recording from RingCentral. Use this when a user asks to hear or play a call recording. The recording ID can be found in the get_call_log output (shown as [Recorded - ID: 123456]).",
+    input_schema: {
+      type: "object",
+      properties: {
+        recording_id: {
+          type: "string",
+          description: "The RingCentral recording ID (numeric string from get_call_log output)",
+        },
+      },
+      required: ["recording_id"],
+    },
+    riskLevel: "auto",
+  },
+  async (input: any, _ctx: ToolContext): Promise<ToolResult> => {
+    const recordingId = input.recording_id;
+    if (!recordingId) return { error: "recording_id is required." };
+
+    // Validate format (numeric only)
+    if (!/^\d+$/.test(recordingId)) {
+      return { error: "Invalid recording ID format. Must be numeric." };
+    }
+
+    try {
+      const accessToken = await getRingCentralAccessToken();
+
+      // Verify the recording exists by fetching its metadata
+      const rcUrl = `${RC_API_URL}/restapi/v1.0/account/~/recording/${recordingId}`;
+      const response = await fetch(rcUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        return { error: `Recording ${recordingId} not found or unavailable.` };
+      }
+
+      const recordingData = await response.json();
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+
+      return {
+        recording_id: recordingId,
+        recording_url: `${supabaseUrl}/functions/v1/call-recording?recordingId=${recordingId}`,
+        duration_seconds: recordingData.duration || null,
+        type: recordingData.type || "Unknown",
+        note: "The user can play this recording from the Activity Log in the caregiver or client profile. The recording is also available at the URL above (requires portal authentication).",
+      };
+    } catch (err) {
+      console.error("get_call_recording error:", err);
+      return { error: `Failed to retrieve recording: ${(err as Error).message}` };
     }
   },
 );

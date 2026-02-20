@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { buildRecordingUrl } from '../../../lib/recording';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -13,6 +14,17 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
   const [showPortalOnly, setShowPortalOnly] = useState(false);
+  const [playingRecordingId, setPlayingRecordingId] = useState(null);
+  const [recordingError, setRecordingError] = useState(null);
+  const accessTokenRef = useRef('');
+
+  // Get Supabase access token for recording playback URLs
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      accessTokenRef.current = session?.access_token || '';
+    });
+  }, []);
 
   // Fetch RingCentral communication data
   useEffect(() => {
@@ -199,14 +211,46 @@ export function ActivityLog({ caregiver, onAddNote }) {
                       </span>
                     )}
                     {n.hasRecording && (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#E0F2FE', color: '#0284C7', fontWeight: 600 }}>
-                        Recorded
-                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPlayingRecordingId(playingRecordingId === n.recordingId ? null : n.recordingId);
+                          setRecordingError(null);
+                        }}
+                        style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                          background: playingRecordingId === n.recordingId ? '#0284C7' : '#E0F2FE',
+                          color: playingRecordingId === n.recordingId ? '#fff' : '#0284C7',
+                          fontWeight: 600, border: 'none', cursor: n.recordingId ? 'pointer' : 'default',
+                          fontFamily: 'inherit', opacity: n.recordingId ? 1 : 0.5,
+                        }}
+                        title={n.recordingId ? 'Play/stop recording' : 'Recording ID unavailable'}
+                        disabled={!n.recordingId}
+                      >
+                        {playingRecordingId === n.recordingId ? '⏹ Stop' : '▶ Play'}
+                      </button>
                     )}
                   </div>
                 )}
               </div>
               <div className={cg.noteText}>{n.text}</div>
+              {playingRecordingId && playingRecordingId === n.recordingId && (
+                <div style={{ marginTop: 8, padding: '4px 0' }}>
+                  <audio
+                    controls
+                    autoPlay
+                    src={buildRecordingUrl(n.recordingId, accessTokenRef.current)}
+                    onError={() => setRecordingError(n.recordingId)}
+                    onEnded={() => setPlayingRecordingId(null)}
+                    style={{ width: '100%', height: 36, borderRadius: 8 }}
+                  />
+                  {recordingError === n.recordingId && (
+                    <div style={{ color: '#DC3545', fontSize: 12, marginTop: 4 }}>
+                      Failed to load recording. It may have expired or been removed.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
