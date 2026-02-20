@@ -4,6 +4,8 @@ import { getCurrentPhase, getOverallProgress, getDaysInPhase, getDaysSinceApplic
 import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
+import { supabase } from '../../lib/supabase';
+import { resolveCaregiverMergeFields, normalizePhone } from '../../lib/mergeFields';
 import { OrientationBanner } from './KanbanBoard';
 import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
@@ -167,18 +169,38 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
 export function Dashboard({
   caregivers, allCaregivers, filterPhase, searchTerm, setSearchTerm,
   onSelect, onAdd, onBulkPhaseOverride, onBulkAddNote, onBulkBoardStatus,
-  onBulkArchive, sidebarWidth,
+  onBulkArchive, onBulkSms, showToast, sidebarWidth,
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(() => localStorage.getItem('tc_actions_collapsed') === 'true');
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [bulkAction, setBulkAction] = useState(null); // "phase" | "note" | "board" | "delete"
+  const [bulkAction, setBulkAction] = useState(null); // "phase" | "note" | "board" | "archive" | "sms"
   const [bulkNoteText, setBulkNoteText] = useState('');
   const [boardColumns, setBoardColumns] = useState(DEFAULT_BOARD_COLUMNS);
+
+  // SMS bulk state
+  const [bulkSmsText, setBulkSmsText] = useState('');
+  const [smsTemplates, setSmsTemplates] = useState([]);
+  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState('');
+  const [smsSendStep, setSmsSendStep] = useState('compose'); // 'compose' | 'confirm'
+  const [isSending, setIsSending] = useState(false);
 
   // Load board columns for bulk board assignment
   useEffect(() => {
     loadBoardColumns().then(setBoardColumns);
+  }, []);
+
+  // Load SMS templates
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from('app_settings').select('value').eq('key', 'sms_templates').single()
+      .then(({ data }) => {
+        if (data?.value) {
+          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          setSmsTemplates(Array.isArray(parsed) ? parsed : []);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Clear selection when filter changes
@@ -216,6 +238,9 @@ export function Dashboard({
     setSelectedIds(new Set());
     setBulkAction(null);
     setBulkNoteText('');
+    setBulkSmsText('');
+    setSelectedSmsTemplate('');
+    setSmsSendStep('compose');
   };
 
   const executeBulkAction = (action, value) => {
@@ -533,6 +558,118 @@ export function Dashboard({
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Send SMS */}
+              <div className={d.actionGroup}>
+                <button
+                  className={`${d.actionBtn} ${bulkAction === 'sms' ? d.actionBtnActive : ''}`}
+                  onClick={() => { setBulkAction(bulkAction === 'sms' ? null : 'sms'); setSmsSendStep('compose'); }}
+                >
+                  💬 Send SMS
+                </button>
+                {bulkAction === 'sms' && (() => {
+                  const selectedCgs = sortedCaregivers.filter((cg) => selectedIds.has(cg.id));
+                  const withPhone = selectedCgs.filter((cg) => normalizePhone(cg.phone) !== null);
+                  const withoutPhone = selectedCgs.length - withPhone.length;
+
+                  if (smsSendStep === 'confirm') {
+                    const previewCg = withPhone[0];
+                    const previewText = previewCg ? resolveCaregiverMergeFields(bulkSmsText, previewCg) : bulkSmsText;
+                    return (
+                      <div className={`${d.actionDropdown} ${d.actionDropdownXWide}`}>
+                        <div className={d.confirmPanel}>
+                          <div className={d.confirmSummary}>
+                            Send SMS to <strong>{withPhone.length}</strong> caregiver{withPhone.length !== 1 ? 's' : ''} with valid phone numbers
+                          </div>
+                          {withoutPhone > 0 && (
+                            <div className={d.confirmSkipped}>
+                              {withoutPhone} will be skipped (no phone number)
+                            </div>
+                          )}
+                          <div className={d.confirmPreviewLabel}>Preview ({previewCg ? `${previewCg.firstName} ${previewCg.lastName}` : ''})</div>
+                          <div className={d.confirmPreviewBox}>{previewText}</div>
+                          <div className={d.composeActions}>
+                            <button className={d.backBtn} onClick={() => setSmsSendStep('compose')}>← Back</button>
+                            <button
+                              className={d.sendBtn}
+                              disabled={isSending || withPhone.length === 0}
+                              onClick={async () => {
+                                setIsSending(true);
+                                try {
+                                  const result = await onBulkSms([...selectedIds], bulkSmsText.trim());
+                                  const { sent = 0, skipped = 0, failed = 0 } = result || {};
+                                  let msg = `SMS sent to ${sent} caregiver${sent !== 1 ? 's' : ''}`;
+                                  if (skipped > 0) msg += `, ${skipped} skipped`;
+                                  if (failed > 0) msg += `, ${failed} failed`;
+                                  showToast(msg);
+                                  clearSelection();
+                                } catch (err) {
+                                  showToast(`Failed to send SMS: ${err.message || 'Unknown error'}`);
+                                } finally {
+                                  setIsSending(false);
+                                }
+                              }}
+                            >
+                              {isSending ? 'Sending...' : `Send to ${withPhone.length} caregiver${withPhone.length !== 1 ? 's' : ''}`}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className={`${d.actionDropdown} ${d.actionDropdownXWide}`}>
+                      <div style={{ padding: '8px 12px 4px', fontSize: 12, color: '#6B7B8F', borderBottom: '1px solid #E5E7EB', marginBottom: 8 }}>
+                        Send SMS to {selectedIds.size} caregiver{selectedIds.size !== 1 ? 's' : ''}
+                      </div>
+                      {smsTemplates.length > 0 && (
+                        <select
+                          className={d.dropdownInput}
+                          value={selectedSmsTemplate}
+                          onChange={(e) => {
+                            setSelectedSmsTemplate(e.target.value);
+                            if (e.target.value) {
+                              const tpl = smsTemplates.find((t) => t.id === e.target.value);
+                              if (tpl) setBulkSmsText(tpl.body);
+                            }
+                          }}
+                          style={{ marginBottom: 8 }}
+                        >
+                          <option value="">-- Pick a template (optional) --</option>
+                          {smsTemplates.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      <textarea
+                        className={d.composeTextarea}
+                        placeholder="Type your SMS message... Use {{first_name}}, {{last_name}} for merge fields"
+                        value={bulkSmsText}
+                        onChange={(e) => setBulkSmsText(e.target.value)}
+                        rows={4}
+                        autoFocus
+                      />
+                      <div className={d.mergeFieldsHint}>
+                        Merge fields: {'{{first_name}}'}, {'{{last_name}}'}, {'{{phone}}'}, {'{{email}}'}
+                      </div>
+                      <div className={withPhone.length > 0 ? d.phoneCountLine : `${d.phoneCountLine} ${d.phoneCountWarning}`}>
+                        {withPhone.length} of {selectedCgs.length} have a valid phone number
+                        {withoutPhone > 0 && ` · ${withoutPhone} will be skipped`}
+                      </div>
+                      <div className={d.composeActions}>
+                        <button
+                          className={d.sendBtn}
+                          disabled={!bulkSmsText.trim() || withPhone.length === 0}
+                          onClick={() => setSmsSendStep('confirm')}
+                        >
+                          Review & Send →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Archive */}
