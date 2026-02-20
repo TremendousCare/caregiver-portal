@@ -44,6 +44,11 @@ function evaluateConditions(rule, caregiver, triggerContext) {
     const hasMatch = templateNames.some((n) => n && n.toLowerCase().includes(filter));
     if (!hasMatch) return false;
   }
+  // For inbound_sms trigger: match keyword in message text (case-insensitive)
+  if (conds.keyword) {
+    const messageText = (triggerContext.message_text || '').toLowerCase();
+    if (!messageText.includes(conds.keyword.toLowerCase())) return false;
+  }
   return true;
 }
 
@@ -162,5 +167,36 @@ describe('evaluateConditions', () => {
   it('rejects if any condition fails (task_id wrong)', () => {
     const rule = { conditions: { phase: 'intake', task_id: 'offer_signed' } };
     expect(evaluateConditions(rule, baseCg, { task_id: 'phone_screen' })).toBe(false);
+  });
+
+  // ── keyword filter (inbound_sms trigger) ──
+
+  it('matches when message contains keyword (case-insensitive)', () => {
+    const rule = { conditions: { keyword: 'schedule' } };
+    const ctx = { message_text: 'Can we Schedule an interview?' };
+    expect(evaluateConditions(rule, baseCg, ctx)).toBe(true);
+  });
+
+  it('rejects when message does not contain keyword', () => {
+    const rule = { conditions: { keyword: 'schedule' } };
+    const ctx = { message_text: 'Thanks for the update' };
+    expect(evaluateConditions(rule, baseCg, ctx)).toBe(false);
+  });
+
+  it('handles missing message_text gracefully', () => {
+    const rule = { conditions: { keyword: 'hello' } };
+    expect(evaluateConditions(rule, baseCg, {})).toBe(false);
+  });
+
+  it('keyword + phase conditions combined', () => {
+    const rule = { conditions: { keyword: 'yes', phase: 'intake' } };
+    const ctx = { message_text: 'Yes I am interested' };
+    expect(evaluateConditions(rule, baseCg, ctx)).toBe(true);
+  });
+
+  it('rejects keyword + phase when phase does not match', () => {
+    const rule = { conditions: { keyword: 'yes', phase: 'onboarding' } };
+    const ctx = { message_text: 'Yes I am interested' };
+    expect(evaluateConditions(rule, baseCg, ctx)).toBe(false);
   });
 });
