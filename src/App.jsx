@@ -26,10 +26,10 @@ import btn from './styles/buttons.module.css';
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const { sidebarCollapsed } = useApp();
+  const { sidebarCollapsed, showToast } = useApp();
   const {
     activeCaregivers, archivedCaregivers, filterPhase, tasksVersion,
-    bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive,
+    bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
   } = useCaregivers();
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -60,6 +60,8 @@ function DashboardPage() {
       onBulkAddNote={bulkAddNote}
       onBulkBoardStatus={bulkBoardStatus}
       onBulkArchive={bulkArchive}
+      onBulkSms={bulkSms}
+      showToast={showToast}
     />
   );
 }
@@ -154,8 +156,8 @@ function CaregiverDetailPage() {
 
 function ClientDashboardPage() {
   const navigate = useNavigate();
-  const { sidebarCollapsed } = useApp();
-  const { activeClients, archivedClients, filterPhase, tasksVersion } = useClients();
+  const { sidebarCollapsed, showToast } = useApp();
+  const { activeClients, archivedClients, filterPhase, tasksVersion, bulkEmail } = useClients();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filtered = useMemo(() => {
@@ -182,6 +184,8 @@ function ClientDashboardPage() {
       sidebarWidth={sidebarCollapsed ? 64 : 260}
       onSelect={(id) => navigate(`/clients/${id}`)}
       onAdd={() => navigate('/clients/add')}
+      onBulkEmail={bulkEmail}
+      showToast={showToast}
     />
   );
 }

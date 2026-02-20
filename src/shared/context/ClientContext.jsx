@@ -316,6 +316,17 @@ export function ClientProvider({ children }) {
     setTasksVersion((v) => v + 1);
   }, []);
 
+  const bulkEmail = useCallback(async (ids, subject, body) => {
+    if (!supabase || !ids.length || !subject.trim() || !body.trim()) return { sent: 0, skipped: 0, failed: 0, results: [] };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const { data, error } = await supabase.functions.invoke('bulk-email', {
+      body: { client_ids: ids, subject, body, current_user: currentUserName },
+    });
+    if (error) throw error;
+    return data;
+  }, [currentUserName]);
+
   // ─── Derived data (memoized) ───
   const activeClients = useMemo(
     () => clients.filter((cl) => !cl.archived && getClientPhase(cl) !== 'lost'),
@@ -340,7 +351,7 @@ export function ClientProvider({ children }) {
       activeClients, archivedClients, wonClients, lostClients,
       filterPhase, setFilterPhase,
       addClient, updateClient, updatePhase, updateTask, updateTasksBulk,
-      addNote, archiveClient, unarchiveClient, deleteClient, refreshClientTasks,
+      addNote, archiveClient, unarchiveClient, deleteClient, refreshClientTasks, bulkEmail,
     }}>
       {children}
     </ClientContext.Provider>

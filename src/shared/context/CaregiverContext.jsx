@@ -324,6 +324,17 @@ export function CaregiverProvider({ children }) {
     showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
   }, [showToast, currentUserName]);
 
+  const bulkSms = useCallback(async (ids, message) => {
+    if (!supabase || !ids.length || !message.trim()) return { sent: 0, skipped: 0, failed: 0, results: [] };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const { data, error } = await supabase.functions.invoke('bulk-sms', {
+      body: { caregiver_ids: ids, message, current_user: currentUserName },
+    });
+    if (error) throw error;
+    return data;
+  }, [currentUserName]);
+
   // ─── Derived data (memoized) ───
   const activeCaregivers = useMemo(() => caregivers.filter((cg) => !cg.archived), [caregivers, tasksVersion]);
   const archivedCaregivers = useMemo(() => caregivers.filter((cg) => cg.archived), [caregivers, tasksVersion]);
@@ -337,7 +348,7 @@ export function CaregiverProvider({ children }) {
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
       updateBoardStatus, updateBoardNote, updateCaregiver,
       refreshTasks,
-      bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive,
+      bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
     }}>
       {children}
     </CaregiverContext.Provider>
