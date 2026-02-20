@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { buildRecordingUrl } from '../../../lib/recording';
 import cl from './client.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -42,6 +43,19 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
   const [rcError, setRcError] = useState(null);
+
+  // Recording playback state
+  const [playingRecordingId, setPlayingRecordingId] = useState(null);
+  const [recordingError, setRecordingError] = useState(null);
+  const accessTokenRef = useRef('');
+
+  // Get Supabase access token for recording playback URLs
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      accessTokenRef.current = session?.access_token || '';
+    });
+  }, []);
 
   const isCommType = COMM_TYPES.includes(noteType);
 
@@ -311,11 +325,46 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                   {/* Outcome badge */}
                   {outcome && <span style={styles.outcomeBadge}>{outcome.label}</span>}
 
-                  {/* Recording indicator */}
-                  {entry.hasRecording && <span style={styles.recordingBadge}>Recorded</span>}
+                  {/* Recording playback */}
+                  {entry.hasRecording && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPlayingRecordingId(playingRecordingId === entry.recordingId ? null : entry.recordingId);
+                        setRecordingError(null);
+                      }}
+                      style={{
+                        ...styles.recordingBtn,
+                        ...(playingRecordingId === entry.recordingId ? styles.recordingBtnActive : {}),
+                        opacity: entry.recordingId ? 1 : 0.5,
+                        cursor: entry.recordingId ? 'pointer' : 'default',
+                      }}
+                      title={entry.recordingId ? 'Play/stop recording' : 'Recording ID unavailable'}
+                      disabled={!entry.recordingId}
+                    >
+                      {playingRecordingId === entry.recordingId ? '⏹ Stop' : '▶ Play'}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className={cl.noteText}>{entry.text}</div>
+              {playingRecordingId && playingRecordingId === entry.recordingId && (
+                <div style={{ marginTop: 8, padding: '4px 0' }}>
+                  <audio
+                    controls
+                    autoPlay
+                    src={buildRecordingUrl(entry.recordingId, accessTokenRef.current)}
+                    onError={() => setRecordingError(entry.recordingId)}
+                    onEnded={() => setPlayingRecordingId(null)}
+                    style={{ width: '100%', height: 36, borderRadius: 8 }}
+                  />
+                  {recordingError === entry.recordingId && (
+                    <div style={{ color: '#DC3545', fontSize: 12, marginTop: 4 }}>
+                      Failed to load recording. It may have expired or been removed.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -421,13 +470,19 @@ const styles = {
     color: '#556270',
     fontWeight: 600,
   },
-  recordingBadge: {
+  recordingBtn: {
     fontSize: 11,
     padding: '2px 8px',
     borderRadius: 10,
     background: '#E0F2FE',
     color: '#0284C7',
     fontWeight: 600,
+    border: 'none',
+    fontFamily: 'inherit',
+  },
+  recordingBtnActive: {
+    background: '#0284C7',
+    color: '#fff',
   },
   rcBadge: {
     marginLeft: 8,
