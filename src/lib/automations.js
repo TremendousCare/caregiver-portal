@@ -37,6 +37,12 @@ function evaluateConditions(rule, caregiver, triggerContext) {
     if (!hasMatch) return false;
   }
 
+  // For inbound_sms trigger: match keyword in message text (case-insensitive)
+  if (conds.keyword) {
+    const messageText = (triggerContext.message_text || '').toLowerCase();
+    if (!messageText.includes(conds.keyword.toLowerCase())) return false;
+  }
+
   // For days_inactive: condition is evaluated server-side by automation-cron, skip here
   // (days_inactive rules are triggered by cron, not by client events)
 

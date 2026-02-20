@@ -29,6 +29,12 @@ function evaluateConditions(rule, client, triggerContext) {
   // For task_completed trigger: match specific task ID
   if (conds.task_id && triggerContext.task_id !== conds.task_id) return false;
 
+  // For inbound_sms trigger: match keyword in message text (case-insensitive)
+  if (conds.keyword) {
+    const messageText = (triggerContext.message_text || '').toLowerCase();
+    if (!messageText.includes(conds.keyword.toLowerCase())) return false;
+  }
+
   return true;
 }
 

@@ -791,10 +791,14 @@ function WebhookStatus({ showToast }) {
         const { data: setting } = await supabase
           .from('app_settings')
           .select('value')
-          .eq('key', 'ringcentral_webhook_subscription_id')
+          .eq('key', 'ringcentral_webhook_subscription')
           .single();
         if (cancelled) return;
-        setStatus(setting?.value ? 'active' : 'inactive');
+        if (setting?.value?.subscription_id) {
+          setStatus('active');
+        } else {
+          setStatus('inactive');
+        }
       } catch {
         if (!cancelled) setStatus('inactive');
       }
