@@ -1,5 +1,5 @@
 // ─── Communication Tools (SMS & Call) ───
-// send_sms (confirm), get_sms_history (auto), get_call_log (auto)
+// send_sms (confirm), get_sms_history (auto), get_call_log (auto), get_call_recording (auto), get_call_transcription (auto)
 
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
@@ -286,6 +286,62 @@ registerTool(
     } catch (err) {
       console.error("get_call_recording error:", err);
       return { error: `Failed to retrieve recording: ${(err as Error).message}` };
+    }
+  },
+);
+
+// ── get_call_transcription (auto) ──
+
+registerTool(
+  {
+    name: "get_call_transcription",
+    description:
+      "Get the text transcript of a recorded call using AI speech-to-text. The recording ID can be found in the get_call_log output (shown as [Recorded - ID: 123456]). First-time transcription may take a few seconds; subsequent requests return instantly from cache.",
+    input_schema: {
+      type: "object",
+      properties: {
+        recording_id: {
+          type: "string",
+          description: "The RingCentral recording ID (numeric string from get_call_log output)",
+        },
+      },
+      required: ["recording_id"],
+    },
+    riskLevel: "auto",
+  },
+  async (input: any, _ctx: ToolContext): Promise<ToolResult> => {
+    const recordingId = input.recording_id;
+    if (!recordingId) return { error: "recording_id is required." };
+
+    if (!/^\d+$/.test(recordingId)) {
+      return { error: "Invalid recording ID format. Must be numeric." };
+    }
+
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+      // Call the call-transcription Edge Function internally
+      const url = `${supabaseUrl}/functions/v1/call-transcription?recordingId=${recordingId}&token=${serviceKey}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: "Transcription failed" }));
+        return { error: errData.error || `Transcription failed (HTTP ${response.status})` };
+      }
+
+      const data = await response.json();
+      return {
+        recording_id: recordingId,
+        transcript: data.transcript || "(No speech detected)",
+        duration_seconds: data.duration_seconds,
+        language: data.language,
+        cached: data.cached,
+        note: "This is an AI-generated transcript. It may contain minor inaccuracies.",
+      };
+    } catch (err) {
+      console.error("get_call_transcription error:", err);
+      return { error: `Failed to transcribe recording: ${(err as Error).message}` };
     }
   },
 );

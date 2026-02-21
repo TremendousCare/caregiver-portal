@@ -19,3 +19,7 @@ export const corsHeaders = {
 export const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
 export const MAX_TOKENS = 4096;
 export const MAX_ITERATIONS = 5;
+
+// Retry config for transient Claude API errors (429, 529, 500, 503)
+export const MAX_RETRIES = 2;
+export const RETRY_BASE_DELAY_MS = 1000; // 1s, 2s exponential backoff

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { buildRecordingUrl } from '../../../lib/recording';
+import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import cl from './client.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -48,6 +48,10 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
   const accessTokenRef = useRef('');
+  const [expandedTranscriptId, setExpandedTranscriptId] = useState(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(null);
+  const [transcriptError, setTranscriptError] = useState(null);
+  const transcriptCacheRef = useRef({});
 
   // Get Supabase access token for recording playback URLs
   useEffect(() => {
@@ -159,6 +163,35 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
     onAddNote(client.id, note);
     setNoteText('');
     setNoteOutcome('');
+  };
+
+  const fetchTranscript = async (recordingId) => {
+    if (expandedTranscriptId === recordingId) {
+      setExpandedTranscriptId(null);
+      return;
+    }
+    if (transcriptCacheRef.current[recordingId]) {
+      setExpandedTranscriptId(recordingId);
+      return;
+    }
+    setTranscriptLoading(recordingId);
+    setTranscriptError(null);
+    try {
+      const url = buildTranscriptionUrl(recordingId, accessTokenRef.current);
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Transcription failed' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      transcriptCacheRef.current[recordingId] = data;
+      setExpandedTranscriptId(recordingId);
+    } catch (err) {
+      console.error('[ClientActivityLog] Transcript fetch error:', err);
+      setTranscriptError(recordingId);
+    } finally {
+      setTranscriptLoading(null);
+    }
   };
 
   // ─── Type helpers ───────────────────────────────────────
@@ -345,6 +378,20 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                       {playingRecordingId === entry.recordingId ? '⏹ Stop' : '▶ Play'}
                     </button>
                   )}
+                  {entry.hasRecording && entry.recordingId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); fetchTranscript(entry.recordingId); }}
+                      style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                        background: expandedTranscriptId === entry.recordingId ? '#7C3AED' : '#F3E8FF',
+                        color: expandedTranscriptId === entry.recordingId ? '#fff' : '#7C3AED',
+                        fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                      disabled={transcriptLoading === entry.recordingId}
+                    >
+                      {transcriptLoading === entry.recordingId ? '⏳ Transcribing...' : expandedTranscriptId === entry.recordingId ? '✕ Hide Transcript' : '📝 Transcript'}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className={cl.noteText}>{entry.text}</div>
@@ -363,6 +410,19 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                       Failed to load recording. It may have expired or been removed.
                     </div>
                   )}
+                </div>
+              )}
+              {expandedTranscriptId === entry.recordingId && transcriptCacheRef.current[entry.recordingId] && (
+                <div style={{ marginTop: 8, padding: '10px 14px', background: '#FAF5FF', borderRadius: 8, border: '1px solid #E9D5FF', fontSize: 13, lineHeight: 1.6, color: '#374151', whiteSpace: 'pre-wrap' }}>
+                  <div style={{ fontSize: 11, color: '#7C3AED', fontWeight: 600, marginBottom: 6 }}>
+                    Transcript {transcriptCacheRef.current[entry.recordingId].duration_seconds && `(${Math.floor(transcriptCacheRef.current[entry.recordingId].duration_seconds / 60)}m ${transcriptCacheRef.current[entry.recordingId].duration_seconds % 60}s)`}
+                  </div>
+                  {transcriptCacheRef.current[entry.recordingId].transcript || '(No speech detected)'}
+                </div>
+              )}
+              {transcriptError === entry.recordingId && (
+                <div style={{ color: '#DC3545', fontSize: 12, marginTop: 4 }}>
+                  Failed to transcribe recording. Please try again.
                 </div>
               )}
             </div>

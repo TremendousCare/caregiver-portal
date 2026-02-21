@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { buildRecordingUrl } from '../../../lib/recording';
+import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -17,6 +17,10 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
   const accessTokenRef = useRef('');
+  const [expandedTranscriptId, setExpandedTranscriptId] = useState(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(null);
+  const [transcriptError, setTranscriptError] = useState(null);
+  const transcriptCacheRef = useRef({});
 
   // Get Supabase access token for recording playback URLs
   useEffect(() => {
@@ -99,6 +103,35 @@ export function ActivityLog({ caregiver, onAddNote }) {
     onAddNote(caregiver.id, note);
     setNoteText('');
     setNoteOutcome('');
+  };
+
+  const fetchTranscript = async (recordingId) => {
+    if (expandedTranscriptId === recordingId) {
+      setExpandedTranscriptId(null);
+      return;
+    }
+    if (transcriptCacheRef.current[recordingId]) {
+      setExpandedTranscriptId(recordingId);
+      return;
+    }
+    setTranscriptLoading(recordingId);
+    setTranscriptError(null);
+    try {
+      const url = buildTranscriptionUrl(recordingId, accessTokenRef.current);
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Transcription failed' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      transcriptCacheRef.current[recordingId] = data;
+      setExpandedTranscriptId(recordingId);
+    } catch (err) {
+      console.error('[ActivityLog] Transcript fetch error:', err);
+      setTranscriptError(recordingId);
+    } finally {
+      setTranscriptLoading(null);
+    }
   };
 
   return (
@@ -230,6 +263,20 @@ export function ActivityLog({ caregiver, onAddNote }) {
                         {playingRecordingId === n.recordingId ? '⏹ Stop' : '▶ Play'}
                       </button>
                     )}
+                    {n.hasRecording && n.recordingId && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); fetchTranscript(n.recordingId); }}
+                        style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                          background: expandedTranscriptId === n.recordingId ? '#7C3AED' : '#F3E8FF',
+                          color: expandedTranscriptId === n.recordingId ? '#fff' : '#7C3AED',
+                          fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                        disabled={transcriptLoading === n.recordingId}
+                      >
+                        {transcriptLoading === n.recordingId ? '⏳ Transcribing...' : expandedTranscriptId === n.recordingId ? '✕ Hide Transcript' : '📝 Transcript'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -249,6 +296,19 @@ export function ActivityLog({ caregiver, onAddNote }) {
                       Failed to load recording. It may have expired or been removed.
                     </div>
                   )}
+                </div>
+              )}
+              {expandedTranscriptId === n.recordingId && transcriptCacheRef.current[n.recordingId] && (
+                <div style={{ marginTop: 8, padding: '10px 14px', background: '#FAF5FF', borderRadius: 8, border: '1px solid #E9D5FF', fontSize: 13, lineHeight: 1.6, color: '#374151', whiteSpace: 'pre-wrap' }}>
+                  <div style={{ fontSize: 11, color: '#7C3AED', fontWeight: 600, marginBottom: 6 }}>
+                    Transcript {transcriptCacheRef.current[n.recordingId].duration_seconds && `(${Math.floor(transcriptCacheRef.current[n.recordingId].duration_seconds / 60)}m ${transcriptCacheRef.current[n.recordingId].duration_seconds % 60}s)`}
+                  </div>
+                  {transcriptCacheRef.current[n.recordingId].transcript || '(No speech detected)'}
+                </div>
+              )}
+              {transcriptError === n.recordingId && (
+                <div style={{ color: '#DC3545', fontSize: 12, marginTop: 4 }}>
+                  Failed to transcribe recording. Please try again.
                 </div>
               )}
             </div>

@@ -13,3 +13,15 @@ export function buildRecordingUrl(recordingId, accessToken) {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   return `${supabaseUrl}/functions/v1/call-recording?recordingId=${encodeURIComponent(recordingId)}&token=${encodeURIComponent(accessToken)}`;
 }
+
+/**
+ * Build an authenticated URL for the call-transcription Edge Function.
+ *
+ * @param {string} recordingId - RingCentral recording ID
+ * @param {string} accessToken - Supabase session access token
+ * @returns {string} Full URL for transcription fetch
+ */
+export function buildTranscriptionUrl(recordingId, accessToken) {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  return `${supabaseUrl}/functions/v1/call-transcription?recordingId=${encodeURIComponent(recordingId)}&token=${encodeURIComponent(accessToken)}`;
+}
