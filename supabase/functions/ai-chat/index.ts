@@ -19,6 +19,8 @@ import {
   CLAUDE_MODEL,
   MAX_TOKENS,
   MAX_ITERATIONS,
+  MAX_RETRIES,
+  RETRY_BASE_DELAY_MS,
 } from "./config.ts";
 
 import {
@@ -30,6 +32,34 @@ import {
 } from "./registry.ts";
 
 import { buildSystemPrompt } from "./prompt.ts";
+
+// ─── Retry helper for transient Claude API errors ───
+const RETRYABLE_STATUSES = new Set([429, 500, 503, 529]);
+
+async function callClaudeWithRetry(requestBody: string): Promise<Response> {
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.log(`[ai-chat] Retry ${attempt}/${MAX_RETRIES} after ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    lastResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY!,
+        "anthropic-version": "2023-06-01",
+      },
+      body: requestBody,
+    });
+    if (lastResponse.ok || !RETRYABLE_STATUSES.has(lastResponse.status)) {
+      return lastResponse;
+    }
+    console.warn(`[ai-chat] Transient error HTTP ${lastResponse.status}, will retry`);
+  }
+  return lastResponse!;
+}
 
 // ─── Main Handler ───
 
@@ -109,26 +139,27 @@ Deno.serve(async (req: Request) => {
       iterations++;
 
       try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: CLAUDE_MODEL,
-            max_tokens: MAX_TOKENS,
-            system: systemPrompt,
-            messages: currentMessages,
-            tools: TOOLS,
-          }),
+        const requestBody = JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: MAX_TOKENS,
+          system: systemPrompt,
+          messages: currentMessages,
+          tools: TOOLS,
         });
+        console.log(`[ai-chat] Iteration ${iterations}: payload ${requestBody.length} chars, ${currentMessages.length} messages, ${TOOLS.length} tools`);
+
+        const response = await callClaudeWithRetry(requestBody);
 
         if (!response.ok) {
           const errText = await response.text();
-          console.error(`Claude API error: ${response.status} ${errText}`);
-          finalReply = "I'm having trouble connecting to the AI service right now. Please try again in a moment.";
+          console.error(`[ai-chat] Claude API error on iteration ${iterations}: HTTP ${response.status} — ${errText.slice(0, 500)}`);
+          if (response.status === 429) {
+            finalReply = "The AI service is currently rate-limited. Please wait a moment and try again.";
+          } else if (response.status === 529 || response.status === 503) {
+            finalReply = "The AI service is temporarily overloaded. Please try again in a few seconds.";
+          } else {
+            finalReply = "I'm having trouble connecting to the AI service right now. Please try again in a moment.";
+          }
           break;
         }
 
