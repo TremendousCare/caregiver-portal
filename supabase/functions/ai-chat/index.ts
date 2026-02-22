@@ -34,6 +34,7 @@ import {
 import { buildSystemPrompt } from "./prompt.ts";
 import { assembleSystemPrompt } from "./context/assembler.ts";
 import { logEvent, saveContextSnapshot } from "./context/events.ts";
+import { logAction, detectOutcome } from "./context/outcomes.ts";
 import { generateBriefing } from "./context/briefing.ts";
 
 // ─── Retry helper for transient Claude API errors ───
@@ -115,14 +116,30 @@ Deno.serve(async (req: Request) => {
       if (result.success) {
         const eventType = toolNameToEventType(confirmAction.action);
         if (eventType) {
+          const entityType = confirmAction.caregiver_id ? "caregiver" : confirmAction.client_id ? "client" : null;
+          const entityId = confirmAction.caregiver_id || confirmAction.client_id || null;
+
           logEvent(
             supabase,
             eventType,
-            confirmAction.caregiver_id ? "caregiver" : confirmAction.client_id ? "client" : null,
-            confirmAction.caregiver_id || confirmAction.client_id || null,
+            entityType,
+            entityId,
             `user:${currentUser || "User"}`,
             { action: confirmAction.action, confirmed: true, ...confirmAction.params },
           );
+
+          // Phase 2: Log confirmed action for outcome tracking
+          if (entityType && entityId) {
+            logAction(
+              supabase,
+              eventType,
+              entityType as "caregiver" | "client",
+              entityId,
+              `user:${currentUser || "User"}`,
+              { action: confirmAction.action, confirmed: true, ...confirmAction.params },
+              "ai_chat",
+            );
+          }
         }
       }
 
@@ -317,11 +334,14 @@ Deno.serve(async (req: Request) => {
           if (tr.result?.success) {
             const eventType = toolNameToEventType(tr.tool);
             if (eventType) {
+              const entityType = tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null;
+              const entityId = tr.result?.caregiver_id || tr.result?.client_id || null;
+
               await logEvent(
                 supabase,
                 eventType,
-                tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null,
-                tr.result?.caregiver_id || tr.result?.client_id || null,
+                entityType,
+                entityId,
                 `user:${currentUser || "User"}`,
                 {
                   tool: tr.tool,
@@ -329,9 +349,50 @@ Deno.serve(async (req: Request) => {
                   ...tr.input,
                 },
               );
+
+              // Phase 2: Try real-time outcome detection
+              // If this event could be an outcome of a prior action, link them
+              if (entityType && entityId) {
+                await detectOutcome(
+                  supabase,
+                  eventType,
+                  entityType as "caregiver" | "client",
+                  entityId,
+                  { ...tr.input, ...(tr.result || {}) },
+                );
+              }
             }
           }
         }
+
+        // Phase 2: Log side-effect actions for outcome tracking
+        for (const tr of toolResults) {
+          if (tr.result?.success) {
+            const eventType = toolNameToEventType(tr.tool);
+            if (eventType) {
+              const entityType = tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null;
+              const entityId = tr.result?.caregiver_id || tr.result?.client_id || null;
+              if (entityType && entityId) {
+                await logAction(
+                  supabase,
+                  eventType,
+                  entityType as "caregiver" | "client",
+                  entityId,
+                  `user:${currentUser || "User"}`,
+                  {
+                    tool: tr.tool,
+                    entity_name: tr.result?.entity_name || null,
+                    ...tr.input,
+                    ...(tr.result?.params || {}),
+                  },
+                  "ai_chat",
+                );
+              }
+            }
+          }
+        }
+        // TODO: Add real-time inbound SMS outcome detection when execute-automation
+        // is brought into git. For now, the outcome-analyzer cron handles this.
 
         // Save context snapshot for session continuity
         if (finalReply && currentMessages.length > 2) {
