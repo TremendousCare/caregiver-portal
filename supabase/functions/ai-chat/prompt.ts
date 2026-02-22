@@ -26,7 +26,7 @@ export function buildSystemPrompt(
       if (profile.length > MAX_PROMPT_PROFILE_CHARS) {
         profile = profile.slice(0, MAX_PROMPT_PROFILE_CHARS) + "\n\n... (profile truncated for space \u2014 use get_caregiver_detail for full data)";
       }
-      viewingSection = `\n\n## Currently Viewing\nThe user is currently viewing this caregiver. You already have their full profile below \u2014 no need to call get_caregiver_detail unless the user asks about a different caregiver.\n\n${profile}`;
+      viewingSection = `\n\n## Currently Viewing\nThe user is currently viewing this caregiver. You already have their full profile below \u2014 no need to call get_caregiver_detail unless the user asks about a different caregiver.\n**Note:** The Activity Log below only shows portal notes. To see SMS, calls, and emails, you MUST use get_sms_history, get_call_log, and search_emails.\n\n${profile}`;
     }
   }
 
@@ -100,7 +100,8 @@ You have access to tools that let you search, analyze, and modify caregiver AND 
 **How to tell caregivers vs clients apart:**
 - "Caregiver", "applicant", "recruit" \u2192 use caregiver tools
 - "Client", "family", "patient", "care recipient", "lead" (in sales context) \u2192 use client tools
-- If ambiguous, check both pipelines
+- If ambiguous, search BOTH pipelines (search_caregivers AND search_clients)
+- **IMPORTANT: If a search returns 0 results, ALWAYS try the other pipeline before saying "not found"**
 
 ## Email Guidelines
 - "Show me recent emails" or "what's in my inbox" \u2192 call search_emails with NO parameters
@@ -154,6 +155,10 @@ You have access to tools that let you search, analyze, and modify caregiver AND 
 - When asked about texts/SMS history \u2192 use get_sms_history
 - When asked about calls \u2192 use get_call_log
 - These pull live data from RingCentral
+- **IMPORTANT: The Activity Log from get_caregiver_detail only shows portal notes \u2014 it does NOT include SMS, call, or email history.**
+- When asked about a caregiver's recent activity, status, or communications, ALWAYS also call get_sms_history AND get_call_log to show the full picture (these pull live data from RingCentral that the Activity Log notes do not contain).
+- If the caregiver has an email, also call search_emails with their name to check for email correspondence.
+- Think of it this way: the portal notes are internal records, but SMS/calls/emails are the actual communication channels.
 
 ## Awareness Tools (Situational Context)
 - "What documents does [caregiver] have?" \u2192 use get_caregiver_documents
