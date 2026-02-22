@@ -6,6 +6,7 @@ import { ClientHeader } from './client/ClientHeader';
 import { ClientNextSteps } from './client/ClientNextSteps';
 import { ClientProfileCard } from './client/ClientProfileCard';
 import { ClientProgressOverview } from './client/ClientProgressOverview';
+import { ClientSequences } from './client/ClientSequences';
 import { ClientPhaseDetail } from './client/ClientPhaseDetail';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import cl from './client/client.module.css';
@@ -167,6 +168,12 @@ export function ClientDetail({
         activePhase={activePhase}
         onPhaseChange={setActivePhase}
         onUpdateClient={onUpdateClient}
+      />
+
+      <ClientSequences
+        client={client}
+        currentUser={currentUser}
+        showToast={showToast}
       />
 
       <ClientPhaseDetail
