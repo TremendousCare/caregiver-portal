@@ -4,7 +4,8 @@ import { useApp } from '../context/AppContext';
 import layout from '../../styles/layout.module.css';
 
 // ─── LocalStorage key for persisting collapsed sections ───
-const STORAGE_KEY = 'tc_sidebar_collapsed_sections';
+// Tracks which sections are expanded (default: all collapsed)
+const STORAGE_KEY = 'tc_sidebar_expanded';
 
 function loadCollapsedSections() {
   try {
@@ -198,7 +199,7 @@ export function Sidebar({ sections }) {
             key={section.id}
             section={section}
             sidebarCollapsed={collapsed}
-            isExpanded={!collapsedSections[section.id]}
+            isExpanded={!!collapsedSections[section.id]}
             onToggle={() => toggleSection(section.id)}
           />
         ))}
