@@ -27,9 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_context_memory_entity
   ON context_memory (entity_type, entity_id)
   WHERE superseded_by IS NULL;
 
+-- Note: now() removed from predicate (not IMMUTABLE); expiry filtering done at query time
 CREATE INDEX IF NOT EXISTS idx_context_memory_type
   ON context_memory (memory_type)
-  WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > now());
+  WHERE superseded_by IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_context_memory_tags
   ON context_memory USING gin (tags)
