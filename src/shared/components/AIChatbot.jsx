@@ -3,6 +3,11 @@ import DOMPurify from 'dompurify';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import s from './AIChatbot.module.css';
 
+// ─── Web Speech API detection ───
+const SpeechRecognition = typeof window !== 'undefined'
+  ? window.SpeechRecognition || window.webkitSpeechRecognition
+  : null;
+
 // ─── Simple markdown-like formatting (sanitized) ───
 function formatMessage(text) {
   if (!text) return '';
@@ -31,8 +36,10 @@ export function AIChatbot({ caregiverId, currentUser }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -46,7 +53,57 @@ export function AIChatbot({ caregiverId, currentUser }) {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
+    // Stop listening when panel closes
+    if (!isOpen && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
   }, [isOpen]);
+
+  // Cleanup recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (!SpeechRecognition) return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      console.warn('Speech recognition error:', event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }, [isListening]);
 
   const callEdgeFunction = useCallback(async (body) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -253,12 +310,22 @@ export function AIChatbot({ caregiverId, currentUser }) {
             <textarea
               ref={inputRef}
               className={s.input}
-              placeholder="Ask about your pipeline..."
+              placeholder={isListening ? 'Listening...' : 'Ask about your pipeline...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={1}
             />
+            {SpeechRecognition && (
+              <button
+                className={`${s.micBtn}${isListening ? ` ${s.micBtnActive}` : ''}`}
+                onClick={toggleListening}
+                title={isListening ? 'Stop listening' : 'Voice input'}
+                type="button"
+              >
+                {'\uD83C\uDF99'}
+              </button>
+            )}
             <button
               className={s.sendBtn}
               style={{ opacity: !input.trim() || loading ? 0.5 : 1 }}
