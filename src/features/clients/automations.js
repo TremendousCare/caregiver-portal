@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { getClientPhase } from './utils';
+import { resolveClientMergeFields, normalizeSequenceAction, shouldAutoEnroll, buildEnrollmentRecord } from './sequenceHelpers';
 
 // ═══════════════════════════════════════════════════════════════
 // Client Automation Event Triggers & Sequence Runner
@@ -109,17 +110,6 @@ export async function fireClientEventTriggers(triggerType, client, triggerContex
 // This gives instant first-touch (SMS/email on form submit)
 // while preserving drip-campaign functionality for later steps.
 // ═══════════════════════════════════════════════════════════════
-
-/**
- * Simple merge field substitution for client templates.
- */
-function resolveClientMergeFields(template, client) {
-  return template
-    .replace(/\{\{first_name\}\}/g, client.firstName || '')
-    .replace(/\{\{last_name\}\}/g, client.lastName || '')
-    .replace(/\{\{phone\}\}/g, client.phone || '')
-    .replace(/\{\{email\}\}/g, client.email || '');
-}
 
 /**
  * Fire matching client sequences when a client enters a phase.
@@ -257,12 +247,3 @@ export async function fireClientSequences(client) {
   }
 }
 
-/** Normalize action_type from sequence steps */
-function normalizeSequenceAction(actionType) {
-  switch (actionType) {
-    case 'send_sms': case 'sms': return 'send_sms';
-    case 'send_email': case 'email': return 'send_email';
-    case 'create_task': case 'task': return 'create_task';
-    default: return actionType;
-  }
-}
