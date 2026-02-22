@@ -284,6 +284,7 @@ function SequenceForm({ sequence, onSave, onCancel, saving }) {
   const [name, setName] = useState(sequence?.name || '');
   const [description, setDescription] = useState(sequence?.description || '');
   const [triggerPhase, setTriggerPhase] = useState(sequence?.trigger_phase || '');
+  const [stopOnResponse, setStopOnResponse] = useState(sequence ? sequence.stop_on_response !== false : true);
   const [steps, setSteps] = useState(() => {
     if (sequence?.steps && sequence.steps.length > 0) return sequence.steps;
     return [{ step_id: 'step_1', delay_hours: 0, action_type: 'send_sms', template: '', subject: '' }];
@@ -326,6 +327,7 @@ function SequenceForm({ sequence, onSave, onCancel, saving }) {
       name: name.trim(),
       description: description.trim(),
       trigger_phase: triggerPhase || null,
+      stop_on_response: stopOnResponse,
       steps,
     };
 
@@ -394,6 +396,33 @@ function SequenceForm({ sequence, onSave, onCancel, saving }) {
           <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
             When a client enters this phase, they auto-enroll in this sequence. Choose "Manual Only" to trigger it manually.
           </div>
+        </div>
+
+        {/* Stop on Response Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <label className={forms.fieldLabel} style={{ margin: 0 }}>
+            Stop on client response
+          </label>
+          <button
+            type="button"
+            onClick={() => setStopOnResponse((v) => !v)}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+              background: stopOnResponse ? '#10B981' : '#D1D5DB',
+              position: 'relative', transition: 'background 0.2s',
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: 2, left: stopOnResponse ? 22 : 2,
+              width: 20, height: 20, borderRadius: '50%', background: '#fff',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+          <span style={{ fontSize: 12, color: '#6B7280' }}>
+            {stopOnResponse
+              ? 'Sequence will auto-cancel when client responds via SMS, email, or call'
+              : 'Sequence will continue regardless of client responses (e.g., newsletters)'}
+          </span>
         </div>
 
         {/* Steps Section */}
@@ -511,7 +540,7 @@ function SequenceList({ sequences, onToggle, onEdit, onDelete, toggling }) {
           {/* Trigger phase badge */}
           <div><PhaseBadge phaseId={seq.trigger_phase} /></div>
 
-          {/* Step count */}
+          {/* Step count + stop-on-response badge */}
           <div>
             <span style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -520,6 +549,13 @@ function SequenceList({ sequences, onToggle, onEdit, onDelete, toggling }) {
               padding: '0 6px',
             }}>
               {(seq.steps || []).length}
+            </span>
+            <span style={{
+              fontSize: 11, padding: '2px 6px', borderRadius: 4, marginLeft: 8,
+              background: seq.stop_on_response !== false ? '#D1FAE5' : '#E0E7FF',
+              color: seq.stop_on_response !== false ? '#065F46' : '#3730A3',
+            }}>
+              {seq.stop_on_response !== false ? 'Stops on response' : 'Continuous'}
             </span>
           </div>
 
