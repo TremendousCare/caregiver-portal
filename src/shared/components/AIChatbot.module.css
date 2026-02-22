@@ -192,6 +192,33 @@
   line-height: 1.4;
 }
 
+.micBtn {
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  color: var(--tc-navy);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.micBtn:hover {
+  background: var(--tc-bg-page);
+  border-color: var(--tc-navy);
+}
+
+.micBtnActive {
+  background: #FEE2E2;
+  border-color: #EF4444;
+  color: #EF4444;
+  animation: pulse 1.5s infinite;
+}
+
 .sendBtn {
   background: linear-gradient(135deg, var(--tc-navy-dark), var(--tc-navy));
   color: #fff;

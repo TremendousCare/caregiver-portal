@@ -25,14 +25,76 @@ const QUICK_ACTIONS = [
   { label: 'Draft follow-up', prompt: 'Draft a follow-up text message for our most stale lead' },
 ];
 
+const SpeechRecognition = typeof window !== 'undefined'
+  ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+  : null;
+
 export function AIChatbot({ caregiverId, currentUser }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
+
+  // ─── Voice input via Web Speech API ───
+  const toggleListening = useCallback(() => {
+    if (!SpeechRecognition) return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognitionRef.current = recognition;
+
+    // Track the finalized text so interim results don't overwrite previous sentences
+    let finalTranscript = input;
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += (finalTranscript ? ' ' : '') + transcript.trim();
+        } else {
+          interim += transcript;
+        }
+      }
+      setInput(finalTranscript + (interim ? (finalTranscript ? ' ' : '') + interim : ''));
+    };
+
+    recognition.onerror = (event) => {
+      // 'no-speech' and 'aborted' are expected when user clicks stop or stays silent
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        console.error('Speech recognition error:', event.error);
+      }
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+    setIsListening(true);
+  }, [isListening, input]);
+
+  // Stop listening when the panel closes
+  useEffect(() => {
+    if (!isOpen && isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+  }, [isOpen, isListening]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -253,12 +315,23 @@ export function AIChatbot({ caregiverId, currentUser }) {
             <textarea
               ref={inputRef}
               className={s.input}
-              placeholder="Ask about your pipeline..."
+              placeholder={isListening ? 'Listening...' : 'Ask about your pipeline...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={1}
             />
+            {SpeechRecognition && (
+              <button
+                className={`${s.micBtn}${isListening ? ` ${s.micBtnActive}` : ''}`}
+                onClick={toggleListening}
+                disabled={loading}
+                title={isListening ? 'Stop listening' : 'Voice input'}
+                type="button"
+              >
+                {isListening ? '\u25A0' : '\uD83C\uDF99'}
+              </button>
+            )}
             <button
               className={s.sendBtn}
               style={{ opacity: !input.trim() || loading ? 0.5 : 1 }}
