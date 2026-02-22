@@ -118,7 +118,78 @@ export async function generateBriefing(
     });
   }
 
-  // ── 5. Check last session context ──
+  // ── 5. Pending actions awaiting response (Phase 2) ──
+  try {
+    const since48h = new Date(now - 2 * HOURS_24).toISOString();
+    const { data: pending } = await supabase
+      .from("action_outcomes")
+      .select("action_type, entity_id, action_context, created_at")
+      .is("outcome_type", null)
+      .gte("created_at", since48h)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (pending && pending.length > 0) {
+      const smsPending = pending.filter(
+        (a: any) => a.action_type === "sms_sent",
+      ).length;
+      const emailPending = pending.filter(
+        (a: any) => a.action_type === "email_sent",
+      ).length;
+      const docusignPending = pending.filter(
+        (a: any) => a.action_type === "docusign_sent",
+      ).length;
+
+      const parts: string[] = [];
+      if (smsPending > 0) parts.push(`${smsPending} SMS`);
+      if (emailPending > 0)
+        parts.push(`${emailPending} email${emailPending > 1 ? "s" : ""}`);
+      if (docusignPending > 0) parts.push(`${docusignPending} DocuSign`);
+
+      if (parts.length > 0) {
+        items.push({
+          type: "info",
+          text: `${parts.join(", ")} awaiting response`,
+          action: "Show me pending actions that haven't gotten a response yet",
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // ── 6. Recent successful outcomes (Phase 2) ──
+  try {
+    const since24h = new Date(now - HOURS_24).toISOString();
+    const { data: successes } = await supabase
+      .from("action_outcomes")
+      .select(
+        "action_type, entity_id, action_context, outcome_type, outcome_detected_at",
+      )
+      .in("outcome_type", ["response_received", "completed"])
+      .gte("outcome_detected_at", since24h)
+      .order("outcome_detected_at", { ascending: false })
+      .limit(5);
+
+    if (successes && successes.length > 0) {
+      const names = successes
+        .map((s: any) => s.action_context?.entity_name)
+        .filter(Boolean);
+
+      if (names.length > 0) {
+        const uniqueNames = [...new Set(names)].slice(0, 3) as string[];
+        items.push({
+          type: "suggestion",
+          text: `${uniqueNames.join(", ")} responded recently — ready for next steps`,
+          action: `What's the latest with ${uniqueNames[0]}?`,
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // ── 7. Check last session context ──
   try {
     const { data: snapshot } = await supabase
       .from("context_snapshots")
@@ -143,13 +214,13 @@ export async function generateBriefing(
     }
   } catch { /* ignore */ }
 
-  // ── 6. Always include pipeline summary ──
+  // ── 8. Always include pipeline summary ──
   quickActions.push({
     label: "Pipeline summary",
     prompt: "Give me a quick summary of the current pipeline",
   });
 
-  // ── 7. Add compliance check if needed ──
+  // ── 9. Add compliance check if needed ──
   quickActions.push({
     label: "Compliance check",
     prompt: "Run a compliance check across all caregivers",
