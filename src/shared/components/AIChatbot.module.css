@@ -295,6 +295,61 @@
   color: #8BA3C7;
 }
 
+/* ── Briefing Items (Contextual Alerts) ── */
+
+.briefingItems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.briefingItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-page);
+  transition: background 0.15s;
+}
+
+.briefingItem:hover {
+  background: #E0E4EA;
+}
+
+.briefingIcon {
+  flex-shrink: 0;
+  font-size: 13px;
+  margin-top: 1px;
+}
+
+.briefing_urgent {
+  background: #FEF3C7;
+  border-left: 3px solid #F59E0B;
+}
+
+.briefing_urgent:hover {
+  background: #FDE68A;
+}
+
+.briefing_suggestion {
+  background: #EFF6FF;
+  border-left: 3px solid #3B82F6;
+}
+
+.briefing_suggestion:hover {
+  background: #DBEAFE;
+}
+
+.briefing_info {
+  border-left: 3px solid #94A3B8;
+}
+
 /* ── Confirmation Card ── */
 
 .confirmCard {

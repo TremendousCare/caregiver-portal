@@ -23,7 +23,8 @@ function formatMessage(text) {
   return DOMPurify.sanitize(html, { ADD_ATTR: ['style'] });
 }
 
-const QUICK_ACTIONS = [
+// Static fallback quick actions (used when briefing fails to load)
+const FALLBACK_QUICK_ACTIONS = [
   { label: 'Pipeline summary', prompt: 'Give me a quick summary of the current pipeline' },
   { label: 'Who needs follow-up?', prompt: 'Who needs a follow-up? Find stale leads that may be falling through the cracks' },
   { label: 'Compliance check', prompt: 'Run a compliance check across all caregivers' },
@@ -37,9 +38,12 @@ export function AIChatbot({ caregiverId, currentUser }) {
   const [loading, setLoading] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [isListening, setIsListening] = useState(false);
+  const [briefing, setBriefing] = useState(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
+  const briefingFetchedRef = useRef(false);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -68,6 +72,14 @@ export function AIChatbot({ caregiverId, currentUser }) {
       }
     };
   }, []);
+
+  // Fetch briefing when chat opens (only once per session)
+  useEffect(() => {
+    if (isOpen && !briefingFetchedRef.current && messages.length === 0) {
+      briefingFetchedRef.current = true;
+      fetchBriefing();
+    }
+  }, [isOpen]);
 
   const toggleListening = useCallback(() => {
     if (!SpeechRecognition) return;
@@ -117,6 +129,27 @@ export function AIChatbot({ caregiverId, currentUser }) {
     if (error) throw error;
     return data;
   }, []);
+
+  const fetchBriefing = useCallback(async () => {
+    try {
+      setBriefingLoading(true);
+      if (!isSupabaseConfigured()) return;
+
+      const data = await callEdgeFunction({
+        requestType: 'briefing',
+        currentUser: currentUser || 'User',
+      });
+
+      if (data?.briefing) {
+        setBriefing(data.briefing);
+      }
+    } catch (err) {
+      console.error('Briefing fetch error:', err);
+      // Silently fall back to static quick actions
+    } finally {
+      setBriefingLoading(false);
+    }
+  }, [currentUser, callEdgeFunction]);
 
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || loading) return;
@@ -204,6 +237,9 @@ export function AIChatbot({ caregiverId, currentUser }) {
 
   if (!isSupabaseConfigured()) return null;
 
+  // Determine which quick actions to show
+  const quickActions = briefing?.quickActions || FALLBACK_QUICK_ACTIONS;
+
   return (
     <>
       {/* Floating action button */}
@@ -230,10 +266,10 @@ export function AIChatbot({ caregiverId, currentUser }) {
             </button>
           </div>
 
-          {/* Quick actions (show when no messages) */}
+          {/* Quick actions */}
           {messages.length === 0 && (
             <div className={s.quickActions}>
-              {QUICK_ACTIONS.map((qa) => (
+              {quickActions.map((qa) => (
                 <button
                   key={qa.label}
                   className={s.quickBtn}
@@ -250,11 +286,35 @@ export function AIChatbot({ caregiverId, currentUser }) {
             {messages.length === 0 && (
               <div className={s.welcome}>
                 <div className={s.welcomeIcon}>AI</div>
-                <div className={s.welcomeTitle}>Hi{currentUser ? `, ${currentUser}` : ''}!</div>
-                <div className={s.welcomeText}>
-                  I'm your AI recruiting assistant. I can search caregivers, check compliance,
-                  add notes, draft messages, and update records. Ask me anything!
+                <div className={s.welcomeTitle}>
+                  {briefing?.greeting || `Hi${currentUser ? `, ${currentUser}` : ''}!`}
                 </div>
+
+                {/* Briefing items (contextual alerts) */}
+                {briefing?.items && briefing.items.length > 0 ? (
+                  <div className={s.briefingItems}>
+                    {briefing.items.map((item, i) => (
+                      <div
+                        key={i}
+                        className={`${s.briefingItem} ${s[`briefing_${item.type}`] || ''}`}
+                        onClick={item.action ? () => sendMessage(item.action) : undefined}
+                        style={item.action ? { cursor: 'pointer' } : undefined}
+                      >
+                        <span className={s.briefingIcon}>
+                          {item.type === 'urgent' ? '\u26A0' : item.type === 'suggestion' ? '\u2728' : '\u2139'}
+                        </span>
+                        <span>{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={s.welcomeText}>
+                    {briefingLoading
+                      ? 'Loading your briefing...'
+                      : "I'm your AI recruiting assistant. I can search caregivers, check compliance, add notes, draft messages, and update records. Ask me anything!"
+                    }
+                  </div>
+                )}
               </div>
             )}
 

@@ -32,6 +32,9 @@ import {
 } from "./registry.ts";
 
 import { buildSystemPrompt } from "./prompt.ts";
+import { assembleSystemPrompt } from "./context/assembler.ts";
+import { logEvent, saveContextSnapshot } from "./context/events.ts";
+import { generateBriefing } from "./context/briefing.ts";
 
 // ─── Retry helper for transient Claude API errors ───
 const RETRYABLE_STATUSES = new Set([429, 500, 503, 529]);
@@ -71,9 +74,32 @@ Deno.serve(async (req: Request) => {
   try {
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
-    const { messages, caregiverId, confirmAction, currentUser } =
+    const { messages, caregiverId, confirmAction, currentUser, requestType } =
       await req.json();
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+
+    // ── Handle briefing request (fast, no Claude call) ──
+    if (requestType === "briefing") {
+      const { data: allCg } = await supabase
+        .from("caregivers")
+        .select("id, first_name, last_name, phone, notes, created_at, archived, phase_override, phase_timestamps, tasks")
+        .order("created_at", { ascending: false });
+      const { data: allCl } = await supabase
+        .from("clients")
+        .select("id, first_name, last_name, phone, notes, created_at, archived, phase, phase_timestamps, tasks")
+        .order("created_at", { ascending: false });
+
+      const briefing = await generateBriefing(
+        supabase,
+        currentUser || "User",
+        allCg || [],
+        allCl || [],
+      );
+
+      return new Response(JSON.stringify({ briefing }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // ── Handle confirmed action ──
     if (confirmAction) {
@@ -84,6 +110,22 @@ Deno.serve(async (req: Request) => {
         supabase,
         currentUser || "User",
       );
+
+      // Log confirmed action as event (fire-and-forget)
+      if (result.success) {
+        const eventType = toolNameToEventType(confirmAction.action);
+        if (eventType) {
+          logEvent(
+            supabase,
+            eventType,
+            confirmAction.caregiver_id ? "caregiver" : confirmAction.client_id ? "client" : null,
+            confirmAction.caregiver_id || confirmAction.client_id || null,
+            `user:${currentUser || "User"}`,
+            { action: confirmAction.action, confirmed: true, ...confirmAction.params },
+          );
+        }
+      }
+
       return new Response(
         JSON.stringify({
           reply: result.success
@@ -116,8 +158,20 @@ Deno.serve(async (req: Request) => {
     if (clErr) console.error(`Clients fetch error: ${clErr.message}`);
     const clients = allClients || [];
 
-    // Build context-aware system prompt
-    const systemPrompt = buildSystemPrompt(caregivers, caregiverId, clients);
+    // Build context-aware system prompt (context assembler with memory + situational awareness)
+    let systemPrompt: string;
+    try {
+      systemPrompt = await assembleSystemPrompt({
+        supabase,
+        caregivers,
+        clients,
+        caregiverId,
+        currentUser: currentUser || "User",
+      });
+    } catch (assemblerErr) {
+      console.warn("[ai-chat] Context assembler failed, falling back to static prompt:", assemblerErr);
+      systemPrompt = buildSystemPrompt(caregivers, caregiverId, clients);
+    }
 
     // Get tool definitions from registry
     const TOOLS = getToolDefinitions();
@@ -254,6 +308,46 @@ Deno.serve(async (req: Request) => {
       responseBody.pendingConfirmation = pendingConfirmation;
     }
 
+    // ── Post-conversation: log events for tool actions & save session context ──
+    // Fire-and-forget — don't block the response
+    (async () => {
+      try {
+        // Log events for each tool that executed
+        for (const tr of toolResults) {
+          if (tr.result?.success) {
+            const eventType = toolNameToEventType(tr.tool);
+            if (eventType) {
+              await logEvent(
+                supabase,
+                eventType,
+                tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null,
+                tr.result?.caregiver_id || tr.result?.client_id || null,
+                `user:${currentUser || "User"}`,
+                {
+                  tool: tr.tool,
+                  entity_name: tr.result?.entity_name || null,
+                  ...tr.input,
+                },
+              );
+            }
+          }
+        }
+
+        // Save context snapshot for session continuity
+        if (finalReply && currentMessages.length > 2) {
+          const topics = extractTopics(currentMessages);
+          await saveContextSnapshot(
+            supabase,
+            currentUser || "User",
+            finalReply.length > 300 ? finalReply.slice(0, 300) + "..." : finalReply,
+            topics,
+          );
+        }
+      } catch (bgErr) {
+        console.error("[ai-chat] Post-conversation background tasks failed:", bgErr);
+      }
+    })();
+
     return new Response(JSON.stringify(responseBody), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -270,3 +364,46 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+// ─── Helpers for post-conversation processing ───
+
+function toolNameToEventType(toolName: string): string | null {
+  const map: Record<string, string> = {
+    add_note: "note_added",
+    update_phase: "phase_changed",
+    complete_task: "task_completed",
+    update_caregiver_field: "caregiver_updated",
+    update_board_status: "board_status_changed",
+    send_sms: "sms_sent",
+    send_email: "email_sent",
+    send_docusign_envelope: "docusign_sent",
+    create_calendar_event: "calendar_event_created",
+    update_calendar_event: "calendar_event_updated",
+    add_client_note: "note_added",
+    update_client_phase: "phase_changed",
+    complete_client_task: "task_completed",
+    update_client_field: "client_updated",
+  };
+  return map[toolName] || null;
+}
+
+function extractTopics(
+  messages: any[],
+): Array<{ topic: string; status?: string }> {
+  // Extract topics from user messages in the conversation
+  const topics: Array<{ topic: string; status?: string }> = [];
+  const seen = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg.role !== "user" || typeof msg.content !== "string") continue;
+    const content = msg.content;
+    // Simple topic extraction: take the first meaningful sentence
+    const topic = content.length > 80 ? content.slice(0, 80) + "..." : content;
+    if (!seen.has(topic)) {
+      seen.add(topic);
+      topics.push({ topic, status: "discussed" });
+    }
+  }
+
+  return topics.slice(-5); // Keep last 5 topics
+}
