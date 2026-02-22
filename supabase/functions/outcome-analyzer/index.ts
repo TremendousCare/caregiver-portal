@@ -203,13 +203,10 @@ Deno.serve(async (req: Request) => {
           .single();
 
         if (existing) {
-          // Supersede the old memory with updated stats
+          // Supersede the old memory with updated stats.
+          // Insert new memory FIRST — superseded_by has a FK constraint
+          // on context_memory.id, so the target must exist before update.
           const newMemoryId = crypto.randomUUID();
-          await supabase
-            .from("context_memory")
-            .update({ superseded_by: newMemoryId })
-            .eq("id", existing.id);
-
           await supabase.from("context_memory").insert({
             id: newMemoryId,
             memory_type: "semantic",
@@ -225,6 +222,11 @@ Deno.serve(async (req: Request) => {
                   ).toISOString()
                 : null,
           });
+
+          await supabase
+            .from("context_memory")
+            .update({ superseded_by: newMemoryId })
+            .eq("id", existing.id);
         } else {
           // Create new memory
           await supabase.from("context_memory").insert({

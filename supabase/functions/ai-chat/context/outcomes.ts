@@ -128,12 +128,12 @@ export async function detectOutcome(
  * Map inbound event types to the action types they could be outcomes for.
  */
 function eventToActionMap(eventType: string): string | null {
+  // Only map genuinely inbound/external events to prior outbound actions.
+  // phase_changed and task_completed are portal actions, not external responses.
   const map: Record<string, string> = {
     sms_received: "sms_sent",
     email_received: "email_sent",
     docusign_completed: "docusign_sent",
-    phase_changed: "phase_changed",
-    task_completed: "task_completed",
   };
   return map[eventType] || null;
 }
