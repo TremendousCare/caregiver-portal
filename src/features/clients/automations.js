@@ -101,14 +101,15 @@ export async function fireClientEventTriggers(triggerType, client, triggerContex
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Sequence Runner — Immediate Execution
+// Sequence Runner — Enrollment-Based
 //
 // When a client enters a phase, fetch matching sequences and:
-//   • Steps with delay_hours === 0 → execute immediately
+//   • Create an enrollment record in client_sequence_enrollments
+//   • Steps with delay_hours === 0 → execute immediately (first-touch)
 //   • Steps with delay_hours > 0  → enqueue for cron pickup
 //
-// This gives instant first-touch (SMS/email on form submit)
-// while preserving drip-campaign functionality for later steps.
+// The enrollment record tracks progress. The cron checks for
+// client responses before executing each delayed step.
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -136,7 +137,6 @@ export async function fireClientSequences(client) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
-    // Map camelCase → snake_case for execute-automation
     const clientPayload = {
       id: client.id,
       first_name: client.firstName || '',
@@ -146,100 +146,148 @@ export async function fireClientSequences(client) {
       phase,
     };
 
-    const nowMs = Date.now();
-
     for (const sequence of sequences) {
       const steps = sequence.steps || [];
       if (steps.length === 0) continue;
 
-      // Check if this client is already enrolled in this sequence
-      const { data: existingLogs } = await supabase
-        .from('client_sequence_log')
-        .select('id')
+      // Check for existing active enrollment in the NEW enrollments table
+      const { data: existing } = await supabase
+        .from('client_sequence_enrollments')
+        .select('id, status')
         .eq('sequence_id', sequence.id)
         .eq('client_id', client.id)
+        .eq('status', 'active')
         .limit(1);
 
-      if (existingLogs && existingLogs.length > 0) continue; // Already enrolled
+      if (!shouldAutoEnroll(existing || [])) {
+        // Already enrolled — add note and skip
+        const currentNotes = Array.isArray(client.notes) ? client.notes : [];
+        supabase
+          .from('clients')
+          .update({
+            notes: [...currentNotes, {
+              text: `Client re-entered ${phase} but is already active in "${sequence.name}" — skipping auto-enrollment.`,
+              type: 'auto',
+              timestamp: Date.now(),
+              author: 'System',
+            }],
+          })
+          .eq('id', client.id)
+          .then(() => {})
+          .catch(() => {});
+        continue;
+      }
 
-      // Process each step
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        const delayHours = step.delay_hours || 0;
+      // Create enrollment record
+      const enrollmentRecord = buildEnrollmentRecord(client.id, sequence.id, 'system');
 
-        if (delayHours === 0) {
-          // ── Immediate execution ──
-          const actionType = normalizeSequenceAction(step.action_type);
-          const resolvedTemplate = resolveClientMergeFields(step.template || '', client);
+      const { data: enrollment, error: enrollError } = await supabase
+        .from('client_sequence_enrollments')
+        .insert(enrollmentRecord)
+        .select('id')
+        .single();
 
-          if (actionType === 'send_sms' || actionType === 'send_email') {
-            // Fire via execute-automation (handles SMS/email sending + auto-notes)
-            const body = {
-              rule_id: `seq_${sequence.id}_step_${i}`,
+      if (enrollError) {
+        console.warn('Enrollment insert error:', enrollError);
+        continue;
+      }
+
+      // Execute step 0 immediately if delay_hours === 0 (instant first-touch)
+      const firstStep = steps[0];
+      if ((firstStep.delay_hours || 0) === 0) {
+        const actionType = normalizeSequenceAction(firstStep.action_type);
+        const resolvedTemplate = resolveClientMergeFields(firstStep.template || '', client);
+
+        if (actionType === 'send_sms' || actionType === 'send_email') {
+          supabase.functions.invoke('execute-automation', {
+            body: {
+              rule_id: `seq_${sequence.id}_step_0`,
               caregiver_id: client.id,
               entity_type: 'client',
               action_type: actionType,
               message_template: resolvedTemplate,
               action_config: actionType === 'send_email'
-                ? { subject: resolveClientMergeFields(step.subject || 'Message from Tremendous Care', client) }
+                ? { subject: resolveClientMergeFields(firstStep.subject || 'Message from Tremendous Care', client) }
                 : {},
-              rule_name: `${sequence.name} - Step ${i + 1}`,
+              rule_name: `${sequence.name} - Step 1`,
               caregiver: clientPayload,
-            };
-
-            supabase.functions.invoke('execute-automation', {
-              body,
-              headers: { Authorization: `Bearer ${session.access_token}` },
-            }).catch((err) => console.warn(`Sequence step ${i} fire error:`, err));
-          } else if (actionType === 'create_task') {
-            // Add task note directly to client
-            const currentNotes = Array.isArray(client.notes) ? client.notes : [];
-            const taskNote = {
-              text: resolvedTemplate,
-              type: 'task',
-              timestamp: nowMs,
-              author: 'Automation',
-              outcome: `Sequence: ${sequence.name}, Step ${i + 1}`,
-            };
-            supabase
-              .from('clients')
-              .update({ notes: [...currentNotes, taskNote] })
-              .eq('id', client.id)
-              .then(() => {})
-              .catch((err) => console.warn(`Sequence task note error:`, err));
-          }
-
-          // Log as executed
+            },
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          }).catch((err) => console.warn('Sequence step 0 fire error:', err));
+        } else if (actionType === 'create_task') {
+          const currentNotes = Array.isArray(client.notes) ? client.notes : [];
           supabase
-            .from('client_sequence_log')
-            .insert({
-              sequence_id: sequence.id,
-              client_id: client.id,
-              step_index: i,
-              action_type: actionType,
-              status: 'executed',
-              scheduled_at: nowMs,
-              executed_at: nowMs,
+            .from('clients')
+            .update({
+              notes: [...currentNotes, {
+                text: resolvedTemplate,
+                type: 'task',
+                timestamp: Date.now(),
+                author: 'Automation',
+                outcome: `Sequence: ${sequence.name}, Step 1`,
+              }],
             })
+            .eq('id', client.id)
             .then(() => {})
-            .catch((err) => console.warn('Sequence log insert error:', err));
-
-        } else {
-          // ── Delayed step → enqueue for cron ──
-          const scheduledAt = nowMs + (delayHours * 60 * 60 * 1000);
-          supabase
-            .from('client_sequence_log')
-            .insert({
-              sequence_id: sequence.id,
-              client_id: client.id,
-              step_index: i,
-              action_type: normalizeSequenceAction(step.action_type),
-              status: 'pending',
-              scheduled_at: scheduledAt,
-            })
-            .then(() => {})
-            .catch((err) => console.warn('Sequence log enqueue error:', err));
+            .catch((err) => console.warn('Sequence task note error:', err));
         }
+
+        // Log step 0 as executed
+        const nowMs = Date.now();
+        supabase
+          .from('client_sequence_log')
+          .insert({
+            sequence_id: sequence.id,
+            client_id: client.id,
+            step_index: 0,
+            action_type: actionType,
+            status: 'executed',
+            scheduled_at: nowMs,
+            executed_at: nowMs,
+          })
+          .then(() => {})
+          .catch((err) => console.warn('Sequence log insert error:', err));
+
+        // Advance enrollment to step 1
+        supabase
+          .from('client_sequence_enrollments')
+          .update({
+            current_step: 1,
+            last_step_executed_at: new Date().toISOString(),
+          })
+          .eq('id', enrollment.id)
+          .then(() => {})
+          .catch(() => {});
+
+        // If sequence only has 1 step, mark completed
+        if (steps.length === 1) {
+          supabase
+            .from('client_sequence_enrollments')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .eq('id', enrollment.id)
+            .then(() => {})
+            .catch(() => {});
+        }
+      }
+
+      // Enqueue remaining delayed steps to client_sequence_log
+      const startIdx = (firstStep.delay_hours || 0) === 0 ? 1 : 0;
+      const baseTime = Date.now();
+      for (let i = startIdx; i < steps.length; i++) {
+        const step = steps[i];
+        const scheduledAt = baseTime + ((step.delay_hours || 0) * 60 * 60 * 1000);
+        supabase
+          .from('client_sequence_log')
+          .insert({
+            sequence_id: sequence.id,
+            client_id: client.id,
+            step_index: i,
+            action_type: normalizeSequenceAction(step.action_type),
+            status: 'pending',
+            scheduled_at: scheduledAt,
+          })
+          .then(() => {})
+          .catch((err) => console.warn('Sequence log enqueue error:', err));
       }
     }
   } catch (err) {
