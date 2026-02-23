@@ -1,6 +1,6 @@
 // ─── Outcome Tracking: Action Logging & Outcome Detection ───
 // Logs side-effect actions and correlates inbound events to detect outcomes.
-// Fire-and-forget: errors are logged but never thrown.
+// Errors are logged but never thrown to avoid blocking the main response path.
 
 // Default expiry windows per action type (days)
 const EXPIRY_DAYS: Record<string, number> = {
@@ -24,8 +24,7 @@ const TRACKABLE_ACTIONS = new Set([
 
 /**
  * Log a side-effect action for outcome tracking.
- * Called from post-conversation background task after tool execution.
- * Fire-and-forget — never blocks the calling operation.
+ * Called after tool execution in the post-conversation phase.
  */
 export async function logAction(
   supabase: any,
@@ -43,7 +42,7 @@ export async function logAction(
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiryDays);
 
-    await supabase.from("action_outcomes").insert({
+    const { error } = await supabase.from("action_outcomes").insert({
       action_type: actionType,
       entity_type: entityType,
       entity_id: entityId,
@@ -52,6 +51,9 @@ export async function logAction(
       source,
       expires_at: expiresAt.toISOString(),
     });
+    if (error) {
+      console.error(`[outcomes] Failed to log action ${actionType}:`, error);
+    }
   } catch (err) {
     console.error(`[outcomes] Failed to log action ${actionType}:`, err);
   }
@@ -59,9 +61,8 @@ export async function logAction(
 
 /**
  * Try to detect an outcome for a pending action based on an inbound event.
- * Called when inbound events are logged (SMS received, DocuSign completed, etc.).
+ * Called when inbound events arrive (SMS received, DocuSign completed, etc.).
  * Matches the most recent pending action for the same entity.
- * Fire-and-forget — never blocks the calling operation.
  */
 export async function detectOutcome(
   supabase: any,
@@ -71,7 +72,7 @@ export async function detectOutcome(
   eventPayload: Record<string, any> = {},
 ): Promise<void> {
   try {
-    // Determine which action type this event could be an outcome for
+    // Only map genuinely inbound/external events to prior outbound actions
     const actionType = eventToActionMap(triggerEventType);
     if (!actionType) return;
 
@@ -87,7 +88,7 @@ export async function detectOutcome(
       .limit(1)
       .single();
 
-    if (error || !pendingAction) return; // No pending action to correlate
+    if (error || !pendingAction) return;
 
     // Calculate time delta
     const actionTime = new Date(pendingAction.created_at).getTime();
@@ -98,13 +99,12 @@ export async function detectOutcome(
     // Determine outcome type and detail
     const { outcomeType, outcomeDetail } = buildOutcome(
       triggerEventType,
-      hoursElapsed,
       eventPayload,
       pendingAction.action_context,
     );
 
     // Update the action with the detected outcome
-    await supabase
+    const { error: updateErr } = await supabase
       .from("action_outcomes")
       .update({
         outcome_type: outcomeType,
@@ -116,6 +116,10 @@ export async function detectOutcome(
         outcome_detected_at: new Date().toISOString(),
       })
       .eq("id", pendingAction.id);
+
+    if (updateErr) {
+      console.error(`[outcomes] Failed to update outcome for ${triggerEventType}:`, updateErr);
+    }
   } catch (err) {
     console.error(
       `[outcomes] Failed to detect outcome for ${triggerEventType}:`,
@@ -126,10 +130,9 @@ export async function detectOutcome(
 
 /**
  * Map inbound event types to the action types they could be outcomes for.
+ * Only genuinely inbound/external events are mapped here.
  */
 function eventToActionMap(eventType: string): string | null {
-  // Only map genuinely inbound/external events to prior outbound actions.
-  // phase_changed and task_completed are portal actions, not external responses.
   const map: Record<string, string> = {
     sms_received: "sms_sent",
     email_received: "email_sent",
@@ -140,10 +143,10 @@ function eventToActionMap(eventType: string): string | null {
 
 /**
  * Build the outcome type and detail from the trigger event.
+ * Only handles event types that eventToActionMap actually produces.
  */
 function buildOutcome(
   triggerEventType: string,
-  hoursElapsed: number,
   eventPayload: Record<string, any>,
   actionContext: Record<string, any>,
 ): { outcomeType: string; outcomeDetail: Record<string, any> } {
@@ -174,23 +177,6 @@ function buildOutcome(
         outcomeDetail: {
           envelope_id:
             eventPayload.envelope_id || actionContext.envelope_id,
-        },
-      };
-
-    case "phase_changed":
-      return {
-        outcomeType: "advanced",
-        outcomeDetail: {
-          from_phase: actionContext.to_phase || null,
-          to_phase: eventPayload.to_phase || null,
-        },
-      };
-
-    case "task_completed":
-      return {
-        outcomeType: "completed",
-        outcomeDetail: {
-          task_id: eventPayload.task_id || null,
         },
       };
 

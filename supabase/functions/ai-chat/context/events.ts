@@ -1,7 +1,16 @@
 // ─── Event Bus: Unified Event Logger ───
 // Emits structured events to the `events` table.
 // Called from tool handlers after actions complete.
-// Non-blocking: errors are logged but never thrown (events are observability, not critical path).
+// Errors are logged but never thrown (events are observability, not critical path).
+
+import { detectOutcome } from "./outcomes.ts";
+
+// Inbound event types that should trigger outcome detection
+const INBOUND_EVENT_TYPES = new Set([
+  "sms_received",
+  "email_received",
+  "docusign_completed",
+]);
 
 export interface EventPayload {
   entity_name?: string;
@@ -10,7 +19,8 @@ export interface EventPayload {
 
 /**
  * Log an event to the unified event bus.
- * Fire-and-forget — never blocks the calling operation.
+ * For inbound events (sms_received, email_received, docusign_completed),
+ * also triggers outcome detection to close pending action loops.
  */
 export async function logEvent(
   supabase: any,
@@ -21,13 +31,22 @@ export async function logEvent(
   payload: EventPayload = {},
 ): Promise<void> {
   try {
-    await supabase.from("events").insert({
+    const { error } = await supabase.from("events").insert({
       event_type: eventType,
       entity_type: entityType,
       entity_id: entityId,
       actor,
       payload,
     });
+    if (error) {
+      console.error(`[events] Failed to log ${eventType}:`, error);
+    }
+
+    // Auto-detect outcomes for inbound events (fire-and-forget)
+    if (INBOUND_EVENT_TYPES.has(eventType) && entityType && entityId) {
+      detectOutcome(supabase, eventType, entityType, entityId, payload)
+        .catch((err: unknown) => console.error(`[events] Outcome detection failed for ${eventType}:`, err));
+    }
   } catch (err) {
     console.error(`[events] Failed to log ${eventType}:`, err);
   }
@@ -51,7 +70,7 @@ export async function storeMemory(
   } = {},
 ): Promise<void> {
   try {
-    await supabase.from("context_memory").insert({
+    const { error } = await supabase.from("context_memory").insert({
       memory_type: memoryType,
       entity_type: options.entityType || null,
       entity_id: options.entityId || null,
@@ -61,6 +80,9 @@ export async function storeMemory(
       tags: options.tags || [],
       expires_at: options.expiresAt || null,
     });
+    if (error) {
+      console.error(`[memory] Failed to store ${memoryType} memory:`, error);
+    }
   } catch (err) {
     console.error(`[memory] Failed to store ${memoryType} memory:`, err);
   }
@@ -77,7 +99,7 @@ export async function saveContextSnapshot(
   activeThreads: Array<{ entity_id?: string; topic: string; status?: string }>,
 ): Promise<void> {
   try {
-    await supabase.from("context_snapshots").upsert(
+    const { error } = await supabase.from("context_snapshots").upsert(
       {
         user_id: userId,
         session_summary: sessionSummary,
@@ -86,6 +108,9 @@ export async function saveContextSnapshot(
       },
       { onConflict: "user_id" },
     );
+    if (error) {
+      console.error("[snapshot] Failed to save context snapshot:", error);
+    }
   } catch (err) {
     console.error("[snapshot] Failed to save context snapshot:", err);
   }
