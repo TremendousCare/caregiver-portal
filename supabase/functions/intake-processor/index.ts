@@ -920,14 +920,19 @@ Deno.serve(async (req: Request) => {
       console.error(`Entry ${entry.id} failed:`, err);
       errors++;
 
-      // Increment attempts and log error
+      // Increment attempts and log error; mark as 'error' after 3 failures
       try {
+        const newAttempts = (entry.attempts || 0) + 1;
+        const updatePayload: Record<string, any> = {
+          attempts: newAttempts,
+          error_detail: err.message || String(err),
+        };
+        if (newAttempts >= 3) {
+          updatePayload.status = "error";
+        }
         await supabase
           .from("intake_queue")
-          .update({
-            attempts: (entry.attempts || 0) + 1,
-            error_detail: err.message || String(err),
-          })
+          .update(updatePayload)
           .eq("id", entry.id);
       } catch (updateErr) {
         console.error(
