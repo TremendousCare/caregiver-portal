@@ -36,6 +36,7 @@ import { assembleSystemPrompt } from "./context/assembler.ts";
 import { logEvent, saveContextSnapshot } from "./context/events.ts";
 import { logAction } from "./context/outcomes.ts";
 import { generateBriefing } from "./context/briefing.ts";
+import { runConsolidation } from "./context/consolidation.ts";
 
 // ─── Retry helper for transient Claude API errors ───
 const RETRYABLE_STATUSES = new Set([429, 500, 503, 529]);
@@ -177,17 +178,28 @@ Deno.serve(async (req: Request) => {
 
     // Build context-aware system prompt (context assembler with memory + situational awareness)
     let systemPrompt: string;
+    let contextHealth: any = null;
     try {
-      systemPrompt = await assembleSystemPrompt({
+      // Extract latest user message for memory relevance filtering
+      const latestUserMsg = messages
+        .slice()
+        .reverse()
+        .find((m: any) => m.role === "user" && typeof m.content === "string");
+
+      const assemblerResult = await assembleSystemPrompt({
         supabase,
         caregivers,
         clients,
         caregiverId,
         currentUser: currentUser || "User",
+        userQuery: latestUserMsg?.content,
       });
+      systemPrompt = assemblerResult.prompt;
+      contextHealth = assemblerResult.health;
     } catch (assemblerErr) {
       console.warn("[ai-chat] Context assembler failed, falling back to static prompt:", assemblerErr);
       systemPrompt = buildSystemPrompt(caregivers, caregiverId, clients);
+      contextHealth = { status: "minimal", layersLoaded: ["identity", "guidelines"], layersFailed: ["assembler"], layersTrimmed: [], tokenEstimate: 0 };
     }
 
     // Get tool definitions from registry
@@ -204,6 +216,9 @@ Deno.serve(async (req: Request) => {
     const toolResults: any[] = [];
     let currentMessages = [...apiMessages];
     let iterations = 0;
+    const sessionStart = Date.now();
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     // ── Agentic loop ──
     while (iterations < MAX_ITERATIONS) {
@@ -247,6 +262,12 @@ Deno.serve(async (req: Request) => {
           console.error("Claude API returned unexpected content structure:", JSON.stringify(data).slice(0, 500));
           finalReply = "I received an unexpected response format. Please try again.";
           break;
+        }
+
+        // Track token usage for cost-per-outcome
+        if (data.usage) {
+          totalInputTokens += data.usage.input_tokens || 0;
+          totalOutputTokens += data.usage.output_tokens || 0;
         }
 
         const textBlocks: string[] = [];
@@ -324,6 +345,9 @@ Deno.serve(async (req: Request) => {
     if (pendingConfirmation) {
       responseBody.pendingConfirmation = pendingConfirmation;
     }
+    if (contextHealth) {
+      responseBody._contextHealth = contextHealth;
+    }
 
     // ── Post-conversation: log events for tool actions & save session context ──
     // Awaited before returning response to ensure completion in Edge runtime
@@ -349,8 +373,9 @@ Deno.serve(async (req: Request) => {
               },
             );
 
-            // Phase 2: Log side-effect actions for outcome tracking
+            // Phase 2: Log side-effect actions for outcome tracking (with cost data)
             if (entityType && entityId) {
+              const sessionDurationMs = Date.now() - sessionStart;
               await logAction(
                 supabase,
                 eventType,
@@ -362,6 +387,12 @@ Deno.serve(async (req: Request) => {
                   entity_name: tr.result?.entity_name || null,
                   ...tr.input,
                   ...(tr.result?.params || {}),
+                  _cost: {
+                    input_tokens: totalInputTokens,
+                    output_tokens: totalOutputTokens,
+                    iterations,
+                    session_duration_ms: sessionDurationMs,
+                  },
                 },
                 "ai_chat",
               );
@@ -372,7 +403,7 @@ Deno.serve(async (req: Request) => {
 
       // Save context snapshot for session continuity
       if (finalReply && currentMessages.length > 2) {
-        const topics = extractTopics(currentMessages);
+        const topics = extractTopics(currentMessages, caregivers, clients);
         await saveContextSnapshot(
           supabase,
           currentUser || "User",
@@ -380,6 +411,11 @@ Deno.serve(async (req: Request) => {
           topics,
         );
       }
+
+      // Run memory consolidation pipeline (fire-and-forget, never blocks response)
+      runConsolidation(supabase).catch((err: unknown) =>
+        console.error("[ai-chat] Consolidation failed:", err),
+      );
     } catch (bgErr) {
       console.error("[ai-chat] Post-conversation tasks failed:", bgErr);
     }
@@ -423,23 +459,96 @@ function toolNameToEventType(toolName: string): string | null {
   return map[toolName] || null;
 }
 
+// Intent patterns for topic categorization
+const INTENT_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\b(follow[- ]?up|stale|inactive|hasn'?t responded|no response)\b/i, label: "Follow-up" },
+  { pattern: /\b(schedul|interview|calendar|meeting|appointment|availability)\b/i, label: "Scheduling" },
+  { pattern: /\b(compliance|compliant|document|missing doc|hca|license|certification)\b/i, label: "Compliance" },
+  { pattern: /\b(text|sms|send message|message them)\b/i, label: "SMS outreach" },
+  { pattern: /\b(email|send email|inbox)\b/i, label: "Email" },
+  { pattern: /\b(docusign|envelope|sign|signature)\b/i, label: "DocuSign" },
+  { pattern: /\b(pipeline|stats|summary|overview|how many|report)\b/i, label: "Pipeline review" },
+  { pattern: /\b(phase|move to|advance|update phase)\b/i, label: "Phase change" },
+  { pattern: /\b(onboard|orient|training)\b/i, label: "Onboarding" },
+  { pattern: /\b(client|family|patient|care recipient)\b/i, label: "Client management" },
+  { pattern: /\b(call|phone|ring)\b/i, label: "Call review" },
+];
+
 function extractTopics(
   messages: any[],
+  caregivers?: any[],
+  clients?: any[],
 ): Array<{ topic: string; status?: string }> {
-  // Extract topics from user messages in the conversation
   const topics: Array<{ topic: string; status?: string }> = [];
   const seen = new Set<string>();
+
+  // Build a set of known entity names for matching
+  const entityNames = new Set<string>();
+  for (const cg of (caregivers || [])) {
+    if (cg.first_name) entityNames.add(cg.first_name.toLowerCase());
+    if (cg.first_name && cg.last_name) {
+      entityNames.add(`${cg.first_name} ${cg.last_name}`.toLowerCase());
+    }
+  }
+  for (const cl of (clients || [])) {
+    if (cl.first_name) entityNames.add(cl.first_name.toLowerCase());
+    if (cl.first_name && cl.last_name) {
+      entityNames.add(`${cl.first_name} ${cl.last_name}`.toLowerCase());
+    }
+  }
 
   for (const msg of messages) {
     if (msg.role !== "user" || typeof msg.content !== "string") continue;
     const content = msg.content;
-    // Simple topic extraction: take the first meaningful sentence
-    const topic = content.length > 80 ? content.slice(0, 80) + "..." : content;
+
+    // Detect intent
+    let intent = "";
+    for (const { pattern, label } of INTENT_PATTERNS) {
+      if (pattern.test(content)) {
+        intent = label;
+        break;
+      }
+    }
+
+    // Detect entity names mentioned
+    const contentLower = content.toLowerCase();
+    const mentionedEntities: string[] = [];
+    for (const name of entityNames) {
+      if (name.includes(" ") && contentLower.includes(name)) {
+        // Full name match — prefer over first name
+        const capitalized = name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        mentionedEntities.push(capitalized);
+      }
+    }
+    // Fall back to first-name matches if no full name matched
+    if (mentionedEntities.length === 0) {
+      for (const name of entityNames) {
+        if (!name.includes(" ") && contentLower.includes(name)) {
+          mentionedEntities.push(name.charAt(0).toUpperCase() + name.slice(1));
+        }
+      }
+    }
+
+    // Build topic string
+    let topic: string;
+    const uniqueEntities = [...new Set(mentionedEntities)].slice(0, 2);
+    if (intent && uniqueEntities.length > 0) {
+      topic = `${intent}: ${uniqueEntities.join(", ")}`;
+    } else if (intent) {
+      topic = intent;
+    } else if (uniqueEntities.length > 0) {
+      topic = `Discussed: ${uniqueEntities.join(", ")}`;
+    } else {
+      // Fallback: first sentence, capped at 60 chars
+      const firstSentence = content.split(/[.!?\n]/)[0].trim();
+      topic = firstSentence.length > 60 ? firstSentence.slice(0, 60) + "..." : firstSentence;
+    }
+
     if (!seen.has(topic)) {
       seen.add(topic);
       topics.push({ topic, status: "discussed" });
     }
   }
 
-  return topics.slice(-5); // Keep last 5 topics
+  return topics.slice(-5);
 }

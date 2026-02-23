@@ -3,6 +3,15 @@
 // Called from tool handlers after actions complete.
 // Errors are logged but never thrown (events are observability, not critical path).
 
+import { detectOutcome } from "./outcomes.ts";
+
+// Inbound event types that should trigger outcome detection
+const INBOUND_EVENT_TYPES = new Set([
+  "sms_received",
+  "email_received",
+  "docusign_completed",
+]);
+
 export interface EventPayload {
   entity_name?: string;
   [key: string]: any;
@@ -10,6 +19,8 @@ export interface EventPayload {
 
 /**
  * Log an event to the unified event bus.
+ * For inbound events (sms_received, email_received, docusign_completed),
+ * also triggers outcome detection to close pending action loops.
  */
 export async function logEvent(
   supabase: any,
@@ -29,6 +40,12 @@ export async function logEvent(
     });
     if (error) {
       console.error(`[events] Failed to log ${eventType}:`, error);
+    }
+
+    // Auto-detect outcomes for inbound events (fire-and-forget)
+    if (INBOUND_EVENT_TYPES.has(eventType) && entityType && entityId) {
+      detectOutcome(supabase, eventType, entityType, entityId, payload)
+        .catch((err: unknown) => console.error(`[events] Outcome detection failed for ${eventType}:`, err));
     }
   } catch (err) {
     console.error(`[events] Failed to log ${eventType}:`, err);

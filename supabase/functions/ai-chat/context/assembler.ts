@@ -11,44 +11,127 @@ import { buildThreadLayer } from "./layers/threads.ts";
 
 const MAX_PROMPT_PROFILE_CHARS = 8000;
 
+// Token budget: ~13% of Claude's 200K context = ~26K tokens.
+// Using ~4 chars per token as a safe estimate for English text.
+const MAX_SYSTEM_PROMPT_TOKENS = 26000;
+const CHARS_PER_TOKEN = 4;
+const MAX_SYSTEM_PROMPT_CHARS = MAX_SYSTEM_PROMPT_TOKENS * CHARS_PER_TOKEN; // ~104K chars
+
 export interface AssemblerContext {
   supabase: any;
   caregivers: any[];
   clients: any[];
   caregiverId?: string;
   currentUser: string;
+  userQuery?: string; // Latest user message for relevance filtering
 }
+
+export interface ContextHealth {
+  layersLoaded: string[];
+  layersFailed: string[];
+  layersTrimmed: string[];
+  tokenEstimate: number;
+  status: "healthy" | "degraded" | "minimal";
+}
+
+export interface AssemblerResult {
+  prompt: string;
+  health: ContextHealth;
+}
+
+// Layer names in display order
+const LAYER_DISPLAY_ORDER = ["identity", "situational", "memories", "threads", "viewing", "guidelines"];
+const ALL_DYNAMIC_LAYERS = ["situational", "memories", "threads"];
 
 /**
  * Assembles the full system prompt from modular layers.
  * Each layer is independent and can be enabled/disabled without affecting others.
+ * Enforces a token budget — trims lowest-priority layers if over budget.
+ * Returns both the prompt and health metadata for diagnostics.
  */
-export async function assembleSystemPrompt(ctx: AssemblerContext): Promise<string> {
-  const { caregivers, clients, caregiverId, currentUser, supabase } = ctx;
+export async function assembleSystemPrompt(ctx: AssemblerContext): Promise<AssemblerResult> {
+  const { caregivers, clients, caregiverId, currentUser, supabase, userQuery } = ctx;
 
-  // Run independent layers in parallel
-  const [situational, memories, threads] = await Promise.all([
+  const health: ContextHealth = {
+    layersLoaded: [],
+    layersFailed: [],
+    layersTrimmed: [],
+    tokenEstimate: 0,
+    status: "healthy",
+  };
+
+  // Run independent async layers in parallel, tracking failures individually
+  const [situationalResult, memoriesResult, threadsResult] = await Promise.allSettled([
     buildSituationalLayer(supabase),
-    buildMemoryLayer(supabase, caregiverId || null, caregiverId ? "caregiver" : null),
+    buildMemoryLayer(supabase, caregiverId || null, caregiverId ? "caregiver" : null, userQuery),
     buildThreadLayer(supabase, currentUser),
   ]);
+
+  const situational = situationalResult.status === "fulfilled" ? situationalResult.value : "";
+  const memories = memoriesResult.status === "fulfilled" ? memoriesResult.value : "";
+  const threads = threadsResult.status === "fulfilled" ? threadsResult.value : "";
+
+  // Track async layer failures
+  if (situationalResult.status === "rejected") health.layersFailed.push("situational");
+  if (memoriesResult.status === "rejected") health.layersFailed.push("memories");
+  if (threadsResult.status === "rejected") health.layersFailed.push("threads");
 
   // Static layers (no async needed)
   const identity = buildIdentityLayer(caregivers, clients);
   const viewing = buildViewingLayer(caregivers, caregiverId);
   const guidelines = buildGuidelinesLayer();
 
-  // Compose all layers — filter out empty strings
-  const layers = [
-    identity,
-    situational,
-    memories,
-    threads,
-    viewing,
-    guidelines,
-  ].filter(Boolean);
+  // Layers ordered by priority (highest first). When over budget,
+  // we trim from the bottom (lowest priority) up.
+  const layersWithPriority = [
+    { name: "identity", content: identity, priority: 1 },
+    { name: "guidelines", content: guidelines, priority: 2 },
+    { name: "memories", content: memories, priority: 3 },
+    { name: "viewing", content: viewing, priority: 4 },
+    { name: "situational", content: situational, priority: 5 },
+    { name: "threads", content: threads, priority: 6 },
+  ];
 
-  return layers.join("\n\n");
+  // Track which layers loaded content
+  for (const layer of layersWithPriority) {
+    if (layer.content) health.layersLoaded.push(layer.name);
+  }
+
+  let totalChars = layersWithPriority.reduce((sum, l) => sum + l.content.length, 0);
+
+  // Trim lowest-priority layers if over budget
+  if (totalChars > MAX_SYSTEM_PROMPT_CHARS) {
+    const sorted = [...layersWithPriority].sort((a, b) => b.priority - a.priority);
+    for (const layer of sorted) {
+      if (totalChars <= MAX_SYSTEM_PROMPT_CHARS) break;
+      if (layer.priority <= 2) break; // Never trim identity or guidelines
+      if (!layer.content) continue; // Already empty
+      totalChars -= layer.content.length;
+      layer.content = "";
+      health.layersTrimmed.push(layer.name);
+      health.layersLoaded = health.layersLoaded.filter(n => n !== layer.name);
+      console.warn(`[assembler] Token budget exceeded — trimmed layer: ${layer.name}`);
+    }
+  }
+
+  // Compose in display order
+  const composedLayers = LAYER_DISPLAY_ORDER
+    .map(name => layersWithPriority.find(l => l.name === name))
+    .filter((l): l is typeof layersWithPriority[0] => Boolean(l?.content))
+    .map(l => l.content);
+
+  const prompt = composedLayers.join("\n\n");
+  health.tokenEstimate = Math.ceil(prompt.length / CHARS_PER_TOKEN);
+
+  // Determine overall status
+  const dynamicLoaded = ALL_DYNAMIC_LAYERS.filter(n => health.layersLoaded.includes(n)).length;
+  if (health.layersFailed.length > 0 || health.layersTrimmed.length > 0) {
+    health.status = dynamicLoaded === 0 ? "minimal" : "degraded";
+  }
+
+  console.log(`[assembler] Health: ${health.status} | ~${health.tokenEstimate} tokens | loaded: [${health.layersLoaded.join(",")}] | failed: [${health.layersFailed.join(",")}] | trimmed: [${health.layersTrimmed.join(",")}]`);
+
+  return { prompt, health };
 }
 
 // ─── Layer 1: Identity & Pipeline Stats ───
