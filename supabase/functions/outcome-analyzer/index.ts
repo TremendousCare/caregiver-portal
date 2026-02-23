@@ -36,44 +36,55 @@ Deno.serve(async (req: Request) => {
     results.expired = { error: (err as Error).message };
   }
 
-  // ── Job 2: Mark no-response after 48 hours ──
+  // ── Job 2: Mark no-response at expiry window (not 48h) ──
+  // Changed from 48h to expiry window to avoid premature marking.
+  // Late responses (Job 3) can still upgrade no_response → response_received.
   try {
-    const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
 
-    const { data: pending } = await supabase
+    const { data: pending, error } = await supabase
       .from("action_outcomes")
       .select("id, action_type, created_at")
       .is("outcome_type", null)
-      .lt("created_at", cutoff48h)
-      .gt("expires_at", new Date().toISOString())
+      .lt("expires_at", now)
       .in("action_type", ["sms_sent", "email_sent"])
       .limit(100);
 
-    let noResponseCount = 0;
-    for (const action of pending || []) {
-      const hoursWaited = Math.round(
-        (Date.now() - new Date(action.created_at).getTime()) /
-          (1000 * 60 * 60),
-      );
+    if (error) {
+      results.no_response = { error: error.message };
+    } else {
+      let noResponseCount = 0;
+      for (const action of pending || []) {
+        const hoursWaited = Math.round(
+          (Date.now() - new Date(action.created_at).getTime()) /
+            (1000 * 60 * 60),
+        );
 
-      await supabase
-        .from("action_outcomes")
-        .update({
-          outcome_type: "no_response",
-          outcome_detected_at: new Date().toISOString(),
-          outcome_detail: { hours_waited: hoursWaited },
-        })
-        .eq("id", action.id);
+        const { error: updateErr } = await supabase
+          .from("action_outcomes")
+          .update({
+            outcome_type: "no_response",
+            outcome_detected_at: new Date().toISOString(),
+            outcome_detail: { hours_waited: hoursWaited },
+          })
+          .eq("id", action.id);
 
-      noResponseCount++;
+        if (updateErr) {
+          console.error(`[outcome-analyzer] Failed to mark no_response for ${action.id}:`, updateErr);
+        } else {
+          noResponseCount++;
+        }
+      }
+
+      results.no_response = { count: noResponseCount };
     }
-
-    results.no_response = { count: noResponseCount };
   } catch (err) {
     results.no_response = { error: (err as Error).message };
   }
 
-  // ── Job 3: Correlate inbound SMS with pending actions ──
+  // ── Job 3: Correlate inbound SMS with pending or no_response actions ──
+  // Matches pending (outcome_type IS NULL) first, then upgrades no_response
+  // if a late reply arrives before expiry.
   try {
     // Find recent inbound SMS from the last 24 hours
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -89,7 +100,7 @@ Deno.serve(async (req: Request) => {
     for (const sms of inboundSms || []) {
       if (!sms.matched_entity_id) continue;
 
-      // Find a pending sms_sent action for this entity
+      // First try: find a pending (null outcome) sms_sent action
       const { data: pendingAction } = await supabase
         .from("action_outcomes")
         .select("id, created_at")
@@ -100,16 +111,32 @@ Deno.serve(async (req: Request) => {
         .limit(1)
         .single();
 
-      if (pendingAction) {
+      // Second try: find a no_response action that hasn't expired yet (late reply)
+      let actionToUpdate = pendingAction;
+      if (!actionToUpdate) {
+        const { data: noResponseAction } = await supabase
+          .from("action_outcomes")
+          .select("id, created_at")
+          .eq("action_type", "sms_sent")
+          .eq("entity_id", sms.matched_entity_id)
+          .eq("outcome_type", "no_response")
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+        actionToUpdate = noResponseAction;
+      }
+
+      if (actionToUpdate) {
         const hoursElapsed =
           Math.round(
             ((new Date(sms.processed_at).getTime() -
-              new Date(pendingAction.created_at).getTime()) /
+              new Date(actionToUpdate.created_at).getTime()) /
               (1000 * 60 * 60)) *
               10,
           ) / 10;
 
-        await supabase
+        const { error: updateErr } = await supabase
           .from("action_outcomes")
           .update({
             outcome_type: "response_received",
@@ -118,11 +145,16 @@ Deno.serve(async (req: Request) => {
               channel: "sms",
               hours_to_outcome: hoursElapsed,
               response_preview: sms.message_text?.slice(0, 200) || null,
+              late_response: !pendingAction, // flag if this upgraded a no_response
             },
           })
-          .eq("id", pendingAction.id);
+          .eq("id", actionToUpdate.id);
 
-        smsCorrelated++;
+        if (updateErr) {
+          console.error(`[outcome-analyzer] Failed to correlate SMS for ${actionToUpdate.id}:`, updateErr);
+        } else {
+          smsCorrelated++;
+        }
       }
     }
 
@@ -135,7 +167,8 @@ Deno.serve(async (req: Request) => {
   try {
     let memoryCount = 0;
 
-    // Query all resolved outcomes (not expired)
+    // Query resolved outcomes from the last 90 days (not expired)
+    const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const { data: allOutcomes } = await supabase
       .from("action_outcomes")
       .select(
@@ -143,6 +176,7 @@ Deno.serve(async (req: Request) => {
       )
       .not("outcome_type", "is", null)
       .not("outcome_type", "eq", "expired")
+      .gte("created_at", since90d)
       .order("created_at", { ascending: false })
       .limit(500);
 
@@ -179,12 +213,13 @@ Deno.serve(async (req: Request) => {
               ) / 10
             : null;
 
-        // Determine confidence based on sample size
-        const confidence = total >= 100 ? 0.85 : 0.6;
+        // Sliding confidence based on sample size:
+        // 30-49: 0.7, 50-99: 0.75, 100+: 0.85
+        const confidence = total >= 100 ? 0.85 : total >= 50 ? 0.75 : 0.7;
 
         // Build the memory content
         const actionLabel = actionType.replace(/_/g, " ");
-        let content = `${actionLabel}: ${successRate}% success rate (${total} observations)`;
+        let content = `${actionLabel}: ${successRate}% success rate (${total} observations, last 90 days)`;
         if (avgResponseHours) {
           content += `. Average response time: ${avgResponseHours} hours`;
         }
@@ -207,7 +242,7 @@ Deno.serve(async (req: Request) => {
           // Insert new memory FIRST — superseded_by has a FK constraint
           // on context_memory.id, so the target must exist before update.
           const newMemoryId = crypto.randomUUID();
-          await supabase.from("context_memory").insert({
+          const { error: insertErr } = await supabase.from("context_memory").insert({
             id: newMemoryId,
             memory_type: "semantic",
             entity_type: "system",
@@ -215,34 +250,36 @@ Deno.serve(async (req: Request) => {
             confidence,
             source: "outcome_analysis",
             tags,
-            expires_at:
-              confidence < 0.7
-                ? new Date(
-                    Date.now() + 90 * 24 * 60 * 60 * 1000,
-                  ).toISOString()
-                : null,
           });
 
-          await supabase
+          if (insertErr) {
+            console.error(`[outcome-analyzer] Failed to insert semantic memory for ${actionType}:`, insertErr);
+            continue;
+          }
+
+          const { error: updateErr } = await supabase
             .from("context_memory")
             .update({ superseded_by: newMemoryId })
             .eq("id", existing.id);
+
+          if (updateErr) {
+            console.error(`[outcome-analyzer] Failed to supersede memory ${existing.id}:`, updateErr);
+          }
         } else {
           // Create new memory
-          await supabase.from("context_memory").insert({
+          const { error: insertErr } = await supabase.from("context_memory").insert({
             memory_type: "semantic",
             entity_type: "system",
             content,
             confidence,
             source: "outcome_analysis",
             tags,
-            expires_at:
-              confidence < 0.7
-                ? new Date(
-                    Date.now() + 90 * 24 * 60 * 60 * 1000,
-                  ).toISOString()
-                : null,
           });
+
+          if (insertErr) {
+            console.error(`[outcome-analyzer] Failed to insert new semantic memory for ${actionType}:`, insertErr);
+            continue;
+          }
         }
 
         memoryCount++;

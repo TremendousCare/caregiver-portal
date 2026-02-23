@@ -13,40 +13,47 @@ export async function buildMemoryLayer(
 ): Promise<string> {
   try {
     const lines: string[] = [];
+    const now = new Date().toISOString();
 
-    if (entityId && entityType) {
-      // Entity-specific: pull episodic memories for this caregiver/client
-      const { data: entityMemories, error: emErr } = await supabase
-        .from("context_memory")
-        .select("content, memory_type, confidence, created_at")
-        .eq("entity_type", entityType)
-        .eq("entity_id", entityId)
-        .is("superseded_by", null)
-        .or("expires_at.is.null,expires_at.gt." + new Date().toISOString())
-        .order("created_at", { ascending: false })
-        .limit(MAX_ENTITY_MEMORIES);
+    // Run both queries in parallel — they are independent
+    const entityQuery = (entityId && entityType)
+      ? supabase
+          .from("context_memory")
+          .select("content, memory_type, confidence, created_at")
+          .eq("entity_type", entityType)
+          .eq("entity_id", entityId)
+          .is("superseded_by", null)
+          .or("expires_at.is.null,expires_at.gt." + now)
+          .order("created_at", { ascending: false })
+          .limit(MAX_ENTITY_MEMORIES)
+      : Promise.resolve({ data: null, error: null });
 
-      if (!emErr && entityMemories && entityMemories.length > 0) {
-        lines.push("**About this person (from past interactions):**");
-        for (const mem of entityMemories) {
-          const prefix = mem.memory_type === "preference" ? "[preference] " : "";
-          lines.push(`- ${prefix}${mem.content}`);
-        }
-      }
-    }
-
-    // System-wide: pull procedural and preference memories
-    const { data: systemMemories, error: smErr } = await supabase
+    const systemQuery = supabase
       .from("context_memory")
       .select("content, memory_type, confidence, tags")
       .or("entity_type.is.null,entity_type.eq.system")
       .is("superseded_by", null)
-      .or("expires_at.is.null,expires_at.gt." + new Date().toISOString())
+      .or("expires_at.is.null,expires_at.gt." + now)
       .in("memory_type", ["procedural", "preference", "semantic"])
       .gte("confidence", 0.7)
       .order("confidence", { ascending: false })
       .limit(MAX_SYSTEM_MEMORIES);
 
+    const [
+      { data: entityMemories, error: emErr },
+      { data: systemMemories, error: smErr },
+    ] = await Promise.all([entityQuery, systemQuery]);
+
+    // Entity-specific memories
+    if (!emErr && entityMemories && entityMemories.length > 0) {
+      lines.push("**About this person (from past interactions):**");
+      for (const mem of entityMemories) {
+        const prefix = mem.memory_type === "preference" ? "[preference] " : "";
+        lines.push(`- ${prefix}${mem.content}`);
+      }
+    }
+
+    // System-wide memories
     if (!smErr && systemMemories && systemMemories.length > 0) {
       const procedural = systemMemories.filter((m: any) => m.memory_type === "procedural");
       const preferences = systemMemories.filter((m: any) => m.memory_type === "preference");

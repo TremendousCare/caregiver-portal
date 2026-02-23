@@ -1,7 +1,7 @@
 // ─── Event Bus: Unified Event Logger ───
 // Emits structured events to the `events` table.
 // Called from tool handlers after actions complete.
-// Non-blocking: errors are logged but never thrown (events are observability, not critical path).
+// Errors are logged but never thrown (events are observability, not critical path).
 
 export interface EventPayload {
   entity_name?: string;
@@ -10,7 +10,6 @@ export interface EventPayload {
 
 /**
  * Log an event to the unified event bus.
- * Fire-and-forget — never blocks the calling operation.
  */
 export async function logEvent(
   supabase: any,
@@ -21,13 +20,16 @@ export async function logEvent(
   payload: EventPayload = {},
 ): Promise<void> {
   try {
-    await supabase.from("events").insert({
+    const { error } = await supabase.from("events").insert({
       event_type: eventType,
       entity_type: entityType,
       entity_id: entityId,
       actor,
       payload,
     });
+    if (error) {
+      console.error(`[events] Failed to log ${eventType}:`, error);
+    }
   } catch (err) {
     console.error(`[events] Failed to log ${eventType}:`, err);
   }
@@ -51,7 +53,7 @@ export async function storeMemory(
   } = {},
 ): Promise<void> {
   try {
-    await supabase.from("context_memory").insert({
+    const { error } = await supabase.from("context_memory").insert({
       memory_type: memoryType,
       entity_type: options.entityType || null,
       entity_id: options.entityId || null,
@@ -61,6 +63,9 @@ export async function storeMemory(
       tags: options.tags || [],
       expires_at: options.expiresAt || null,
     });
+    if (error) {
+      console.error(`[memory] Failed to store ${memoryType} memory:`, error);
+    }
   } catch (err) {
     console.error(`[memory] Failed to store ${memoryType} memory:`, err);
   }
@@ -77,7 +82,7 @@ export async function saveContextSnapshot(
   activeThreads: Array<{ entity_id?: string; topic: string; status?: string }>,
 ): Promise<void> {
   try {
-    await supabase.from("context_snapshots").upsert(
+    const { error } = await supabase.from("context_snapshots").upsert(
       {
         user_id: userId,
         session_summary: sessionSummary,
@@ -86,6 +91,9 @@ export async function saveContextSnapshot(
       },
       { onConflict: "user_id" },
     );
+    if (error) {
+      console.error("[snapshot] Failed to save context snapshot:", error);
+    }
   } catch (err) {
     console.error("[snapshot] Failed to save context snapshot:", err);
   }

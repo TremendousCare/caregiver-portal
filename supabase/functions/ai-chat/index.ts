@@ -34,7 +34,7 @@ import {
 import { buildSystemPrompt } from "./prompt.ts";
 import { assembleSystemPrompt } from "./context/assembler.ts";
 import { logEvent, saveContextSnapshot } from "./context/events.ts";
-import { logAction, detectOutcome } from "./context/outcomes.ts";
+import { logAction } from "./context/outcomes.ts";
 import { generateBriefing } from "./context/briefing.ts";
 
 // ─── Retry helper for transient Claude API errors ───
@@ -112,14 +112,14 @@ Deno.serve(async (req: Request) => {
         currentUser || "User",
       );
 
-      // Log confirmed action as event (fire-and-forget)
+      // Log confirmed action as event (awaited to ensure completion before response)
       if (result.success) {
         const eventType = toolNameToEventType(confirmAction.action);
         if (eventType) {
           const entityType = confirmAction.caregiver_id ? "caregiver" : confirmAction.client_id ? "client" : null;
           const entityId = confirmAction.caregiver_id || confirmAction.client_id || null;
 
-          logEvent(
+          await logEvent(
             supabase,
             eventType,
             entityType,
@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
           // Phase 2: Log confirmed action for outcome tracking
           if (entityType && entityId) {
-            logAction(
+            await logAction(
               supabase,
               eventType,
               entityType as "caregiver" | "client",
@@ -326,88 +326,63 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Post-conversation: log events for tool actions & save session context ──
-    // Fire-and-forget — don't block the response
-    (async () => {
-      try {
-        // Log events for each tool that executed
-        for (const tr of toolResults) {
-          if (tr.result?.success) {
-            const eventType = toolNameToEventType(tr.tool);
-            if (eventType) {
-              const entityType = tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null;
-              const entityId = tr.result?.caregiver_id || tr.result?.client_id || null;
+    // Awaited before returning response to ensure completion in Edge runtime
+    try {
+      // Log events and actions for each tool that executed
+      for (const tr of toolResults) {
+        if (tr.result?.success) {
+          const eventType = toolNameToEventType(tr.tool);
+          if (eventType) {
+            const entityType = tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null;
+            const entityId = tr.result?.caregiver_id || tr.result?.client_id || null;
 
-              await logEvent(
+            await logEvent(
+              supabase,
+              eventType,
+              entityType,
+              entityId,
+              `user:${currentUser || "User"}`,
+              {
+                tool: tr.tool,
+                entity_name: tr.result?.entity_name || null,
+                ...tr.input,
+              },
+            );
+
+            // Phase 2: Log side-effect actions for outcome tracking
+            if (entityType && entityId) {
+              await logAction(
                 supabase,
                 eventType,
-                entityType,
+                entityType as "caregiver" | "client",
                 entityId,
                 `user:${currentUser || "User"}`,
                 {
                   tool: tr.tool,
                   entity_name: tr.result?.entity_name || null,
                   ...tr.input,
+                  ...(tr.result?.params || {}),
                 },
+                "ai_chat",
               );
-
-              // Phase 2: Try real-time outcome detection
-              // If this event could be an outcome of a prior action, link them
-              if (entityType && entityId) {
-                await detectOutcome(
-                  supabase,
-                  eventType,
-                  entityType as "caregiver" | "client",
-                  entityId,
-                  { ...tr.input, ...(tr.result || {}) },
-                );
-              }
             }
           }
         }
-
-        // Phase 2: Log side-effect actions for outcome tracking
-        for (const tr of toolResults) {
-          if (tr.result?.success) {
-            const eventType = toolNameToEventType(tr.tool);
-            if (eventType) {
-              const entityType = tr.result?.caregiver_id ? "caregiver" : tr.result?.client_id ? "client" : null;
-              const entityId = tr.result?.caregiver_id || tr.result?.client_id || null;
-              if (entityType && entityId) {
-                await logAction(
-                  supabase,
-                  eventType,
-                  entityType as "caregiver" | "client",
-                  entityId,
-                  `user:${currentUser || "User"}`,
-                  {
-                    tool: tr.tool,
-                    entity_name: tr.result?.entity_name || null,
-                    ...tr.input,
-                    ...(tr.result?.params || {}),
-                  },
-                  "ai_chat",
-                );
-              }
-            }
-          }
-        }
-        // TODO: Add real-time inbound SMS outcome detection when execute-automation
-        // is brought into git. For now, the outcome-analyzer cron handles this.
-
-        // Save context snapshot for session continuity
-        if (finalReply && currentMessages.length > 2) {
-          const topics = extractTopics(currentMessages);
-          await saveContextSnapshot(
-            supabase,
-            currentUser || "User",
-            finalReply.length > 300 ? finalReply.slice(0, 300) + "..." : finalReply,
-            topics,
-          );
-        }
-      } catch (bgErr) {
-        console.error("[ai-chat] Post-conversation background tasks failed:", bgErr);
       }
-    })();
+
+      // Save context snapshot for session continuity
+      if (finalReply && currentMessages.length > 2) {
+        const topics = extractTopics(currentMessages);
+        await saveContextSnapshot(
+          supabase,
+          currentUser || "User",
+          finalReply.length > 300 ? finalReply.slice(0, 300) + "..." : finalReply,
+          topics,
+        );
+      }
+    } catch (bgErr) {
+      console.error("[ai-chat] Post-conversation tasks failed:", bgErr);
+    }
 
     return new Response(JSON.stringify(responseBody), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
