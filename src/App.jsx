@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from 'react-router-dom';
 import { useApp } from './shared/context/AppContext';
 import { useCaregivers } from './shared/context/CaregiverContext';
 import { CaregiverProvider } from './shared/context/CaregiverContext';
@@ -18,6 +18,7 @@ import { AddClient } from './features/clients/AddClient';
 import { ClientDetail } from './features/clients/ClientDetail';
 import { SequenceSettings } from './features/clients/SequenceSettings';
 import { AdminSettings } from './components/AdminSettings';
+import { ApplyPage } from './features/apply/ApplyPage';
 import { getCurrentPhase } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import btn from './styles/buttons.module.css';
@@ -283,6 +284,12 @@ function SettingsPage() {
 
 export default function App() {
   const { handleUserReady, handleLogout, currentUserName } = useApp();
+  const location = useLocation();
+
+  // Public routes — no auth required
+  if (location.pathname === '/apply') {
+    return <ApplyPage />;
+  }
 
   return (
     <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
