@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react';
 import s from './ApplyPage.module.css';
 
-// TODO: Replace with actual Indeed API key from app_settings (Task 7)
-const APPLY_API_KEY = 'PENDING_INDEED_KEY';
+const APPLY_API_KEY = 'wh_e8881c4759b6de2f6455cf53c001ebd4';
 const WEBHOOK_URL = 'https://zocrnurvazyxdpyqimgj.supabase.co/functions/v1/client-intake-webhook';
 
 const INITIAL_FORM = {
