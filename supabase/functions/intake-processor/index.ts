@@ -8,6 +8,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // records, fires automations and sequences, then marks entries done.
 //
 // Deploy: npx supabase functions deploy intake-processor --no-verify-jwt
+//
+// NOTE: Field maps and constants below are duplicated from
+// src/lib/intakeProcessing.js (which has 84 Vitest tests).
+// If you change field mappings here, update that file too and vice versa.
 // ===================================================================
 
 // ─── Skip Fields (metadata to ignore) ────────────────────────────
@@ -414,9 +418,10 @@ async function findExistingRecord(
   if (phone) {
     const normalized = normalizePhone(phone);
     if (normalized.length >= 10) {
+      // Only fetch columns needed for matching — notes excluded for performance
       const { data: allRecords } = await supabase
         .from(table)
-        .select("id, first_name, last_name, phone, email, notes")
+        .select("id, first_name, last_name, phone, email")
         .eq("archived", false)
         .neq("phone", "");
 
