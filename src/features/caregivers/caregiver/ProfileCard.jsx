@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PHASES } from '../../../lib/constants';
+import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
@@ -29,6 +29,10 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       certifications: caregiver.certifications || '',
       preferredShift: caregiver.preferredShift || '',
       initialNotes: caregiver.initialNotes || '',
+      employmentStatus: caregiver.employmentStatus || 'onboarding',
+      availabilityType: caregiver.availabilityType || '',
+      currentAssignment: caregiver.currentAssignment || '',
+      cprExpiryDate: caregiver.cprExpiryDate || '',
     });
     setEditing(true);
   };
@@ -50,6 +54,10 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
     { label: 'Days Since Application', value: `${days} day${days !== 1 ? 's' : ''}` },
     { label: 'Board Status', value: caregiver.boardStatus ? caregiver.boardStatus.charAt(0).toUpperCase() + caregiver.boardStatus.slice(1) : 'Not yet on board' },
+    { label: 'Employment Status', value: (() => { const s = EMPLOYMENT_STATUSES.find((st) => st.id === caregiver.employmentStatus); return s ? s.label : 'Onboarding'; })() },
+    { label: 'Availability Type', value: (() => { const t = AVAILABILITY_TYPES.find((ty) => ty.id === caregiver.availabilityType); return t ? t.label : null; })() },
+    { label: 'Current Assignment', value: caregiver.currentAssignment || null },
+    { label: 'CPR Expiry Date', value: caregiver.cprExpiryDate ? (() => { const exp = new Date(caregiver.cprExpiryDate + 'T00:00:00'); const du = Math.ceil((exp - new Date()) / 86400000); const ds = exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); if (du < 0) return `Expired — ${ds}`; if (du <= 90) return `${ds} (${du} days)`; return `${ds}`; })() : null },
     { label: 'Years of Experience', value: caregiver.yearsExperience ? ({ '0-1': 'Less than 1 year', '1-3': '1–3 years', '3-5': '3–5 years', '5-10': '5–10 years', '10+': '10+ years' }[caregiver.yearsExperience] || caregiver.yearsExperience) : null },
     { label: 'Preferred Shift', value: caregiver.preferredShift ? caregiver.preferredShift.charAt(0).toUpperCase() + caregiver.preferredShift.slice(1) : null },
     { label: 'Languages', value: caregiver.languages },
@@ -123,6 +131,21 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             </div>
             <EditField label={editForm.source === 'Referral' ? 'Referred By' : 'Source Details'} value={editForm.sourceDetail} onChange={(v) => editField('sourceDetail', v)} />
             <EditField label="Application Date" value={editForm.applicationDate} onChange={(v) => editField('applicationDate', v)} type="date" />
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Employment Status</label>
+              <select className={forms.fieldInput} value={editForm.employmentStatus} onChange={(e) => editField('employmentStatus', e.target.value)}>
+                {EMPLOYMENT_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Availability Type</label>
+              <select className={forms.fieldInput} value={editForm.availabilityType} onChange={(e) => editField('availabilityType', e.target.value)}>
+                <option value="">Select...</option>
+                {AVAILABILITY_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+            <EditField label="Current Assignment" value={editForm.currentAssignment} onChange={(v) => editField('currentAssignment', v)} />
+            <EditField label="CPR Expiry Date" value={editForm.cprExpiryDate} onChange={(v) => editField('cprExpiryDate', v)} type="date" />
             <div className={forms.field}>
               <label className={forms.fieldLabel}>Years of Experience</label>
               <select className={forms.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
