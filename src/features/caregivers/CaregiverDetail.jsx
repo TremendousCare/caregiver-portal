@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getCurrentPhase, isGreenLight } from '../../lib/utils';
+import { getCurrentPhase, isGreenLight, getOverallProgress } from '../../lib/utils';
 
 import { CaregiverHeader } from './caregiver/CaregiverHeader';
 import { ArchiveBanner } from './caregiver/ArchiveBanner';
@@ -22,6 +22,8 @@ export function CaregiverDetail({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const greenLight = isGreenLight(caregiver);
+  const onboardingComplete = getOverallProgress(caregiver) === 100;
+  const showRosterNudge = onboardingComplete && (!caregiver.employmentStatus || caregiver.employmentStatus === 'onboarding') && !caregiver.archived;
 
   return (
     <div>
@@ -36,6 +38,38 @@ export function CaregiverDetail({
       />
 
       <ArchiveBanner caregiver={caregiver} />
+
+      {showRosterNudge && (
+        <div style={{
+          background: 'linear-gradient(135deg, #F0FDF4, #ECFDF5)', border: '1px solid #BBF7D0',
+          borderRadius: 14, padding: '16px 20px', marginBottom: 20,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, color: '#15803D', fontSize: 15 }}>
+              All onboarding tasks complete!
+            </div>
+            <div style={{ color: '#166534', fontSize: 13, marginTop: 4 }}>
+              Ready to move this caregiver to the Active Roster?
+            </div>
+          </div>
+          <button
+            onClick={() => onUpdateCaregiver(caregiver.id, {
+              employmentStatus: 'active',
+              employmentStatusChangedAt: Date.now(),
+              employmentStatusChangedBy: currentUser?.displayName || 'Unknown',
+            })}
+            style={{
+              padding: '10px 20px', borderRadius: 10, border: 'none',
+              background: '#15803D', color: '#fff', fontWeight: 700,
+              fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
+              boxShadow: '0 2px 8px rgba(21,128,61,0.3)',
+            }}
+          >
+            Move to Active Roster
+          </button>
+        </div>
+      )}
 
       <ArchiveDialog
         isOpen={showArchiveDialog}

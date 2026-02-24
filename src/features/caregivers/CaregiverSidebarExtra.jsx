@@ -8,7 +8,7 @@ import layout from '../../styles/layout.module.css';
 // ─── Pipeline Overview + Golden Rules (rendered inside Sidebar's Caregivers section) ───
 export function CaregiverSidebarExtra() {
   const { sidebarCollapsed } = useApp();
-  const { activeCaregivers, archivedCaregivers, filterPhase, setFilterPhase } = useCaregivers();
+  const { onboardingCaregivers, archivedCaregivers, filterPhase, setFilterPhase } = useCaregivers();
   const navigate = useNavigate();
   const collapsed = sidebarCollapsed;
 
@@ -23,7 +23,7 @@ export function CaregiverSidebarExtra() {
         <div className={layout.sidebarSection}>
           <div className={layout.sidebarLabel}>Pipeline Overview</div>
           {PHASES.map((p) => {
-            const count = activeCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
+            const count = onboardingCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
             return (
               <button
                 key={p.id}
@@ -77,7 +77,7 @@ export function CaregiverSidebarExtra() {
   return (
     <div style={{ padding: '12px 6px', borderTop: '1px solid #2A2A2A', marginTop: 4 }}>
       {PHASES.map((p) => {
-        const count = activeCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
+        const count = onboardingCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
         return (
           <button
             key={p.id}

@@ -27,6 +27,7 @@ export function AppShell() {
       items: [
         { id: 'dashboard', path: '/', icon: '⊞', label: 'Dashboard', onNavigate: () => setFilterPhase('all') },
         { id: 'board', path: '/board', icon: '▤', label: 'Caregiver Board' },
+        { id: 'roster', path: '/roster', icon: '👥', label: 'Active Roster' },
         { id: 'add', path: '/add', icon: '＋', label: 'New Caregiver' },
       ],
       extra: <CaregiverSidebarExtra />,

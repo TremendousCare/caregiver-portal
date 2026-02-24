@@ -200,3 +200,20 @@ export const DOCUMENT_TYPES = [
   { id: 'family_leave_pamphlet', label: 'CA EDD Paid Family Leave Pamphlet', required: false },
   { id: 'domestic_violence_notice', label: 'Domestic Violence Leave Notice', required: false },
 ];
+
+// ─── Employment Status (Active Roster) ──────────────────────
+export const EMPLOYMENT_STATUSES = [
+  { id: 'onboarding', label: 'Onboarding', color: '#6B7280', bg: '#F3F4F6' },
+  { id: 'active', label: 'Active', color: '#15803D', bg: '#F0FDF4' },
+  { id: 'on_leave', label: 'On Leave', color: '#A16207', bg: '#FFFBEB' },
+  { id: 'inactive', label: 'Inactive', color: '#DC2626', bg: '#FEF2F2' },
+  { id: 'terminated', label: 'Terminated', color: '#6B7280', bg: '#F3F4F6' },
+];
+
+// ─── Availability Types (Active Roster) ─────────────────────
+export const AVAILABILITY_TYPES = [
+  { id: 'full_time', label: 'Full-time' },
+  { id: 'part_time', label: 'Part-time' },
+  { id: 'weekends_only', label: 'Weekends Only' },
+  { id: 'prn', label: 'PRN (As Needed)' },
+];

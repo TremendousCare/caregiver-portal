@@ -301,6 +301,12 @@ export const dbToCaregiver = (row) => ({
   archiveDetail: row.archive_detail,
   archivePhase: row.archive_phase,
   archivedBy: row.archived_by,
+  employmentStatus: row.employment_status || 'onboarding',
+  employmentStatusChangedAt: row.employment_status_changed_at,
+  employmentStatusChangedBy: row.employment_status_changed_by,
+  availabilityType: row.availability_type || '',
+  currentAssignment: row.current_assignment || '',
+  cprExpiryDate: row.cpr_expiry_date,
   createdAt: row.created_at,
 });
 
@@ -341,5 +347,11 @@ const caregiverToDb = (cg) => ({
   archive_detail: cg.archiveDetail || null,
   archive_phase: cg.archivePhase || null,
   archived_by: cg.archivedBy || null,
+  employment_status: cg.employmentStatus || 'onboarding',
+  employment_status_changed_at: cg.employmentStatusChangedAt || null,
+  employment_status_changed_by: cg.employmentStatusChangedBy || null,
+  availability_type: cg.availabilityType || '',
+  current_assignment: cg.currentAssignment || '',
+  cpr_expiry_date: cg.cprExpiryDate || null,
   created_at: cg.createdAt || Date.now(),
 });
