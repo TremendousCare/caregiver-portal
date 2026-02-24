@@ -29,13 +29,13 @@ function DashboardPage() {
   const navigate = useNavigate();
   const { sidebarCollapsed, showToast } = useApp();
   const {
-    activeCaregivers, archivedCaregivers, filterPhase, tasksVersion,
+    activeCaregivers, archivedCaregivers, onboardingCaregivers, filterPhase, tasksVersion,
     bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
   } = useCaregivers();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filtered = useMemo(() => {
-    const base = filterPhase === 'archived' ? archivedCaregivers : activeCaregivers;
+    const base = filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers;
     return base.filter((cg) => {
       const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
       const matchSearch =
@@ -45,12 +45,12 @@ function DashboardPage() {
         cg.perId?.includes(searchTerm);
       return searchTerm ? matchSearch : matchPhase && matchSearch;
     });
-  }, [activeCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
+  }, [onboardingCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
   return (
     <Dashboard
       caregivers={filtered}
-      allCaregivers={filterPhase === 'archived' ? archivedCaregivers : activeCaregivers}
+      allCaregivers={filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers}
       filterPhase={filterPhase}
       searchTerm={searchTerm}
       setSearchTerm={setSearchTerm}
