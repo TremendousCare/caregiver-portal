@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS caregivers (
   archive_reason TEXT,
   archive_detail TEXT,
   archive_phase TEXT,
+  employment_status TEXT DEFAULT 'onboarding',
+  employment_status_changed_at BIGINT,
+  employment_status_changed_by TEXT,
+  availability_type TEXT DEFAULT '',
+  current_assignment TEXT DEFAULT '',
+  cpr_expiry_date DATE,
   archived_by TEXT,
   created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
 );
