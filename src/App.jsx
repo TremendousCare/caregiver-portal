@@ -13,6 +13,7 @@ import { Dashboard } from './features/caregivers/Dashboard';
 import { KanbanBoard } from './features/caregivers/KanbanBoard';
 import { AddCaregiver } from './features/caregivers/AddCaregiver';
 import { CaregiverDetail } from './features/caregivers/CaregiverDetail';
+import { ActiveRoster } from './features/caregivers/ActiveRoster';
 import { ClientDashboard } from './features/clients/ClientDashboard';
 import { AddClient } from './features/clients/AddClient';
 import { ClientDetail } from './features/clients/ClientDetail';
@@ -78,6 +79,21 @@ function BoardPage() {
       onUpdateNote={updateBoardNote}
       onAddNote={addNote}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
+    />
+  );
+}
+
+function RosterPage() {
+  const navigate = useNavigate();
+  const { showToast } = useApp();
+  const { rosterCaregivers, updateCaregiver } = useCaregivers();
+
+  return (
+    <ActiveRoster
+      caregivers={rosterCaregivers}
+      onSelect={(id) => navigate(`/caregiver/${id}`)}
+      onUpdateCaregiver={updateCaregiver}
+      showToast={showToast}
     />
   );
 }
@@ -299,6 +315,7 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route index element={<DashboardPage />} />
               <Route path="board" element={<BoardPage />} />
+              <Route path="roster" element={<RosterPage />} />
               <Route path="add" element={<AddCaregiverPage />} />
               <Route path="caregiver/:id" element={<CaregiverDetailPage />} />
               <Route path="clients" element={<ClientDashboardPage />} />
