@@ -338,11 +338,19 @@ export function CaregiverProvider({ children }) {
   // ─── Derived data (memoized) ───
   const activeCaregivers = useMemo(() => caregivers.filter((cg) => !cg.archived), [caregivers, tasksVersion]);
   const archivedCaregivers = useMemo(() => caregivers.filter((cg) => cg.archived), [caregivers, tasksVersion]);
+  const rosterCaregivers = useMemo(() =>
+    caregivers.filter((cg) => !cg.archived && cg.employmentStatus && cg.employmentStatus !== 'onboarding'),
+    [caregivers, tasksVersion]
+  );
+  const onboardingCaregivers = useMemo(() =>
+    caregivers.filter((cg) => !cg.archived && (!cg.employmentStatus || cg.employmentStatus === 'onboarding')),
+    [caregivers, tasksVersion]
+  );
 
   return (
     <CaregiverContext.Provider value={{
       caregivers, loaded, tasksVersion,
-      activeCaregivers, archivedCaregivers,
+      activeCaregivers, archivedCaregivers, rosterCaregivers, onboardingCaregivers,
       filterPhase, setFilterPhase,
       addCaregiver, updateTask, updateTasksBulk, addNote,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
