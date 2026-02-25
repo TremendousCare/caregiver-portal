@@ -95,7 +95,7 @@ const UNMAPPED_CHECKLIST_ITEMS = [
   'Scrub Top Size: M',
 ];
 
-module.exports = {
+export {
   TARGET_LISTS,
   SKIP_CARDS,
   LIST_CONFIG,

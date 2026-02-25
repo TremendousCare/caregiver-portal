@@ -221,4 +221,4 @@ function convertComments(comments) {
   }));
 }
 
-module.exports = { parseName, parseDescription, mapChecklists, convertComments, normalizePhone };
+export { parseName, parseDescription, mapChecklists, convertComments, normalizePhone };

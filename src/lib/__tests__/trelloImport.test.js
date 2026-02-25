@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-const { parseName, parseDescription, mapChecklists, convertComments, normalizePhone } = await import('../trelloParser.js');
+import { parseName, parseDescription, mapChecklists, convertComments, normalizePhone } from '../trelloParser.js';
 
 // ============================================================
 // parseName
