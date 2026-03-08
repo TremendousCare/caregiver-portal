@@ -3,7 +3,8 @@
 
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
-import { getPhase, resolveCaregiver } from "../helpers/caregiver.ts";
+import { getPhase, getPhaseLabel, resolveCaregiver } from "../helpers/caregiver.ts";
+import { CAREGIVER_PHASES } from "../config.ts";
 
 // ── add_note (auto) ──
 
@@ -98,7 +99,7 @@ registerTool(
       properties: {
         caregiver_id: { type: "string", description: "The caregiver's ID" },
         name: { type: "string", description: "Caregiver name if ID not known" },
-        new_phase: { type: "string", enum: ["Lead", "Phone Screen", "Interview", "Background Check", "Onboarding", "Active"], description: "The target phase" },
+        new_phase: { type: "string", enum: [...CAREGIVER_PHASES], description: "The target phase (intake, interview, onboarding, verification, orientation)" },
         reason: { type: "string", description: "Why this phase change is being made" },
       },
       required: ["new_phase"],
@@ -112,7 +113,7 @@ registerTool(
     return {
       requires_confirmation: true,
       action: "update_phase",
-      summary: `Move **${cg.first_name} ${cg.last_name}** from **${getPhase(cg)}** to **${input.new_phase}**${input.reason ? ` \u2014 ${input.reason}` : ""}`,
+      summary: `Move **${cg.first_name} ${cg.last_name}** from **${getPhaseLabel(getPhase(cg))}** to **${getPhaseLabel(input.new_phase)}**${input.reason ? ` \u2014 ${input.reason}` : ""}`,
       caregiver_id: cg.id,
       params: { new_phase: input.new_phase, reason: input.reason },
     };
@@ -124,9 +125,10 @@ registerTool(
     const timestamps = { ...(cg.phase_timestamps || {}), [params.new_phase]: Date.now() };
     const { error } = await supabase.from("caregivers").update({ phase_override: params.new_phase, phase_timestamps: timestamps }).eq("id", caregiverId);
     if (error) return { error: error.message };
-    const note = { text: `Phase changed to ${params.new_phase}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
+    const phaseLabel = getPhaseLabel(params.new_phase);
+    const note = { text: `Phase changed to ${phaseLabel}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
     await supabase.from("caregivers").update({ notes: [...(cg.notes || []), note] }).eq("id", caregiverId);
-    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to ${params.new_phase}.` };
+    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to ${phaseLabel}.` };
   },
 );
 
