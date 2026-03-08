@@ -1,20 +1,19 @@
 // ─── Caregiver Helper Functions ───
 
+import { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "../config.ts";
+
 export function detectPhase(cg: any): string {
-  const phaseOrder = [
-    "Lead",
-    "Phone Screen",
-    "Interview",
-    "Background Check",
-    "Onboarding",
-    "Active",
-  ];
   const timestamps = cg.phase_timestamps || {};
-  let currentPhase = "Lead";
-  for (const phase of phaseOrder) {
+  let currentPhase = CAREGIVER_PHASES[0]; // "intake"
+  for (const phase of CAREGIVER_PHASES) {
     if (timestamps[phase]) currentPhase = phase;
   }
   return currentPhase;
+}
+
+/** Get the human-readable label for a phase ID */
+export function getPhaseLabel(phaseId: string): string {
+  return CAREGIVER_PHASE_LABELS[phaseId] || phaseId;
 }
 
 export function getPhase(cg: any): string {
@@ -38,12 +37,13 @@ export function getLastActivity(cg: any): number {
 
 export function buildCaregiverSummary(cg: any): string {
   const phase = getPhase(cg);
+  const phaseLabel = getPhaseLabel(phase);
   const tasks = cg.tasks || {};
   const completedTasks = Object.values(tasks).filter(
     (t: any) => t === true || t?.completed,
   ).length;
   const totalTasks = Object.keys(tasks).length;
-  return `${cg.first_name} ${cg.last_name} | Phase: ${phase} | Tasks: ${completedTasks}/${totalTasks} | Phone: ${cg.phone || "N/A"} | City: ${cg.city || "N/A"}${cg.archived ? " [ARCHIVED]" : ""}`;
+  return `${cg.first_name} ${cg.last_name} | Phase: ${phaseLabel} | Tasks: ${completedTasks}/${totalTasks} | Phone: ${cg.phone || "N/A"} | City: ${cg.city || "N/A"}${cg.archived ? " [ARCHIVED]" : ""}`;
 }
 
 export function buildCaregiverProfile(cg: any): string {
@@ -83,8 +83,10 @@ export function buildCaregiverProfile(cg: any): string {
     .join("\n");
   const notesHeader = notesOmitted > 0 ? `  (${notesOmitted} older notes not shown)\n` : "";
 
+  const phaseLabel = getPhaseLabel(phase);
+
   return `### ${cg.first_name} ${cg.last_name} (ID: ${cg.id})${cg.archived ? " [ARCHIVED]" : ""}
-- Phase: ${phase} | Tasks: ${completedTasks}/${totalTasks} | Days in pipeline: ${daysInPipeline}
+- Phase: ${phaseLabel} | Tasks: ${completedTasks}/${totalTasks} | Days in pipeline: ${daysInPipeline}
 - Phone: ${cg.phone || "N/A"} | Email: ${cg.email || "N/A"}
 - Address: ${[cg.address, cg.city, cg.state, cg.zip].filter(Boolean).join(", ") || "N/A"}
 - Source: ${cg.source || "N/A"}${cg.source_detail ? ` (${cg.source_detail})` : ""}

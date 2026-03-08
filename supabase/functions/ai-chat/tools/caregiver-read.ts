@@ -22,7 +22,7 @@ registerTool(
       type: "object",
       properties: {
         query: { type: "string", description: "Search term (name, city, phone, email, etc.)" },
-        phase: { type: "string", description: "Filter by pipeline phase (Lead, Phone Screen, Interview, Background Check, Onboarding, Active)" },
+        phase: { type: "string", description: "Filter by pipeline phase (intake, interview, onboarding, verification, orientation)" },
         city: { type: "string", description: "Filter by city" },
         source: { type: "string", description: "Filter by recruitment source" },
         include_archived: { type: "boolean", description: "Include archived caregivers (default false)" },

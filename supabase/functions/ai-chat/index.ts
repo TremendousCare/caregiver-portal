@@ -15,12 +15,15 @@ import {
   ANTHROPIC_API_KEY,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_ANON_KEY,
   corsHeaders,
   CLAUDE_MODEL,
   MAX_TOKENS,
   MAX_ITERATIONS,
   MAX_RETRIES,
   RETRY_BASE_DELAY_MS,
+  RATE_LIMIT_MAX_REQUESTS,
+  RATE_LIMIT_WINDOW_MS,
 } from "./config.ts";
 
 import {
@@ -76,9 +79,65 @@ Deno.serve(async (req: Request) => {
   try {
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
+    // ── JWT Authentication ──
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Missing or invalid Authorization header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const token = authHeader.replace("Bearer ", "");
+
+    // Create a user-context client to verify the JWT
+    const supabaseAuth = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const authenticatedUserId = user.id;
+
     const { messages, caregiverId, confirmAction, currentUser, requestType } =
       await req.json();
+
+    // Service-role client for data operations
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+
+    // ── Rate Limiting (fails open) ──
+    try {
+      const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+      const { count, error: rlError } = await supabase
+        .from("events")
+        .select("id", { count: "exact", head: true })
+        .eq("event_type", "ai_chat_request")
+        .eq("actor", `user:${authenticatedUserId}`)
+        .gte("created_at", windowStart);
+
+      if (!rlError && count !== null && count >= RATE_LIMIT_MAX_REQUESTS) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } catch (rlErr) {
+      // Fail open — don't block users if rate limit check errors
+      console.warn("[ai-chat] Rate limit check failed (failing open):", rlErr);
+    }
+
+    // Log this request as an event for rate limiting tracking
+    logEvent(
+      supabase,
+      "ai_chat_request",
+      null,
+      null,
+      `user:${authenticatedUserId}`,
+      { currentUser: currentUser || "User", requestType: requestType || "chat" },
+    ).catch((err: unknown) => console.warn("[ai-chat] Failed to log request event:", err));
 
     // ── Handle briefing request (fast, no Claude call) ──
     if (requestType === "briefing") {
