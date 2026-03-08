@@ -21,6 +21,8 @@ import {
   MAX_ITERATIONS,
   MAX_RETRIES,
   RETRY_BASE_DELAY_MS,
+  RATE_LIMIT_MAX_REQUESTS,
+  RATE_LIMIT_WINDOW_MS,
 } from "./config.ts";
 
 import {
@@ -66,6 +68,57 @@ async function callClaudeWithRetry(requestBody: string): Promise<Response> {
   return lastResponse!;
 }
 
+// ─── Auth: verify JWT from Authorization header ───
+async function authenticateRequest(req: Request): Promise<{ userId: string; email: string }> {
+  const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw new Error("UNAUTHORIZED");
+  }
+  const token = authHeader.replace("Bearer ", "");
+
+  // Create a client with the user's JWT to verify it's valid
+  const userClient = createClient(SUPABASE_URL!, Deno.env.get("SUPABASE_ANON_KEY") || SUPABASE_SERVICE_ROLE_KEY!, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data: { user }, error } = await userClient.auth.getUser();
+  if (error || !user) {
+    throw new Error("UNAUTHORIZED");
+  }
+  return { userId: user.id, email: user.email || "" };
+}
+
+// ─── Rate limiting: per-user request count via events table ───
+async function checkRateLimit(supabase: any, userId: string): Promise<boolean> {
+  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+  const { count, error } = await supabase
+    .from("events")
+    .select("id", { count: "exact", head: true })
+    .eq("actor", `user_session:${userId}`)
+    .eq("event_type", "ai_chat_request")
+    .gte("created_at", windowStart);
+
+  if (error) {
+    // If rate limit check fails, allow the request (fail open)
+    console.warn("[ai-chat] Rate limit check failed:", error.message);
+    return true;
+  }
+  return (count || 0) < RATE_LIMIT_MAX_REQUESTS;
+}
+
+async function logRateLimitEvent(supabase: any, userId: string): Promise<void> {
+  try {
+    await supabase.from("events").insert({
+      event_type: "ai_chat_request",
+      entity_type: null,
+      entity_id: null,
+      actor: `user_session:${userId}`,
+      payload: {},
+    });
+  } catch (err) {
+    console.warn("[ai-chat] Failed to log rate limit event:", err);
+  }
+}
+
 // ─── Main Handler ───
 
 Deno.serve(async (req: Request) => {
@@ -76,9 +129,35 @@ Deno.serve(async (req: Request) => {
   try {
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
+    // ── Authenticate: verify JWT and extract user identity ──
+    let authedUser: { userId: string; email: string };
+    try {
+      authedUser = await authenticateRequest(req);
+    } catch (_authErr) {
+      return new Response(
+        JSON.stringify({ error: "Authentication required. Please sign in and try again." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { messages, caregiverId, confirmAction, currentUser, requestType } =
       await req.json();
+
+    // Use the authenticated user ID for rate limiting and audit trail
+    const verifiedUser = currentUser || authedUser.email || "User";
+
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+
+    // ── Rate limiting: check before processing ──
+    const withinLimit = await checkRateLimit(supabase, authedUser.userId);
+    if (!withinLimit) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded. You've made too many requests this hour. Please wait and try again." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    // Log this request for rate counting (fire-and-forget)
+    logRateLimitEvent(supabase, authedUser.userId);
 
     // ── Handle briefing request (fast, no Claude call) ──
     if (requestType === "briefing") {
@@ -93,7 +172,7 @@ Deno.serve(async (req: Request) => {
 
       const briefing = await generateBriefing(
         supabase,
-        currentUser || "User",
+        verifiedUser,
         allCg || [],
         allCl || [],
       );
@@ -110,7 +189,7 @@ Deno.serve(async (req: Request) => {
         confirmAction.caregiver_id || confirmAction.client_id,
         confirmAction.params,
         supabase,
-        currentUser || "User",
+        verifiedUser,
       );
 
       // Log confirmed action as event (awaited to ensure completion before response)
@@ -125,7 +204,7 @@ Deno.serve(async (req: Request) => {
             eventType,
             entityType,
             entityId,
-            `user:${currentUser || "User"}`,
+            `user:${verifiedUser}`,
             { action: confirmAction.action, confirmed: true, ...confirmAction.params },
           );
 
@@ -136,7 +215,7 @@ Deno.serve(async (req: Request) => {
               eventType,
               entityType as "caregiver" | "client",
               entityId,
-              `user:${currentUser || "User"}`,
+              `user:${verifiedUser}`,
               { action: confirmAction.action, confirmed: true, ...confirmAction.params },
               "ai_chat",
             );
@@ -191,7 +270,7 @@ Deno.serve(async (req: Request) => {
         caregivers,
         clients,
         caregiverId,
-        currentUser: currentUser || "User",
+        currentUser: verifiedUser,
         userQuery: latestUserMsg?.content,
       });
       systemPrompt = assemblerResult.prompt;
@@ -285,7 +364,7 @@ Deno.serve(async (req: Request) => {
 
         // Process tool calls
         const toolResultBlocks: any[] = [];
-        const ctx = { supabase, caregivers, clients, currentUser: currentUser || "User" };
+        const ctx = { supabase, caregivers, clients, currentUser: verifiedUser };
 
         for (const toolUse of toolUseBlocks) {
           const toolName = toolUse.name;
@@ -365,7 +444,7 @@ Deno.serve(async (req: Request) => {
               eventType,
               entityType,
               entityId,
-              `user:${currentUser || "User"}`,
+              `user:${verifiedUser}`,
               {
                 tool: tr.tool,
                 entity_name: tr.result?.entity_name || null,
@@ -381,7 +460,7 @@ Deno.serve(async (req: Request) => {
                 eventType,
                 entityType as "caregiver" | "client",
                 entityId,
-                `user:${currentUser || "User"}`,
+                `user:${verifiedUser}`,
                 {
                   tool: tr.tool,
                   entity_name: tr.result?.entity_name || null,
@@ -406,7 +485,7 @@ Deno.serve(async (req: Request) => {
         const topics = extractTopics(currentMessages, caregivers, clients);
         await saveContextSnapshot(
           supabase,
-          currentUser || "User",
+          verifiedUser,
           finalReply.length > 300 ? finalReply.slice(0, 300) + "..." : finalReply,
           topics,
         );

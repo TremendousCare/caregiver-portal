@@ -1,17 +1,20 @@
 // ─── Caregiver Helper Functions ───
 
+// Phase IDs aligned with frontend (src/lib/constants.js PHASES array)
+export const CAREGIVER_PHASE_IDS = ["intake", "interview", "onboarding", "verification", "orientation"] as const;
+
+export const CAREGIVER_PHASE_LABELS: Record<string, string> = {
+  intake: "Intake & Screen",
+  interview: "Interview & Offer",
+  onboarding: "Onboarding Packet",
+  verification: "Verification & Handoff",
+  orientation: "Orientation",
+};
+
 export function detectPhase(cg: any): string {
-  const phaseOrder = [
-    "Lead",
-    "Phone Screen",
-    "Interview",
-    "Background Check",
-    "Onboarding",
-    "Active",
-  ];
   const timestamps = cg.phase_timestamps || {};
-  let currentPhase = "Lead";
-  for (const phase of phaseOrder) {
+  let currentPhase = "intake";
+  for (const phase of CAREGIVER_PHASE_IDS) {
     if (timestamps[phase]) currentPhase = phase;
   }
   return currentPhase;
@@ -38,16 +41,18 @@ export function getLastActivity(cg: any): number {
 
 export function buildCaregiverSummary(cg: any): string {
   const phase = getPhase(cg);
+  const phaseLabel = CAREGIVER_PHASE_LABELS[phase] || phase;
   const tasks = cg.tasks || {};
   const completedTasks = Object.values(tasks).filter(
     (t: any) => t === true || t?.completed,
   ).length;
   const totalTasks = Object.keys(tasks).length;
-  return `${cg.first_name} ${cg.last_name} | Phase: ${phase} | Tasks: ${completedTasks}/${totalTasks} | Phone: ${cg.phone || "N/A"} | City: ${cg.city || "N/A"}${cg.archived ? " [ARCHIVED]" : ""}`;
+  return `${cg.first_name} ${cg.last_name} | Phase: ${phaseLabel} (${phase}) | Tasks: ${completedTasks}/${totalTasks} | Phone: ${cg.phone || "N/A"} | City: ${cg.city || "N/A"}${cg.archived ? " [ARCHIVED]" : ""}`;
 }
 
 export function buildCaregiverProfile(cg: any): string {
   const phase = getPhase(cg);
+  const phaseLabel = CAREGIVER_PHASE_LABELS[phase] || phase;
   const tasks = cg.tasks || {};
   const completedTasks = Object.values(tasks).filter(
     (t: any) => t === true || t?.completed,
@@ -84,7 +89,7 @@ export function buildCaregiverProfile(cg: any): string {
   const notesHeader = notesOmitted > 0 ? `  (${notesOmitted} older notes not shown)\n` : "";
 
   return `### ${cg.first_name} ${cg.last_name} (ID: ${cg.id})${cg.archived ? " [ARCHIVED]" : ""}
-- Phase: ${phase} | Tasks: ${completedTasks}/${totalTasks} | Days in pipeline: ${daysInPipeline}
+- Phase: ${phaseLabel} (${phase}) | Tasks: ${completedTasks}/${totalTasks} | Days in pipeline: ${daysInPipeline}
 - Phone: ${cg.phone || "N/A"} | Email: ${cg.email || "N/A"}
 - Address: ${[cg.address, cg.city, cg.state, cg.zip].filter(Boolean).join(", ") || "N/A"}
 - Source: ${cg.source || "N/A"}${cg.source_detail ? ` (${cg.source_detail})` : ""}

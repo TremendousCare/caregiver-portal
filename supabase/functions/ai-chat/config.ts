@@ -23,3 +23,7 @@ export const MAX_ITERATIONS = 5;
 // Retry config for transient Claude API errors (429, 529, 500, 503)
 export const MAX_RETRIES = 2;
 export const RETRY_BASE_DELAY_MS = 1000; // 1s, 2s exponential backoff
+
+// Rate limiting: max requests per user per hour
+export const RATE_LIMIT_MAX_REQUESTS = 60;
+export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour

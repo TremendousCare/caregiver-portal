@@ -3,7 +3,7 @@
 
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
-import { getPhase, resolveCaregiver } from "../helpers/caregiver.ts";
+import { getPhase, resolveCaregiver, CAREGIVER_PHASE_IDS, CAREGIVER_PHASE_LABELS } from "../helpers/caregiver.ts";
 
 // ── add_note (auto) ──
 
@@ -98,7 +98,7 @@ registerTool(
       properties: {
         caregiver_id: { type: "string", description: "The caregiver's ID" },
         name: { type: "string", description: "Caregiver name if ID not known" },
-        new_phase: { type: "string", enum: ["Lead", "Phone Screen", "Interview", "Background Check", "Onboarding", "Active"], description: "The target phase" },
+        new_phase: { type: "string", enum: ["intake", "interview", "onboarding", "verification", "orientation"], description: "The target phase (intake = Intake & Screen, interview = Interview & Offer, onboarding = Onboarding Packet, verification = Verification & Handoff, orientation = Orientation)" },
         reason: { type: "string", description: "Why this phase change is being made" },
       },
       required: ["new_phase"],
@@ -112,7 +112,7 @@ registerTool(
     return {
       requires_confirmation: true,
       action: "update_phase",
-      summary: `Move **${cg.first_name} ${cg.last_name}** from **${getPhase(cg)}** to **${input.new_phase}**${input.reason ? ` \u2014 ${input.reason}` : ""}`,
+      summary: `Move **${cg.first_name} ${cg.last_name}** from **${CAREGIVER_PHASE_LABELS[getPhase(cg)] || getPhase(cg)}** to **${CAREGIVER_PHASE_LABELS[input.new_phase] || input.new_phase}**${input.reason ? ` \u2014 ${input.reason}` : ""}`,
       caregiver_id: cg.id,
       params: { new_phase: input.new_phase, reason: input.reason },
     };
@@ -121,12 +121,13 @@ registerTool(
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
     if (fetchErr || !cg) return { error: "Caregiver not found." };
+    const phaseLabel = CAREGIVER_PHASE_LABELS[params.new_phase] || params.new_phase;
     const timestamps = { ...(cg.phase_timestamps || {}), [params.new_phase]: Date.now() };
     const { error } = await supabase.from("caregivers").update({ phase_override: params.new_phase, phase_timestamps: timestamps }).eq("id", caregiverId);
     if (error) return { error: error.message };
-    const note = { text: `Phase changed to ${params.new_phase}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
+    const note = { text: `Phase changed to ${phaseLabel}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
     await supabase.from("caregivers").update({ notes: [...(cg.notes || []), note] }).eq("id", caregiverId);
-    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to ${params.new_phase}.` };
+    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to ${phaseLabel}.` };
   },
 );
 
