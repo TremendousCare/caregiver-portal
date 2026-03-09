@@ -6,8 +6,8 @@
  */
 import { describe, it, expect } from 'vitest';
 
-// Import pure helpers directly from the Edge Function source
-import { normalizePhoneNumber } from '../../../supabase/functions/ai-chat/helpers/phone.ts';
+// Import pure helpers from the shared library (canonical source)
+import { normalizePhoneNumber } from '../../../supabase/functions/_shared/helpers/phone.ts';
 import {
   detectPhase,
   getPhase,
@@ -15,7 +15,7 @@ import {
   getLastActivity,
   buildCaregiverSummary,
   resolveCaregiver,
-} from '../../../supabase/functions/ai-chat/helpers/caregiver.ts';
+} from '../../../supabase/functions/_shared/helpers/caregiver.ts';
 
 // ── normalizePhoneNumber ──
 
