@@ -6,6 +6,14 @@ import type { ToolContext, ToolResult } from "../types.ts";
 import { getPhase, getPhaseLabel } from "../helpers/caregiver.ts";
 import { CAREGIVER_PHASES } from "../config.ts";
 import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
+import { appendCaregiverNote } from "../../_shared/operations/notes.ts";
+import {
+  updateCaregiverPhase,
+  completeCaregiverTask,
+  updateCaregiverField,
+  updateBoardStatus,
+} from "../../_shared/operations/caregiver.ts";
+import { UPDATABLE_CAREGIVER_FIELDS } from "../../_shared/operations/constants.ts";
 
 // ── add_note (auto) ──
 
@@ -30,20 +38,9 @@ registerTool(
   },
   withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const cg = await requireCaregiver(input, ctx);
-    const newNote = {
-      text: input.text,
-      type: input.type || "note",
-      direction: input.direction || null,
-      outcome: input.outcome || null,
-      timestamp: Date.now(),
-      author: ctx.currentUser || "AI Assistant",
-    };
-    const { error } = await ctx.supabase
-      .from("caregivers")
-      .update({ notes: [...(cg.notes || []), newNote] })
-      .eq("id", cg.id);
-    if (error) return { error: `Failed to add note: ${error.message}` };
-    return { success: true, message: `Note added to ${cg.first_name} ${cg.last_name}'s record.`, note: newNote };
+    const result = await appendCaregiverNote(ctx.supabase, cg.id, input, ctx.currentUser);
+    if (!result.success) return { error: result.error };
+    return { success: true, message: result.message, note: result.data?.note };
   }),
 );
 
@@ -113,17 +110,10 @@ registerTool(
       params: { new_phase: input.new_phase, reason: input.reason },
     };
   }),
-  // Confirmed handler
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    if (fetchErr || !cg) return { error: "Caregiver not found." };
-    const timestamps = { ...(cg.phase_timestamps || {}), [params.new_phase]: Date.now() };
-    const { error } = await supabase.from("caregivers").update({ phase_override: params.new_phase, phase_timestamps: timestamps }).eq("id", caregiverId);
-    if (error) return { error: error.message };
-    const phaseLabel = getPhaseLabel(params.new_phase);
-    const note = { text: `Phase changed to ${phaseLabel}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
-    await supabase.from("caregivers").update({ notes: [...(cg.notes || []), note] }).eq("id", caregiverId);
-    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to ${phaseLabel}.` };
+    const result = await updateCaregiverPhase(supabase, caregiverId, params.new_phase, params.reason, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 
@@ -156,14 +146,10 @@ registerTool(
       params: { task_name: input.task_name },
     };
   }),
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    if (fetchErr || !cg) return { error: "Caregiver not found." };
-    const tasks = { ...(cg.tasks || {}) };
-    tasks[params.task_name] = { completed: true, completedAt: Date.now(), completedBy: currentUser || "AI Assistant" };
-    const { error } = await supabase.from("caregivers").update({ tasks }).eq("id", caregiverId);
-    if (error) return { error: error.message };
-    return { success: true, message: `Task "${params.task_name}" completed for ${cg.first_name} ${cg.last_name}.` };
+    const result = await completeCaregiverTask(supabase, caregiverId, params.task_name, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 
@@ -187,8 +173,7 @@ registerTool(
   },
   withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const cg = await requireCaregiver(input, ctx);
-    const allowedFields = ["phone", "email", "address", "city", "state", "zip", "per_id", "has_hca", "has_dl", "hca_expiration", "availability", "preferred_shift", "years_experience", "languages", "specializations", "certifications", "source", "source_detail"];
-    if (!allowedFields.includes(input.field)) return { error: `Field "${input.field}" cannot be updated. Allowed fields: ${allowedFields.join(", ")}` };
+    if (!(UPDATABLE_CAREGIVER_FIELDS as readonly string[]).includes(input.field)) return { error: `Field "${input.field}" cannot be updated. Allowed fields: ${UPDATABLE_CAREGIVER_FIELDS.join(", ")}` };
     return {
       requires_confirmation: true,
       action: "update_caregiver_field",
@@ -197,12 +182,10 @@ registerTool(
       params: { field: input.field, value: input.value },
     };
   }),
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
-    const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    if (fetchErr || !cg) return { error: "Caregiver not found." };
-    const { error } = await supabase.from("caregivers").update({ [params.field]: params.value }).eq("id", caregiverId);
-    if (error) return { error: error.message };
-    return { success: true, message: `${cg.first_name} ${cg.last_name}'s ${params.field} updated to "${params.value}".` };
+    const result = await updateCaregiverField(supabase, caregiverId, params.field, params.value);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 
@@ -234,11 +217,9 @@ registerTool(
       params: { new_status: input.new_status, note: input.note },
     };
   }),
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
-    const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    if (fetchErr || !cg) return { error: "Caregiver not found." };
-    const { error } = await supabase.from("caregivers").update({ board_status: params.new_status, board_note: params.note || cg.board_note, board_moved_at: Date.now() }).eq("id", caregiverId);
-    if (error) return { error: error.message };
-    return { success: true, message: `${cg.first_name} ${cg.last_name} moved to "${params.new_status}" on the board.` };
+    const result = await updateBoardStatus(supabase, caregiverId, params.new_status, params.note);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
