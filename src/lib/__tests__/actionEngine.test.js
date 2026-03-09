@@ -40,9 +40,10 @@ describe('generateActionItems', () => {
   // ── 24-Hour Interview Standard ──
 
   it('flags interview not scheduled after 1 day (warning)', () => {
+    // Use 1.1 days (not 1.5) to avoid drifting past the 2-day critical threshold
     const cg = makeCg({
-      applicationDate: new Date(Date.now() - 1.5 * 86400000).toISOString().split('T')[0],
-      phaseTimestamps: { intake: Date.now() - 1.5 * 86400000 },
+      applicationDate: new Date(Date.now() - 1.1 * 86400000).toISOString().split('T')[0],
+      phaseTimestamps: { intake: Date.now() - 1.1 * 86400000 },
     });
     const items = generateActionItems([cg]);
     const match = items.find((i) => i.title === 'Interview not yet scheduled');

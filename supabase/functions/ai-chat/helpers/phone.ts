@@ -1,9 +1,5 @@
-// ─── Phone Number Helpers ───
+// ─── Re-export from shared library ───
+// Backward compatibility shim: ai-chat internal imports continue to work unchanged.
+// Canonical source is now supabase/functions/_shared/helpers/phone.ts
 
-export function normalizePhoneNumber(phone: string): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return null;
-}
+export { normalizePhoneNumber } from "../../_shared/helpers/phone.ts";

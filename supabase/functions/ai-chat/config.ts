@@ -49,5 +49,5 @@ export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 export const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_ANON_KEY_SECRET");
 
 // Re-export pure constants from constants.ts (keeps backwards compatibility)
-export { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "./constants.ts";
-export type { CaregiverPhase } from "./constants.ts";
+export { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS, CLIENT_PHASE_LABELS, CLIENT_PHASES } from "./constants.ts";
+export type { CaregiverPhase, ClientPhase } from "./constants.ts";
