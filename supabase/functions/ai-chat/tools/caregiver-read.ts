@@ -10,6 +10,7 @@ import {
   buildCaregiverProfile,
   resolveCaregiver,
 } from "../helpers/caregiver.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 
 // ── search_caregivers ──
 
@@ -65,12 +66,10 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches found: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     return { profile: buildCaregiverProfile(cg) };
-  },
+  }),
 );
 
 // ── get_pipeline_stats ──
@@ -163,13 +162,11 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const checkType = input.check_type || "all";
     let targets = ctx.caregivers.filter((c: any) => !c.archived);
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (!cg) return { error: "Caregiver not found." };
-      if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+      const cg = await requireCaregiver(input, ctx);
       targets = [cg];
     }
     const issues: string[] = [];
@@ -196,5 +193,5 @@ registerTool(
       issues_found: issues.length,
       issues: issues.length > 0 ? issues : ["No compliance issues found."],
     };
-  },
+  }),
 );

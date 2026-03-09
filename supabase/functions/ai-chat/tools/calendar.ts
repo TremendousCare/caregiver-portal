@@ -4,7 +4,7 @@
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config.ts";
-import { resolveCaregiver } from "../helpers/caregiver.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 
 // ── get_calendar_events (auto) ──
 
@@ -25,14 +25,12 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let attendeeEmail = null;
     let caregiverName = null;
 
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-      if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+      const cg = await requireCaregiver(input, ctx);
       caregiverName = `${cg.first_name} ${cg.last_name}`;
       attendeeEmail = cg.email || null;
       if (!attendeeEmail) return { error: `No email address on file for ${caregiverName}. Cannot filter calendar by attendee.` };
@@ -67,7 +65,7 @@ registerTool(
       console.error("get_calendar_events error:", err);
       return { error: `Failed to get calendar events: ${(err as Error).message}` };
     }
-  },
+  }),
 );
 
 // ── check_availability (auto) ──
@@ -157,15 +155,13 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let caregiverEmail = null;
     let caregiverName = null;
     let caregiverIdForLog: string | null = null;
 
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (!cg) return { error: "Caregiver not found." };
-      if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+      const cg = await requireCaregiver(input, ctx);
       caregiverEmail = cg.email || null;
       caregiverName = `${cg.first_name} ${cg.last_name}`;
       caregiverIdForLog = cg.id;
@@ -197,7 +193,7 @@ registerTool(
         is_online: input.is_online || false,
       },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     let cg: any = null;
@@ -283,16 +279,14 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let caregiverName = null;
     let caregiverIdForLog: string | null = null;
 
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (cg && !cg._ambiguous) {
-        caregiverName = `${cg.first_name} ${cg.last_name}`;
-        caregiverIdForLog = cg.id;
-      }
+      const cg = await requireCaregiver(input, ctx);
+      caregiverName = `${cg.first_name} ${cg.last_name}`;
+      caregiverIdForLog = cg.id;
     }
 
     const changesList: string[] = [];
@@ -318,7 +312,7 @@ registerTool(
         caregiver_name: caregiverName,
       },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     let cg: any = null;

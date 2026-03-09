@@ -16,7 +16,7 @@ import {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_ANON_KEY,
-  corsHeaders,
+  getCorsHeaders,
   CLAUDE_MODEL,
   MAX_TOKENS,
   MAX_ITERATIONS,
@@ -72,8 +72,10 @@ async function callClaudeWithRetry(requestBody: string): Promise<Response> {
 // ─── Main Handler ───
 
 Deno.serve(async (req: Request) => {
+  const cors = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: cors });
   }
 
   try {
@@ -84,7 +86,7 @@ Deno.serve(async (req: Request) => {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return new Response(
         JSON.stringify({ error: "Missing or invalid Authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 401, headers: { ...cors, "Content-Type": "application/json" } },
       );
     }
     const token = authHeader.replace("Bearer ", "");
@@ -97,7 +99,7 @@ Deno.serve(async (req: Request) => {
     if (authError || !user) {
       return new Response(
         JSON.stringify({ error: "Invalid or expired session" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 401, headers: { ...cors, "Content-Type": "application/json" } },
       );
     }
     const authenticatedUserId = user.id;
@@ -121,7 +123,7 @@ Deno.serve(async (req: Request) => {
       if (!rlError && count !== null && count >= RATE_LIMIT_MAX_REQUESTS) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { status: 429, headers: { ...cors, "Content-Type": "application/json" } },
         );
       }
     } catch (rlErr) {
@@ -158,7 +160,7 @@ Deno.serve(async (req: Request) => {
       );
 
       return new Response(JSON.stringify({ briefing }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
@@ -210,7 +212,7 @@ Deno.serve(async (req: Request) => {
             : `Error: ${result.error}`,
           actionResult: result,
         }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { headers: { ...cors, "Content-Type": "application/json" } },
       );
     }
 
@@ -227,10 +229,10 @@ Deno.serve(async (req: Request) => {
     if (cgErr) throw new Error(`DB error: ${cgErr.message}`);
     const caregivers = allCaregivers || [];
 
-    // Fetch all clients
+    // Fetch all clients (select only needed columns to avoid payload bloat)
     const { data: allClients, error: clErr } = await supabase
       .from("clients")
-      .select("*")
+      .select("id, first_name, last_name, phone, email, address, city, state, zip, phase, phase_timestamps, tasks, notes, created_at, archived, priority, care_needs, care_recipient_name, contact_name, hours_needed, budget_range, start_date_preference, insurance_info, referral_source, referral_detail, assigned_to, lost_reason, lost_detail, relationship, care_recipient_age")
       .order("created_at", { ascending: false });
     if (clErr) console.error(`Clients fetch error: ${clErr.message}`);
     const clients = allClients || [];
@@ -480,17 +482,19 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(JSON.stringify(responseBody), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (err) {
     console.error("ai-chat error:", err);
+    // Don't leak internal error details to the client
+    const safeMessage = (err as Error).message?.includes("required")
+      ? (err as Error).message  // Validation errors are safe to show
+      : "Something went wrong. Please try again.";
     return new Response(
-      JSON.stringify({
-        error: (err as Error).message || "Internal server error",
-      }),
+      JSON.stringify({ error: safeMessage }),
       {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       },
     );
   }

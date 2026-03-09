@@ -1,6 +1,6 @@
 // ─── Caregiver Helper Functions ───
 
-import { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "../config.ts";
+import { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "../constants.ts";
 
 export function detectPhase(cg: any): string {
   const timestamps = cg.phase_timestamps || {};

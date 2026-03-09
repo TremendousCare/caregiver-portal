@@ -4,7 +4,7 @@
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config.ts";
-import { resolveCaregiver } from "../helpers/caregiver.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 
 // ── get_docusign_envelopes (auto) ──
 
@@ -22,10 +22,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please provide a name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
 
     try {
       const { data: envelopes, error } = await ctx.supabase
@@ -63,7 +61,7 @@ registerTool(
       console.error("get_docusign_envelopes error:", err);
       return { error: "Failed to fetch DocuSign envelopes. The DocuSign integration may not be configured." };
     }
-  },
+  }),
 );
 
 // ── send_docusign_envelope (confirm) ──
@@ -84,10 +82,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please provide a name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     if (!cg.email) return { error: `${cg.first_name} ${cg.last_name} has no email address configured. Please add an email first.` };
 
     // Fetch configured templates
@@ -130,7 +126,7 @@ registerTool(
         is_packet: isPacket,
       },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: cg } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
