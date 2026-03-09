@@ -353,6 +353,7 @@ function buildCaregiverRecord(card, listName, listConfig, checklists, comments) 
     employment_status_changed_by: 'trello-import',
     board_status: listConfig.board_status || '',
     phase_override: listConfig.phase_override || null,
+    trello_card_id: card.id,
     tasks: mappedTasks,
     notes: [importNote, ...annotationNotes, ...descriptionNotes, ...convertedComments],
     created_at: Date.now(),
