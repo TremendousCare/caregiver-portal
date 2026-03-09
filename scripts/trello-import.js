@@ -20,12 +20,15 @@ import {
   CHECKLIST_TASK_MAP,
 } from './trello-import-config.js';
 
+import https from 'https';
+
 import {
   parseName,
   parseDescription,
   mapChecklists,
   convertComments,
   normalizePhone,
+  buildDescriptionNote,
 } from '../src/lib/trelloParser.js';
 
 // ---------------------------------------------------------------------------
@@ -33,7 +36,7 @@ import {
 // ---------------------------------------------------------------------------
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { mode: 'dry-run', file: null };
+  const result = { mode: 'dry-run', file: null, apiComments: false };
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--execute') {
@@ -43,10 +46,75 @@ function parseArgs() {
     } else if (args[i] === '--file' && args[i + 1]) {
       result.file = args[i + 1];
       i++; // skip next arg
+    } else if (args[i] === '--api-comments') {
+      result.apiComments = true;
     }
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Trello API client — fetches full comment history per card
+// ---------------------------------------------------------------------------
+function createTrelloClient() {
+  const apiKey = process.env.TRELLO_API_KEY;
+  const token = process.env.TRELLO_TOKEN;
+
+  if (!apiKey || !token) {
+    console.error('ERROR: TRELLO_API_KEY and TRELLO_TOKEN environment variables are required for --api-comments.');
+    console.error('Set them before running: TRELLO_API_KEY=... TRELLO_TOKEN=... node scripts/trello-import.js ...');
+    process.exit(1);
+  }
+
+  function httpsGet(url) {
+    return new Promise((resolve, reject) => {
+      https.get(url, (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error(`Failed to parse Trello API response: ${data.substring(0, 200)}`));
+          }
+        });
+      }).on('error', reject);
+    });
+  }
+
+  return {
+    /**
+     * Get ALL comments for a specific card (no 1000-action limit).
+     * @param {string} cardId - Trello card ID
+     * @returns {Promise<Array<{text, date, by}>>}
+     */
+    async getCardComments(cardId) {
+      const allComments = [];
+      let before = '';
+
+      while (true) {
+        const url =
+          `https://api.trello.com/1/cards/${cardId}/actions?filter=commentCard&limit=1000` +
+          `&key=${apiKey}&token=${token}` +
+          (before ? `&before=${before}` : '');
+
+        const data = await httpsGet(url);
+        for (const action of data) {
+          allComments.push({
+            text: action.data?.text || '',
+            date: action.date,
+            by: action.memberCreator?.fullName || action.memberCreator?.username || 'Unknown',
+          });
+        }
+
+        if (data.length < 1000) break;
+        before = data[data.length - 1].date;
+      }
+
+      return allComments;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +316,18 @@ function buildCaregiverRecord(card, listName, listConfig, checklists, comments) 
     });
   }
 
+  // Build description note (captures pay rate, attendance, availability, etc.)
+  const descriptionNotes = [];
+  const descNoteText = buildDescriptionNote(card.desc);
+  if (descNoteText) {
+    descriptionNotes.push({
+      text: descNoteText,
+      type: 'system',
+      timestamp: Date.now(),
+      author: 'Trello Import',
+    });
+  }
+
   // Assemble full row
   const row = {
     id: crypto.randomUUID(),
@@ -270,7 +350,7 @@ function buildCaregiverRecord(card, listName, listConfig, checklists, comments) 
     board_status: listConfig.board_status || '',
     phase_override: listConfig.phase_override || null,
     tasks: mappedTasks,
-    notes: [importNote, ...annotationNotes, ...convertedComments],
+    notes: [importNote, ...annotationNotes, ...descriptionNotes, ...convertedComments],
     created_at: Date.now(),
     application_date: getCardCreationDate(card.id) || null,
   };
@@ -328,8 +408,9 @@ function printDryRun(caregivers) {
     const { row, unmapped } = caregivers[i];
     const completedCount = Object.values(row.tasks).filter((t) => t.completed).length;
     const incompleteCount = Object.values(row.tasks).filter((t) => !t.completed).length;
-    const commentCount = row.notes.filter((n) => n.author !== 'trello-import').length;
-    const importNoteCount = row.notes.filter((n) => n.author === 'trello-import').length;
+    const commentCount = row.notes.filter((n) => n.type === 'note' && n.author !== 'trello-import').length;
+    const systemNoteCount = row.notes.filter((n) => n.type === 'system').length;
+    const hasDescNote = row.notes.some((n) => n.author === 'Trello Import' && n.text.startsWith('Trello Card Details'));
     const unmappedStr = unmapped.length > 0 ? unmapped.join(', ') : '(none)';
 
     // Track global unmapped
@@ -342,7 +423,7 @@ function printDryRun(caregivers) {
     console.log(`   Address: ${[row.address, row.city, row.state, row.zip].filter(Boolean).join(', ') || '(none)'}`);
     console.log(`   Employment: ${row.employment_status} | Board: ${row.board_status || '(none)'}`);
     console.log(`   Tasks: ${completedCount} completed, ${incompleteCount} incomplete`);
-    console.log(`   Notes: ${commentCount} comments + ${importNoteCount} import note(s)`);
+    console.log(`   Notes: ${commentCount} comments, ${systemNoteCount} system notes${hasDescNote ? ' (includes card details)' : ''}`);
     console.log(`   Unmapped checklist items: ${unmappedStr}`);
     if (row.application_date) {
       console.log(`   Application date: ${row.application_date}`);
@@ -417,11 +498,12 @@ async function main() {
 
   // Validate --file
   if (!args.file) {
-    console.error('Usage: node scripts/trello-import.js --file <path> [--dry-run | --execute]');
+    console.error('Usage: node scripts/trello-import.js --file <path> [--dry-run | --execute] [--api-comments]');
     console.error('');
-    console.error('  --file <path>   Path to Trello board JSON export (REQUIRED)');
-    console.error('  --dry-run       Parse and display only, no DB writes (default)');
-    console.error('  --execute       Insert caregivers into Supabase');
+    console.error('  --file <path>     Path to Trello board JSON export (REQUIRED)');
+    console.error('  --dry-run         Parse and display only, no DB writes (default)');
+    console.error('  --execute         Insert caregivers into Supabase');
+    console.error('  --api-comments    Fetch full comment history from Trello API (requires TRELLO_API_KEY + TRELLO_TOKEN env vars)');
     process.exit(1);
   }
 
@@ -436,6 +518,13 @@ async function main() {
   let supabase = null;
   if (args.mode === 'execute') {
     supabase = createSupabaseClient();
+  }
+
+  // Validate API comments mode has credentials
+  let trello = null;
+  if (args.apiComments) {
+    trello = createTrelloClient();
+    console.log('API comments mode enabled — will fetch full comment history from Trello API.');
   }
 
   // Load Trello JSON
@@ -470,12 +559,27 @@ async function main() {
 
   // Build caregiver records
   const caregivers = [];
-  for (const card of cards) {
+  for (let ci = 0; ci < cards.length; ci++) {
+    const card = cards[ci];
     const listName = listMap[card.idList] || 'Unknown';
     const listConf = LIST_CONFIG[listName];
     if (!listConf) {
       console.warn(`WARNING: No LIST_CONFIG for list "${listName}" — skipping card "${card.name}"`);
       continue;
+    }
+
+    // Determine comments source: API (full history) or JSON export (limited)
+    let comments = commentsByCard[card.id] || [];
+    if (trello) {
+      try {
+        process.stdout.write(`  Fetching comments for ${card.name} (${ci + 1}/${cards.length})... `);
+        comments = await trello.getCardComments(card.id);
+        const jsonCount = (commentsByCard[card.id] || []).length;
+        console.log(`${comments.length} via API (JSON had ${jsonCount})`);
+      } catch (err) {
+        console.warn(`API error for ${card.name}, falling back to JSON: ${err.message}`);
+        comments = commentsByCard[card.id] || [];
+      }
     }
 
     try {
@@ -484,7 +588,7 @@ async function main() {
         listName,
         listConf,
         checklistsByCard[card.id] || [],
-        commentsByCard[card.id] || []
+        comments
       );
       caregivers.push(result);
     } catch (err) {
