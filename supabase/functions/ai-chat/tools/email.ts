@@ -5,6 +5,7 @@ import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config.ts";
 import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
+import { sendEmail as sendEmailOp } from "../../_shared/operations/email.ts";
 
 // ── search_emails (auto) ──
 
@@ -167,41 +168,9 @@ registerTool(
       },
     };
   }),
-  // Confirmed handler
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    let cg: any = null;
-    if (caregiverId && caregiverId !== "__no_caregiver__") {
-      const { data } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-      cg = data;
-    }
-
-    const { to_email, to_name, subject, body, cc } = params;
-    try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
-        body: JSON.stringify({ action: "send_email", to_email, to_name, subject, body, cc: cc || null }),
-      });
-      const result = await response.json();
-      if (result.error) return { error: result.error };
-
-      if (cg) {
-        const emailNote = {
-          text: `Email sent \u2014 Subject: ${subject}\n\n${body.length > 300 ? body.substring(0, 300) + "..." : body}`,
-          type: "email",
-          direction: "outbound",
-          outcome: `sent via Outlook to ${to_email}`,
-          timestamp: Date.now(),
-          author: currentUser || "AI Assistant",
-        };
-        await supabase.from("caregivers").update({ notes: [...(cg.notes || []), emailNote] }).eq("id", caregiverId);
-        return { success: true, message: `Email sent to ${to_name || to_email} (${to_email}). Subject: "${subject}". Logged to ${cg.first_name} ${cg.last_name}'s record.` };
-      }
-
-      return { success: true, message: `Email sent to ${to_name || to_email} (${to_email}). Subject: "${subject}".` };
-    } catch (err) {
-      console.error("send_email error:", err);
-      return { error: `Failed to send email: ${(err as Error).message}` };
-    }
+    const result = await sendEmailOp(supabase, caregiverId, params.to_email, params.to_name, params.subject, params.body, params.cc, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );

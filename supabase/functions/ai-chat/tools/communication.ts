@@ -12,6 +12,7 @@ import {
   fetchRCMessages,
   fetchRCCallLog,
 } from "../helpers/ringcentral.ts";
+import { sendSMS } from "../../_shared/operations/sms.ts";
 
 // ── send_sms (confirm) ──
 
@@ -47,37 +48,10 @@ registerTool(
       params: { message: input.message, normalized_phone: normalized },
     };
   }),
-  // Confirmed handler
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    if (fetchErr || !cg) return { error: "Caregiver not found." };
-    const { message, normalized_phone } = params;
-    const fromNumber = await getRCFromNumber(supabase);
-    if (!fromNumber) return { error: "RingCentral from number not configured. Set it in Settings > RingCentral." };
-    let accessToken: string;
-    try {
-      accessToken = await getRingCentralAccessToken();
-    } catch (err) {
-      return { error: `Failed to connect to SMS service: ${(err as Error).message}` };
-    }
-    try {
-      const smsResponse = await fetch(`${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ from: { phoneNumber: fromNumber }, to: [{ phoneNumber: normalized_phone }], text: message }),
-      });
-      if (!smsResponse.ok) {
-        const errorText = await smsResponse.text();
-        if (smsResponse.status === 429) return { error: "SMS rate limit reached. Please try again in a few minutes." };
-        throw new Error(`RingCentral API error (${smsResponse.status}): ${errorText}`);
-      }
-      const smsNote = { text: message, type: "text", direction: "outbound", outcome: "sent via RingCentral", timestamp: Date.now(), author: currentUser || "AI Assistant" };
-      await supabase.from("caregivers").update({ notes: [...(cg.notes || []), smsNote] }).eq("id", caregiverId);
-      return { success: true, message: `SMS sent to ${cg.first_name} ${cg.last_name} at ${normalized_phone}. Message logged to their record.` };
-    } catch (err) {
-      console.error("RC SMS error:", err);
-      return { error: `Failed to send SMS: ${(err as Error).message}` };
-    }
+    const result = await sendSMS(supabase, caregiverId, params.message, params.normalized_phone, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 

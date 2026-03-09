@@ -5,6 +5,7 @@ import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config.ts";
 import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
+import { sendDocuSignEnvelope } from "../../_shared/operations/docusign.ts";
 
 // ── get_docusign_envelopes (auto) ──
 
@@ -127,56 +128,9 @@ registerTool(
       },
     };
   }),
-  // Confirmed handler
+  // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: cg } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
-    const { caregiver_email, caregiver_name, template_ids, template_names, is_packet } = params;
-
-    try {
-      const body: any = {
-        action: is_packet ? "send_packet" : "send_envelope",
-        caregiver_id: caregiverId,
-        caregiver_email,
-        caregiver_name,
-        sent_by: currentUser || "AI Assistant",
-      };
-      if (!is_packet) {
-        body.template_ids = template_ids;
-        body.template_names = template_names;
-      }
-
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/docusign-integration`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
-        body: JSON.stringify(body),
-      });
-
-      const responseText = await response.text();
-      let result;
-      try { result = JSON.parse(responseText); } catch { result = { error: responseText }; }
-      if (result.error) return { error: result.error };
-
-      if (cg) {
-        const docNames = is_packet ? `Full Onboarding Packet (${template_names?.length || "all"} docs)` : (template_names?.join(", ") || "document");
-        const dsNote = {
-          text: `DocuSign envelope sent \u2014 ${docNames} to ${caregiver_email}`,
-          type: "docusign",
-          direction: "outbound",
-          outcome: "envelope sent",
-          timestamp: Date.now(),
-          author: currentUser || "AI Assistant",
-        };
-        await supabase.from("caregivers").update({ notes: [...(cg.notes || []), dsNote] }).eq("id", caregiverId);
-      }
-
-      const docDesc = is_packet ? `full onboarding packet (${template_names?.length || "all"} documents)` : (template_names?.join(", ") || "document");
-      return {
-        success: true,
-        message: `DocuSign envelope sent to ${caregiver_name} (${caregiver_email}) \u2014 ${docDesc}. The caregiver will receive an email with a link to sign.${cg ? ` Logged to ${cg.first_name} ${cg.last_name}'s record.` : ""}`,
-      };
-    } catch (err) {
-      console.error("send_docusign_envelope error:", err);
-      return { error: `Failed to send DocuSign envelope: ${(err as Error).message}` };
-    }
+    const result = await sendDocuSignEnvelope(supabase, caregiverId, params, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
