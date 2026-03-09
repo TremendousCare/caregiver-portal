@@ -2,7 +2,7 @@
 // Reads credentials directly from Deno.env so this module has no dependency
 // on ai-chat's config.ts and can be imported by any Edge Function.
 
-const RC_API_URL = "https://platform.ringcentral.com";
+export const RC_API_URL = "https://platform.ringcentral.com";
 
 export async function getRingCentralAccessToken(): Promise<string> {
   const clientId = Deno.env.get("RINGCENTRAL_CLIENT_ID");
