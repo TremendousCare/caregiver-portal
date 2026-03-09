@@ -10,8 +10,25 @@ export const RC_JWT_TOKEN = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
 export const RC_FROM_NUMBER = Deno.env.get("RINGCENTRAL_FROM_NUMBER");
 export const RC_API_URL = "https://platform.ringcentral.com";
 
+// Allowed origins for CORS — production domain + local dev
+const ALLOWED_ORIGINS = [
+  "https://caregiver-portal.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
+export function getCorsHeaders(request?: Request): Record<string, string> {
+  const origin = request?.headers?.get("origin") || "";
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
+
+// Legacy export for backwards compatibility during migration
 export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": "https://caregiver-portal.vercel.app",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
@@ -31,15 +48,6 @@ export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 // Anon key for JWT verification (used to create user-context client)
 export const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_ANON_KEY_SECRET");
 
-// Caregiver phase IDs (must match frontend PHASES in src/lib/constants.js)
-export const CAREGIVER_PHASES = ["intake", "interview", "onboarding", "verification", "orientation"] as const;
-export type CaregiverPhase = typeof CAREGIVER_PHASES[number];
-
-// Human-readable labels for phase display
-export const CAREGIVER_PHASE_LABELS: Record<string, string> = {
-  intake: "Intake & Screen",
-  interview: "Interview & Offer",
-  onboarding: "Onboarding Packet",
-  verification: "Verification & Handoff",
-  orientation: "Orientation",
-};
+// Re-export pure constants from constants.ts (keeps backwards compatibility)
+export { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "./constants.ts";
+export type { CaregiverPhase } from "./constants.ts";

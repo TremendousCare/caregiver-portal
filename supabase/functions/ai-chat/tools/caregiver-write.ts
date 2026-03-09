@@ -3,8 +3,9 @@
 
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
-import { getPhase, getPhaseLabel, resolveCaregiver } from "../helpers/caregiver.ts";
+import { getPhase, getPhaseLabel } from "../helpers/caregiver.ts";
 import { CAREGIVER_PHASES } from "../config.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 
 // ── add_note (auto) ──
 
@@ -27,10 +28,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     const newNote = {
       text: input.text,
       type: input.type || "note",
@@ -45,7 +44,7 @@ registerTool(
       .eq("id", cg.id);
     if (error) return { error: `Failed to add note: ${error.message}` };
     return { success: true, message: `Note added to ${cg.first_name} ${cg.last_name}'s record.`, note: newNote };
-  },
+  }),
 );
 
 // ── draft_message (auto) ──
@@ -68,10 +67,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     return {
       _draft_context: true,
       caregiver_name: `${cg.first_name} ${cg.last_name}`,
@@ -85,7 +82,7 @@ registerTool(
       recent_notes: (cg.notes || []).slice(-3),
       days_in_pipeline: cg.created_at ? Math.floor((Date.now() - cg.created_at) / 86400000) : 0,
     };
-  },
+  }),
 );
 
 // ── update_phase (confirm) ──
@@ -106,10 +103,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     return {
       requires_confirmation: true,
       action: "update_phase",
@@ -117,7 +112,7 @@ registerTool(
       caregiver_id: cg.id,
       params: { new_phase: input.new_phase, reason: input.reason },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
@@ -149,10 +144,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     const tasks = cg.tasks || {};
     if (!(input.task_name in tasks)) return { error: `Task "${input.task_name}" not found. Available tasks: ${Object.keys(tasks).join(", ")}` };
     return {
@@ -162,7 +155,7 @@ registerTool(
       caregiver_id: cg.id,
       params: { task_name: input.task_name },
     };
-  },
+  }),
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
     if (fetchErr || !cg) return { error: "Caregiver not found." };
@@ -192,10 +185,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     const allowedFields = ["phone", "email", "address", "city", "state", "zip", "per_id", "has_hca", "has_dl", "hca_expiration", "availability", "preferred_shift", "years_experience", "languages", "specializations", "certifications", "source", "source_detail"];
     if (!allowedFields.includes(input.field)) return { error: `Field "${input.field}" cannot be updated. Allowed fields: ${allowedFields.join(", ")}` };
     return {
@@ -205,7 +196,7 @@ registerTool(
       caregiver_id: cg.id,
       params: { field: input.field, value: input.value },
     };
-  },
+  }),
   async (_action: string, caregiverId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
     if (fetchErr || !cg) return { error: "Caregiver not found." };
@@ -233,10 +224,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     return {
       requires_confirmation: true,
       action: "update_board_status",
@@ -244,7 +233,7 @@ registerTool(
       caregiver_id: cg.id,
       params: { new_status: input.new_status, note: input.note },
     };
-  },
+  }),
   async (_action: string, caregiverId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
     if (fetchErr || !cg) return { error: "Caregiver not found." };

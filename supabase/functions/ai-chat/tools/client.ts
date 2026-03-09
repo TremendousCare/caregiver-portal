@@ -11,8 +11,8 @@ import {
   getClientLastActivity,
   buildClientSummary,
   buildClientProfile,
-  resolveClient,
 } from "../helpers/client.ts";
+import { requireClient, withResolve } from "../helpers/resolve.ts";
 
 // Valid phase IDs for client pipeline
 const CLIENT_PHASE_IDS = [
@@ -81,12 +81,10 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const client = await resolveClient(ctx.supabase, input, ctx.clients || []);
-    if (!client) return { error: "Client not found. Please check the name or ID." };
-    if (client._ambiguous) return { error: `Multiple matches found: ${client.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const client = await requireClient(input, ctx);
     return { profile: buildClientProfile(client) };
-  },
+  }),
 );
 
 // ── get_client_pipeline_stats (auto) ──
@@ -197,10 +195,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const client = await resolveClient(ctx.supabase, input, ctx.clients || []);
-    if (!client) return { error: "Client not found. Please check the name or ID." };
-    if (client._ambiguous) return { error: `Multiple matches: ${client.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const client = await requireClient(input, ctx);
     const newNote = {
       text: input.text,
       type: input.type || "note",
@@ -215,7 +211,7 @@ registerTool(
       .eq("id", client.id);
     if (error) return { error: `Failed to add note: ${error.message}` };
     return { success: true, message: `Note added to ${client.first_name} ${client.last_name}'s record.`, note: newNote };
-  },
+  }),
 );
 
 // ── update_client_phase (confirm) ──
@@ -235,10 +231,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const client = await resolveClient(ctx.supabase, input, ctx.clients || []);
-    if (!client) return { error: "Client not found." };
-    if (client._ambiguous) return { error: `Multiple matches: ${client.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const client = await requireClient(input, ctx);
     if (!CLIENT_PHASE_IDS.includes(input.phase)) return { error: `Invalid phase "${input.phase}". Valid phases: ${CLIENT_PHASE_IDS.join(", ")}` };
     return {
       requires_confirmation: true,
@@ -247,7 +241,7 @@ registerTool(
       client_id: client.id,
       params: { phase: input.phase, reason: input.reason },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, clientId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
@@ -277,10 +271,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const client = await resolveClient(ctx.supabase, input, ctx.clients || []);
-    if (!client) return { error: "Client not found." };
-    if (client._ambiguous) return { error: `Multiple matches: ${client.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const client = await requireClient(input, ctx);
     return {
       requires_confirmation: true,
       action: "complete_client_task",
@@ -288,7 +280,7 @@ registerTool(
       client_id: client.id,
       params: { task_id: input.task_id },
     };
-  },
+  }),
   async (_action: string, clientId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
     if (fetchErr || !client) return { error: "Client not found." };
@@ -317,10 +309,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const client = await resolveClient(ctx.supabase, input, ctx.clients || []);
-    if (!client) return { error: "Client not found." };
-    if (client._ambiguous) return { error: `Multiple matches: ${client.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const client = await requireClient(input, ctx);
     const allowedFields = [
       "phone", "email", "address", "city", "state", "zip",
       "contact_name", "relationship", "care_recipient_name", "care_recipient_age",
@@ -336,7 +326,7 @@ registerTool(
       client_id: client.id,
       params: { field: input.field, value: input.value },
     };
-  },
+  }),
   async (_action: string, clientId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
     const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
     if (fetchErr || !client) return { error: "Client not found." };

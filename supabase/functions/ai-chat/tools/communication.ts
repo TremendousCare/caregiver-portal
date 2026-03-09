@@ -4,8 +4,8 @@
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { RC_API_URL } from "../config.ts";
-import { resolveCaregiver } from "../helpers/caregiver.ts";
 import { normalizePhoneNumber } from "../helpers/phone.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 import {
   getRingCentralAccessToken,
   getRCFromNumber,
@@ -31,10 +31,8 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     if (!input.message || input.message.trim().length === 0) return { error: "Message text is required." };
     if (input.message.length > 1000) return { error: "Message too long (max 1000 characters)." };
     if (!cg.phone) return { error: `Cannot send SMS: no phone number on file for ${cg.first_name} ${cg.last_name}. Please update their phone number first.` };
@@ -48,7 +46,7 @@ registerTool(
       caregiver_id: cg.id,
       params: { message: input.message, normalized_phone: normalized },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     const { data: cg, error: fetchErr } = await supabase.from("caregivers").select("*").eq("id", caregiverId).single();
@@ -101,10 +99,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     if (!cg.phone) return { error: `No phone number on file for ${cg.first_name} ${cg.last_name}. Cannot retrieve SMS history.` };
     const normalized = normalizePhoneNumber(cg.phone);
     if (!normalized) return { error: `Invalid phone number format "${cg.phone}" for ${cg.first_name} ${cg.last_name}.` };
@@ -167,7 +163,7 @@ registerTool(
       console.error("get_sms_history error:", err);
       return { error: `Failed to retrieve SMS history: ${(err as Error).message}` };
     }
-  },
+  }),
 );
 
 // ── get_call_log (auto) ──
@@ -188,10 +184,8 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
-    const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-    if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-    if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    const cg = await requireCaregiver(input, ctx);
     if (!cg.phone) return { error: `No phone number on file for ${cg.first_name} ${cg.last_name}. Cannot retrieve call log.` };
     const normalized = normalizePhoneNumber(cg.phone);
     if (!normalized) return { error: `Invalid phone number format "${cg.phone}" for ${cg.first_name} ${cg.last_name}.` };
@@ -229,7 +223,7 @@ registerTool(
       console.error("get_call_log error:", err);
       return { error: `Failed to retrieve call log: ${(err as Error).message}` };
     }
-  },
+  }),
 );
 
 // ── get_call_recording (auto) ──
@@ -322,8 +316,10 @@ registerTool(
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
       // Call the call-transcription Edge Function internally
-      const url = `${supabaseUrl}/functions/v1/call-transcription?recordingId=${recordingId}&token=${serviceKey}`;
-      const response = await fetch(url);
+      const url = `${supabaseUrl}/functions/v1/call-transcription?recordingId=${recordingId}`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${serviceKey}` },
+      });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({ error: "Transcription failed" }));

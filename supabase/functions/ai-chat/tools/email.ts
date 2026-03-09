@@ -4,7 +4,7 @@
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from "../config.ts";
-import { resolveCaregiver } from "../helpers/caregiver.ts";
+import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 
 // ── search_emails (auto) ──
 
@@ -26,14 +26,12 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let emailAddress = null;
     let caregiverName = null;
 
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-      if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+      const cg = await requireCaregiver(input, ctx);
       caregiverName = `${cg.first_name} ${cg.last_name}`;
       emailAddress = cg.email || null;
       if (!emailAddress) return { error: `No email address on file for ${caregiverName}. Cannot search email history.` };
@@ -70,7 +68,7 @@ registerTool(
       console.error("search_emails error:", err);
       return { error: `Failed to search emails: ${(err as Error).message}` };
     }
-  },
+  }),
 );
 
 // ── get_email_thread (auto) ──
@@ -137,15 +135,13 @@ registerTool(
     },
     riskLevel: "confirm",
   },
-  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+  withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let recipientEmail = input.to_email || null;
     let recipientName = input.to_email || null;
     let caregiverIdForLog: string | null = null;
 
     if (input.caregiver_id || input.name) {
-      const cg = await resolveCaregiver(ctx.supabase, input, ctx.caregivers);
-      if (!cg) return { error: "Caregiver not found. Please check the name or ID." };
-      if (cg._ambiguous) return { error: `Multiple matches: ${cg.matches.map((c: any) => `${c.first_name} ${c.last_name}`).join(", ")}. Please be more specific.` };
+      const cg = await requireCaregiver(input, ctx);
       if (!cg.email) return { error: `Cannot send email: no email address on file for ${cg.first_name} ${cg.last_name}. Please update their email first.` };
       recipientEmail = cg.email;
       recipientName = `${cg.first_name} ${cg.last_name}`;
@@ -170,7 +166,7 @@ registerTool(
         cc: input.cc || null,
       },
     };
-  },
+  }),
   // Confirmed handler
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
     let cg: any = null;
