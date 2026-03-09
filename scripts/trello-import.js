@@ -36,13 +36,17 @@ import {
 // ---------------------------------------------------------------------------
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { mode: 'dry-run', file: null, apiComments: false };
+  const result = { mode: 'dry-run', file: null, apiComments: false, outputJson: null };
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--execute') {
       result.mode = 'execute';
     } else if (args[i] === '--dry-run') {
       result.mode = 'dry-run';
+    } else if (args[i] === '--output-json' && args[i + 1]) {
+      result.mode = 'output-json';
+      result.outputJson = args[i + 1];
+      i++;
     } else if (args[i] === '--file' && args[i + 1]) {
       result.file = args[i + 1];
       i++; // skip next arg
@@ -599,6 +603,10 @@ async function main() {
   // Output
   if (args.mode === 'dry-run') {
     printDryRun(caregivers);
+  } else if (args.mode === 'output-json') {
+    const rows = caregivers.map((c) => c.row);
+    fs.writeFileSync(args.outputJson, JSON.stringify(rows, null, 2));
+    console.log(`\nWrote ${rows.length} caregiver records to ${args.outputJson}`);
   } else {
     await executeInserts(caregivers, supabase);
   }
