@@ -13,6 +13,13 @@ import {
   buildClientProfile,
 } from "../helpers/client.ts";
 import { requireClient, withResolve } from "../helpers/resolve.ts";
+import { appendClientNote } from "../../_shared/operations/notes.ts";
+import {
+  updateClientPhase,
+  completeClientTask,
+  updateClientField,
+} from "../../_shared/operations/client.ts";
+import { UPDATABLE_CLIENT_FIELDS } from "../../_shared/operations/constants.ts";
 
 // Valid phase IDs for client pipeline
 const CLIENT_PHASE_IDS = [
@@ -197,20 +204,9 @@ registerTool(
   },
   withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const client = await requireClient(input, ctx);
-    const newNote = {
-      text: input.text,
-      type: input.type || "note",
-      direction: input.direction || null,
-      outcome: input.outcome || null,
-      timestamp: Date.now(),
-      author: ctx.currentUser || "AI Assistant",
-    };
-    const { error } = await ctx.supabase
-      .from("clients")
-      .update({ notes: [...(client.notes || []), newNote] })
-      .eq("id", client.id);
-    if (error) return { error: `Failed to add note: ${error.message}` };
-    return { success: true, message: `Note added to ${client.first_name} ${client.last_name}'s record.`, note: newNote };
+    const result = await appendClientNote(ctx.supabase, client.id, input, ctx.currentUser);
+    if (!result.success) return { error: result.error };
+    return { success: true, message: result.message, note: result.data?.note };
   }),
 );
 
@@ -242,16 +238,10 @@ registerTool(
       params: { phase: input.phase, reason: input.reason },
     };
   }),
-  // Confirmed handler
+  // Confirmed handler — delegates to shared operation
   async (_action: string, clientId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
-    if (fetchErr || !client) return { error: "Client not found." };
-    const timestamps = { ...(client.phase_timestamps || {}), [params.phase]: Date.now() };
-    const { error } = await supabase.from("clients").update({ phase: params.phase, phase_timestamps: timestamps }).eq("id", clientId);
-    if (error) return { error: error.message };
-    const note = { text: `Phase changed to ${params.phase}${params.reason ? `: ${params.reason}` : ""}`, type: "note", timestamp: Date.now(), author: currentUser || "AI Assistant" };
-    await supabase.from("clients").update({ notes: [...(client.notes || []), note] }).eq("id", clientId);
-    return { success: true, message: `${client.first_name} ${client.last_name} moved to ${params.phase}.` };
+    const result = await updateClientPhase(supabase, clientId, params.phase, params.reason, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 
@@ -281,14 +271,10 @@ registerTool(
       params: { task_id: input.task_id },
     };
   }),
+  // Confirmed handler — delegates to shared operation
   async (_action: string, clientId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
-    if (fetchErr || !client) return { error: "Client not found." };
-    const tasks = { ...(client.tasks || {}) };
-    tasks[params.task_id] = { completed: true, completedAt: Date.now(), completedBy: currentUser || "AI Assistant" };
-    const { error } = await supabase.from("clients").update({ tasks }).eq("id", clientId);
-    if (error) return { error: error.message };
-    return { success: true, message: `Task "${params.task_id}" completed for ${client.first_name} ${client.last_name}.` };
+    const result = await completeClientTask(supabase, clientId, params.task_id, currentUser);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
 
@@ -311,14 +297,7 @@ registerTool(
   },
   withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const client = await requireClient(input, ctx);
-    const allowedFields = [
-      "phone", "email", "address", "city", "state", "zip",
-      "contact_name", "relationship", "care_recipient_name", "care_recipient_age",
-      "care_needs", "hours_needed", "start_date_preference", "budget_range",
-      "insurance_info", "referral_source", "referral_detail",
-      "priority", "assigned_to", "lost_reason", "lost_detail",
-    ];
-    if (!allowedFields.includes(input.field)) return { error: `Field "${input.field}" cannot be updated. Allowed fields: ${allowedFields.join(", ")}` };
+    if (!(UPDATABLE_CLIENT_FIELDS as readonly string[]).includes(input.field)) return { error: `Field "${input.field}" cannot be updated. Allowed fields: ${UPDATABLE_CLIENT_FIELDS.join(", ")}` };
     return {
       requires_confirmation: true,
       action: "update_client_field",
@@ -327,11 +306,9 @@ registerTool(
       params: { field: input.field, value: input.value },
     };
   }),
+  // Confirmed handler — delegates to shared operation
   async (_action: string, clientId: string, params: any, supabase: any, _currentUser: string): Promise<ToolResult> => {
-    const { data: client, error: fetchErr } = await supabase.from("clients").select("*").eq("id", clientId).single();
-    if (fetchErr || !client) return { error: "Client not found." };
-    const { error } = await supabase.from("clients").update({ [params.field]: params.value }).eq("id", clientId);
-    if (error) return { error: error.message };
-    return { success: true, message: `${client.first_name} ${client.last_name}'s ${params.field} updated to "${params.value}".` };
+    const result = await updateClientField(supabase, clientId, params.field, params.value);
+    return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
