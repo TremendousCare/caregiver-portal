@@ -221,4 +221,87 @@ function convertComments(comments) {
   }));
 }
 
-export { parseName, parseDescription, mapChecklists, convertComments, normalizePhone };
+/**
+ * Build a clean note from the Trello card description, capturing data that
+ * parseDescription() does NOT extract into structured fields (pay rate,
+ * attendance records, schedule availability, professional background,
+ * certifications beyond HCA).
+ *
+ * Fields already captured by parseDescription (name, phone, email, address,
+ * HCA PER ID, HCA expiration) are omitted to avoid duplication.
+ *
+ * @param {string} desc - Raw Trello card description (markdown)
+ * @returns {string|null} Clean note text, or null if no extra data found.
+ */
+function buildDescriptionNote(desc) {
+  if (!desc) return null;
+
+  // Define the sections and which fields to skip (already in structured data)
+  const skipFields = [
+    /^\*?\*?Name[:\s*]/i,
+    /^\*?\*?Full\s+Address[:\s*]/i,
+    /^\*?\*?Phone\s*(?:No)?[.\s*:]/i,
+    /^\*?\*?Email[:\s*]/i,
+    /^\*?\*?HCA\s+PER\s+ID[:\s*]/i,
+    /^\*?\*?HCA\s+Exp(?:iration)?\s+Date[:\s*]/i,
+  ];
+
+  const sections = [];
+  let currentSection = null;
+  const lines = desc.split('\n');
+
+  for (const rawLine of lines) {
+    // Strip markdown formatting
+    const line = rawLine
+      .replace(/^#{1,4}\s*/, '')      // headers
+      .replace(/\*\*/g, '')            // bold
+      .replace(/[📋🕒📅👩‍⚕️✅]/gu, '')  // emojis
+      .replace(/^---+$/, '')           // horizontal rules
+      .trim();
+
+    if (!line) continue;
+
+    // Detect section headers
+    const sectionMatch = line.match(/^(APPLICANT INFORMATION|ATTENDANCE RECORD|SCHEDULE AVAILABILITY|PROFESSIONAL BACKGROUND|CERTIFICATIONS AND COMPLIANCE)/i);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1].toUpperCase();
+      continue;
+    }
+
+    // Skip template placeholder lines (labels with no value)
+    const labelOnly = line.match(/^([^:]+):\s*$/);
+    if (labelOnly) continue;
+
+    // Skip parenthetical-only instructions
+    if (/^\(.*\)$/.test(line)) continue;
+
+    // Skip fields already extracted into structured data
+    if (skipFields.some((re) => re.test(line))) continue;
+
+    // Skip lines that are just a markdown link with no useful text
+    if (/^\[.*\]\(.*\)$/.test(line)) continue;
+
+    // If we have content, capture it under the current section
+    if (currentSection) {
+      const existing = sections.find((s) => s.name === currentSection);
+      if (existing) {
+        existing.lines.push(line);
+      } else {
+        sections.push({ name: currentSection, lines: [line] });
+      }
+    }
+  }
+
+  // Filter out sections with no meaningful content
+  const meaningful = sections.filter((s) => s.lines.length > 0);
+  if (meaningful.length === 0) return null;
+
+  // Build the note text
+  const parts = meaningful.map((s) => {
+    return `${s.name}\n${s.lines.join('\n')}`;
+  });
+
+  return 'Trello Card Details\n\n' + parts.join('\n\n');
+}
+
+export { parseName, parseDescription, mapChecklists, convertComments, normalizePhone, buildDescriptionNote };

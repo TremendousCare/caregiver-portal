@@ -33,7 +33,7 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Framework**: Vitest (config in `vitest.config.js`)
 - **Test location**: `src/lib/__tests__/`
 - **Commands**: `npm test` (CI), `npm run test:watch` (dev), `npm run test:ui` (browser UI)
-- **Current coverage**: 74 tests across utils, automations, actionEngine
+- **Current coverage**: 181 tests across utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking
 - **Rule**: New utility/business logic functions MUST have tests before merging
 
 ### CI Pipeline
@@ -56,7 +56,8 @@ If any step fails, the PR is blocked.
 - **Notes format**: Array of objects `{text, type, timestamp, author, outcome, direction}` — never strings
 - **Tasks format**: Flat `{taskId: {completed, completedAt, completedBy}}` — never nested
 - **AI chat deploys via CLI**, not MCP tool: `npx supabase functions deploy ai-chat --no-verify-jwt`
-- **Edge Functions not in git** (except ai-chat): outlook-integration, docusign-integration, execute-automation, automation-cron, sharepoint-docs, get-communications
+- **Edge Functions not in git** (except ai-chat and outcome-analyzer): outlook-integration, docusign-integration, execute-automation, automation-cron, sharepoint-docs, get-communications
+- **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2)
 
 ---
 
@@ -103,6 +104,13 @@ Frontend (AIChatbot.jsx)
 - `actor`: `user:Jessica`, `system:automation`, `system:ai`
 - `payload`: JSONB with event-specific data
 - Events are **append-only** — never updated or deleted
+
+**`action_outcomes`** — Tracks side-effect actions and their outcomes (Phase 2)
+- `action_type`: `sms_sent`, `email_sent`, `docusign_sent`, `phase_changed`, `calendar_event_created`, `task_completed`
+- `outcome_type`: `null` (pending) → `response_received`, `no_response`, `completed`, `advanced`, `declined`, `expired`
+- `entity_id` is `text` (matches `caregivers.id`), NOT `uuid` (unlike `context_memory.entity_id` which is uuid)
+- Expiry windows: SMS/email 7d, DocuSign 14d, calendar 21d
+- **Migration**: `supabase/migrations/20260222_action_outcomes.sql`
 
 **`context_snapshots`** — Session continuity (one per user)
 - `user_id`: Current user name
@@ -163,11 +171,13 @@ When chat opens, frontend calls `requestType: "briefing"` — returns structured
 - Proactive briefing on chat open
 - Contextual quick actions
 
-**Phase 2 (NEXT)**: Outcome tracking
+**Phase 2 (COMPLETE)**: Outcome tracking
 - New table: `action_outcomes` (tracks whether actions worked)
 - Outcome detection: did they respond? did they advance?
-- Daily analysis job generates semantic memories
+- Cron job (every 4h) detects no-response, correlates inbound SMS, generates semantic memories
 - Confidence gates: only create patterns with 30+ data points
+- Briefing shows pending actions and recent successes
+- Code: `outcomes.ts` (logAction, detectOutcome), `outcome-analyzer/index.ts` (cron)
 
 **Phase 3**: Graduated autonomy
 - New table: `autonomy_config` (per-action autonomy levels)
@@ -183,6 +193,15 @@ When chat opens, frontend calls `requestType: "briefing"` — returns structured
 **Phase 5**: Client pipeline extension
 - Client-specific memory and context layers
 - Client-caregiver matching intelligence
+
+### Key Design Principles
+
+## Environment Gotchas (Windows)
+
+- **`preview_start` does not work** — all runtimeExecutable configs fail with "spawn npx ENOENT". Use `Bash` background task + Chrome tools or Vercel preview deploys instead.
+- **Git rebase can leave stale state** — if `.git/rebase-merge` exists but `head-name` is missing, remove the directory: `rm -rf .git/rebase-merge`
+- **`context_memory.superseded_by` has FK constraint** — when superseding memories, INSERT new row first, THEN UPDATE old row to point to it
+- **`now()` cannot be used in partial index predicates** — not IMMUTABLE. Filter at query time instead.
 
 ### Key Design Principles
 

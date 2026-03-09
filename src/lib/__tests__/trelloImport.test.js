@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseName, parseDescription, mapChecklists, convertComments, normalizePhone } from '../trelloParser.js';
+import { parseName, parseDescription, mapChecklists, convertComments, normalizePhone, buildDescriptionNote } from '../trelloParser.js';
 
 // ============================================================
 // parseName
@@ -272,5 +272,131 @@ describe('convertComments', () => {
     const notes = convertComments(comments);
     expect(notes[0].text).toBe('Second');
     expect(notes[1].text).toBe('First');
+  });
+});
+
+// ============================================================
+// buildDescriptionNote
+// ============================================================
+describe('buildDescriptionNote', () => {
+  const fullDesc = `### **📋 APPLICANT INFORMATION**
+
+**Name: Ciara Hinojoza**
+**Full Address:** 2225 S Laura Linda Lane Santa Ana, CA 92704
+**Phone No.** +7148123217
+**Email:** [ciarahinojoza@gmail.com](https://tremendouscare.clearcareonline.com/activity/send-email/ "‌")
+**Pay Rate: $20**
+
+---
+
+### **🕒 ATTENDANCE RECORD**
+
+(Notes on responsiveness, punctuality in answering, attitude during call)
+
+8/27-Last min call off due to back pain (HZ) did partial shift then left. CL okayed it
+
+---
+
+### **📅 SCHEDULE AVAILABILITY**
+
+**Monday: Unavailable after SL**
+**Tuesday:**
+**Wednesday: Unavailable after SL**
+**Thursday:**
+**Friday:**
+**Saturday:**
+**Sunday:**
+
+---
+
+### **👩‍⚕️ PROFESSIONAL BACKGROUND**
+
+**Years of Experience:**
+**Client Conditions Previously Handled:** Home-Hospice, Post-Stroke, Bed-Bound
+**Transfer Experience:**
+**Skills (e.g., ADLs, cooking, driving clients, etc.):**
+
+---
+
+### **✅ CERTIFICATIONS AND COMPLIANCE**
+
+**HCA PER ID:** 7517425198
+**HCA Exp Date:** 2027-04-21
+**TB Test:** Yes
+**Driver's License:** Yes
+**Automobile Insurance:** Yes
+**Reliable Transportation:** Yes`;
+
+  it('captures pay rate from applicant information', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toContain('Pay Rate: $20');
+  });
+
+  it('captures attendance record entries', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toContain('8/27-Last min call off due to back pain');
+  });
+
+  it('captures schedule availability (non-empty days only)', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toContain('Monday: Unavailable after SL');
+    expect(note).toContain('Wednesday: Unavailable after SL');
+  });
+
+  it('captures professional background conditions', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toContain('Home-Hospice, Post-Stroke, Bed-Bound');
+  });
+
+  it('captures certifications (TB, license, insurance)', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toContain('TB Test: Yes');
+    expect(note).toContain("Driver's License: Yes");
+    expect(note).toContain('Automobile Insurance: Yes');
+    expect(note).toContain('Reliable Transportation: Yes');
+  });
+
+  it('skips fields already in structured data (name, address, phone, email, HCA)', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).not.toMatch(/Full Address:/i);
+    expect(note).not.toMatch(/Phone No/i);
+    expect(note).not.toMatch(/\bEmail:/i);
+    expect(note).not.toMatch(/HCA PER ID:/i);
+    expect(note).not.toMatch(/HCA Exp/i);
+  });
+
+  it('skips empty template lines (label with no value)', () => {
+    const note = buildDescriptionNote(fullDesc);
+    // "Tuesday:" with no value should be skipped
+    expect(note).not.toMatch(/^.*Tuesday:\s*$/m);
+    // "Years of Experience:" with no value should be skipped
+    expect(note).not.toMatch(/Years of Experience:\s*$/m);
+  });
+
+  it('returns null for empty description', () => {
+    expect(buildDescriptionNote('')).toBeNull();
+    expect(buildDescriptionNote(null)).toBeNull();
+  });
+
+  it('returns null for description with only structured fields (no extra data)', () => {
+    const minimalDesc = `### **📋 APPLICANT INFORMATION**
+
+**Name: Test Person**
+**Full Address:** 123 Main St City, CA 90001
+**Phone No.** +15551234567
+**Email:** test@example.com`;
+    expect(buildDescriptionNote(minimalDesc)).toBeNull();
+  });
+
+  it('starts with "Trello Card Details" header', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).toMatch(/^Trello Card Details/);
+  });
+
+  it('strips markdown formatting (bold, headers, emojis)', () => {
+    const note = buildDescriptionNote(fullDesc);
+    expect(note).not.toContain('**');
+    expect(note).not.toContain('###');
+    expect(note).not.toContain('📋');
   });
 });

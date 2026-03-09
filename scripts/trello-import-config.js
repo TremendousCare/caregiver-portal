@@ -3,10 +3,10 @@
 // which lists are imported, how fields map, and what statuses are set.
 
 /** Which Trello lists to import. Use exact list names from the board. */
-const TARGET_LISTS = ['Deployed'];
+const TARGET_LISTS = ['Deployed', 'Ready for Deployment', 'Reserve Pool : Last Resort', 'Phone Interview', 'Virtual Interview', 'Offer Out', 'Onboarding', 'I-9 Verification', 'Orientation'];
 
 /** Cards to skip by exact card title. */
-const SKIP_CARDS = ['Chris Nash'];
+const SKIP_CARDS = ['Chris Nash', 'Name'];
 
 /**
  * Per-list config: what employment_status and board_status to set.
