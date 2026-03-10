@@ -162,14 +162,82 @@ When chat opens, frontend calls `requestType: "briefing"` — returns structured
 - Quick actions are dynamic based on what needs attention
 - Falls back to static quick actions if briefing fails
 
-### Phased Rollout Plan
+### Gold Standard Maturity Assessment (March 2026)
 
-**Phase 1 (CURRENT — Built)**: Context layer foundation
+**Current Level: 2.5 / 5** (between "Assisted" and "Structured")
+**Architectural Readiness: ~80%** — foundation supports gold standard; gaps are additive, not structural.
+
+The industry gold standard for production agentic AI (as of March 2026) is defined by five maturity levels:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| 1 | Basic | Single LLM call, no structure, no logging |
+| 2 | Assisted | RAG + basic tooling, still a monolith |
+| **3** | **Structured** | **Sandwich pattern + decomposition + deterministic routing** |
+| 4 | Production | Full orchestration + observability + eval harnesses + human gates |
+| 5 | Autonomous | Self-optimizing with continuous improvement from trace data |
+
+**What we have that's strong:**
+- Context assembly (6-layer modular, graceful degradation) — **Grade: A**
+- Memory system (4 types, confidence gates, superseding chains, 30+ observation threshold) — **Grade: A-**
+- Outcome tracking (action-outcome correlation, semantic memory generation) — **Grade: A**
+- Tool registry (preview/confirm split, risk-level gating, modular handlers) — **Grade: A**
+- Observability (append-only events, context health reporting, fire-and-forget) — **Grade: B+**
+
+**Critical gaps to close (in priority order):**
+
+| Gap | Impact | Effort | Target Phase |
+|-----|--------|--------|-------------|
+| **Sandwich Pattern** (preflight → LLM → verify) | High — biggest reliability gain | Medium — extends existing tool handlers | Phase 2.5 |
+| **Output Verification** (validate tool results before feeding back to Claude) | High — prevents hallucination amplification | Low — add schema checks to registry | Phase 2.5 |
+| **Deterministic Intent Router** (code-based routing before Claude) | Medium — adds predictability | Low — extend existing requestType pattern | Phase 2.5 |
+| **Reflection/Self-Correction** (verify-your-work step before final response) | Medium — critical for high-stakes outputs | Low — one additional agentic loop iteration | Phase 3 |
+| **Error Recovery** (retry with different approach on tool failure) | Medium — silent failures currently | Medium | Phase 3 |
+| **Evaluation Harness** (replay historical interactions, compare outputs) | Medium — required for safe iteration | Medium — events table has the data | Phase 4 |
+| **Multi-Agent Decomposition** | Low for now — premature at current scale | High | Phase 4+ (only when volume justifies) |
+
+### Key Agentic Patterns Reference
+
+Every feature and enhancement should be evaluated against these five foundational patterns:
+
+1. **Reflection** — Agent self-critiques before finalizing output. Reserve deep reflection for high-stakes outputs (care plans, financial, compliance). Limit loops for low-risk outputs.
+2. **ReAct** (Reason + Act) — Interleave thinking and doing in small steps. Creates audit trails. Our agentic loop already does this; enhance with per-step policies.
+3. **Tool Use** — Ground the agent in real data, not probability. Each agent should access only the tools it needs (principle of least privilege).
+4. **Planning** — Create explicit plans for complex multi-step tasks. Plans should be inspectable and overridable by humans.
+5. **Multi-Agent Collaboration** — Specialist agents for distinct domains, coordinated by deterministic orchestrator. Only add agents when justified by complexity.
+
+### The Sandwich Pattern (Priority Implementation)
+
+The single most important pattern for production reliability:
+
+```
+Code (Preflight)  →  LLM (Creative Work)  →  Code (Verify)
+```
+
+- **Preflight**: Validate inputs, check data integrity, enforce business rules, prepare context
+- **LLM**: Reasoning, generation, analysis
+- **Verify**: Check output against source of truth, validate format, enforce constraints, catch hallucinations
+
+Apply to every tool execution: validate inputs before calling the tool, verify results after. Our existing preview/confirm handler structure naturally extends to support this.
+
+### Two-Layer Model (Target Architecture)
+
+The gold standard production pattern separates concerns:
+
+- **Layer 1 — Deterministic Orchestration**: Routes tasks between agents using conventional code. No LLM needed for routing. Predictable, debuggable, auditable.
+- **Layer 2 — Bounded Agent Execution**: Each agent has narrow scope, automated evaluation at each step, LLM creativity contained within guardrails.
+
+Our current `requestType` branching (briefing vs. chat) is the seed of Layer 1. Extend it with more deterministic routes before hitting Claude.
+
+### Phased Rollout Plan (Updated with Gold Standard Alignment)
+
+**Phase 1 (COMPLETE)**: Context layer foundation
 - Episodic memory (per-entity interaction history)
 - Unified event bus
 - Session continuity
 - Proactive briefing on chat open
 - Contextual quick actions
+- *Gold standard: Establishes observability and RAG foundation (Level 2)*
 
 **Phase 2 (COMPLETE)**: Outcome tracking
 - New table: `action_outcomes` (tracks whether actions worked)
@@ -178,21 +246,49 @@ When chat opens, frontend calls `requestType: "briefing"` — returns structured
 - Confidence gates: only create patterns with 30+ data points
 - Briefing shows pending actions and recent successes
 - Code: `outcomes.ts` (logAction, detectOutcome), `outcome-analyzer/index.ts` (cron)
+- *Gold standard: Establishes feedback loop and continuous improvement data (Level 2)*
 
-**Phase 3**: Graduated autonomy
+**Phase 2.5 (NEW — Verification & Reliability)**: Sandwich pattern + routing
+- Add preflight validation to tool handlers (verify inputs against Supabase before executing)
+- Add post-execution verification (confirm tool actually succeeded, validate results)
+- Add output schema validation before feeding tool results back to Claude
+- Implement deterministic intent router (extend requestType pattern for common queries)
+- Add error recovery to agentic loop (retry with different approach on tool failure)
+- *Gold standard: This phase bridges us from Level 2 to Level 3 (Structured)*
+
+**Phase 3**: Graduated autonomy + reflection
 - New table: `autonomy_config` (per-action autonomy levels)
 - 4 levels: L1 Suggest → L2 Confirm → L3 Notify → L4 Auto
 - Settings UI for managing autonomy levels
 - Auto-promotion based on success rates
+- Add reflection step for high-stakes outputs (verify-your-work before final response)
+- Human-in-the-loop gates for care plans, financial actions, compliance decisions
+- Circuit breakers: halt execution when anomaly rates exceed threshold
+- *Gold standard: Establishes human gates and self-correction (Level 3 → Level 4)*
 
-**Phase 4**: Proactive OODA loop
+**Phase 4**: Proactive OODA loop + evaluation
 - Cron-triggered morning briefings
 - Event-driven action suggestions
 - AI-initiated follow-up recommendations
+- Build evaluation harness (replay historical interactions from events table)
+- Structured trace logging for metrics and performance analysis
+- Self-optimization loop: trace → analyze → improve → deploy → trace again
+- *Gold standard: Full observability and eval infrastructure (Level 4)*
 
-**Phase 5**: Client pipeline extension
+**Phase 5**: Client pipeline + multi-agent (when scale justifies)
 - Client-specific memory and context layers
 - Client-caregiver matching intelligence
+- Decompose into specialist agents only if volume/complexity demands it
+- Deterministic orchestrator coordinates specialist agents
+- Independent testing and scaling per agent
+- *Gold standard: Multi-agent decomposition (Level 4 → Level 5)*
+
+### Operating Model: Delegate, Review, Own
+
+The gold standard for human-AI collaboration at Tremendous Care:
+- **AI handles**: First-pass execution, data gathering, scheduling suggestions, status updates, SMS drafting, outcome tracking
+- **Humans review**: Outputs for correctness, risk, and alignment before high-stakes actions
+- **Humans own**: Architecture decisions, care plan approvals, financial sign-offs, compliance determinations
 
 ### Key Design Principles
 
@@ -206,8 +302,13 @@ When chat opens, frontend calls `requestType: "briefing"` — returns structured
 ### Key Design Principles
 
 1. **Everything is data, not code** — Autonomy levels, memories, SOPs are all database rows editable from Settings UI. No redeploy needed for behavior changes.
-2. **Graceful degradation** — If context assembler fails, falls back to original static prompt. If briefing fails, shows static quick actions.
+2. **Graceful degradation** — If context assembler fails, falls back to original static prompt. If briefing fails, shows static quick actions. Every component must have a fallback path.
 3. **Token budget discipline** — Dynamic layers are capped. Total system prompt stays under 13% of 200K context window.
 4. **Phased memory activation** — Episodic memory (zero risk) → Outcome recording (data collection) → Semantic patterns (only with statistical significance).
-5. **Append-only events** — Events table is never updated. Memories use `superseded_by` chain instead of updates.
+5. **Append-only events** — Events table is never updated. Memories use `superseded_by` chain instead of updates. Every decision logged for compliance.
 6. **Fire-and-forget observability** — Event logging and memory storage never block the main response path.
+7. **Sandwich every LLM call** — Deterministic preflight (validate inputs, enforce rules) → LLM (creative work) → Deterministic verify (check output against source of truth). Never trust raw LLM output for high-stakes actions.
+8. **Deterministic routing, creative execution** — Route tasks with code (predictable, auditable), let the LLM reason within bounded scope. Don't use the LLM for decisions that code can make reliably.
+9. **Decompose before scaling** — Resist the monolith. When a single agent grows too complex to debug, split into specialist agents with explicit input/output contracts. But don't split prematurely — a well-structured single agent beats a poorly-coordinated multi-agent system.
+10. **Verify before autonomy** — Never increase an agent's autonomy level without first adding verification. Phase 2.5 (sandwich pattern) must precede Phase 3 (graduated autonomy).
+11. **Continuous improvement from production data** — Trace → Analyze → Improve → Deploy → Trace again. Feed failure patterns back into RAG, prompts, and tool design. Optimize based on real data, not programmer intuition.
