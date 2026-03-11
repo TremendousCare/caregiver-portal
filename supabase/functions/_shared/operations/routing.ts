@@ -300,9 +300,14 @@ export async function fetchEntityContext(
 ): Promise<EntityContext | null> {
   const tableName = entityType === "client" ? "clients" : "caregivers";
 
+  // Caregivers use phase_override + phase_timestamps; clients use phase column
+  const selectCols = entityType === "client"
+    ? "id, first_name, last_name, phone, email, notes, tasks, phase, phase_timestamps"
+    : "id, first_name, last_name, phone, email, notes, tasks, phase_override, phase_timestamps";
+
   const { data: entity, error } = await supabase
     .from(tableName)
-    .select("id, first_name, last_name, phone, email, notes, tasks, phase, phase_override, phase_timestamps")
+    .select(selectCols)
     .eq("id", entityId)
     .single();
 
