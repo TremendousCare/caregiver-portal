@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { getCurrentPhase } from './utils';
+import { evaluateAutomationConditions } from '../../supabase/functions/_shared/helpers/automations.ts';
 
 // ═══════════════════════════════════════════════════════════════
 // Automation Event Triggers
@@ -8,45 +9,22 @@ import { getCurrentPhase } from './utils';
 // caregiver added, phase changed, task completed). This is
 // fire-and-forget — it never blocks the UI or shows errors to
 // the user. All failures are logged in the automation_log table.
+//
+// Condition evaluation extracted to _shared/helpers/automations.ts
+// (Phase 4). This file wraps it for caregiver-specific usage.
 // ═══════════════════════════════════════════════════════════════
 
 /**
  * Evaluate whether a rule's conditions match the current caregiver + trigger context.
  * Returns true if the rule should fire, false if it should be skipped.
+ * Delegates to shared evaluateAutomationConditions with caregiver phase.
  */
 function evaluateConditions(rule, caregiver, triggerContext) {
-  const conds = rule.conditions || {};
-
-  // Phase filter: only fire if caregiver is currently in a specific phase
-  if (conds.phase && getCurrentPhase(caregiver) !== conds.phase) return false;
-
-  // For phase_change trigger: match target phase
-  if (conds.to_phase && triggerContext.to_phase !== conds.to_phase) return false;
-
-  // For task_completed trigger: match specific task ID
-  if (conds.task_id && triggerContext.task_id !== conds.task_id) return false;
-
-  // For document_uploaded trigger: match specific document type
-  if (conds.document_type && triggerContext.document_type !== conds.document_type) return false;
-
-  // For document_signed trigger: match template name (case-insensitive partial match)
-  if (conds.template_name) {
-    const templateNames = triggerContext.template_names || [];
-    const filter = conds.template_name.toLowerCase();
-    const hasMatch = templateNames.some(n => n && n.toLowerCase().includes(filter));
-    if (!hasMatch) return false;
-  }
-
-  // For inbound_sms trigger: match keyword in message text (case-insensitive)
-  if (conds.keyword) {
-    const messageText = (triggerContext.message_text || '').toLowerCase();
-    if (!messageText.includes(conds.keyword.toLowerCase())) return false;
-  }
-
-  // For days_inactive: condition is evaluated server-side by automation-cron, skip here
-  // (days_inactive rules are triggered by cron, not by client events)
-
-  return true;
+  return evaluateAutomationConditions(
+    rule.conditions || {},
+    getCurrentPhase(caregiver),
+    triggerContext,
+  );
 }
 
 /**

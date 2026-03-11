@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { normalizeActionType, resolveAutomationMergeFields } from "../_shared/helpers/automations.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -24,26 +25,6 @@ function getStepDelayMs(step: Record<string, any>): number {
     case 'days':    return value * 24 * 60 * 60 * 1000;
     default:        return value * 60 * 60 * 1000;
   }
-}
-
-function normalizeActionType(actionType: string): string {
-  switch (actionType) {
-    case 'send_sms':    return 'send_sms';
-    case 'sms':         return 'send_sms';
-    case 'send_email':  return 'send_email';
-    case 'email':       return 'send_email';
-    case 'create_task': return 'create_task';
-    case 'task':        return 'create_task';
-    default:            return actionType;
-  }
-}
-
-function resolveMergeFields(template: string, entity: Record<string, any>): string {
-  return template
-    .replace(/\{\{first_name\}\}/g, entity.first_name || '')
-    .replace(/\{\{last_name\}\}/g, entity.last_name || '')
-    .replace(/\{\{phone\}\}/g, entity.phone || '')
-    .replace(/\{\{email\}\}/g, entity.email || '');
 }
 
 function normalizePhone(phone: string): string {
@@ -564,14 +545,14 @@ Deno.serve(async (req) => {
               const normalizedAction = normalizeActionType(step.action_type);
 
               if (normalizedAction === 'send_sms' || normalizedAction === 'send_email') {
-                const resolvedMessage = resolveMergeFields(step.template || '', client);
+                const resolvedMessage = resolveAutomationMergeFields(step.template || '', client);
                 try {
                   const body: Record<string, any> = {
                     rule_id: `seq_${sequence.id}_step_${stepIndex}`,
                     caregiver_id: client.id,
                     action_type: normalizedAction,
                     message_template: resolvedMessage,
-                    action_config: normalizedAction === 'send_email' ? { subject: resolveMergeFields(step.subject || '', client) } : {},
+                    action_config: normalizedAction === 'send_email' ? { subject: resolveAutomationMergeFields(step.subject || '', client) } : {},
                     rule_name: `${sequence.name} - Step ${stepIndex + 1}`,
                     entity_type: 'client',
                     caregiver: {
@@ -590,7 +571,7 @@ Deno.serve(async (req) => {
                 } catch (err) { console.error(`Step error for client ${client.id}:`, err); }
 
               } else if (normalizedAction === 'create_task') {
-                const resolvedMessage = resolveMergeFields(step.template || '', client);
+                const resolvedMessage = resolveAutomationMergeFields(step.template || '', client);
                 const currentNotes = Array.isArray(client.notes) ? client.notes : [];
                 const taskNote = {
                   text: resolvedMessage, type: 'task', timestamp: nowMs,
