@@ -1,11 +1,12 @@
 // ─── Awareness Tools ───
 // Read-only tools that give the AI situational context:
-// get_caregiver_documents, get_automation_summary, get_inbound_messages, get_action_items
+// get_caregiver_documents, get_automation_summary, get_inbound_messages, get_action_items, manage_suggestions
 
 import { registerTool } from "../registry.ts";
 import type { ToolContext, ToolResult } from "../types.ts";
 import { resolveCaregiver, getPhase } from "../helpers/caregiver.ts";
 import { getClientPhase } from "../helpers/client.ts";
+import { executeSuggestion, recordAutonomyOutcome } from "../../_shared/operations/routing.ts";
 
 // ═══════════════════════════════════════════════════════════════
 // Tool 1: get_caregiver_documents
@@ -774,6 +775,203 @@ registerTool(
       };
     } catch (err) {
       return { error: `Failed to compute action items: ${(err as Error).message}` };
+    }
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════
+// Tool 5: manage_suggestions
+// ═══════════════════════════════════════════════════════════════
+
+registerTool(
+  {
+    name: "manage_suggestions",
+    description:
+      "Manage AI suggestions from the inbound message routing system. List pending suggestions, approve them (which executes the suggested action), or reject them. Suggestions are generated when caregivers/clients send inbound SMS messages. Use when the user asks about AI suggestions, pending actions, or what the AI wants to do.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list_pending", "approve", "reject"],
+          description: "Action: list_pending (show pending), approve (approve & execute), reject (reject with reason)",
+        },
+        suggestion_id: {
+          type: "string",
+          description: "The UUID of the suggestion to approve or reject (required for approve/reject)",
+        },
+        rejection_reason: {
+          type: "string",
+          description: "Reason for rejecting (optional, only for reject action)",
+        },
+        entity_type: {
+          type: "string",
+          enum: ["caregiver", "client"],
+          description: "Filter pending suggestions by entity type (optional, only for list_pending)",
+        },
+        limit: {
+          type: "number",
+          description: "Max suggestions to return (default: 10, max: 25, only for list_pending)",
+        },
+      },
+      required: ["action"],
+    },
+    riskLevel: "auto",
+  },
+  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
+    try {
+      // ── List pending suggestions ──
+      if (input.action === "list_pending") {
+        const maxItems = Math.min(input.limit || 10, 25);
+
+        let query = ctx.supabase
+          .from("ai_suggestions")
+          .select("*")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(maxItems);
+
+        if (input.entity_type) {
+          query = query.eq("entity_type", input.entity_type);
+        }
+
+        const { data: suggestions, error: fetchErr } = await query;
+        if (fetchErr) throw fetchErr;
+
+        if (!suggestions || suggestions.length === 0) {
+          return { result: "No pending AI suggestions. The inbox is clear!" };
+        }
+
+        const lines = suggestions.map((s: any) => {
+          const age = Math.round((Date.now() - new Date(s.created_at).getTime()) / 60000);
+          const ageStr = age < 60
+            ? `${age}min ago`
+            : age < 1440
+              ? `${Math.round(age / 60)}h ago`
+              : `${Math.round(age / 1440)}d ago`;
+
+          const typeIcon: Record<string, string> = {
+            reply: "💬", action: "⚡", alert: "🚨", follow_up: "📋",
+          };
+          const levelLabel: Record<string, string> = {
+            L1: "Suggest", L2: "Confirm", L3: "Notify", L4: "Auto",
+          };
+
+          let line = `${typeIcon[s.suggestion_type] || "📋"} **${s.title}**`;
+          line += `\n   ${s.detail || "No details"}`;
+          if (s.drafted_content) {
+            line += `\n   Draft: "${s.drafted_content.substring(0, 100)}${s.drafted_content.length > 100 ? "..." : ""}"`;
+          }
+          line += `\n   Level: ${levelLabel[s.autonomy_level] || s.autonomy_level} | ${ageStr} | ID: ${s.id}`;
+          return line;
+        });
+
+        const byType = {
+          reply: suggestions.filter((s: any) => s.suggestion_type === "reply").length,
+          action: suggestions.filter((s: any) => s.suggestion_type === "action").length,
+          alert: suggestions.filter((s: any) => s.suggestion_type === "alert").length,
+          follow_up: suggestions.filter((s: any) => s.suggestion_type === "follow_up").length,
+        };
+
+        return {
+          total_pending: suggestions.length,
+          by_type: byType,
+          suggestions: lines,
+          hint: "Use manage_suggestions with action='approve' or 'reject' and the suggestion ID to act on a suggestion.",
+        };
+      }
+
+      // ── Approve suggestion ──
+      if (input.action === "approve") {
+        if (!input.suggestion_id) {
+          return { error: "suggestion_id is required for approve action." };
+        }
+
+        const result = await executeSuggestion(
+          ctx.supabase,
+          input.suggestion_id,
+          `user:${ctx.currentUser || "unknown"}`,
+        );
+
+        if (!result.success) {
+          return { error: `Failed to execute suggestion: ${result.error}` };
+        }
+
+        // Record approval for autonomy tracking
+        const { data: suggestion } = await ctx.supabase
+          .from("ai_suggestions")
+          .select("action_type, entity_type")
+          .eq("id", input.suggestion_id)
+          .single();
+
+        if (suggestion?.action_type) {
+          await recordAutonomyOutcome(
+            ctx.supabase,
+            suggestion.action_type,
+            suggestion.entity_type || "caregiver",
+            "approved",
+          ).catch(() => {}); // fire-and-forget
+        }
+
+        return {
+          result: "Suggestion approved and executed successfully.",
+          ...result,
+        };
+      }
+
+      // ── Reject suggestion ──
+      if (input.action === "reject") {
+        if (!input.suggestion_id) {
+          return { error: "suggestion_id is required for reject action." };
+        }
+
+        // Fetch the suggestion first
+        const { data: suggestion, error: fetchErr } = await ctx.supabase
+          .from("ai_suggestions")
+          .select("*")
+          .eq("id", input.suggestion_id)
+          .single();
+
+        if (fetchErr || !suggestion) {
+          return { error: "Suggestion not found." };
+        }
+
+        if (suggestion.status !== "pending") {
+          return { error: `Suggestion is already ${suggestion.status}, cannot reject.` };
+        }
+
+        // Update status to rejected
+        const { error: updateErr } = await ctx.supabase
+          .from("ai_suggestions")
+          .update({
+            status: "rejected",
+            resolved_at: new Date().toISOString(),
+            resolved_by: `user:${ctx.currentUser || "unknown"}`,
+            rejection_reason: input.rejection_reason || null,
+          })
+          .eq("id", input.suggestion_id);
+
+        if (updateErr) throw updateErr;
+
+        // Record rejection for autonomy tracking
+        if (suggestion.action_type) {
+          await recordAutonomyOutcome(
+            ctx.supabase,
+            suggestion.action_type,
+            suggestion.entity_type || "caregiver",
+            "rejected",
+          ).catch(() => {}); // fire-and-forget
+        }
+
+        return {
+          result: `Suggestion rejected.${input.rejection_reason ? ` Reason: ${input.rejection_reason}` : ""}`,
+          suggestion_title: suggestion.title,
+        };
+      }
+
+      return { error: `Unknown action: ${input.action}. Use list_pending, approve, or reject.` };
+    } catch (err) {
+      return { error: `Failed to manage suggestions: ${(err as Error).message}` };
     }
   },
 );

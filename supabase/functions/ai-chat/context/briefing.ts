@@ -189,7 +189,39 @@ export async function generateBriefing(
     /* ignore */
   }
 
-  // ── 7. Check last session context ──
+  // ── 7. AI Suggestions awaiting review ──
+  try {
+    const { data: pendingSuggestions } = await supabase
+      .from("ai_suggestions")
+      .select("id, title, entity_name, suggestion_type, autonomy_level, created_at")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (pendingSuggestions && pendingSuggestions.length > 0) {
+      const replyCount = pendingSuggestions.filter((s: any) => s.suggestion_type === "reply").length;
+      const alertCount = pendingSuggestions.filter((s: any) => s.suggestion_type === "alert").length;
+      const otherCount = pendingSuggestions.length - replyCount - alertCount;
+
+      const parts: string[] = [];
+      if (replyCount > 0) parts.push(`${replyCount} draft reply(ies)`);
+      if (alertCount > 0) parts.push(`${alertCount} alert(s)`);
+      if (otherCount > 0) parts.push(`${otherCount} action(s)`);
+
+      items.push({
+        type: "urgent",
+        text: `AI has ${pendingSuggestions.length} pending suggestion(s): ${parts.join(", ")}`,
+        action: "Show me pending AI suggestions",
+      });
+
+      quickActions.push({
+        label: `AI suggestions (${pendingSuggestions.length})`,
+        prompt: "Show me all pending AI suggestions that need my review",
+      });
+    }
+  } catch { /* ignore — table may not exist yet */ }
+
+  // ── 8. Check last session context ──
   try {
     const { data: snapshot } = await supabase
       .from("context_snapshots")
@@ -214,13 +246,13 @@ export async function generateBriefing(
     }
   } catch { /* ignore */ }
 
-  // ── 8. Always include pipeline summary ──
+  // ── 9. Always include pipeline summary ──
   quickActions.push({
     label: "Pipeline summary",
     prompt: "Give me a quick summary of the current pipeline",
   });
 
-  // ── 9. Add compliance check if needed ──
+  // ── 10. Add compliance check if needed ──
   quickActions.push({
     label: "Compliance check",
     prompt: "Run a compliance check across all caregivers",

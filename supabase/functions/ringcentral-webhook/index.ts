@@ -407,6 +407,26 @@ async function handleInboundSms(body: Record<string, unknown>): Promise<Response
     );
   }
 
+  // ─── Queue for AI Routing (fire-and-forget) ───
+  // The message-router cron will classify intent, draft responses,
+  // and create ai_suggestions based on autonomy config.
+  supabase
+    .from("message_routing_queue")
+    .insert({
+      channel: "sms",
+      external_message_id: rcMessageId,
+      sender_identifier: senderPhone,
+      recipient_identifier: toPhone,
+      message_text: messageText,
+      matched_entity_type: primaryMatch?.entity_type || null,
+      matched_entity_id: primaryMatch ? String(primaryMatch.entity.id) : null,
+      matched_entity_name: primaryMatch
+        ? `${primaryMatch.entity.first_name} ${primaryMatch.entity.last_name}`.trim()
+        : null,
+    })
+    .then(() => {})
+    .catch((err: any) => console.error("Message routing queue insert error:", err));
+
   return new Response(
     JSON.stringify({
       success: true,
