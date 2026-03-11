@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { getClientPhase } from './utils';
+import { evaluateAutomationConditions } from '../../../supabase/functions/_shared/helpers/automations.ts';
 import { resolveClientMergeFields, normalizeSequenceAction, shouldAutoEnroll, buildEnrollmentRecord } from './sequenceHelpers';
 
 // ═══════════════════════════════════════════════════════════════
@@ -17,27 +18,16 @@ import { resolveClientMergeFields, normalizeSequenceAction, shouldAutoEnroll, bu
 /**
  * Evaluate whether a rule's conditions match the current client + trigger context.
  * Returns true if the rule should fire, false if it should be skipped.
+ * Delegates to shared evaluateAutomationConditions with client phase.
  */
 function evaluateConditions(rule, client, triggerContext) {
-  const conds = rule.conditions || {};
-
-  // Phase filter: only fire if client is currently in a specific phase
-  if (conds.phase && getClientPhase(client) !== conds.phase) return false;
-
-  // For phase_change trigger: match target phase
-  if (conds.to_phase && triggerContext.to_phase !== conds.to_phase) return false;
-
-  // For task_completed trigger: match specific task ID
-  if (conds.task_id && triggerContext.task_id !== conds.task_id) return false;
-
-  // For inbound_sms trigger: match keyword in message text (case-insensitive)
-  if (conds.keyword) {
-    const messageText = (triggerContext.message_text || '').toLowerCase();
-    if (!messageText.includes(conds.keyword.toLowerCase())) return false;
-  }
-
-  return true;
+  return evaluateAutomationConditions(
+    rule.conditions || {},
+    getClientPhase(client),
+    triggerContext,
+  );
 }
+
 
 /**
  * Fire all enabled automation rules matching a trigger type for clients.
