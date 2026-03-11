@@ -36,8 +36,14 @@ export interface EntityContext {
   email: string;
   entity_type: string;
   phase: string;
-  recent_notes: Array<{ text: string; type: string; timestamp: number; author: string }>;
+  recent_notes: Array<{ text: string; type: string; timestamp: number; author: string; direction?: string }>;
   incomplete_tasks: string[];
+  // Enrichment fields (all optional — failures silently skipped)
+  business_context?: string;
+  conversation_history?: Array<{ direction: string; text: string; timestamp: number }>;
+  calendar_summary?: string;
+  task_labels?: Record<string, string>;
+  recent_events?: Array<{ event_type: string; created_at: string }>;
 }
 
 // ─── Constants ───
@@ -80,7 +86,9 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a message classifier for a home care s
 Given an inbound message from a caregiver or client, classify the intent and suggest a response.
 
 Rules:
-- Be warm and professional in drafted responses.
+- Be warm and professional in drafted responses. Use first names.
+- Use business context and calendar info to give specific, actionable answers.
+- NEVER use [DATE/TIME] or [PLACEHOLDER] brackets — if info is missing, say you'll check and get back to them.
 - If the message is a simple confirmation (yes, ok, sure), mark intent as "confirmation".
 - If the message mentions documents, forms, or uploads, mark intent as "document_submission".
 - If the message asks about schedule, availability, or times, mark intent as "scheduling_request".
@@ -109,20 +117,60 @@ export async function classifyMessage(
 
   // Build entity context summary (token-efficient)
   const recentNotesSummary = entityContext.recent_notes
-    .slice(0, 3)
-    .map((n) => `[${n.type}] ${n.text.slice(0, 80)}`)
+    .slice(0, 5)
+    .map((n) => `[${n.type}] ${n.text.slice(0, 120)}`)
     .join("\n");
 
-  const tasksSummary = entityContext.incomplete_tasks.length > 0
-    ? entityContext.incomplete_tasks.slice(0, 5).join(", ")
-    : "none";
+  // Build tasks with human-readable labels if available
+  let tasksSummary: string;
+  if (entityContext.incomplete_tasks.length === 0) {
+    tasksSummary = "none";
+  } else if (entityContext.task_labels && Object.keys(entityContext.task_labels).length > 0) {
+    tasksSummary = entityContext.incomplete_tasks
+      .slice(0, 5)
+      .map((id) => entityContext.task_labels![id] || id)
+      .join(", ");
+  } else {
+    tasksSummary = entityContext.incomplete_tasks.slice(0, 5).join(", ");
+  }
+
+  // Build enrichment sections (each conditional, capped)
+  const sections: string[] = [];
+
+  // Business context
+  if (entityContext.business_context) {
+    sections.push(`Business context:\n${entityContext.business_context.slice(0, 1600)}`);
+  }
+
+  // Conversation history (SMS thread)
+  if (entityContext.conversation_history && entityContext.conversation_history.length > 0) {
+    const convoLines = entityContext.conversation_history
+      .map((m) => `${m.direction === "inbound" ? "Them" : "Us"}: ${m.text}`)
+      .join("\n");
+    sections.push(`Recent conversation:\n${convoLines}`);
+  }
+
+  // Calendar summary
+  if (entityContext.calendar_summary) {
+    sections.push(`Upcoming calendar (next 7 days):\n${entityContext.calendar_summary.slice(0, 800)}`);
+  }
+
+  // Recent events
+  if (entityContext.recent_events && entityContext.recent_events.length > 0) {
+    const eventLines = entityContext.recent_events
+      .map((e) => `${e.event_type} at ${e.created_at}`)
+      .join(", ");
+    sections.push(`Recent events: ${eventLines}`);
+  }
+
+  const enrichmentBlock = sections.length > 0 ? "\n" + sections.join("\n\n") + "\n" : "";
 
   const userMessage = `Entity: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.phase}) — ${entityContext.entity_type}
 Channel: ${channel}
 Recent activity:
 ${recentNotesSummary || "No recent notes"}
 Pending tasks: ${tasksSummary}
-
+${enrichmentBlock}
 Inbound message: "${messageText}"
 
 Respond with JSON:
@@ -287,11 +335,185 @@ export async function recordAutonomyOutcome(
   };
 }
 
+// ─── Context Enrichment Helpers ───
+
+/**
+ * Fetch business context from app_settings (ai_business_context key).
+ * Returns the stored text or empty string on failure.
+ */
+export async function fetchBusinessContext(supabase: any): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "ai_business_context")
+      .single();
+    if (data?.value && typeof data.value === "string") {
+      return data.value;
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Extract SMS conversation history from notes array.
+ * Returns last N SMS messages in chronological order with direction labels.
+ * Pure function — no API call.
+ */
+export function extractConversationHistory(
+  notes: Array<{ text: string; type: string; timestamp: number; direction?: string }>,
+  limit: number = 5,
+): Array<{ direction: string; text: string; timestamp: number }> {
+  return notes
+    .filter((n) => n.type === "sms" || n.type === "sms_received" || n.type === "sms_sent")
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)) // chronological
+    .slice(-limit)
+    .map((n) => ({
+      direction: n.direction === "inbound" || n.type === "sms_received" ? "inbound" : "outbound",
+      text: (n.text || "").slice(0, 200),
+      timestamp: n.timestamp || 0,
+    }));
+}
+
+/**
+ * Fetch calendar events for the next 7 days via outlook-integration Edge Function.
+ * Uses a 3-second AbortController timeout to avoid blocking the pipeline.
+ * Returns formatted calendar summary or empty string on failure/timeout.
+ */
+export async function fetchCalendarContext(): Promise<string> {
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return "";
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    const now = new Date();
+    const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({
+        action: "get_calendar_events",
+        start_date: now.toISOString().split("T")[0],
+        end_date: weekFromNow.toISOString().split("T")[0],
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) return "";
+    const data = await response.json();
+
+    if (!data.events || !Array.isArray(data.events) || data.events.length === 0) {
+      return "No upcoming calendar events in the next 7 days.";
+    }
+
+    // Format events concisely
+    const formatted = data.events
+      .slice(0, 10) // cap at 10 events
+      .map((e: any) => {
+        const start = e.start?.dateTime
+          ? new Date(e.start.dateTime).toLocaleString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })
+          : "TBD";
+        return `${start}: ${(e.subject || "Untitled").slice(0, 60)}`;
+      })
+      .join("\n");
+
+    return formatted.slice(0, 800);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Resolve task IDs to human-readable labels using phase_tasks from app_data.
+ * Returns a map of taskId → label string.
+ */
+export async function resolveTaskLabels(
+  supabase: any,
+  taskIds: string[],
+): Promise<Record<string, string>> {
+  if (taskIds.length === 0) return {};
+
+  try {
+    const { data } = await supabase
+      .from("app_data")
+      .select("value")
+      .eq("key", "phase_tasks")
+      .single();
+
+    if (!data?.value) return {};
+
+    const phaseTasks = data.value as Record<string, Array<{ id: string; label: string }>>;
+    const labelMap: Record<string, string> = {};
+
+    // Build lookup from all phases
+    for (const tasks of Object.values(phaseTasks)) {
+      if (!Array.isArray(tasks)) continue;
+      for (const task of tasks) {
+        if (task.id && task.label) {
+          labelMap[task.id] = task.label;
+        }
+      }
+    }
+
+    // Map requested taskIds to labels
+    const result: Record<string, string> = {};
+    for (const id of taskIds) {
+      result[id] = labelMap[id] || id; // fallback to raw ID
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Fetch recent events from the events table for the entity.
+ * Returns last N events in reverse chronological order.
+ */
+export async function fetchRecentEvents(
+  supabase: any,
+  entityId: string,
+  limit: number = 5,
+): Promise<Array<{ event_type: string; created_at: string }>> {
+  try {
+    const { data } = await supabase
+      .from("events")
+      .select("event_type, created_at")
+      .eq("entity_id", entityId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    return (data || []).map((e: any) => ({
+      event_type: e.event_type || "",
+      created_at: e.created_at || "",
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── Entity Context Fetcher ───
 
 /**
  * Fetch entity context for the classifier.
- * Pulls recent notes, current phase, and incomplete tasks.
+ * Pulls recent notes, current phase, incomplete tasks, and enrichment context.
  */
 export async function fetchEntityContext(
   supabase: any,
@@ -346,7 +568,7 @@ export async function fetchEntityContext(
     (k) => !tasks[k]?.completed,
   );
 
-  return {
+  const context: EntityContext = {
     id: entity.id,
     first_name: entity.first_name || "",
     last_name: entity.last_name || "",
@@ -357,6 +579,33 @@ export async function fetchEntityContext(
     recent_notes: recentNotes,
     incomplete_tasks: incompleteTasks,
   };
+
+  // ─── Enrichment (parallel, all optional) ───
+  // Pure function — no await needed
+  context.conversation_history = extractConversationHistory(allNotes);
+
+  // Async enrichments via Promise.allSettled (failures silently skipped)
+  const [bizCtx, calCtx, taskLabels, recentEvts] = await Promise.allSettled([
+    fetchBusinessContext(supabase),
+    fetchCalendarContext(),
+    resolveTaskLabels(supabase, incompleteTasks),
+    fetchRecentEvents(supabase, entity.id),
+  ]);
+
+  if (bizCtx.status === "fulfilled" && bizCtx.value) {
+    context.business_context = bizCtx.value;
+  }
+  if (calCtx.status === "fulfilled" && calCtx.value) {
+    context.calendar_summary = calCtx.value;
+  }
+  if (taskLabels.status === "fulfilled" && Object.keys(taskLabels.value).length > 0) {
+    context.task_labels = taskLabels.value;
+  }
+  if (recentEvts.status === "fulfilled" && recentEvts.value.length > 0) {
+    context.recent_events = recentEvts.value;
+  }
+
+  return context;
 }
 
 // ─── Suggestion Creation ───

@@ -875,6 +875,148 @@ function WebhookStatus({ showToast }) {
   );
 }
 
+// ─── AI Business Context Settings ───
+function BusinessContextSettings({ showToast }) {
+  const [value, setValue] = useState('');
+  const [editValue, setEditValue] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'ai_business_context')
+          .single();
+        if (error) throw error;
+        setValue(typeof data?.value === 'string' ? data.value : '');
+      } catch {
+        setValue('');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const startEdit = useCallback(() => {
+    setEditValue(value);
+    setEditing(true);
+  }, [value]);
+
+  const save = useCallback(async () => {
+    const trimmed = editValue.trim();
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert(
+          { key: 'ai_business_context', value: trimmed, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      setValue(trimmed);
+      setEditing(false);
+      showToast?.('AI business context updated!');
+    } catch (err) {
+      console.error('Failed to save business context:', err);
+      showToast?.('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [editValue, showToast]);
+
+  if (loading) {
+    return (
+      <SettingsCard title="AI Business Context" description="Message Classifier Knowledge">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  const hasContent = value && value.length > 0;
+  const preview = hasContent ? (value.length > 200 ? value.slice(0, 200) + '...' : value) : '(not configured)';
+
+  return (
+    <SettingsCard title="AI Business Context" description="Message Classifier Knowledge">
+      {/* Status */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+        padding: '10px 14px',
+        background: hasContent ? '#F0FDF4' : '#FFFBEB',
+        borderRadius: 10,
+        border: `1px solid ${hasContent ? '#BBF7D0' : '#FDE68A'}`,
+      }}>
+        <div style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: hasContent ? '#22C55E' : '#EAB308',
+        }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: hasContent ? '#15803D' : '#A16207' }}>
+          {hasContent ? 'Configured' : 'Not configured — classifier uses generic responses'}
+        </span>
+      </div>
+
+      {!editing ? (
+        <div>
+          <div style={{
+            fontSize: 13, color: '#0F1724', whiteSpace: 'pre-wrap', lineHeight: 1.6,
+            padding: '12px 14px', background: '#F8F9FB', borderRadius: 10,
+            border: '1px solid #E0E4EA', marginBottom: 12,
+          }}>
+            {preview}
+          </div>
+          <button
+            className={btn.editBtn}
+            onClick={startEdit}
+            onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+            onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+          >
+            {hasContent ? 'Edit' : 'Set Up'}
+          </button>
+          <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 10, lineHeight: 1.5 }}>
+            This context is included when the AI classifier drafts responses to inbound messages.
+            Add your office address, orientation schedule, document requirements, and response style
+            so the AI gives specific answers instead of generic placeholders.
+          </div>
+        </div>
+      ) : (
+        <div>
+          <label className={forms.fieldLabel}>Business Context</label>
+          <textarea
+            className={forms.fieldInput}
+            style={{ minHeight: 200, fontFamily: 'inherit', lineHeight: 1.6, resize: 'vertical' }}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            placeholder={'Tremendous Care — Home Care Staffing Agency\nOffice: 123 Main St, Suite 100, Irvine CA 92618\nOrientation Schedule: Every Tuesday and Thursday, 9am-12pm\n\nDocument Requirements:\n- Valid HCA registration\n- Driver\'s license\n- TB test (within 1 year)\n- CPR/First Aid certification\n- Live Scan fingerprinting\n\nResponse Style: Warm, professional, concise. Use first names. SMS under 160 chars.'}
+            autoFocus
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button
+              className={btn.primaryBtn}
+              style={{ padding: '9px 20px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
+              onClick={save}
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              className={btn.secondaryBtn}
+              style={{ padding: '9px 20px', fontSize: 13 }}
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
 // ─── Main Admin Settings Page ───
 export function AdminSettings({ showToast, currentUserEmail }) {
   return (
@@ -895,6 +1037,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* AI Autonomy Levels */}
       <div style={{ marginBottom: 20 }}>
         <AutonomySettings showToast={showToast} />
+      </div>
+
+      {/* AI Business Context */}
+      <div style={{ marginBottom: 20 }}>
+        <BusinessContextSettings showToast={showToast} />
       </div>
 
       {/* Automation Engine */}
