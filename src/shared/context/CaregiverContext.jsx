@@ -54,7 +54,18 @@ export function CaregiverProvider({ children }) {
           if (!updatedRow?.id) return;
           const mapped = dbToCaregiver(updatedRow);
           setCaregivers((prev) =>
-            prev.map((cg) => cg.id === mapped.id ? { ...cg, ...mapped } : cg)
+            prev.map((cg) => {
+              if (cg.id !== mapped.id) return cg;
+              // Protect board fields: don't let a realtime update overwrite
+              // a local board placement with a null/empty value
+              const safeMapped = { ...mapped };
+              if (!safeMapped.boardStatus && cg.boardStatus) {
+                safeMapped.boardStatus = cg.boardStatus;
+                safeMapped.boardNote = cg.boardNote;
+                safeMapped.boardMovedAt = cg.boardMovedAt;
+              }
+              return { ...cg, ...safeMapped };
+            })
           );
         }
       )
