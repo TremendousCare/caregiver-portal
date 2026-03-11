@@ -8,6 +8,7 @@ import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
+import { AutonomySettings } from './AutonomySettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -889,6 +890,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* User Management */}
       <div style={{ marginBottom: 20 }}>
         <UserManagement showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* AI Autonomy Levels */}
+      <div style={{ marginBottom: 20 }}>
+        <AutonomySettings showToast={showToast} />
       </div>
 
       {/* Automation Engine */}
