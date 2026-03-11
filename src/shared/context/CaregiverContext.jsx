@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getCurrentPhase } from '../../lib/utils';
 import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver } from '../../lib/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
@@ -7,6 +7,11 @@ import { useApp } from './AppContext';
 
 const CaregiverContext = createContext();
 
+// How long to wait before flushing debounced board saves (ms)
+const BOARD_SAVE_DELAY = 500;
+// How long to suppress Realtime echoes for locally-modified records (ms)
+const RT_SUPPRESS_WINDOW = 3000;
+
 export function CaregiverProvider({ children }) {
   const { showToast, currentUserName } = useApp();
 
@@ -14,6 +19,13 @@ export function CaregiverProvider({ children }) {
   const [loaded, setLoaded] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [filterPhase, setFilterPhase] = useState('all');
+
+  // ─── Debounced board save buffer ───
+  // Collects individual board status changes and flushes them as a single bulk save
+  const boardSaveBuffer = useRef(new Map()); // cgId → caregiver object
+  const boardSaveTimer = useRef(null);
+  // Track recently-modified IDs to suppress Realtime echoes
+  const recentLocalEdits = useRef(new Map()); // cgId → timestamp
 
   // ─── Load data on mount (with retry) ───
   useEffect(() => {
@@ -52,6 +64,9 @@ export function CaregiverProvider({ children }) {
         (payload) => {
           const updatedRow = payload.new;
           if (!updatedRow?.id) return;
+          // Suppress Realtime echoes for records we just modified locally
+          const editedAt = recentLocalEdits.current.get(updatedRow.id);
+          if (editedAt && Date.now() - editedAt < RT_SUPPRESS_WINDOW) return;
           const mapped = dbToCaregiver(updatedRow);
           setCaregivers((prev) =>
             prev.map((cg) => {
@@ -218,6 +233,18 @@ export function CaregiverProvider({ children }) {
     }
   }, [showToast]);
 
+  // Flush all buffered board status changes as a single bulk save
+  const flushBoardSaves = useCallback(() => {
+    const pending = Array.from(boardSaveBuffer.current.values());
+    boardSaveBuffer.current.clear();
+    if (pending.length === 0) return;
+    if (pending.length === 1) {
+      saveCaregiver(pending[0]).catch(() => showToast('Failed to save — check your connection'));
+    } else {
+      saveCaregiversBulk(pending).catch(() => showToast('Failed to save — check your connection'));
+    }
+  }, [showToast]);
+
   const updateBoardStatus = useCallback((cgId, status) => {
     let changed;
     setCaregivers((prev) =>
@@ -227,8 +254,15 @@ export function CaregiverProvider({ children }) {
         return changed;
       })
     );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
-  }, [showToast]);
+    if (changed) {
+      // Mark as locally edited so Realtime echoes are suppressed
+      recentLocalEdits.current.set(cgId, Date.now());
+      // Buffer the save — will flush after BOARD_SAVE_DELAY ms of inactivity
+      boardSaveBuffer.current.set(cgId, changed);
+      clearTimeout(boardSaveTimer.current);
+      boardSaveTimer.current = setTimeout(flushBoardSaves, BOARD_SAVE_DELAY);
+    }
+  }, [flushBoardSaves]);
 
   const updateBoardNote = useCallback((cgId, note) => {
     let changed;
