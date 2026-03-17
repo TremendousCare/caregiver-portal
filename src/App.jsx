@@ -71,13 +71,14 @@ function DashboardPage() {
 
 function BoardPage() {
   const navigate = useNavigate();
-  const { activeCaregivers, updateBoardStatus, updateBoardNote, addNote } = useCaregivers();
+  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, addNote } = useCaregivers();
 
   return (
     <KanbanBoard
       caregivers={activeCaregivers}
       onUpdateStatus={updateBoardStatus}
       onUpdateNote={updateBoardNote}
+      onUpdateLabels={updateBoardLabels}
       onAddNote={addNote}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
     />

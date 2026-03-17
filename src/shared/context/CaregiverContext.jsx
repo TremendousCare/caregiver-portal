@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getCurrentPhase } from '../../lib/utils';
-import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver } from '../../lib/storage';
+import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels } from '../../lib/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireEventTriggers } from '../../lib/automations';
 import { useApp } from './AppContext';
@@ -276,6 +276,18 @@ export function CaregiverProvider({ children }) {
     if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   }, [showToast]);
 
+  const updateBoardLabels = useCallback((cgId, labelIds) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        const updated = { ...cg, boardLabels: labelIds };
+        recentLocalEdits.current.set(cgId, Date.now());
+        saveCaregiver(updated).catch((err) => console.error('Save board labels failed:', err));
+        return updated;
+      })
+    );
+  }, []);
+
   const updateCaregiver = useCallback((cgId, updates) => {
     let changed;
     let oldPhase;
@@ -399,7 +411,7 @@ export function CaregiverProvider({ children }) {
       filterPhase, setFilterPhase,
       addCaregiver, updateTask, updateTasksBulk, addNote,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
-      updateBoardStatus, updateBoardNote, updateCaregiver,
+      updateBoardStatus, updateBoardNote, updateBoardLabels, updateCaregiver,
       refreshTasks,
       bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
     }}>
