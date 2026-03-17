@@ -859,3 +859,196 @@
   opacity: 0.7;
   margin-bottom: 12px;
 }
+
+/* ─── Board Labels ─────────────────────────────────────────── */
+
+.cardStripe {
+  height: 6px;
+  border-radius: 7px 7px 0 0;
+  margin: -8px -10px 6px;
+  transition: background 0.15s;
+}
+
+.cardLabels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.labelChip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #fff;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+}
+
+.labelPickerToggle {
+  background: none;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #6B7B8F;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.labelPickerToggle:hover {
+  background: #F0F3F7;
+  color: #1A1A1A;
+}
+
+.labelPickerDropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 8px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  margin-top: 4px;
+}
+
+.labelPickerTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6B7B8F;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.labelPickerItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1A1A1A;
+  transition: background 0.1s;
+  border: none;
+  background: none;
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+}
+
+.labelPickerItem:hover {
+  background: #F5F7FA;
+}
+
+.labelPickerSwatch {
+  width: 24px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.labelPickerCheck {
+  margin-left: auto;
+  font-size: 13px;
+  color: #16A34A;
+  font-weight: 700;
+}
+
+.labelFormRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0F3F7;
+}
+
+.labelFormSwatch {
+  width: 32px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.1s;
+}
+
+.labelFormSwatch:hover {
+  transform: scale(1.1);
+}
+
+.labelFormName {
+  flex: 1;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  font-family: inherit;
+  color: #1A1A1A;
+  outline: none;
+}
+
+.labelFormName:focus {
+  border-color: #29BEE4;
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+}
+
+.labelFormDelete {
+  background: none;
+  border: none;
+  color: #A0AEC0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.labelFormDelete:hover {
+  color: #DC3545;
+  background: #FEF2F2;
+}
+
+.labelFormAdd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 0;
+  margin-top: 4px;
+}
+
+.labelColorPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.labelColorOption {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.labelColorOption:hover {
+  transform: scale(1.15);
+}
+
+.cardTopRight {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  position: relative;
+}
