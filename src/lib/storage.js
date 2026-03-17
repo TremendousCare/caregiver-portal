@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase';
-import { DEFAULT_PHASE_TASKS, DEFAULT_BOARD_COLUMNS } from './constants';
+import { DEFAULT_PHASE_TASKS, DEFAULT_BOARD_COLUMNS, DEFAULT_BOARD_LABELS } from './constants';
 
 // ═══════════════════════════════════════════════════════════════
 // Storage Abstraction Layer
@@ -226,6 +226,31 @@ export const saveBoardColumns = async (columns) => {
   }
 };
 
+// ─── Board Labels ────────────────────────────────────────────
+
+export const loadBoardLabels = async () => {
+  try {
+    if (isSupabaseConfigured()) {
+      const val = await supabaseGetKV('board_labels');
+      if (val) return typeof val === 'string' ? JSON.parse(val) : val;
+    }
+    return localGet('tc-board-labels-v1') || DEFAULT_BOARD_LABELS;
+  } catch {
+    return DEFAULT_BOARD_LABELS;
+  }
+};
+
+export const saveBoardLabels = async (labels) => {
+  try {
+    if (isSupabaseConfigured()) {
+      await supabaseSetKV('board_labels', labels);
+    }
+    localSet('tc-board-labels-v1', labels);
+  } catch (e) {
+    console.error('saveBoardLabels failed:', e);
+  }
+};
+
 // ─── Orientation Data ────────────────────────────────────────
 
 export const loadOrientationData = async () => {
@@ -295,6 +320,7 @@ export const dbToCaregiver = (row) => ({
   boardStatus: row.board_status,
   boardNote: row.board_note,
   boardMovedAt: row.board_moved_at,
+  boardLabels: row.board_labels || [],
   archived: row.archived || false,
   archivedAt: row.archived_at,
   archiveReason: row.archive_reason,
@@ -341,6 +367,7 @@ const caregiverToDb = (cg) => ({
   board_status: cg.boardStatus || null,
   board_note: cg.boardNote || null,
   board_moved_at: cg.boardMovedAt || null,
+  board_labels: cg.boardLabels || [],
   archived: cg.archived || false,
   archived_at: cg.archivedAt || null,
   archive_reason: cg.archiveReason || null,
