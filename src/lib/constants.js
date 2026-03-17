@@ -174,6 +174,23 @@ export const DEFAULT_BOARD_COLUMNS = [
 export const COLUMN_ICONS = ['🚀', '✅', '⏸️', '🔄', '⭐', '📋', '🏠', '💼', '🔒', '📌', '🎯', '❄️', '🔥', '👥', '💤', '🚫'];
 export const COLUMN_COLORS = ['#2E4E8D', '#29BEE4', '#1084C3', '#16A34A', '#D97706', '#8B5CF6', '#DC3545', '#0EA5C9', '#059669', '#7C3AED', '#DB2777', '#EA580C', '#4F46E5', '#0D9488'];
 
+// ─── Default Board Labels ───────────────────────────────────
+export const DEFAULT_BOARD_LABELS = [
+  { id: 'urgent', name: 'Urgent', color: '#DC3545' },
+  { id: 'bilingual', name: 'Bilingual', color: '#8B5CF6' },
+  { id: 'live_in', name: 'Live-In OK', color: '#16A34A' },
+  { id: 'experienced', name: 'Experienced (5+ yrs)', color: '#D97706' },
+  { id: 'new_hire', name: 'New Hire', color: '#29BEE4' },
+  { id: 'pending_docs', name: 'Pending Docs', color: '#EA580C' },
+];
+
+// ─── Label Colors (for label color picker) ──────────────────
+export const LABEL_COLORS = [
+  '#DC3545', '#EA580C', '#D97706', '#16A34A', '#059669',
+  '#0EA5C9', '#29BEE4', '#2E4E8D', '#4F46E5', '#8B5CF6',
+  '#DB2777', '#6B7280',
+];
+
 // ─── Document Types for SharePoint Integration ──────────────
 // ─── DocuSign Envelope Statuses ─────────────────────────────
 export const DOCUSIGN_STATUSES = {
