@@ -1506,3 +1506,108 @@
   color: #DC3545;
   background: #FEF2F2;
 }
+
+/* ─── Modal Add-to-Card Bar (Trello-style) ─────────────────── */
+
+.modalAddBar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #E2E8F0;
+  flex-wrap: wrap;
+}
+
+.modalAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid #E2E8F0;
+  background: #F5F7FA;
+  color: #556270;
+  transition: all 0.15s;
+}
+
+.modalAddBtn:hover {
+  background: #EBF5FB;
+  border-color: #29BEE4;
+  color: #2E4E8D;
+}
+
+.modalAddBtnActive {
+  background: #2E4E8D;
+  border-color: #2E4E8D;
+  color: #fff;
+}
+
+.modalAddBtnActive:hover {
+  background: #253F73;
+  border-color: #253F73;
+  color: #fff;
+}
+
+/* ─── Inline Panel (Due Date picker) ───────────────────────── */
+
+.modalInlinePanel {
+  padding: 12px 20px;
+  background: #F9FAFB;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.modalInlinePanelTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6B7B8F;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.dueDateInput {
+  padding: 6px 10px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1A1A1A;
+  outline: none;
+}
+
+.dueDateInput:focus {
+  border-color: #29BEE4;
+  box-shadow: 0 0 0 3px rgba(41,190,228,0.12);
+}
+
+.dueDateClearBtn {
+  background: none;
+  border: none;
+  color: #DC3545;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.dueDateClearBtn:hover {
+  background: #FEF2F2;
+}
+
+/* ─── Date Badges (card face) ──────────────────────────────── */
+
+.dateBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.1px;
+}

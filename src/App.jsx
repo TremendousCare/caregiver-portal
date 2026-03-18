@@ -71,7 +71,7 @@ function DashboardPage() {
 
 function BoardPage() {
   const navigate = useNavigate();
-  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, addNote } = useCaregivers();
+  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, addNote } = useCaregivers();
   const { currentUserName } = useApp();
 
   return (
@@ -81,6 +81,7 @@ function BoardPage() {
       onUpdateNote={updateBoardNote}
       onUpdateLabels={updateBoardLabels}
       onUpdateChecklists={updateBoardChecklists}
+      onUpdateDueDate={updateBoardDueDate}
       onAddNote={addNote}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
       currentUserName={currentUserName}

@@ -3,6 +3,7 @@ import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS, DEFAULT_BOA
 import { getCurrentPhase, getOverallProgress, getPhaseProgress } from '../../lib/utils';
 import { loadBoardColumns, saveBoardColumns, loadBoardLabels, saveBoardLabels, loadChecklistTemplates, saveChecklistTemplates } from '../../lib/storage';
 import { getCardChecklistSummary } from '../../lib/checklistUtils';
+import { getDueDateBadge, getHcaBadge } from '../../lib/badgeUtils';
 import ChecklistSection from './ChecklistSection';
 import kb from './KanbanBoard.module.css';
 import btn from '../../styles/buttons.module.css';
@@ -293,7 +294,7 @@ function AddLabelRow({ onAdd }) {
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, currentUserName }) {
+export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, onUpdateDueDate, currentUserName }) {
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
@@ -318,6 +319,9 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [checklistTemplates, setChecklistTemplates] = useState([]);
   const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(false);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
+
+  // ─── Modal add-to-card menu state ───
+  const [modalAddMenu, setModalAddMenu] = useState(null);
 
   useEffect(() => {
     loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
@@ -675,6 +679,18 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                         );
                       })()}
 
+                      {(() => {
+                        const dueBadge = getDueDateBadge(cg.boardDueDate);
+                        const hcaBadge = getHcaBadge(cg.hcaExpiration);
+                        if (!dueBadge && !hcaBadge) return null;
+                        return (
+                          <div className={kb.cardBadges}>
+                            {dueBadge && <span className={kb.dateBadge} style={{ color: dueBadge.color, background: dueBadge.bg }}>{dueBadge.label}</span>}
+                            {hcaBadge && <span className={kb.dateBadge} style={{ color: hcaBadge.color, background: hcaBadge.bg }}>{hcaBadge.label}</span>}
+                          </div>
+                        );
+                      })()}
+
                       <div className={kb.cardTop}>
                         <div className={kb.cardName} onClick={() => setModalCgId(cg.id)}>{cg.firstName} {cg.lastName}</div>
                         <div className={kb.cardTopRight}>
@@ -751,8 +767,37 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     </div>
                   )}
                 </div>
-                <button className={kb.modalCloseBtn} onClick={() => { setModalCgId(null); setModalNote(''); }}>&#10005;</button>
+                <button className={kb.modalCloseBtn} onClick={() => { setModalCgId(null); setModalNote(''); setModalAddMenu(null); }}>&#10005;</button>
               </div>
+
+              <div className={kb.modalAddBar}>
+                <button className={`${kb.modalAddBtn} ${modalAddMenu === 'labels' ? kb.modalAddBtnActive : ''}`} onClick={() => setModalAddMenu(modalAddMenu === 'labels' ? null : 'labels')}>
+                  Labels
+                </button>
+                <button className={`${kb.modalAddBtn} ${modalAddMenu === 'duedate' ? kb.modalAddBtnActive : ''}`} onClick={() => setModalAddMenu(modalAddMenu === 'duedate' ? null : 'duedate')}>
+                  Due Date
+                </button>
+                <button className={`${kb.modalAddBtn} ${modalAddMenu === 'checklist' ? kb.modalAddBtnActive : ''}`} onClick={() => setModalAddMenu(modalAddMenu === 'checklist' ? null : 'checklist')}>
+                  Checklist
+                </button>
+              </div>
+
+              {modalAddMenu === 'duedate' && (
+                <div className={kb.modalInlinePanel}>
+                  <div className={kb.modalInlinePanelTitle}>Set Due Date</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="date"
+                      className={kb.dueDateInput}
+                      value={cg.boardDueDate || ''}
+                      onChange={(e) => { onUpdateDueDate(cg.id, e.target.value || null); }}
+                    />
+                    {cg.boardDueDate && (
+                      <button className={kb.dueDateClearBtn} onClick={() => onUpdateDueDate(cg.id, null)}>Remove</button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className={kb.modalBody}>
                 <div className={kb.modalSection}>
@@ -808,6 +853,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                   </div>
                 </div>
 
+                {(modalAddMenu === 'labels' || (cg.boardLabels || []).length > 0) && (
                 <div className={kb.modalSection}>
                   <div className={kb.modalSectionTitle}>Labels</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -836,7 +882,9 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     })}
                   </div>
                 </div>
+                )}
 
+                {(modalAddMenu === 'checklist' || (cg.boardChecklists || []).length > 0) && (
                 <div className={kb.modalSection}>
                   <div className={kb.modalSectionTitle}>Checklists</div>
                   <ChecklistSection
@@ -847,6 +895,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     currentUserName={currentUserName}
                   />
                 </div>
+                )}
 
                 <div className={kb.modalSection}>
                   <div className={kb.modalSectionTitle}>Move to Column</div>

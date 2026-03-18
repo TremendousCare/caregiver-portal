@@ -300,6 +300,18 @@ export function CaregiverProvider({ children }) {
     );
   }, []);
 
+  const updateBoardDueDate = useCallback((cgId, dueDate) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        const updated = { ...cg, boardDueDate: dueDate };
+        recentLocalEdits.current.set(cgId, Date.now());
+        saveCaregiver(updated).catch((err) => console.error('Save board due date failed:', err));
+        return updated;
+      })
+    );
+  }, []);
+
   const updateCaregiver = useCallback((cgId, updates) => {
     let changed;
     let oldPhase;
@@ -423,7 +435,7 @@ export function CaregiverProvider({ children }) {
       filterPhase, setFilterPhase,
       addCaregiver, updateTask, updateTasksBulk, addNote,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
-      updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateCaregiver,
+      updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateCaregiver,
       refreshTasks,
       bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
     }}>
