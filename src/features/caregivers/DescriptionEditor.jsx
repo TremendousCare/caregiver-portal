@@ -10,6 +10,7 @@ function ToolbarButton({ onClick, active, children, title }) {
     <button
       type="button"
       className={`${kb.editorToolBtn} ${active ? kb.editorToolBtnActive : ''}`}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       title={title}
     >
