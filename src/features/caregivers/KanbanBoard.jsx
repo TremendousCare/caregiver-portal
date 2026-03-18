@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS } from '../../lib/constants';
+import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS, DEFAULT_BOARD_LABELS, LABEL_COLORS } from '../../lib/constants';
 import { getCurrentPhase, getOverallProgress, getPhaseProgress } from '../../lib/utils';
-import { loadBoardColumns, saveBoardColumns } from '../../lib/storage';
+import { loadBoardColumns, saveBoardColumns, loadBoardLabels, saveBoardLabels } from '../../lib/storage';
 import kb from './KanbanBoard.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
@@ -202,11 +202,96 @@ export function OrientationBanner({ caregivers }) {
   );
 }
 
+// ─── Label Management Row ───────────────────────────────────
+function LabelFormRow({ label, onUpdate, onDelete }) {
+  const [showColors, setShowColors] = useState(false);
+
+  return (
+    <div>
+      <div className={kb.labelFormRow}>
+        <button
+          className={kb.labelFormSwatch}
+          style={{ background: label.color, ...(showColors ? { outline: '2px solid #1A1A1A', outlineOffset: 2 } : {}) }}
+          onClick={() => setShowColors(!showColors)}
+          title="Change color"
+        />
+        <input
+          className={kb.labelFormName}
+          value={label.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          placeholder="Label name"
+        />
+        <button className={kb.labelFormDelete} onClick={onDelete} title="Delete label">&#10005;</button>
+      </div>
+      {showColors && (
+        <div className={kb.labelColorPicker}>
+          {LABEL_COLORS.map((color) => (
+            <button
+              key={color}
+              className={kb.labelColorOption}
+              style={{ background: color, ...(label.color === color ? { outline: '2px solid #1A1A1A', outlineOffset: 2 } : {}) }}
+              onClick={() => { onUpdate({ color }); setShowColors(false); }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Add New Label Row ──────────────────────────────────────
+function AddLabelRow({ onAdd }) {
+  const [name, setName] = useState('');
+  const [color, setColor] = useState('#6B7280');
+  const [showColors, setShowColors] = useState(false);
+
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    onAdd(name.trim(), color);
+    setName('');
+    setColor('#6B7280');
+    setShowColors(false);
+  };
+
+  return (
+    <div>
+      <div className={kb.labelFormAdd}>
+        <button
+          className={kb.labelFormSwatch}
+          style={{ background: color }}
+          onClick={() => setShowColors(!showColors)}
+          title="Pick color"
+        />
+        <input
+          className={kb.labelFormName}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New label name..."
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+        />
+        <button className={`tc-btn-primary ${btn.primaryBtn}`} style={{ padding: '4px 12px', fontSize: 12 }} onClick={handleAdd}>Add</button>
+      </div>
+      {showColors && (
+        <div className={kb.labelColorPicker}>
+          {LABEL_COLORS.map((c) => (
+            <button
+              key={c}
+              className={kb.labelColorOption}
+              style={{ background: c, ...(color === c ? { outline: '2px solid #1A1A1A', outlineOffset: 2 } : {}) }}
+              onClick={() => { setColor(c); setShowColors(false); }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect }) {
+export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels }) {
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
@@ -220,6 +305,13 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [modalCgId, setModalCgId] = useState(null);
   const [modalNote, setModalNote] = useState('');
 
+  // ─── Label state ───
+  const [labels, setLabels] = useState(DEFAULT_BOARD_LABELS);
+  const [labelsLoaded, setLabelsLoaded] = useState(false);
+  const [showLabelManager, setShowLabelManager] = useState(false);
+  const [labelPickerCgId, setLabelPickerCgId] = useState(null);
+  const labelPickerRef = useRef(null);
+
   useEffect(() => {
     loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
   }, []);
@@ -227,6 +319,14 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   useEffect(() => {
     if (colsLoaded) saveBoardColumns(columns);
   }, [columns, colsLoaded]);
+
+  useEffect(() => {
+    loadBoardLabels().then((lbls) => { setLabels(lbls); setLabelsLoaded(true); });
+  }, []);
+
+  useEffect(() => {
+    if (labelsLoaded) saveBoardLabels(labels);
+  }, [labels, labelsLoaded]);
 
   const boardCaregivers = caregivers.filter(
     (cg) => cg.boardStatus || getOverallProgress(cg) === 100
@@ -297,6 +397,48 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
     });
   };
 
+  // ─── Label helpers ───
+  const addLabel = (name, color) => {
+    setLabels((prev) => [...prev, { id: 'lbl_' + Date.now().toString(36), name, color }]);
+  };
+
+  const updateLabel = (id, updates) => {
+    setLabels((prev) => prev.map((l) => l.id === id ? { ...l, ...updates } : l));
+  };
+
+  const deleteLabel = (id) => {
+    setLabels((prev) => prev.filter((l) => l.id !== id));
+    // Remove this label from all caregivers that have it
+    caregivers.forEach((cg) => {
+      if (cg.boardLabels?.includes(id)) {
+        const newLabels = cg.boardLabels.filter((lid) => lid !== id);
+        onUpdateLabels(cg.id, newLabels);
+      }
+    });
+  };
+
+  const toggleCaregiverLabel = (cgId, labelId) => {
+    const cg = caregivers.find((c) => c.id === cgId);
+    if (!cg) return;
+    const current = cg.boardLabels || [];
+    const newLabels = current.includes(labelId)
+      ? current.filter((id) => id !== labelId)
+      : [...current, labelId];
+    onUpdateLabels(cgId, newLabels);
+  };
+
+  // Close label picker on outside click
+  useEffect(() => {
+    if (!labelPickerCgId) return;
+    const handleClick = (e) => {
+      if (labelPickerRef.current && !labelPickerRef.current.contains(e.target)) {
+        setLabelPickerCgId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [labelPickerCgId]);
+
   const renderColumnForm = (isEdit) => (
     <div className={kb.colFormOverlay} onClick={() => { setShowAddCol(false); setEditingCol(null); }}>
       <div className={kb.colFormModal} onClick={(e) => e.stopPropagation()}>
@@ -342,9 +484,14 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
           <h1 className={layout.pageTitle}>Caregiver Board</h1>
           <p className={layout.pageSubtitle}>Manage deployed caregivers — drag cards between columns or use the move menu</p>
         </div>
-        <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setColForm({ label: '', icon: '', color: '#2E4E8D', description: '' }); setShowAddCol(true); setEditingCol(null); }}>
-          + Add Column
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowLabelManager(true)}>
+            Labels
+          </button>
+          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setColForm({ label: '', icon: '', color: '#2E4E8D', description: '' }); setShowAddCol(true); setEditingCol(null); }}>
+            + Add Column
+          </button>
+        </div>
       </div>
 
       {showAddCol && renderColumnForm(false)}
@@ -365,6 +512,32 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setConfirmDeleteCol(null)}>Cancel</button>
               <button className={btn.dangerBtn} onClick={() => deleteColumn(confirmDeleteCol)}>Delete Column</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Label Management Modal */}
+      {showLabelManager && (
+        <div className={kb.colFormOverlay} onClick={() => setShowLabelManager(false)}>
+          <div className={kb.colFormModal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>
+              Manage Labels
+            </h3>
+            <p style={{ fontSize: 12, color: '#6B7B8F', marginBottom: 12 }}>
+              Labels help categorize caregivers on the board. Click a color swatch to change it.
+            </p>
+            {labels.map((label) => (
+              <LabelFormRow
+                key={label.id}
+                label={label}
+                onUpdate={(updates) => updateLabel(label.id, updates)}
+                onDelete={() => deleteLabel(label.id)}
+              />
+            ))}
+            <AddLabelRow onAdd={addLabel} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => setShowLabelManager(false)}>Done</button>
             </div>
           </div>
         </div>
@@ -425,12 +598,47 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                       onDragEnd={() => setDragId(null)}
                       className={kb.card} style={{ ...(dragId === cg.id ? { opacity: 0.4 } : {}), borderLeft: `3px solid ${col.color}` }}
                     >
+                      {/* Card cover stripe — color of first label */}
+                      {(cg.boardLabels || []).length > 0 && (() => {
+                        const firstLabel = labels.find((l) => l.id === cg.boardLabels[0]);
+                        return firstLabel ? <div className={kb.cardStripe} style={{ background: firstLabel.color }} /> : null;
+                      })()}
+
+                      {/* Label chips */}
+                      {(cg.boardLabels || []).length > 0 && (
+                        <div className={kb.cardLabels}>
+                          {(cg.boardLabels || []).map((lid) => {
+                            const lbl = labels.find((l) => l.id === lid);
+                            if (!lbl) return null;
+                            return <span key={lid} className={kb.labelChip} style={{ background: lbl.color }}>{lbl.name}</span>;
+                          })}
+                        </div>
+                      )}
+
                       <div className={kb.cardTop}>
                         <div className={kb.cardName} onClick={() => setModalCgId(cg.id)}>{cg.firstName} {cg.lastName}</div>
-                        <div className={kb.cardMoveMenu}>
-                          <select className={kb.cardMoveSelect} value={cg.boardStatus} onChange={(e) => onUpdateStatus(cg.id, e.target.value)}>
-                            {columns.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-                          </select>
+                        <div className={kb.cardTopRight}>
+                          <button className={kb.labelPickerToggle} onClick={(e) => { e.stopPropagation(); setLabelPickerCgId(labelPickerCgId === cg.id ? null : cg.id); }} title="Labels">&#9679;</button>
+                          {labelPickerCgId === cg.id && (
+                            <div className={kb.labelPickerDropdown} ref={labelPickerRef} onClick={(e) => e.stopPropagation()}>
+                              <div className={kb.labelPickerTitle}>Labels</div>
+                              {labels.map((lbl) => {
+                                const isActive = (cg.boardLabels || []).includes(lbl.id);
+                                return (
+                                  <button key={lbl.id} className={kb.labelPickerItem} onClick={() => toggleCaregiverLabel(cg.id, lbl.id)}>
+                                    <span className={kb.labelPickerSwatch} style={{ background: lbl.color }} />
+                                    <span>{lbl.name}</span>
+                                    {isActive && <span className={kb.labelPickerCheck}>&#10003;</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <div className={kb.cardMoveMenu}>
+                            <select className={kb.cardMoveSelect} value={cg.boardStatus} onChange={(e) => onUpdateStatus(cg.id, e.target.value)}>
+                              {columns.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                            </select>
+                          </div>
                         </div>
                       </div>
                       <div className={kb.cardDetails}>
@@ -536,6 +744,35 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     {PHASES.map((p) => {
                       const { pct } = getPhaseProgress(cg, p.id);
                       return <span key={p.id} className={kb.modalPhasePill} style={{ color: pct === 100 ? '#16A34A' : '#6B7B8F' }}>{pct === 100 ? '\u2713 ' : ''}{p.icon} {p.short}</span>;
+                    })}
+                  </div>
+                </div>
+
+                <div className={kb.modalSection}>
+                  <div className={kb.modalSectionTitle}>Labels</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {labels.map((lbl) => {
+                      const isActive = (cg.boardLabels || []).includes(lbl.id);
+                      return (
+                        <button
+                          key={lbl.id}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            border: isActive ? `2px solid ${lbl.color}` : '2px solid #E2E8F0',
+                            background: isActive ? lbl.color : '#fff',
+                            color: isActive ? '#fff' : lbl.color,
+                            transition: 'all 0.1s',
+                          }}
+                          onClick={() => toggleCaregiverLabel(cg.id, lbl.id)}
+                        >
+                          {lbl.name}
+                        </button>
+                      );
                     })}
                   </div>
                 </div>
