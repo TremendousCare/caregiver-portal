@@ -3,6 +3,51 @@
    Converted from theme.js boardStyles + orientStyles objects
    ═══════════════════════════════════════════════════════════════ */
 
+/* ─── Search Box ──────────────────────────────────────────── */
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #F0F3F7;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.searchBox:focus-within {
+  background: #fff;
+  border-color: #2E4E8D;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: #1A1A1A;
+  width: 160px;
+}
+
+.searchInput::placeholder {
+  color: #8896A6;
+}
+
+.searchClear {
+  border: none;
+  background: none;
+  color: #8896A6;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.searchClear:hover {
+  color: #1A1A1A;
+}
+
 /* ─── Unassigned Banner ─────────────────────────────────────── */
 
 .unassignedBanner {

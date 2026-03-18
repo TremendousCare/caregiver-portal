@@ -309,6 +309,9 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [modalCgId, setModalCgId] = useState(null);
   const [modalNote, setModalNote] = useState('');
 
+  // ─── Search state ───
+  const [searchTerm, setSearchTerm] = useState('');
+
   // ─── Label state ───
   const [labels, setLabels] = useState(DEFAULT_BOARD_LABELS);
   const [labelsLoaded, setLabelsLoaded] = useState(false);
@@ -348,9 +351,20 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
     if (checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
   }, [checklistTemplates, checklistTemplatesLoaded]);
 
-  const boardCaregivers = caregivers.filter(
+  const allBoardCaregivers = caregivers.filter(
     (cg) => cg.boardStatus || getOverallProgress(cg) === 100
   );
+  const boardCaregivers = searchTerm.trim()
+    ? allBoardCaregivers.filter((cg) => {
+        const term = searchTerm.toLowerCase();
+        const name = `${cg.firstName || ''} ${cg.lastName || ''}`.toLowerCase();
+        const phone = (cg.phone || '').toLowerCase();
+        const cgLabels = (cg.boardLabels || [])
+          .map((lid) => (labels.find((l) => l.id === lid)?.name || '').toLowerCase())
+          .join(' ');
+        return name.includes(term) || phone.includes(term) || cgLabels.includes(term);
+      })
+    : allBoardCaregivers;
   const unassigned = boardCaregivers.filter(
     (cg) => !cg.boardStatus || !columns.find((c) => c.id === cg.boardStatus)
   );
@@ -504,7 +518,22 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
           <h1 className={layout.pageTitle}>Caregiver Board</h1>
           <p className={layout.pageSubtitle}>Manage deployed caregivers — drag cards between columns or use the move menu</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className={kb.searchBox}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8896A6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search cards..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={kb.searchInput}
+            />
+            {searchTerm && (
+              <button className={kb.searchClear} onClick={() => setSearchTerm('')} title="Clear search">&times;</button>
+            )}
+          </div>
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowLabelManager(true)}>
             Labels
           </button>
