@@ -5,6 +5,7 @@ import { loadBoardColumns, saveBoardColumns, loadBoardLabels, saveBoardLabels, l
 import { getCardChecklistSummary } from '../../lib/checklistUtils';
 import { getDueDateBadge, getHcaBadge } from '../../lib/badgeUtils';
 import ChecklistSection from './ChecklistSection';
+import DescriptionEditor from './DescriptionEditor';
 import kb from './KanbanBoard.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
@@ -294,7 +295,7 @@ function AddLabelRow({ onAdd }) {
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, onUpdateDueDate, currentUserName }) {
+export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, onUpdateDueDate, onUpdateDescription, currentUserName }) {
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
@@ -801,6 +802,11 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
 
               <div className={kb.modalBody}>
                 <div className={kb.modalLeft}>
+                <DescriptionEditor
+                  value={cg.boardDescription}
+                  onChange={(html) => onUpdateDescription(cg.id, html)}
+                />
+
                 <div className={kb.modalSection}>
                   <div className={kb.modalSectionTitle}>Contact & Details</div>
                   <div className={kb.modalInfoGrid}>

@@ -312,6 +312,18 @@ export function CaregiverProvider({ children }) {
     );
   }, []);
 
+  const updateBoardDescription = useCallback((cgId, description) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        const updated = { ...cg, boardDescription: description };
+        recentLocalEdits.current.set(cgId, Date.now());
+        saveCaregiver(updated).catch((err) => console.error('Save board description failed:', err));
+        return updated;
+      })
+    );
+  }, []);
+
   const updateCaregiver = useCallback((cgId, updates) => {
     let changed;
     let oldPhase;
@@ -435,7 +447,7 @@ export function CaregiverProvider({ children }) {
       filterPhase, setFilterPhase,
       addCaregiver, updateTask, updateTasksBulk, addNote,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
-      updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateCaregiver,
+      updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateBoardDescription, updateCaregiver,
       refreshTasks,
       bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
     }}>
