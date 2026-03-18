@@ -71,7 +71,8 @@ function DashboardPage() {
 
 function BoardPage() {
   const navigate = useNavigate();
-  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, addNote } = useCaregivers();
+  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, addNote } = useCaregivers();
+  const { currentUserName } = useApp();
 
   return (
     <KanbanBoard
@@ -79,8 +80,10 @@ function BoardPage() {
       onUpdateStatus={updateBoardStatus}
       onUpdateNote={updateBoardNote}
       onUpdateLabels={updateBoardLabels}
+      onUpdateChecklists={updateBoardChecklists}
       onAddNote={addNote}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
+      currentUserName={currentUserName}
     />
   );
 }
