@@ -800,6 +800,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
               )}
 
               <div className={kb.modalBody}>
+                <div className={kb.modalLeft}>
                 <div className={kb.modalSection}>
                   <div className={kb.modalSectionTitle}>Contact & Details</div>
                   <div className={kb.modalInfoGrid}>
@@ -907,27 +908,38 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     ))}
                   </div>
                 </div>
+                </div>{/* end modalLeft */}
 
-                <div className={kb.modalSection}>
-                  <div className={kb.modalSectionTitle}>Board Note</div>
-                  <textarea className={kb.modalNoteTextarea} rows={2} placeholder="Add a note about deployment status..." value={cg.boardNote || ''} onChange={(e) => onUpdateNote(cg.id, e.target.value)} />
-                </div>
-
-                <div className={kb.modalSection}>
-                  <div className={kb.modalSectionTitle}>Activity Notes</div>
+                <div className={kb.modalRight}>
+                  <div className={kb.modalRightTitle}>Comments & Activity</div>
                   <div className={kb.modalActivityInput}>
-                    <input className={kb.modalActivityField} placeholder="Add a note..." value={modalNote} onChange={(e) => setModalNote(e.target.value)}
+                    <input className={kb.modalActivityField} placeholder="Write a comment..." value={modalNote} onChange={(e) => setModalNote(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter' && modalNote.trim()) { onAddNote(cg.id, modalNote.trim()); setModalNote(''); } }} />
                     <button className={kb.modalActivityBtn} onClick={() => { if (modalNote.trim()) { onAddNote(cg.id, modalNote.trim()); setModalNote(''); } }}>Add</button>
                   </div>
+                  {cg.boardNote && (
+                    <div className={kb.pinnedNote}>
+                      <div className={kb.pinnedNoteLabel}>Pinned Note</div>
+                      <textarea className={kb.modalNoteTextarea} rows={2} placeholder="Board note..." value={cg.boardNote || ''} onChange={(e) => onUpdateNote(cg.id, e.target.value)} />
+                    </div>
+                  )}
+                  {!cg.boardNote && (
+                    <button className={kb.addPinnedNoteBtn} onClick={() => onUpdateNote(cg.id, ' ')}>+ Pin a note</button>
+                  )}
                   <div className={kb.modalNotesList}>
-                    {(cg.notes || []).slice().reverse().slice(0, 5).map((n, i) => (
+                    {(cg.notes || []).slice().reverse().map((n, i) => (
                       <div key={i} className={kb.modalNoteItem}>
-                        <span className={kb.modalNoteTime}>{new Date(n.timestamp || n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                        <span className={kb.modalNoteText}>{n.text}</span>
+                        <div className={kb.noteAvatar}>{(n.author || 'U')[0].toUpperCase()}</div>
+                        <div className={kb.noteContent}>
+                          <div className={kb.noteHeader}>
+                            <span className={kb.noteAuthor}>{n.author || 'Unknown'}</span>
+                            <span className={kb.noteTime}>{new Date(n.timestamp || n.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                          </div>
+                          <div className={kb.noteBody}>{n.text}</div>
+                        </div>
                       </div>
                     ))}
-                    {(!cg.notes || cg.notes.length === 0) && <div style={{ color: '#A0AEC0', fontSize: 12, padding: '8px 0', fontStyle: 'italic' }}>No activity notes yet.</div>}
+                    {(!cg.notes || cg.notes.length === 0) && <div style={{ color: '#A0AEC0', fontSize: 12, padding: '16px 0', fontStyle: 'italic', textAlign: 'center' }}>No comments yet. Add the first one above.</div>}
                   </div>
                 </div>
               </div>
