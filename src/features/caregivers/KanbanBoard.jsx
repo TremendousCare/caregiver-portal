@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS, COLUMN_ICONS, COLUMN_COLORS, DEFAULT_BOARD_LABELS, LABEL_COLORS } from '../../lib/constants';
 import { getCurrentPhase, getOverallProgress, getPhaseProgress } from '../../lib/utils';
-import { loadBoardColumns, saveBoardColumns, loadBoardLabels, saveBoardLabels } from '../../lib/storage';
+import { loadBoardColumns, saveBoardColumns, loadBoardLabels, saveBoardLabels, loadChecklistTemplates, saveChecklistTemplates } from '../../lib/storage';
+import { getCardChecklistSummary } from '../../lib/checklistUtils';
+import ChecklistSection from './ChecklistSection';
 import kb from './KanbanBoard.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
@@ -291,7 +293,7 @@ function AddLabelRow({ onAdd }) {
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels }) {
+export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, currentUserName }) {
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
@@ -312,6 +314,11 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [labelPickerCgId, setLabelPickerCgId] = useState(null);
   const labelPickerRef = useRef(null);
 
+  // ─── Checklist template state ───
+  const [checklistTemplates, setChecklistTemplates] = useState([]);
+  const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+
   useEffect(() => {
     loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
   }, []);
@@ -327,6 +334,14 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   useEffect(() => {
     if (labelsLoaded) saveBoardLabels(labels);
   }, [labels, labelsLoaded]);
+
+  useEffect(() => {
+    loadChecklistTemplates().then((tpls) => { setChecklistTemplates(tpls); setChecklistTemplatesLoaded(true); });
+  }, []);
+
+  useEffect(() => {
+    if (checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
+  }, [checklistTemplates, checklistTemplatesLoaded]);
 
   const boardCaregivers = caregivers.filter(
     (cg) => cg.boardStatus || getOverallProgress(cg) === 100
@@ -488,6 +503,9 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowLabelManager(true)}>
             Labels
           </button>
+          <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowTemplateManager(true)}>
+            Templates
+          </button>
           <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setColForm({ label: '', icon: '', color: '#2E4E8D', description: '' }); setShowAddCol(true); setEditingCol(null); }}>
             + Add Column
           </button>
@@ -538,6 +556,35 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
             <AddLabelRow onAdd={addLabel} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => setShowLabelManager(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Manager Modal */}
+      {showTemplateManager && (
+        <div className={kb.colFormOverlay} onClick={() => setShowTemplateManager(false)}>
+          <div className={kb.colFormModal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>
+              Checklist Templates
+            </h3>
+            <p style={{ fontSize: 12, color: '#6B7B8F', marginBottom: 12 }}>
+              Templates can be applied to any card when adding a checklist. Create templates by clicking "Save as template" on any card's checklist.
+            </p>
+            {checklistTemplates.length === 0 && (
+              <div style={{ color: '#A0AEC0', fontSize: 13, fontStyle: 'italic', padding: '12px 0' }}>
+                No templates yet. Open a card, add a checklist with items, then click "Save as template".
+              </div>
+            )}
+            {checklistTemplates.map((tpl) => (
+              <div key={tpl.id} className={kb.templateItem}>
+                <span className={kb.templateItemName}>{tpl.name}</span>
+                <span className={kb.templateItemCount}>{tpl.items.length} items</span>
+                <button className={kb.templateItemDelete} onClick={() => setChecklistTemplates((prev) => prev.filter((t) => t.id !== tpl.id))} title="Delete template">&#10005;</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => setShowTemplateManager(false)}>Done</button>
             </div>
           </div>
         </div>
@@ -614,6 +661,19 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                           })}
                         </div>
                       )}
+
+                      {/* Checklist progress badge */}
+                      {(() => {
+                        const summary = getCardChecklistSummary(cg.boardChecklists);
+                        if (!summary) return null;
+                        return (
+                          <div className={kb.cardBadges}>
+                            <span className={kb.checklistBadge} style={summary.pct === 100 ? { background: '#DCFCE7', color: '#16A34A' } : {}}>
+                              &#9745; {summary.checked}/{summary.total}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       <div className={kb.cardTop}>
                         <div className={kb.cardName} onClick={() => setModalCgId(cg.id)}>{cg.firstName} {cg.lastName}</div>
@@ -775,6 +835,17 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                       );
                     })}
                   </div>
+                </div>
+
+                <div className={kb.modalSection}>
+                  <div className={kb.modalSectionTitle}>Checklists</div>
+                  <ChecklistSection
+                    caregiver={cg}
+                    onUpdateChecklists={onUpdateChecklists}
+                    templates={checklistTemplates}
+                    onSaveTemplate={(tpl) => setChecklistTemplates((prev) => [...prev, tpl])}
+                    currentUserName={currentUserName}
+                  />
                 </div>
 
                 <div className={kb.modalSection}>

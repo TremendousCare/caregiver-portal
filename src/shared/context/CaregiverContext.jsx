@@ -288,6 +288,18 @@ export function CaregiverProvider({ children }) {
     );
   }, []);
 
+  const updateBoardChecklists = useCallback((cgId, checklists) => {
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        const updated = { ...cg, boardChecklists: checklists };
+        recentLocalEdits.current.set(cgId, Date.now());
+        saveCaregiver(updated).catch((err) => console.error('Save board checklists failed:', err));
+        return updated;
+      })
+    );
+  }, []);
+
   const updateCaregiver = useCallback((cgId, updates) => {
     let changed;
     let oldPhase;
@@ -411,7 +423,7 @@ export function CaregiverProvider({ children }) {
       filterPhase, setFilterPhase,
       addCaregiver, updateTask, updateTasksBulk, addNote,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
-      updateBoardStatus, updateBoardNote, updateBoardLabels, updateCaregiver,
+      updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateCaregiver,
       refreshTasks,
       bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
     }}>

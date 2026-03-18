@@ -251,6 +251,31 @@ export const saveBoardLabels = async (labels) => {
   }
 };
 
+// ─── Checklist Templates ────────────────────────────────────
+
+export const loadChecklistTemplates = async () => {
+  try {
+    if (isSupabaseConfigured()) {
+      const val = await supabaseGetKV('checklist_templates');
+      if (val) return typeof val === 'string' ? JSON.parse(val) : val;
+    }
+    return localGet('tc-checklist-templates-v1') || [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveChecklistTemplates = async (templates) => {
+  try {
+    if (isSupabaseConfigured()) {
+      await supabaseSetKV('checklist_templates', templates);
+    }
+    localSet('tc-checklist-templates-v1', templates);
+  } catch (e) {
+    console.error('saveChecklistTemplates failed:', e);
+  }
+};
+
 // ─── Orientation Data ────────────────────────────────────────
 
 export const loadOrientationData = async () => {
@@ -321,6 +346,7 @@ export const dbToCaregiver = (row) => ({
   boardNote: row.board_note,
   boardMovedAt: row.board_moved_at,
   boardLabels: row.board_labels || [],
+  boardChecklists: row.board_checklists || [],
   archived: row.archived || false,
   archivedAt: row.archived_at,
   archiveReason: row.archive_reason,
@@ -368,6 +394,7 @@ const caregiverToDb = (cg) => ({
   board_note: cg.boardNote || null,
   board_moved_at: cg.boardMovedAt || null,
   board_labels: cg.boardLabels || [],
+  board_checklists: cg.boardChecklists || [],
   archived: cg.archived || false,
   archived_at: cg.archivedAt || null,
   archive_reason: cg.archiveReason || null,
