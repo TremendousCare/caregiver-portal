@@ -137,6 +137,7 @@
   display: flex;
   flex-direction: column;
   min-height: 300px;
+  max-height: calc(100vh - 200px);
   min-width: 240px;
   box-shadow: none;
   overflow: hidden;
@@ -221,6 +222,13 @@
 .card:hover {
   box-shadow: 0 4px 12px rgba(9,30,66,0.16);
   transform: translateY(-1px);
+}
+
+.cardDragging {
+  opacity: 0.85;
+  transform: rotate(2deg);
+  box-shadow: 0 8px 24px rgba(9,30,66,0.25);
+  z-index: 10;
 }
 
 .cardTop {

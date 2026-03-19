@@ -677,7 +677,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                     <div key={cg.id} draggable
                       onDragStart={() => { setDragId(cg.id); setDragColId(null); }}
                       onDragEnd={() => setDragId(null)}
-                      className={kb.card} style={{ ...(dragId === cg.id ? { opacity: 0.4 } : {}), borderLeft: `3px solid ${col.color}` }}
+                      className={`${kb.card} ${dragId === cg.id ? kb.cardDragging : ''}`} style={{ borderLeft: `3px solid ${col.color}` }}
                     >
                       {/* Card cover stripe — color of first label */}
                       {(cg.boardLabels || []).length > 0 && (() => {
