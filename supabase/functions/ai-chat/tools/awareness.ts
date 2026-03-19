@@ -909,7 +909,8 @@ registerTool(
             ctx.supabase,
             suggestion.action_type,
             suggestion.entity_type || "caregiver",
-            "approved",
+            "inbound_routing",
+            true,
           ).catch(() => {}); // fire-and-forget
         }
 
@@ -959,7 +960,8 @@ registerTool(
             ctx.supabase,
             suggestion.action_type,
             suggestion.entity_type || "caregiver",
-            "rejected",
+            "inbound_routing",
+            false,
           ).catch(() => {}); // fire-and-forget
         }
 
