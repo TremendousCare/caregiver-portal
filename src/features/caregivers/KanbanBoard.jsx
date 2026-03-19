@@ -512,7 +512,7 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   );
 
   return (
-    <div>
+    <div className={kb.boardWrapper}>
       <div className={layout.header}>
         <div>
           <h1 className={layout.pageTitle}>Caregiver Board</h1>
