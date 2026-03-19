@@ -48,14 +48,24 @@
   color: #1A1A1A;
 }
 
+/* ─── Board Wrapper ───────────────────────────────────────── */
+
+.boardWrapper {
+  background: linear-gradient(160deg, #E8EDF5 0%, #F0F3F7 40%, #E9EEF5 100%);
+  margin: -24px -32px;
+  padding: 24px 32px;
+  min-height: calc(100vh - 60px);
+}
+
 /* ─── Unassigned Banner ─────────────────────────────────────── */
 
 .unassignedBanner {
-  background: #EBF5FB;
-  border: 1px solid #C6DFF0;
-  border-radius: 14px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 12px;
   padding: 20px;
   margin-bottom: 24px;
+  backdrop-filter: blur(4px);
 }
 
 .unassignedTitle {
@@ -79,13 +89,14 @@
 
 .unassignedCard {
   background: #fff;
-  border: 1px solid #E2E8F0;
-  border-radius: 10px;
+  border: none;
+  border-radius: 12px;
   padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  box-shadow: 0 1px 2px rgba(9,30,66,0.12);
 }
 
 .unassignedCardName {
@@ -119,15 +130,15 @@
 }
 
 .column {
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #E2E8F0;
+  background: #F1F2F4;
+  border-radius: 12px;
+  border: none;
   padding: 0;
   display: flex;
   flex-direction: column;
   min-height: 300px;
   min-width: 240px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  box-shadow: none;
   overflow: hidden;
   transition: opacity 0.15s;
 }
@@ -136,9 +147,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   cursor: grab;
-  border-radius: 13px 13px 0 0;
+  border-radius: 11px 11px 0 0;
 }
 
 .columnGrip {
@@ -150,7 +161,7 @@
 }
 
 .columnTitleWhite {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
   flex: 1;
@@ -159,7 +170,7 @@
 
 .columnCountWhite {
   padding: 2px 8px;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 11px;
   font-weight: 700;
   background: rgba(255,255,255,0.25);
@@ -169,19 +180,19 @@
 .columnDesc {
   font-size: 11px;
   color: #6B7B8F;
-  padding: 0 16px 12px;
-  border-bottom: 1px solid #E2E8F0;
+  padding: 0 12px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
   line-height: 1.3;
 }
 
 .columnBody {
   flex: 1;
-  padding: 6px 8px;
+  padding: 4px 8px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   overflow-y: auto;
-  background: #F5F7FA;
+  background: transparent;
 }
 
 .columnEmpty {
@@ -190,8 +201,8 @@
   color: #A0AEC0;
   font-size: 12px;
   font-style: italic;
-  border: 2px dashed #E2E8F0;
-  border-radius: 10px;
+  border: 2px dashed #D5DAE0;
+  border-radius: 12px;
   margin: 4px;
 }
 
@@ -199,16 +210,17 @@
 
 .card {
   background: #fff;
-  border-radius: 8px;
-  padding: 8px 10px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 2px rgba(9,30,66,0.12);
   cursor: grab;
-  transition: opacity 0.15s, box-shadow 0.15s;
-  border: 1px solid #E8ECF0;
+  transition: opacity 0.15s, box-shadow 0.2s, transform 0.2s;
+  border: none;
 }
 
 .card:hover {
-  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+  box-shadow: 0 4px 12px rgba(9,30,66,0.16);
+  transform: translateY(-1px);
 }
 
 .cardTop {
@@ -271,8 +283,8 @@
   color: #556270;
   margin-top: 5px;
   padding: 5px 7px;
-  background: #F5F7FA;
-  border-radius: 5px;
+  background: #F4F5F7;
+  border-radius: 6px;
   cursor: pointer;
   line-height: 1.35;
   min-height: 16px;
@@ -327,7 +339,7 @@
 }
 
 .colActionBtn:hover {
-  background: #F0F3F7;
+  background: rgba(0,0,0,0.06);
 }
 
 .colFormOverlay {
@@ -959,8 +971,8 @@
 
 .cardStripe {
   height: 6px;
-  border-radius: 7px 7px 0 0;
-  margin: -8px -10px 6px;
+  border-radius: 11px 11px 0 0;
+  margin: -10px -12px 6px;
   transition: background 0.15s;
 }
 
