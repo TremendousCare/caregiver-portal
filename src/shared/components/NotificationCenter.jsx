@@ -28,9 +28,56 @@ const LEVEL_LABELS = {
   L4: 'Auto',
 };
 
+// ─── Action-specific display config ───
+const ACTION_CONFIG = {
+  send_sms: { icon: '\u{1F4F1}', label: 'Send SMS', approveLabel: 'Send Reply', color: '#3B82F6' },
+  send_email: { icon: '\u{1F4E7}', label: 'Send Email', approveLabel: 'Send Email', color: '#6366F1' },
+  add_note: { icon: '\u{1F4DD}', label: 'Add Note', approveLabel: 'Add Note', color: '#8B5CF6' },
+  add_client_note: { icon: '\u{1F4DD}', label: 'Add Client Note', approveLabel: 'Add Note', color: '#8B5CF6' },
+  update_phase: { icon: '\u{1F4C8}', label: 'Move Phase', approveLabel: 'Move Phase', color: '#F59E0B' },
+  update_client_phase: { icon: '\u{1F4C8}', label: 'Move Client Phase', approveLabel: 'Move Phase', color: '#F59E0B' },
+  complete_task: { icon: '\u2705', label: 'Complete Task', approveLabel: 'Complete Task', color: '#10B981' },
+  complete_client_task: { icon: '\u2705', label: 'Complete Client Task', approveLabel: 'Complete Task', color: '#10B981' },
+  update_caregiver_field: { icon: '\u270F\uFE0F', label: 'Update Field', approveLabel: 'Update', color: '#6B7280' },
+  update_client_field: { icon: '\u270F\uFE0F', label: 'Update Client Field', approveLabel: 'Update', color: '#6B7280' },
+  update_board_status: { icon: '\u{1F4CB}', label: 'Move on Board', approveLabel: 'Move', color: '#0EA5E9' },
+  create_calendar_event: { icon: '\u{1F4C5}', label: 'Schedule Event', approveLabel: 'Schedule', color: '#EC4899' },
+  send_docusign_envelope: { icon: '\u{1F58A}\uFE0F', label: 'Send DocuSign', approveLabel: 'Send DocuSign', color: '#EAB308' },
+};
+
+function getActionPreview(suggestion) {
+  const params = suggestion.action_params || {};
+  const action = suggestion.action_type;
+  if (!action) return null;
+
+  switch (action) {
+    case 'complete_task':
+    case 'complete_client_task':
+      return params.task_id ? `Task: ${params.task_id}` : null;
+    case 'update_phase':
+    case 'update_client_phase':
+      return params.new_phase ? `Move to: ${params.new_phase}${params.reason ? ` — ${params.reason}` : ''}` : null;
+    case 'update_board_status':
+      return params.new_status ? `Move to: ${params.new_status}` : null;
+    case 'update_caregiver_field':
+    case 'update_client_field':
+      return params.field ? `${params.field} \u2192 "${params.value}"` : null;
+    case 'create_calendar_event':
+      return params.title ? `${params.title} on ${params.date || '?'} at ${params.start_time || '?'}` : null;
+    case 'send_docusign_envelope':
+      return params.caregiver_name ? `Send to: ${params.caregiver_name}` : null;
+    case 'send_email':
+      return params.subject ? `Subject: ${params.subject}` : null;
+    default:
+      return null;
+  }
+}
+
 export function NotificationCenter({ currentUser }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [tab, setTab] = useState('pending'); // 'pending' | 'history'
   const [suggestions, setSuggestions] = useState([]);
+  const [history, setHistory] = useState([]);
   const [actionInProgress, setActionInProgress] = useState(null);
   const subscriptionRef = useRef(null);
 
@@ -48,9 +95,24 @@ export function NotificationCenter({ currentUser }) {
     }
   }, []);
 
+  // ─── Fetch recent history (executed, rejected, auto-executed) ───
+  const fetchHistory = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('ai_suggestions')
+      .select('*')
+      .in('status', ['executed', 'auto_executed', 'rejected', 'failed'])
+      .order('resolved_at', { ascending: false })
+      .limit(20);
+
+    if (!error && data) {
+      setHistory(data);
+    }
+  }, []);
+
   // ─── Initial fetch + Realtime subscription ───
   useEffect(() => {
     fetchSuggestions();
+    fetchHistory();
 
     // Subscribe to ai_suggestions changes via Realtime
     const channel = supabase
@@ -61,6 +123,7 @@ export function NotificationCenter({ currentUser }) {
         () => {
           // Refetch on any change
           fetchSuggestions();
+          fetchHistory();
         }
       )
       .subscribe();
@@ -72,7 +135,7 @@ export function NotificationCenter({ currentUser }) {
         supabase.removeChannel(subscriptionRef.current);
       }
     };
-  }, [fetchSuggestions]);
+  }, [fetchSuggestions, fetchHistory]);
 
   // ─── Approve suggestion ───
   const handleApprove = useCallback(async (suggestion) => {
@@ -175,25 +238,57 @@ export function NotificationCenter({ currentUser }) {
             </span>
           </div>
 
+          {/* Tabs */}
+          <div className={s.tabs}>
+            <button
+              className={`${s.tab} ${tab === 'pending' ? s.tabActive : ''}`}
+              onClick={() => setTab('pending')}
+            >
+              Pending{pendingCount > 0 ? ` (${pendingCount})` : ''}
+            </button>
+            <button
+              className={`${s.tab} ${tab === 'history' ? s.tabActive : ''}`}
+              onClick={() => setTab('history')}
+            >
+              History
+            </button>
+          </div>
+
           <div className={s.suggestionList}>
-            {suggestions.length === 0 ? (
-              <div className={s.emptyState}>
-                <div className={s.emptyIcon}>{'\u2705'}</div>
-                <div className={s.emptyText}>No pending suggestions</div>
-                <div className={s.emptySub}>
-                  The AI will suggest actions when inbound messages arrive
+            {tab === 'pending' ? (
+              suggestions.length === 0 ? (
+                <div className={s.emptyState}>
+                  <div className={s.emptyIcon}>{'\u2705'}</div>
+                  <div className={s.emptyText}>No pending suggestions</div>
+                  <div className={s.emptySub}>
+                    The AI will suggest actions when inbound messages arrive
+                  </div>
                 </div>
-              </div>
+              ) : (
+                suggestions.map((sug) => (
+                  <SuggestionCard
+                    key={sug.id}
+                    suggestion={sug}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    isLoading={actionInProgress === sug.id}
+                  />
+                ))
+              )
             ) : (
-              suggestions.map((sug) => (
-                <SuggestionCard
-                  key={sug.id}
-                  suggestion={sug}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                  isLoading={actionInProgress === sug.id}
-                />
-              ))
+              history.length === 0 ? (
+                <div className={s.emptyState}>
+                  <div className={s.emptyIcon}>{'\u{1F4C2}'}</div>
+                  <div className={s.emptyText}>No history yet</div>
+                  <div className={s.emptySub}>
+                    Resolved suggestions will appear here
+                  </div>
+                </div>
+              ) : (
+                history.map((sug) => (
+                  <HistoryCard key={sug.id} suggestion={sug} />
+                ))
+              )
             )}
           </div>
         </div>
@@ -205,11 +300,18 @@ export function NotificationCenter({ currentUser }) {
 // ─── Suggestion Card Component ───
 
 function SuggestionCard({ suggestion, onApprove, onReject, isLoading }) {
-  const icon = TYPE_ICONS[suggestion.suggestion_type] || '\u{1F4CB}';
+  const actionConfig = ACTION_CONFIG[suggestion.action_type] || null;
+  const icon = actionConfig?.icon || TYPE_ICONS[suggestion.suggestion_type] || '\u{1F4CB}';
   const levelLabel = LEVEL_LABELS[suggestion.autonomy_level] || suggestion.autonomy_level;
   const age = formatAge(suggestion.created_at);
+  const actionPreview = getActionPreview(suggestion);
 
   const showActions = suggestion.autonomy_level === 'L2' || suggestion.autonomy_level === 'L1';
+
+  // Smart approve label: use action-specific label when available
+  const approveLabel = isLoading
+    ? 'Executing...'
+    : actionConfig?.approveLabel || (suggestion.suggestion_type === 'reply' ? 'Send Reply' : 'Approve');
 
   return (
     <div className={s.card}>
@@ -219,10 +321,23 @@ function SuggestionCard({ suggestion, onApprove, onReject, isLoading }) {
         <span className={s.cardAge}>{age}</span>
       </div>
 
+      {/* Action type badge */}
+      {actionConfig && (
+        <div className={s.actionBadge} style={{ color: actionConfig.color, borderColor: actionConfig.color + '33', background: actionConfig.color + '0A' }}>
+          {actionConfig.label}
+        </div>
+      )}
+
       {suggestion.detail && (
         <div className={s.cardDetail}>{suggestion.detail}</div>
       )}
 
+      {/* Action-specific preview (task name, phase, calendar event, etc.) */}
+      {actionPreview && (
+        <div className={s.actionPreview}>{actionPreview}</div>
+      )}
+
+      {/* Drafted content (message body, email body, note text) */}
       {suggestion.drafted_content && (
         <div className={s.cardDraft}>
           &ldquo;{suggestion.drafted_content.length > 150
@@ -240,7 +355,7 @@ function SuggestionCard({ suggestion, onApprove, onReject, isLoading }) {
             onClick={() => onApprove(suggestion)}
             disabled={isLoading}
           >
-            {isLoading ? 'Executing...' : suggestion.suggestion_type === 'reply' ? 'Send Reply' : 'Approve'}
+            {approveLabel}
           </button>
           <button
             className={s.rejectBtn}
@@ -257,6 +372,47 @@ function SuggestionCard({ suggestion, onApprove, onReject, isLoading }) {
           {'\u2713'} Auto-executed
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── History Card Component (read-only, shows resolved suggestions) ───
+
+const STATUS_DISPLAY = {
+  executed: { icon: '\u2705', label: 'Executed', className: 'statusExecuted' },
+  auto_executed: { icon: '\u{1F916}', label: 'Auto-executed', className: 'statusExecuted' },
+  rejected: { icon: '\u274C', label: 'Dismissed', className: 'statusRejected' },
+  failed: { icon: '\u26A0\uFE0F', label: 'Failed', className: 'statusRejected' },
+};
+
+function HistoryCard({ suggestion }) {
+  const actionConfig = ACTION_CONFIG[suggestion.action_type] || null;
+  const icon = actionConfig?.icon || TYPE_ICONS[suggestion.suggestion_type] || '\u{1F4CB}';
+  const statusInfo = STATUS_DISPLAY[suggestion.status] || { icon: '\u2753', label: suggestion.status };
+  const age = suggestion.resolved_at ? formatAge(suggestion.resolved_at) : formatAge(suggestion.created_at);
+
+  return (
+    <div className={`${s.card} ${s.cardHistory}`}>
+      <div className={s.cardHeader}>
+        <span className={s.cardIcon}>{icon}</span>
+        <span className={s.cardTitle}>{suggestion.title}</span>
+        <span className={s.cardAge}>{age}</span>
+      </div>
+
+      {actionConfig && (
+        <div className={s.actionBadge} style={{ color: actionConfig.color, borderColor: actionConfig.color + '33', background: actionConfig.color + '0A' }}>
+          {actionConfig.label}
+        </div>
+      )}
+
+      {suggestion.detail && (
+        <div className={s.cardDetail}>{suggestion.detail}</div>
+      )}
+
+      <div className={s[statusInfo.className] || s.statusExecuted}>
+        {statusInfo.icon} {statusInfo.label}
+        {suggestion.resolved_by ? ` by ${suggestion.resolved_by.replace('user:', '').replace('system:', 'AI ')}` : ''}
+      </div>
     </div>
   );
 }
