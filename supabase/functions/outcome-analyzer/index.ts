@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -17,6 +18,7 @@ Deno.serve(async (req: Request) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const results: Record<string, any> = {};
+  const doneInvocation = startTimer(supabase, "outcome-analyzer", "invocation");
 
   // ── Job 1: Mark expired actions ──
   try {
@@ -34,6 +36,10 @@ Deno.serve(async (req: Request) => {
     results.expired = { count: expired?.length || 0, error: error?.message };
   } catch (err) {
     results.expired = { error: (err as Error).message };
+    logMetric(supabase, "outcome-analyzer", "error", undefined, false, {
+      job: "expired_actions",
+      error: (err as Error).message,
+    });
   }
 
   // ── Job 2: Mark no-response at expiry window (not 48h) ──
@@ -80,6 +86,10 @@ Deno.serve(async (req: Request) => {
     }
   } catch (err) {
     results.no_response = { error: (err as Error).message };
+    logMetric(supabase, "outcome-analyzer", "error", undefined, false, {
+      job: "no_response",
+      error: (err as Error).message,
+    });
   }
 
   // ── Job 3: Correlate inbound SMS with pending or no_response actions ──
@@ -161,6 +171,10 @@ Deno.serve(async (req: Request) => {
     results.sms_correlated = { count: smsCorrelated };
   } catch (err) {
     results.sms_correlated = { error: (err as Error).message };
+    logMetric(supabase, "outcome-analyzer", "error", undefined, false, {
+      job: "sms_correlation",
+      error: (err as Error).message,
+    });
   }
 
   // ── Job 4: Semantic memory generation ──
@@ -289,7 +303,13 @@ Deno.serve(async (req: Request) => {
     results.memories_generated = { count: memoryCount };
   } catch (err) {
     results.memories_generated = { error: (err as Error).message };
+    logMetric(supabase, "outcome-analyzer", "error", undefined, false, {
+      job: "memory_generation",
+      error: (err as Error).message,
+    });
   }
+
+  doneInvocation(true, results);
 
   return new Response(JSON.stringify({ success: true, results }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },

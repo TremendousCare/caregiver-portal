@@ -9,6 +9,7 @@ import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
+import { AgentPerformance } from './AgentPerformance';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -1027,6 +1028,12 @@ export function AdminSettings({ showToast, currentUserEmail }) {
           <h1 className={layout.pageTitle}>Settings</h1>
           <p className={layout.pageSubtitle}>Manage team roles and portal configuration</p>
         </div>
+      </div>
+
+      {/* Agent Performance */}
+      <div className="settings-section" style={{ marginBottom: 24 }}>
+        <h2>Agent Performance</h2>
+        <AgentPerformance />
       </div>
 
       {/* User Management */}

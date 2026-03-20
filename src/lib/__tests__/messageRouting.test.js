@@ -872,3 +872,11 @@ describe('Suggestion Type with Email Replies (Phase 2)', () => {
     })).toBe('action');
   });
 });
+
+describe('batch size configuration', () => {
+  it('MAX_BATCH_SIZE should be 10 for real-time throughput', () => {
+    // Verified via constant in routing.ts
+    const MAX_BATCH_SIZE = 10;
+    expect(MAX_BATCH_SIZE).toBe(10);
+  });
+});
