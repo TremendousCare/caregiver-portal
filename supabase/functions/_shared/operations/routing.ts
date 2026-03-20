@@ -696,7 +696,8 @@ export async function createSuggestion(
 
 /**
  * Execute an approved suggestion by dispatching to the appropriate shared operation.
- * Currently supports send_sms. More actions can be added.
+ * This is the universal action executor — used by both inbound message routing
+ * and future proactive OODA workflows.
  */
 export async function executeSuggestion(
   supabase: any,
@@ -719,21 +720,22 @@ export async function executeSuggestion(
   }
 
   const params = suggestion.action_params || {};
+  const entityId = params.entity_id || suggestion.entity_id;
+  const entityType = params.entity_type || suggestion.entity_type || "caregiver";
 
   let result: OperationResult;
 
   switch (suggestion.action_type) {
+    // ─── SMS ───
     case "send_sms": {
-      // Import dynamically to avoid circular deps at module load
       const { sendSMS } = await import("./sms.ts");
       const { normalizePhoneNumber } = await import("../helpers/phone.ts");
 
-      // Resolve entity phone
-      const tableName = suggestion.entity_type === "client" ? "clients" : "caregivers";
+      const tableName = entityType === "client" ? "clients" : "caregivers";
       const { data: entity } = await supabase
         .from(tableName)
         .select("phone")
-        .eq("id", suggestion.entity_id)
+        .eq("id", entityId)
         .single();
 
       if (!entity?.phone) {
@@ -749,7 +751,7 @@ export async function executeSuggestion(
 
       result = await sendSMS(
         supabase,
-        suggestion.entity_id,
+        entityId,
         params.message || suggestion.drafted_content,
         normalized,
         executedBy,
@@ -757,25 +759,250 @@ export async function executeSuggestion(
       break;
     }
 
+    // ─── Email ───
+    case "send_email": {
+      const { sendEmail } = await import("./email.ts");
+
+      if (!params.to_email) {
+        // Resolve email from entity if not provided
+        const tableName = entityType === "client" ? "clients" : "caregivers";
+        const { data: entity } = await supabase
+          .from(tableName)
+          .select("email, first_name, last_name")
+          .eq("id", entityId)
+          .single();
+
+        if (!entity?.email) {
+          result = { success: false, message: "", error: "Entity has no email address." };
+          break;
+        }
+
+        result = await sendEmail(
+          supabase,
+          entityId,
+          entity.email,
+          `${entity.first_name} ${entity.last_name}`.trim() || null,
+          params.subject || "Follow-up from Tremendous Care",
+          params.body || suggestion.drafted_content || "",
+          params.cc || null,
+          executedBy,
+        );
+      } else {
+        result = await sendEmail(
+          supabase,
+          entityId || null,
+          params.to_email,
+          params.to_name || null,
+          params.subject || "Follow-up from Tremendous Care",
+          params.body || suggestion.drafted_content || "",
+          params.cc || null,
+          executedBy,
+        );
+      }
+      break;
+    }
+
+    // ─── Notes ───
+    case "add_note": {
+      const { appendCaregiverNote } = await import("./notes.ts");
+      result = await appendCaregiverNote(
+        supabase,
+        entityId,
+        { text: params.text || suggestion.drafted_content || "", type: params.note_type || "note" },
+        executedBy,
+      );
+      break;
+    }
+
+    case "add_client_note": {
+      const { appendClientNote } = await import("./notes.ts");
+      result = await appendClientNote(
+        supabase,
+        entityId,
+        { text: params.text || suggestion.drafted_content || "", type: params.note_type || "note" },
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── Phase Changes ───
+    case "update_phase": {
+      const { updateCaregiverPhase } = await import("./caregiver.ts");
+      if (!params.new_phase) {
+        result = { success: false, message: "", error: "Missing new_phase parameter." };
+        break;
+      }
+      result = await updateCaregiverPhase(
+        supabase,
+        entityId,
+        params.new_phase,
+        params.reason,
+        executedBy,
+      );
+      break;
+    }
+
+    case "update_client_phase": {
+      const { updateClientPhase } = await import("./client.ts");
+      if (!params.new_phase) {
+        result = { success: false, message: "", error: "Missing new_phase parameter." };
+        break;
+      }
+      result = await updateClientPhase(
+        supabase,
+        entityId,
+        params.new_phase,
+        params.reason,
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── Task Completion ───
+    case "complete_task": {
+      const { completeCaregiverTask } = await import("./caregiver.ts");
+      if (!params.task_id) {
+        result = { success: false, message: "", error: "Missing task_id parameter." };
+        break;
+      }
+      result = await completeCaregiverTask(
+        supabase,
+        entityId,
+        params.task_id,
+        executedBy,
+      );
+      break;
+    }
+
+    case "complete_client_task": {
+      const { completeClientTask } = await import("./client.ts");
+      if (!params.task_id) {
+        result = { success: false, message: "", error: "Missing task_id parameter." };
+        break;
+      }
+      result = await completeClientTask(
+        supabase,
+        entityId,
+        params.task_id,
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── Field Updates ───
+    case "update_caregiver_field": {
+      const { updateCaregiverField } = await import("./caregiver.ts");
+      if (!params.field || params.value === undefined) {
+        result = { success: false, message: "", error: "Missing field or value parameter." };
+        break;
+      }
+      result = await updateCaregiverField(
+        supabase,
+        entityId,
+        params.field,
+        params.value,
+      );
+      break;
+    }
+
+    case "update_client_field": {
+      const { updateClientField } = await import("./client.ts");
+      if (!params.field || params.value === undefined) {
+        result = { success: false, message: "", error: "Missing field or value parameter." };
+        break;
+      }
+      result = await updateClientField(
+        supabase,
+        entityId,
+        params.field,
+        params.value,
+      );
+      break;
+    }
+
+    // ─── Board Status ───
+    case "update_board_status": {
+      const { updateBoardStatus } = await import("./caregiver.ts");
+      if (!params.new_status) {
+        result = { success: false, message: "", error: "Missing new_status parameter." };
+        break;
+      }
+      result = await updateBoardStatus(
+        supabase,
+        entityId,
+        params.new_status,
+        params.note,
+      );
+      break;
+    }
+
+    // ─── Calendar ───
+    case "create_calendar_event": {
+      const { createCalendarEvent } = await import("./calendar.ts");
+      if (!params.title || !params.date || !params.start_time || !params.end_time) {
+        result = { success: false, message: "", error: "Missing required calendar params (title, date, start_time, end_time)." };
+        break;
+      }
+      result = await createCalendarEvent(
+        supabase,
+        entityId || null,
+        {
+          title: params.title,
+          date: params.date,
+          start_time: params.start_time,
+          end_time: params.end_time,
+          caregiver_email: params.caregiver_email || null,
+          additional_attendees: params.additional_attendees || null,
+          location: params.location || null,
+          description: params.description || null,
+          is_online: params.is_online || false,
+        },
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── DocuSign ───
+    case "send_docusign_envelope": {
+      const { sendDocuSignEnvelope } = await import("./docusign.ts");
+      if (!params.caregiver_email || !params.caregiver_name) {
+        result = { success: false, message: "", error: "Missing caregiver_email or caregiver_name for DocuSign." };
+        break;
+      }
+      result = await sendDocuSignEnvelope(
+        supabase,
+        entityId,
+        {
+          caregiver_email: params.caregiver_email,
+          caregiver_name: params.caregiver_name,
+          template_ids: params.template_ids || [],
+          template_names: params.template_names || [],
+          is_packet: params.is_packet || false,
+        },
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── Unknown ───
     default:
       result = {
         success: false,
         message: "",
-        error: `Action type "${suggestion.action_type}" not yet supported for auto-execution.`,
+        error: `Action type "${suggestion.action_type}" is not supported for autonomous execution.`,
       };
   }
 
   // Update suggestion status
-  if (result.success) {
-    await supabase
-      .from("ai_suggestions")
-      .update({
-        status: "executed",
-        resolved_at: new Date().toISOString(),
-        resolved_by: executedBy,
-      })
-      .eq("id", suggestionId);
-  }
+  await supabase
+    .from("ai_suggestions")
+    .update({
+      status: result.success ? "executed" : "failed",
+      resolved_at: new Date().toISOString(),
+      resolved_by: executedBy,
+      ...(result.error ? { error_detail: result.error } : {}),
+    })
+    .eq("id", suggestionId);
 
   return result;
 }
