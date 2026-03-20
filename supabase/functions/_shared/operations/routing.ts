@@ -96,8 +96,8 @@ const VALID_ACTIONS = [
   "none",
 ] as const;
 
-// Max batch size per cron cycle (cost control)
-export const MAX_BATCH_SIZE = 5;
+// Max batch size per invocation (cost control)
+export const MAX_BATCH_SIZE = 10;
 
 // ─── Classifier ───
 

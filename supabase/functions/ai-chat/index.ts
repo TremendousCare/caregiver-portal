@@ -40,6 +40,7 @@ import { logEvent, saveContextSnapshot } from "./context/events.ts";
 import { logAction } from "./context/outcomes.ts";
 import { generateBriefing } from "./context/briefing.ts";
 import { runConsolidation } from "./context/consolidation.ts";
+import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 
 // ─── Retry helper for transient Claude API errors ───
 const RETRYABLE_STATUSES = new Set([429, 500, 503, 529]);
@@ -109,6 +110,7 @@ Deno.serve(async (req: Request) => {
 
     // Service-role client for data operations
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+    const doneInvocation = startTimer(supabase, "ai-chat", "invocation");
 
     // ── Rate Limiting (fails open) ──
     try {
@@ -159,6 +161,7 @@ Deno.serve(async (req: Request) => {
         allCl || [],
       );
 
+      doneInvocation(true, { request_type: "briefing" });
       return new Response(JSON.stringify({ briefing }), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
@@ -205,6 +208,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      doneInvocation(true, { request_type: "confirmed_action", action: confirmAction.action });
       return new Response(
         JSON.stringify({
           reply: result.success
@@ -481,11 +485,26 @@ Deno.serve(async (req: Request) => {
       console.error("[ai-chat] Post-conversation tasks failed:", bgErr);
     }
 
+    doneInvocation(true, {
+      request_type: "chat",
+      iterations,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      tools_used: toolResults.length,
+    });
+
     return new Response(JSON.stringify(responseBody), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (err) {
     console.error("ai-chat error:", err);
+    // Log error metric (best-effort — supabase client may not exist if error was early)
+    try {
+      const errSupabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+      logMetric(errSupabase, "ai-chat", "error", undefined, false, {
+        error: (err as Error).message,
+      });
+    } catch (_) { /* swallow */ }
     // Don't leak internal error details to the client
     const safeMessage = (err as Error).message?.includes("required")
       ? (err as Error).message  // Validation errors are safe to show

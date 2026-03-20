@@ -18,6 +18,7 @@ import {
   executeSuggestion,
   MAX_BATCH_SIZE,
 } from "../_shared/operations/routing.ts";
+import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 
 // ─── Environment ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -73,6 +74,8 @@ async function processQueue(): Promise<ProcessResults> {
     auto_executed: 0,
   };
 
+  const doneInvocation = startTimer(supabase, "message-router", "invocation");
+
   // Fetch pending entries (oldest first, limited batch size)
   const { data: entries, error: fetchErr } = await supabase
     .from("message_routing_queue")
@@ -108,6 +111,11 @@ async function processQueue(): Promise<ProcessResults> {
       await processEntry(entry, results);
     } catch (err) {
       console.error(`Failed to process entry ${entry.id}:`, err);
+      logMetric(supabase, "message-router", "error", undefined, false, {
+        entry_id: entry.id,
+        error: (err as Error).message,
+        attempts: (entry.attempts || 0) + 1,
+      });
       const attempts = (entry.attempts || 0) + 1;
       await supabase
         .from("message_routing_queue")
@@ -121,6 +129,15 @@ async function processQueue(): Promise<ProcessResults> {
       results.failed++;
     }
   }
+
+  doneInvocation(true, {
+    processed: results.processed,
+    skipped: results.skipped,
+    failed: results.failed,
+    suggestions_created: results.suggestions_created,
+    auto_executed: results.auto_executed,
+    queue_depth: entries?.length || 0,
+  });
 
   return results;
 }
@@ -187,11 +204,18 @@ async function processEntry(
   }
 
   // ── Classify message ──
+  const doneClassify = startTimer(supabase, "message-router", "classification");
   const classification = await classifyMessage(
     entityContext,
     entry.message_text || "",
     entry.channel,
   );
+  doneClassify(!!classification, {
+    intent: classification?.intent || "failed",
+    confidence: classification?.confidence || 0,
+    action: classification?.suggested_action || "none",
+    entity_type: entry.matched_entity_type,
+  });
 
   if (!classification) {
     // Classifier failed — mark as failed, will retry
