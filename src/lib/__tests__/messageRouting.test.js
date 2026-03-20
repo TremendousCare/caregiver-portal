@@ -50,9 +50,9 @@ function validateIntent(intent) {
 }
 
 function determineSuggestionType(classification) {
-  if (classification.suggested_action === 'send_sms' && classification.drafted_response) {
-    return 'reply';
-  }
+  const isReply = (classification.suggested_action === 'send_sms' || classification.suggested_action === 'send_email')
+    && classification.drafted_response;
+  if (isReply) return 'reply';
   if (classification.intent === 'opt_out') return 'alert';
   if (classification.intent === 'unknown') return 'alert';
   if (classification.suggested_action !== 'none') return 'action';
@@ -640,5 +640,235 @@ describe('Default Autonomy Config Caps', () => {
       max_autonomy_level: DEFAULT_CAPS.update_phase, // L2
     };
     expect(shouldPromote(config)).toBeNull();
+  });
+});
+
+
+// ═══════════════════════════════════════════════
+// VALID ACTIONS (Phase 2: Multi-Action Classifier)
+// ═══════════════════════════════════════════════
+
+const VALID_ACTIONS = [
+  'send_sms', 'send_email', 'add_note', 'add_client_note',
+  'update_phase', 'update_client_phase', 'complete_task', 'complete_client_task',
+  'update_caregiver_field', 'update_client_field', 'update_board_status',
+  'create_calendar_event', 'send_docusign_envelope', 'none',
+];
+
+function validateAction(action) {
+  return VALID_ACTIONS.includes(action) ? action : 'none';
+}
+
+function parseSuggestedParams(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  return {};
+}
+
+function buildActionParams(classification, entityId, entityType) {
+  const params = {
+    ...classification.suggested_params,
+    entity_id: entityId,
+    entity_type: entityType,
+  };
+  if (classification.suggested_action === 'send_sms' && !params.message) {
+    params.message = classification.drafted_response;
+  }
+  if (classification.suggested_action === 'send_email' && !params.body) {
+    params.body = classification.drafted_response;
+  }
+  if ((classification.suggested_action === 'add_note' || classification.suggested_action === 'add_client_note') && !params.text) {
+    params.text = classification.drafted_response || classification.reasoning;
+  }
+  return params;
+}
+
+describe('Action Validation', () => {
+  it('accepts all valid actions', () => {
+    for (const action of VALID_ACTIONS) {
+      expect(validateAction(action)).toBe(action);
+    }
+  });
+
+  it('normalizes invalid actions to "none"', () => {
+    expect(validateAction('delete_everything')).toBe('none');
+    expect(validateAction('')).toBe('none');
+    expect(validateAction(null)).toBe('none');
+    expect(validateAction(undefined)).toBe('none');
+  });
+
+  it('has 14 valid actions (13 real + none)', () => {
+    expect(VALID_ACTIONS).toHaveLength(14);
+  });
+});
+
+describe('Suggested Params Parsing', () => {
+  it('passes through valid object', () => {
+    const params = { task_id: 'task_hca_check', reason: 'Confirmed via SMS' };
+    expect(parseSuggestedParams(params)).toEqual(params);
+  });
+
+  it('returns empty object for null', () => {
+    expect(parseSuggestedParams(null)).toEqual({});
+  });
+
+  it('returns empty object for undefined', () => {
+    expect(parseSuggestedParams(undefined)).toEqual({});
+  });
+
+  it('returns empty object for array', () => {
+    expect(parseSuggestedParams(['not', 'valid'])).toEqual({});
+  });
+
+  it('returns empty object for string', () => {
+    expect(parseSuggestedParams('invalid')).toEqual({});
+  });
+
+  it('returns empty object for number', () => {
+    expect(parseSuggestedParams(42)).toEqual({});
+  });
+});
+
+describe('Action Params Building', () => {
+  it('merges suggested_params with entity context', () => {
+    const classification = {
+      suggested_action: 'complete_task',
+      suggested_params: { task_id: 'task_tb_test' },
+      drafted_response: '',
+      reasoning: 'Caregiver confirmed TB test',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.entity_id).toBe('cg-123');
+    expect(result.entity_type).toBe('caregiver');
+    expect(result.task_id).toBe('task_tb_test');
+  });
+
+  it('populates message from drafted_response for send_sms', () => {
+    const classification = {
+      suggested_action: 'send_sms',
+      suggested_params: {},
+      drafted_response: 'Thanks for confirming!',
+      reasoning: '',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.message).toBe('Thanks for confirming!');
+  });
+
+  it('does not overwrite message if already in suggested_params', () => {
+    const classification = {
+      suggested_action: 'send_sms',
+      suggested_params: { message: 'Custom message' },
+      drafted_response: 'Fallback message',
+      reasoning: '',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.message).toBe('Custom message');
+  });
+
+  it('populates body from drafted_response for send_email', () => {
+    const classification = {
+      suggested_action: 'send_email',
+      suggested_params: { subject: 'Follow-up' },
+      drafted_response: 'Hi Sarah, just checking in...',
+      reasoning: '',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.body).toBe('Hi Sarah, just checking in...');
+    expect(result.subject).toBe('Follow-up');
+  });
+
+  it('populates text from drafted_response for add_note', () => {
+    const classification = {
+      suggested_action: 'add_note',
+      suggested_params: {},
+      drafted_response: 'Caregiver confirmed availability',
+      reasoning: 'Confirmation message',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.text).toBe('Caregiver confirmed availability');
+  });
+
+  it('falls back to reasoning for add_note when no drafted_response', () => {
+    const classification = {
+      suggested_action: 'add_note',
+      suggested_params: {},
+      drafted_response: '',
+      reasoning: 'Caregiver asked about schedule',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.text).toBe('Caregiver asked about schedule');
+  });
+
+  it('passes through calendar params from suggested_params', () => {
+    const classification = {
+      suggested_action: 'create_calendar_event',
+      suggested_params: {
+        title: 'Interview - Sarah Johnson',
+        date: '2026-03-25',
+        start_time: '14:00',
+        end_time: '15:00',
+      },
+      drafted_response: "Great, I'll schedule that!",
+      reasoning: 'Scheduling request',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.title).toBe('Interview - Sarah Johnson');
+    expect(result.date).toBe('2026-03-25');
+    expect(result.start_time).toBe('14:00');
+    expect(result.end_time).toBe('15:00');
+    expect(result.entity_id).toBe('cg-123');
+  });
+
+  it('passes through phase params', () => {
+    const classification = {
+      suggested_action: 'update_phase',
+      suggested_params: { new_phase: 'interview', reason: 'Passed phone screen' },
+      drafted_response: '',
+      reasoning: '',
+    };
+    const result = buildActionParams(classification, 'cg-123', 'caregiver');
+    expect(result.new_phase).toBe('interview');
+    expect(result.reason).toBe('Passed phone screen');
+  });
+});
+
+describe('Suggestion Type with Email Replies (Phase 2)', () => {
+  it('returns "reply" for send_email with drafted response', () => {
+    expect(determineSuggestionType({
+      suggested_action: 'send_email',
+      drafted_response: 'Hi Sarah, here is the info...',
+      intent: 'question',
+    })).toBe('reply');
+  });
+
+  it('returns "action" for send_email without drafted response', () => {
+    expect(determineSuggestionType({
+      suggested_action: 'send_email',
+      drafted_response: '',
+      intent: 'question',
+    })).toBe('action');
+  });
+
+  it('returns "action" for complete_task', () => {
+    expect(determineSuggestionType({
+      suggested_action: 'complete_task',
+      drafted_response: '',
+      intent: 'confirmation',
+    })).toBe('action');
+  });
+
+  it('returns "action" for create_calendar_event', () => {
+    expect(determineSuggestionType({
+      suggested_action: 'create_calendar_event',
+      drafted_response: '',
+      intent: 'scheduling_request',
+    })).toBe('action');
+  });
+
+  it('returns "action" for update_phase', () => {
+    expect(determineSuggestionType({
+      suggested_action: 'update_phase',
+      drafted_response: '',
+      intent: 'confirmation',
+    })).toBe('action');
   });
 });

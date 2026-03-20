@@ -10,6 +10,7 @@ export interface ClassificationResult {
   intent: string;
   confidence: number;
   suggested_action: string;
+  suggested_params: Record<string, any>;
   drafted_response: string;
   reasoning: string;
 }
@@ -77,26 +78,68 @@ const DEMOTION_MAP: Record<string, string> = {
   L2: "L1",
 };
 
+// Valid actions the classifier can suggest (matches executeSuggestion switch cases)
+const VALID_ACTIONS = [
+  "send_sms",
+  "send_email",
+  "add_note",
+  "add_client_note",
+  "update_phase",
+  "update_client_phase",
+  "complete_task",
+  "complete_client_task",
+  "update_caregiver_field",
+  "update_client_field",
+  "update_board_status",
+  "create_calendar_event",
+  "send_docusign_envelope",
+  "none",
+] as const;
+
 // Max batch size per cron cycle (cost control)
 export const MAX_BATCH_SIZE = 5;
 
 // ─── Classifier ───
 
 const CLASSIFIER_SYSTEM_PROMPT = `You are a message classifier for a home care staffing agency called Tremendous Care.
-Given an inbound message from a caregiver or client, classify the intent and suggest a response.
+Given an inbound message from a caregiver or client, classify the intent and suggest the best action.
 
-Rules:
+## Intent Classification
+- "confirmation" — simple yes, ok, sure, got it
+- "document_submission" — mentions documents, forms, uploads, signatures
+- "scheduling_request" — asks about schedule, availability, times, interviews
+- "general_response" — thanks, acknowledgements, casual replies
+- "question" — needs an answer or information
+- "opt_out" — stop, unsubscribe, opt out
+- "unknown" — cannot determine intent
+
+## Available Actions
+Choose the BEST action for the situation. Use "none" if no action is appropriate.
+
+| Action | When to Use | Required Params |
+|--------|------------|-----------------|
+| send_sms | Reply to SMS message | message (the reply text) |
+| send_email | Reply via email or follow up formally | to_email, subject, body |
+| add_note | Log important info from the message | text |
+| complete_task | Message confirms a task is done (e.g., "I got my TB test") | task_id (from pending tasks list) |
+| update_phase | Message indicates readiness for next phase | new_phase, reason |
+| create_calendar_event | Message requests scheduling | title, date, start_time, end_time |
+| update_board_status | Message indicates board column change needed | new_status |
+| none | No action needed, or just observe | (none) |
+
+## Rules
 - Be warm and professional in drafted responses. Use first names.
 - Use business context and calendar info to give specific, actionable answers.
 - NEVER use [DATE/TIME] or [PLACEHOLDER] brackets — if info is missing, say you'll check and get back to them.
-- If the message is a simple confirmation (yes, ok, sure), mark intent as "confirmation".
-- If the message mentions documents, forms, or uploads, mark intent as "document_submission".
-- If the message asks about schedule, availability, or times, mark intent as "scheduling_request".
-- If the message says stop, unsubscribe, or opt out, mark intent as "opt_out" and do NOT draft a response.
-- If the message is a question needing an answer, mark intent as "question".
-- For general replies (thanks, got it, etc.), mark intent as "general_response".
-- Only suggest "send_sms" as action if a response is appropriate. Use "none" if no response needed.
-- Keep drafted responses concise (under 160 chars for SMS).
+- If intent is "opt_out", do NOT suggest any action — set action to "none".
+- For SMS channels, keep drafted_response under 160 chars.
+- For email channels, drafted_response can be longer and more formal.
+- Only suggest complete_task if the message clearly confirms task completion AND the task_id matches a pending task.
+- Only suggest update_phase if the message strongly indicates phase advancement.
+- Only suggest create_calendar_event if there's enough info to create a real event (or you can infer from calendar context).
+- Prefer send_sms for quick replies, send_email for formal follow-ups.
+- You can suggest add_note as a secondary action alongside a reply — use suggested_params to pass the note text.
+- When in doubt, default to send_sms with a helpful reply, or "none" if no response is needed.
 
 Respond with JSON only, no other text.`;
 
@@ -167,6 +210,8 @@ export async function classifyMessage(
 
   const userMessage = `Entity: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.phase}) — ${entityContext.entity_type}
 Channel: ${channel}
+Phone: ${entityContext.phone || "none"}
+Email: ${entityContext.email || "none"}
 Recent activity:
 ${recentNotesSummary || "No recent notes"}
 Pending tasks: ${tasksSummary}
@@ -174,7 +219,7 @@ ${enrichmentBlock}
 Inbound message: "${messageText}"
 
 Respond with JSON:
-{"intent": "question|document_submission|scheduling_request|general_response|confirmation|opt_out|unknown", "confidence": 0.0-1.0, "suggested_action": "send_sms|none", "drafted_response": "the response text or empty string", "reasoning": "brief explanation"}`;
+{"intent": "question|document_submission|scheduling_request|general_response|confirmation|opt_out|unknown", "confidence": 0.0-1.0, "suggested_action": "send_sms|send_email|add_note|complete_task|update_phase|create_calendar_event|update_board_status|none", "suggested_params": {"key": "value"}, "drafted_response": "the response text or empty string", "reasoning": "brief explanation"}`;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -186,7 +231,7 @@ Respond with JSON:
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 300,
+        max_tokens: 400,
         system: CLASSIFIER_SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -211,10 +256,17 @@ Respond with JSON:
     const parsed = JSON.parse(jsonMatch[0]);
 
     // Validate and normalize
+    const validAction = VALID_ACTIONS.includes(parsed.suggested_action)
+      ? parsed.suggested_action
+      : "none";
+
     return {
       intent: VALID_INTENTS.includes(parsed.intent) ? parsed.intent : "unknown",
       confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-      suggested_action: parsed.suggested_action === "send_sms" ? "send_sms" : "none",
+      suggested_action: validAction,
+      suggested_params: (parsed.suggested_params && typeof parsed.suggested_params === "object")
+        ? parsed.suggested_params
+        : {},
       drafted_response: String(parsed.drafted_response || ""),
       reasoning: String(parsed.reasoning || ""),
     };
@@ -631,7 +683,9 @@ export async function createSuggestion(
 
   // Determine suggestion type
   let suggestionType: string;
-  if (classification.suggested_action === "send_sms" && classification.drafted_response) {
+  const isReply = (classification.suggested_action === "send_sms" || classification.suggested_action === "send_email")
+    && classification.drafted_response;
+  if (isReply) {
     suggestionType = "reply";
   } else if (classification.intent === "opt_out") {
     suggestionType = "alert";
@@ -654,12 +708,23 @@ export async function createSuggestion(
   const intentLabel = intentLabels[classification.intent] || "sent a message";
   const title = `${params.entityName} ${intentLabel}`;
 
-  const actionParams: Record<string, any> = {};
-  if (classification.suggested_action === "send_sms") {
-    actionParams.entity_id = params.entityId;
-    actionParams.entity_type = params.entityType;
+  // Build action_params from classifier's suggested_params + standard fields
+  const actionParams: Record<string, any> = {
+    ...classification.suggested_params,
+    entity_id: params.entityId,
+    entity_type: params.entityType,
+  };
+  // For communication actions, ensure message/body content is populated
+  if (classification.suggested_action === "send_sms" && !actionParams.message) {
     actionParams.message = classification.drafted_response;
-    actionParams.channel = params.channel;
+  }
+  if (classification.suggested_action === "send_email") {
+    if (!actionParams.body) actionParams.body = classification.drafted_response;
+    if (!actionParams.to_email) actionParams.to_email = params.entityType === "client" ? "" : "";
+    // to_email will be resolved from entity record by executeSuggestion if empty
+  }
+  if ((classification.suggested_action === "add_note" || classification.suggested_action === "add_client_note") && !actionParams.text) {
+    actionParams.text = classification.drafted_response || classification.reasoning;
   }
 
   const { error } = await supabase.from("ai_suggestions").insert({
