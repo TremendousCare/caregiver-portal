@@ -60,6 +60,8 @@ export function computeStaleCaregivers(caregivers, thresholdDays = 3) {
     if (cg.archived) continue;
     // Skip active roster / deployed caregivers
     if (cg.board_status === 'deployed' || cg.board_status === 'reserve') continue;
+    // Skip records with no name (test/incomplete data)
+    if (!cg.first_name && !cg.last_name) continue;
 
     const lastActivity = getLastActivityTimestamp(cg);
     const elapsed = now - lastActivity;

@@ -114,6 +114,12 @@ describe('computeStaleCaregivers', () => {
     expect(result.length).toBe(0);
   });
 
+  it('skips caregivers with no name (test/incomplete data)', () => {
+    const cg = makeCg({ first_name: null, last_name: null, notes: [{ text: 'old', timestamp: NOW - 10 * DAYS }] });
+    const result = computeStaleCaregivers([cg], 3);
+    expect(result.length).toBe(0);
+  });
+
   it('returns empty array for null input', () => {
     expect(computeStaleCaregivers(null)).toEqual([]);
   });

@@ -78,7 +78,21 @@ export function RecommendedNextStep({ caregiver }) {
       {rec.risk && <div className={s.risk}>{rec.risk}</div>}
 
       <div className={s.actionsRow}>
-        <button className={`${s.ctaBtn} ${rec.ctaType === 'primary' ? s.ctaPrimary : s.ctaSecondary}`}>
+        <button
+          className={`${s.ctaBtn} ${rec.ctaType === 'primary' ? s.ctaPrimary : s.ctaSecondary}`}
+          onClick={() => {
+            // Scroll to relevant section on the same page
+            if (rec.actionType === 'update_phase' || rec.ctaLabel === 'View Tasks') {
+              document.querySelector('[class*="phaseDetail"], [class*="PhaseDetail"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (rec.actionType === 'send_sms' || rec.actionType === 'send_email') {
+              // Open the AI chatbot with a contextual prompt
+              document.querySelector('[class*="chatFab"], [class*="AIChatbot"]')?.click();
+            } else {
+              // Default: expand evidence if available
+              if (rec.evidence?.length > 0) setExpanded(true);
+            }
+          }}
+        >
           {rec.ctaLabel}
         </button>
 
