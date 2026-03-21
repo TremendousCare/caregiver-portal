@@ -361,6 +361,74 @@
   border-left: 3px solid #3B82F6;
 }
 
+/* ── Auto-Executed Section ── */
+
+.autoExecutedSection {
+  margin-bottom: 8px;
+  padding: 8px;
+  background: rgba(16, 185, 129, 0.04);
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.12);
+}
+
+.autoExecutedHeader {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #10B981;
+  padding: 4px 8px 8px;
+}
+
+.cardAutoExecuted {
+  border-color: rgba(16, 185, 129, 0.15);
+  background: #fff;
+}
+
+.cardAutoExecuted:hover {
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.autoExecutedFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 0 26px;
+}
+
+.autoExecutedBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #10B981;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.undoBtn {
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #fff;
+  color: #6B7280;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.undoBtn:hover {
+  background: #FEF2F2;
+  border-color: #EF4444;
+  color: #EF4444;
+}
+
+.undoBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── History Card ── */
 
 .cardHistory {
