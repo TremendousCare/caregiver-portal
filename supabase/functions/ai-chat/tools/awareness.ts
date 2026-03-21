@@ -897,22 +897,8 @@ registerTool(
           return { error: `Failed to execute suggestion: ${result.error}` };
         }
 
-        // Record approval for autonomy tracking
-        const { data: suggestion } = await ctx.supabase
-          .from("ai_suggestions")
-          .select("action_type, entity_type")
-          .eq("id", input.suggestion_id)
-          .single();
-
-        if (suggestion?.action_type) {
-          await recordAutonomyOutcome(
-            ctx.supabase,
-            suggestion.action_type,
-            suggestion.entity_type || "caregiver",
-            "inbound_routing",
-            true,
-          ).catch(() => {}); // fire-and-forget
-        }
+        // Note: autonomy outcome recording is now handled inside executeSuggestion
+        // (routing.ts) to ensure all execution paths record outcomes consistently.
 
         return {
           result: "Suggestion approved and executed successfully.",

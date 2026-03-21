@@ -291,7 +291,8 @@ export async function checkDuplicateSuggestion(
     .select("id")
     .eq("entity_id", entityId)
     .eq("action_type", actionType)
-    .eq("source_type", "proactive")
+    // Check ALL sources (proactive + inbound_sms + inbound_email) to prevent cross-source duplicates
+    .in("status", ["pending", "executed", "auto_executed"])
     .gte("created_at", since)
     .limit(1);
 

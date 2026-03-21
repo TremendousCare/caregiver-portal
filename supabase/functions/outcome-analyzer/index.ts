@@ -99,11 +99,15 @@ Deno.serve(async (req: Request) => {
     // Find recent inbound SMS from the last 24 hours
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: inboundSms } = await supabase
-      .from("inbound_sms_log")
+      .from("message_routing_queue")
       .select(
-        "from_phone, message_text, matched_entity_type, matched_entity_id, processed_at",
+        "sender_identifier, message_text, matched_entity_type, matched_entity_id, processed_at",
       )
+      .eq("channel", "sms")
+      .eq("direction", "inbound")
+      .in("status", ["processed", "processing"])
       .gte("processed_at", since24h)
+      .order("processed_at", { ascending: false })
       .limit(50);
 
     let smsCorrelated = 0;
