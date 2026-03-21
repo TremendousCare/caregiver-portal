@@ -8,6 +8,7 @@ import {
   getRecentOutcomes,
   parsePlannerResponse,
   formatPipelineSummaryForPrompt,
+  formatSingleEntityPrompt,
 } from '../plannerHelpers';
 
 const NOW = new Date('2026-03-21T12:00:00Z').getTime();
@@ -258,6 +259,112 @@ describe('Proactive Planner', () => {
 
     it('returns message for empty pipeline', () => {
       expect(formatPipelineSummaryForPrompt([])).toBe('No active entities in pipeline.');
+    });
+  });
+
+  describe('formatSingleEntityPrompt', () => {
+    const baseContext = {
+      id: 'cg_123',
+      first_name: 'Maria',
+      last_name: 'Garcia',
+      phone: '555-1234',
+      email: 'maria@example.com',
+      entity_type: 'caregiver',
+      phase: 'Onboarding',
+      recent_notes: [
+        { text: 'Sent welcome SMS', type: 'sms_sent', timestamp: NOW - 86400000, author: 'system' },
+      ],
+      incomplete_tasks: ['task_tb_test', 'task_i9_form'],
+      task_labels: { task_tb_test: 'TB Test', task_i9_form: 'I-9 Form' },
+    };
+
+    const baseEntityData = {
+      phase_timestamps: { intake: '2026-03-10', onboarding: '2026-03-18' },
+      tasks: { task_tb_test: { completed: false }, task_i9_form: { completed: false } },
+    };
+
+    it('includes trigger reason prominently', () => {
+      const result = formatSingleEntityPrompt(baseContext, 'DocuSign completed', [], [], baseEntityData);
+      expect(result).toContain('## Trigger Event');
+      expect(result).toContain('DocuSign completed');
+    });
+
+    it('includes entity name, phase, and contact info', () => {
+      const result = formatSingleEntityPrompt(baseContext, 'test', [], [], baseEntityData);
+      expect(result).toContain('Maria Garcia');
+      expect(result).toContain('Onboarding');
+      expect(result).toContain('555-1234');
+      expect(result).toContain('maria@example.com');
+    });
+
+    it('includes days in phase calculated from phase_timestamps', () => {
+      const result = formatSingleEntityPrompt(baseContext, 'test', [], [], baseEntityData);
+      expect(result).toContain('d in phase');
+    });
+
+    it('shows task labels when available', () => {
+      const result = formatSingleEntityPrompt(baseContext, 'test', [], [], baseEntityData);
+      expect(result).toContain('TB Test');
+      expect(result).toContain('I-9 Form');
+    });
+
+    it('falls back to task ID formatting when no labels', () => {
+      const noLabels = { ...baseContext, task_labels: undefined };
+      const result = formatSingleEntityPrompt(noLabels, 'test', [], [], baseEntityData);
+      expect(result).toContain('tb test');
+      expect(result).toContain('i9 form');
+    });
+
+    it('includes conversation history when present', () => {
+      const withConvo = {
+        ...baseContext,
+        conversation_history: [
+          { direction: 'inbound', text: 'Hi I sent my documents', timestamp: NOW - 3600000 },
+          { direction: 'outbound', text: 'Thanks we received them!', timestamp: NOW - 7200000 },
+        ],
+      };
+      const result = formatSingleEntityPrompt(withConvo, 'test', [], [], baseEntityData);
+      expect(result).toContain('THEM');
+      expect(result).toContain('US');
+      expect(result).toContain('Conversation History');
+    });
+
+    it('includes recent outcomes', () => {
+      const outcomes = [
+        { entity_id: 'cg_123', action_type: 'sms_sent', outcome_type: 'response_received' },
+      ];
+      const result = formatSingleEntityPrompt(baseContext, 'test', outcomes, [], baseEntityData);
+      expect(result).toContain('sms sent: response_received');
+    });
+
+    it('includes alerts from evaluateAlerts', () => {
+      const rules = [{
+        name: 'Missing TB Test', entity_type: 'caregiver', enabled: true,
+        condition_type: 'task_missing', condition_config: { task_id: 'task_tb_test' },
+      }];
+      const result = formatSingleEntityPrompt(baseContext, 'test', [], rules, baseEntityData);
+      expect(result).toContain('Active Alerts');
+      expect(result).toContain('Missing TB Test');
+    });
+
+    it('handles missing enrichment fields gracefully', () => {
+      const minimal = {
+        id: 'cg_456', first_name: 'John', last_name: 'Doe',
+        phone: null, email: null, entity_type: 'caregiver', phase: 'Intake',
+        recent_notes: [], incomplete_tasks: [],
+      };
+      const result = formatSingleEntityPrompt(minimal, 'New application', [], [], {});
+      expect(result).toContain('NONE'); // phone/email
+      expect(result).toContain('New application');
+      expect(result).not.toContain('Conversation History');
+      expect(result).not.toContain('Upcoming Calendar');
+    });
+
+    it('includes calendar summary when present', () => {
+      const withCalendar = { ...baseContext, calendar_summary: 'Interview scheduled for tomorrow at 2pm' };
+      const result = formatSingleEntityPrompt(withCalendar, 'test', [], [], baseEntityData);
+      expect(result).toContain('Upcoming Calendar');
+      expect(result).toContain('Interview scheduled');
     });
   });
 });

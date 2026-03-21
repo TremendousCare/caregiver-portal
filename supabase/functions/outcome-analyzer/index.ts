@@ -198,7 +198,7 @@ Deno.serve(async (req: Request) => {
       .order("created_at", { ascending: false })
       .limit(500);
 
-    if (allOutcomes && allOutcomes.length >= 30) {
+    if (allOutcomes && allOutcomes.length >= 10) {
       // Group by action_type
       const groups: Record<string, any[]> = {};
       for (const o of allOutcomes) {
@@ -208,7 +208,7 @@ Deno.serve(async (req: Request) => {
       }
 
       for (const [actionType, outcomes] of Object.entries(groups)) {
-        if (outcomes.length < 30) continue; // Confidence gate: 30+ data points required
+        if (outcomes.length < 10) continue; // Confidence gate: 10+ data points required
 
         const total = outcomes.length;
         const successes = outcomes.filter(
@@ -232,8 +232,8 @@ Deno.serve(async (req: Request) => {
             : null;
 
         // Sliding confidence based on sample size:
-        // 30-49: 0.7, 50-99: 0.75, 100+: 0.85
-        const confidence = total >= 100 ? 0.85 : total >= 50 ? 0.75 : 0.7;
+        // 10-14: 0.55, 15-24: 0.65, 25-49: 0.75, 50+: 0.85
+        const confidence = total >= 50 ? 0.85 : total >= 25 ? 0.75 : total >= 15 ? 0.65 : 0.55;
 
         // Build the memory content
         const actionLabel = actionType.replace(/_/g, " ");

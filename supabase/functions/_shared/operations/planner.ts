@@ -1,8 +1,10 @@
 // ─── Proactive Planner Helpers ───
 // Pure functions + DB queries used by the ai-planner Edge Function.
-// Pipeline summary building, dedup, rule loading, response parsing.
+// Pipeline summary building, dedup, rule loading, response parsing,
+// and single-entity context formatting for event-driven triggers.
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { EntityContext } from "./routing.ts";
 
 // ─── Types ───
 
@@ -348,6 +350,105 @@ export function parsePlannerResponse(responseText: string): PlannerSuggestion[] 
   }
 
   return suggestions;
+}
+
+// ─── Single-Entity Context Formatter (for event-driven triggers) ───
+
+export function formatSingleEntityPrompt(
+  entityContext: EntityContext,
+  triggerReason: string,
+  recentOutcomes: any[],
+  actionItemRules: any[],
+  entityData: any,
+): string {
+  const now = Date.now();
+  const lines: string[] = [];
+
+  // ── Trigger reason (prominent) ──
+  lines.push(`## Trigger Event`);
+  lines.push(triggerReason);
+
+  // ── Entity basics ──
+  const phase = entityContext.phase || "Unknown";
+  const daysInPhase = entityData?.phase_timestamps
+    ? calculateDaysInPhase(entityData.phase_timestamps, phase, now)
+    : 0;
+
+  lines.push("");
+  lines.push(`## Entity Profile`);
+  lines.push(`Name: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.entity_type})`);
+  lines.push(`Phase: ${phase} (${daysInPhase}d in phase)`);
+  lines.push(`Phone: ${entityContext.phone || "NONE"}`);
+  lines.push(`Email: ${entityContext.email || "NONE"}`);
+
+  // ── Incomplete tasks ──
+  if (entityContext.incomplete_tasks.length > 0) {
+    lines.push("");
+    lines.push(`## Pending Tasks (${entityContext.incomplete_tasks.length})`);
+    for (const task of entityContext.incomplete_tasks) {
+      const label = entityContext.task_labels?.[task] || task.replace(/^task_/, "").replace(/_/g, " ");
+      lines.push(`- ${label}`);
+    }
+  }
+
+  // ── Active alerts ──
+  const alerts = evaluateAlerts(entityData, actionItemRules, entityContext.entity_type, now);
+  if (alerts.length > 0) {
+    lines.push("");
+    lines.push(`## Active Alerts`);
+    for (const alert of alerts) {
+      lines.push(`- ${alert}`);
+    }
+  }
+
+  // ── Recent outcomes ──
+  const outcomes = getRecentOutcomes(entityContext.id, recentOutcomes);
+  if (outcomes.length > 0) {
+    lines.push("");
+    lines.push(`## Recent Outcomes`);
+    for (const o of outcomes) {
+      lines.push(`- ${o}`);
+    }
+  }
+
+  // ── Conversation history ──
+  if (entityContext.conversation_history && entityContext.conversation_history.length > 0) {
+    lines.push("");
+    lines.push(`## Conversation History (most recent first)`);
+    for (const msg of entityContext.conversation_history.slice(0, 10)) {
+      const dir = msg.direction === "inbound" ? "THEM" : "US";
+      const age = Math.floor((now - msg.timestamp) / 86400000);
+      lines.push(`[${dir}] (${age}d ago) ${msg.text.slice(0, 200)}`);
+    }
+  }
+
+  // ── Recent notes ──
+  if (entityContext.recent_notes.length > 0) {
+    lines.push("");
+    lines.push(`## Recent Notes`);
+    for (const note of entityContext.recent_notes.slice(0, 5)) {
+      const age = note.timestamp ? Math.floor((now - new Date(note.timestamp).getTime()) / 86400000) : 0;
+      lines.push(`- (${age}d ago) [${note.type}] ${note.text.slice(0, 150)}`);
+    }
+  }
+
+  // ── Calendar context ──
+  if (entityContext.calendar_summary) {
+    lines.push("");
+    lines.push(`## Upcoming Calendar`);
+    lines.push(entityContext.calendar_summary);
+  }
+
+  // ── Recent events ──
+  if (entityContext.recent_events && entityContext.recent_events.length > 0) {
+    lines.push("");
+    lines.push(`## Recent Events`);
+    for (const evt of entityContext.recent_events.slice(0, 5)) {
+      lines.push(`- ${evt.event_type} (${evt.created_at})`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 // ─── Compact Summary Formatter ───
