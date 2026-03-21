@@ -18,6 +18,7 @@ import {
   executeSuggestion,
   MAX_BATCH_SIZE,
 } from "../_shared/operations/routing.ts";
+import { checkDuplicateSuggestion } from "../_shared/operations/planner.ts";
 import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 
 // ─── Environment ───
@@ -261,6 +262,23 @@ async function processEntry(
       updated_at: new Date().toISOString(),
     })
     .eq("id", entry.id);
+
+  // ── Dedup check: skip if same entity+action already suggested within 24h ──
+  if (classification.suggested_action !== "none") {
+    const isDuplicate = await checkDuplicateSuggestion(
+      supabase,
+      entry.matched_entity_id,
+      classification.suggested_action,
+      24,
+    );
+    if (isDuplicate) {
+      console.log(
+        `[message-router] Skipping duplicate ${classification.suggested_action} for ${entry.matched_entity_id}`,
+      );
+      results.processed++;
+      return;
+    }
+  }
 
   // ── Create suggestion ──
   const entityName = `${entityContext.first_name} ${entityContext.last_name}`.trim();

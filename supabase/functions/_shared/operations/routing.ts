@@ -47,6 +47,27 @@ export interface EntityContext {
   recent_events?: Array<{ event_type: string; created_at: string }>;
 }
 
+// ─── Outcome Recording Constants ───
+
+/** Maps suggestion action_type → action_outcomes.action_type + expiry window */
+const OUTCOME_ACTION_MAP: Record<string, { outcomeType: string; expiryDays: number | null }> = {
+  send_sms: { outcomeType: "sms_sent", expiryDays: 7 },
+  send_email: { outcomeType: "email_sent", expiryDays: 7 },
+  send_docusign_envelope: { outcomeType: "docusign_sent", expiryDays: 14 },
+  create_calendar_event: { outcomeType: "calendar_event_created", expiryDays: 21 },
+  update_phase: { outcomeType: "phase_changed", expiryDays: null },
+  update_client_phase: { outcomeType: "phase_changed", expiryDays: null },
+  complete_task: { outcomeType: "task_completed", expiryDays: null },
+  complete_client_task: { outcomeType: "task_completed", expiryDays: null },
+};
+
+/** Derive action_outcomes.source from executedBy identifier */
+function deriveOutcomeSource(executedBy: string): string {
+  if (executedBy.startsWith("system:")) return "automation";
+  if (executedBy.startsWith("user:")) return "manual";
+  return "ai_chat";
+}
+
 // ─── Constants ───
 
 const VALID_INTENTS = [
@@ -1056,6 +1077,45 @@ export async function executeSuggestion(
         message: "",
         error: `Action type "${suggestion.action_type}" is not supported for autonomous execution.`,
       };
+  }
+
+  // ─── Record outcome for trackable actions (fire-and-forget) ───
+  const outcomeMapping = OUTCOME_ACTION_MAP[suggestion.action_type];
+  if (result.success && outcomeMapping) {
+    const expiresAt = outcomeMapping.expiryDays
+      ? new Date(Date.now() + outcomeMapping.expiryDays * 86400000).toISOString()
+      : null;
+
+    supabase.from("action_outcomes").insert({
+      action_type: outcomeMapping.outcomeType,
+      entity_type: entityType,
+      entity_id: entityId,
+      source: deriveOutcomeSource(executedBy),
+      metadata: {
+        suggestion_id: suggestionId,
+        source_type: suggestion.source_type,
+        action_params: suggestion.action_params,
+      },
+      expires_at: expiresAt,
+    }).then(() => {}).catch((err: Error) =>
+      console.error(`[routing] Failed to record outcome for ${suggestionId}:`, err)
+    );
+  }
+
+  // ─── Record autonomy outcome (fire-and-forget) ───
+  // Tracks trust signals for auto-promotion/demotion of autonomy levels.
+  // Human approvals and auto-executions both count as successful outcomes.
+  if (result.success && suggestion.action_type) {
+    const autonomyContext = suggestion.source_type === "proactive" ? "proactive" : "inbound_routing";
+    recordAutonomyOutcome(
+      supabase,
+      suggestion.action_type,
+      entityType,
+      autonomyContext,
+      true,
+    ).catch((err: Error) =>
+      console.error(`[routing] Failed to record autonomy outcome:`, err)
+    );
   }
 
   // Update suggestion status
