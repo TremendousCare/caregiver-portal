@@ -11,6 +11,7 @@ import { ProgressOverview } from './caregiver/ProgressOverview';
 import { PhaseDetail } from './caregiver/PhaseDetail';
 import { DocumentsSection } from './caregiver/DocumentsSection';
 import { ActivityLog } from './caregiver/ActivityLog';
+import { RecommendedNextStep } from './caregiver/RecommendedNextStep';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -104,6 +105,8 @@ export function CaregiverDetail({
         onPhaseChange={setActivePhase}
         onUpdateCaregiver={onUpdateCaregiver}
       />
+
+      <RecommendedNextStep caregiver={caregiver} />
 
       <PhaseDetail
         caregiver={caregiver}

@@ -1,0 +1,167 @@
+/* ═══════════════════════════════════════════════════════════════
+   Recommended Next Step — Profile AI Card
+   Compact recommendation card for caregiver profiles
+   ═══════════════════════════════════════════════════════════════ */
+
+.card {
+  background: linear-gradient(135deg, #FAFBFF 0%, #F0F7FF 100%);
+  border: 1px solid rgba(41, 190, 228, 0.15);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.cardAi {
+  background: linear-gradient(135deg, #F0F7FF 0%, #EEF2FF 100%);
+  border-color: rgba(99, 102, 241, 0.15);
+}
+
+.cardOnTrack {
+  background: #F9FAFB;
+  border-color: #E2E8F0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.headerIcon {
+  font-size: 16px;
+}
+
+.headerTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  flex: 1;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badgeAi {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366F1;
+}
+
+.badgeHeuristic {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+}
+
+/* ── Recommendation Content ── */
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.reason {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.risk {
+  font-size: 12px;
+  color: #D97706;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+/* ── Actions Row ── */
+
+.actionsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ctaBtn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.ctaPrimary {
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
+  color: #fff;
+}
+
+.ctaPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.ctaSecondary {
+  background: #fff;
+  color: var(--tc-text-muted);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.ctaSecondary:hover {
+  background: #F8F9FA;
+  color: var(--tc-text-primary);
+}
+
+.evidenceToggle {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: none;
+  background: none;
+  color: var(--tc-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+
+.evidenceToggle:hover {
+  color: var(--tc-text-primary);
+}
+
+/* ── Evidence Section ── */
+
+.evidence {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.evidenceItem {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  line-height: 1.4;
+  padding: 3px 0;
+}
+
+.draft {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.7);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.4;
+  border-left: 3px solid #6366F1;
+}
