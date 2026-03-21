@@ -1,10 +1,11 @@
 // ─── AI Planner ───
-// Daily cron (7am PT / 14:00 UTC) that analyzes the full pipeline
-// using Claude Sonnet and generates up to 7 high-impact suggestions.
+// Two modes:
+// 1. Daily cron (7am PT) — full pipeline scan, up to 7 suggestions
+// 2. Event-triggered — single entity with deep context, up to 3 suggestions
 //
 // Reads: caregivers, clients, action_item_rules, automation_rules,
 //        action_outcomes, app_settings (business context + planner config)
-// Writes: ai_suggestions (source_type = 'proactive')
+// Writes: ai_suggestions (source_type = 'proactive' or 'event_triggered')
 //
 // All suggestions flow through autonomy_config (context = 'proactive')
 // and executeSuggestion() for the same guardrails as inbound routing.
@@ -15,6 +16,7 @@ import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 import {
   buildPipelineSummary,
   formatPipelineSummaryForPrompt,
+  formatSingleEntityPrompt,
   parsePlannerResponse,
   checkDuplicateSuggestion,
   type PlannerSuggestion,
@@ -22,6 +24,7 @@ import {
 import {
   lookupAutonomyLevel,
   executeSuggestion,
+  fetchEntityContext,
 } from "../_shared/operations/routing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -73,6 +76,39 @@ For each recommendation, return a JSON array. Each item must have:
 
 Respond with ONLY the JSON array. No explanation or markdown wrapping.`;
 
+// ─── Single-Entity System Prompt (event-driven triggers) ───
+
+const SINGLE_ENTITY_SYSTEM_PROMPT = `You are an event-triggered planner for Tremendous Care, a home care staffing agency in California. An event just occurred for one entity. Analyze the full context and recommend 1-3 immediate next actions.
+
+You have deep context for this person:
+- Full conversation history (SMS/email thread)
+- Current phase and all tasks (with human-readable labels)
+- Calendar context (upcoming events)
+- Recent events and outcome history
+- The specific trigger that invoked this analysis
+
+Consider:
+- What the trigger event means for this person's onboarding journey
+- What the logical next step is given the trigger
+- Whether this person has been responsive (check conversation history and outcomes)
+- Don't suggest actions that automation rules already handle (listed below)
+- If someone has no phone number, suggest email instead of SMS
+- Draft SMS messages under 160 characters, warm and professional
+- Draft emails with a clear subject line and brief body
+
+For each recommendation, return a JSON array. Each item must have:
+- entity_id: the ID string of this entity
+- entity_type: "caregiver" or "client"
+- entity_name: their name
+- action_type: one of: send_sms, send_email, add_note, complete_task, update_phase, create_calendar_event, send_docusign_envelope
+- priority: "high", "medium", or "low"
+- title: brief description (under 80 chars)
+- detail: your reasoning (1-2 sentences)
+- drafted_content: the message text (for send_sms or send_email) or null
+- action_params: structured params for execution. For send_sms: {message: "..."}. For send_email: {subject: "...", body: "..."}. For add_note: {text: "...", type: "ai_planner"}. For complete_task: {task_id: "task_xxx"}. For update_phase: {new_phase: "Phase Name"}. For create_calendar_event: {subject: "...", start_time: "ISO string", duration_minutes: 30}.
+
+Respond with ONLY the JSON array. No explanation or markdown wrapping.`;
+
 // ─── Main Handler ───
 
 Deno.serve(async (req: Request) => {
@@ -85,6 +121,12 @@ Deno.serve(async (req: Request) => {
   const doneInvocation = startTimer(supabase, "ai-planner", "invocation");
 
   try {
+    // ── Parse request body for optional single-entity trigger params ──
+    let body: any = {};
+    try { body = await req.json(); } catch { /* empty body = daily cron */ }
+    const { entity_id, entity_type, trigger_reason } = body;
+    const isSingleEntity = !!(entity_id && entity_type);
+
     // ── Check if planner is enabled ──
     const { data: enabledSetting } = await supabase
       .from("app_settings")
@@ -100,45 +142,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── Check idempotency (don't run twice in same day) ──
-    const { data: lastRun } = await supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "last_planner_run")
-      .single();
-
-    const today = new Date().toISOString().split("T")[0];
-    if (lastRun?.value && typeof lastRun.value === "string") {
-      const lastRunDate = lastRun.value.split("T")[0];
-      if (lastRunDate === today) {
-        results.skipped = `Already ran today (${lastRun.value})`;
-        doneInvocation(true, results);
-        return new Response(JSON.stringify({ success: true, results }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    // ── Get max suggestions setting ──
-    const { data: maxSugSetting } = await supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "planner_max_suggestions")
-      .single();
-    const maxSuggestions = parseInt(maxSugSetting?.value) || 7;
-
-    // ── Load pipeline data ──
-    const { data: caregivers } = await supabase
-      .from("caregivers")
-      .select("id, first_name, last_name, phone, email, phase_override, phase_timestamps, tasks, notes, created_at, archived, board_status, has_hca, hca_expiration")
-      .order("created_at", { ascending: false });
-
-    const { data: clients } = await supabase
-      .from("clients")
-      .select("id, first_name, last_name, phone, email, phase, phase_timestamps, tasks, notes, created_at, archived")
-      .order("created_at", { ascending: false });
-
-    // ── Load rules context ──
+    // ── Shared context: rules, automations, outcomes, business context ──
     const { data: actionItemRules } = await supabase
       .from("action_item_rules")
       .select("name, entity_type, condition_type, condition_config, urgency, title_template, detail_template, enabled")
@@ -149,7 +153,6 @@ Deno.serve(async (req: Request) => {
       .select("name, trigger_type, action_type, conditions, enabled, entity_type")
       .eq("enabled", true);
 
-    // ── Load recent outcomes (last 14 days) ──
     const since14d = new Date(Date.now() - 14 * 86400000).toISOString();
     const { data: recentOutcomes } = await supabase
       .from("action_outcomes")
@@ -158,7 +161,6 @@ Deno.serve(async (req: Request) => {
       .order("created_at", { ascending: false })
       .limit(200);
 
-    // ── Load business context ──
     const { data: bizCtx } = await supabase
       .from("app_settings")
       .select("value")
@@ -166,41 +168,167 @@ Deno.serve(async (req: Request) => {
       .single();
     const businessContext = bizCtx?.value || "";
 
-    // ── Build pipeline summary ──
-    const { entities, rules_context, automation_context } = buildPipelineSummary(
-      caregivers || [],
-      clients || [],
-      actionItemRules || [],
-      automationRules || [],
-      recentOutcomes || [],
-    );
+    // Build rules/automation context strings (shared by both modes)
+    const rules_context = (actionItemRules || [])
+      .filter((r: any) => r.enabled)
+      .map((r: any) => `- ${r.name}: ${r.detail_template || r.title_template} (${r.urgency})`)
+      .join("\n");
 
-    results.pipeline_size = entities.length;
-    results.active_rules = (actionItemRules || []).length;
-    results.active_automations = (automationRules || []).length;
+    const automation_context = (automationRules || [])
+      .filter((r: any) => r.enabled)
+      .map((r: any) => `- ${r.name}: trigger=${r.trigger_type}, action=${r.action_type}`)
+      .join("\n");
 
-    if (entities.length === 0) {
-      results.skipped = "No active entities in pipeline";
-      doneInvocation(true, results);
-      return new Response(JSON.stringify({ success: true, results }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    let systemPrompt: string;
+    let userPrompt: string;
+    let maxSuggestions: number;
+    let sourceType: string;
 
-    // ── Build Sonnet prompt ──
-    const pipelineText = formatPipelineSummaryForPrompt(entities);
-    const systemPrompt = PLANNER_SYSTEM_PROMPT.replace("{max_suggestions}", String(maxSuggestions));
+    if (isSingleEntity) {
+      // ══════════════════════════════════════════════
+      // ── SINGLE-ENTITY MODE (event-driven trigger) ──
+      // ══════════════════════════════════════════════
+      results.mode = "single_entity";
+      results.entity_id = entity_id;
+      results.trigger_reason = trigger_reason;
 
-    let userPrompt = `## Pipeline (${entities.length} active entities)\n\n${pipelineText}`;
+      // Dedup guard: skip if same entity already triggered within 30 minutes
+      const since30m = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: recentTrigger } = await supabase
+        .from("ai_suggestions")
+        .select("id")
+        .eq("entity_id", entity_id)
+        .eq("source_type", "event_triggered")
+        .gte("created_at", since30m)
+        .limit(1);
 
-    if (rules_context) {
-      userPrompt += `\n\n## Active Alert Rules (what our team watches for)\n${rules_context}`;
-    }
-    if (automation_context) {
-      userPrompt += `\n\n## Active Automation Rules (already handled automatically — skip these)\n${automation_context}`;
-    }
-    if (businessContext) {
-      userPrompt += `\n\n## Business Context & Preferences\n${businessContext}`;
+      if (recentTrigger && recentTrigger.length > 0) {
+        results.skipped = `Event-triggered suggestion for ${entity_id} already exists within 30 minutes`;
+        doneInvocation(true, results);
+        return new Response(JSON.stringify({ success: true, results }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Fetch deep entity context
+      const entityContext = await fetchEntityContext(supabase, entity_type, entity_id);
+      if (!entityContext) {
+        results.skipped = `Entity ${entity_id} not found or context fetch failed`;
+        doneInvocation(true, results);
+        return new Response(JSON.stringify({ success: true, results }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Load raw entity data for evaluateAlerts
+      const tableName = entity_type === "client" ? "clients" : "caregivers";
+      const { data: rawEntity } = await supabase
+        .from(tableName)
+        .select("*")
+        .eq("id", entity_id)
+        .single();
+
+      // Build focused prompt with deep context
+      const entityPromptText = formatSingleEntityPrompt(
+        entityContext,
+        trigger_reason || "Event triggered (no reason specified)",
+        recentOutcomes || [],
+        actionItemRules || [],
+        rawEntity || {},
+      );
+
+      systemPrompt = SINGLE_ENTITY_SYSTEM_PROMPT;
+      maxSuggestions = 3;
+      sourceType = "event_triggered";
+
+      userPrompt = entityPromptText;
+      if (automation_context) {
+        userPrompt += `\n\n## Active Automation Rules (already handled automatically — skip these)\n${automation_context}`;
+      }
+      if (businessContext) {
+        userPrompt += `\n\n## Business Context & Preferences\n${businessContext}`;
+      }
+
+    } else {
+      // ══════════════════════════════════════════════
+      // ── FULL PIPELINE MODE (daily cron) ──
+      // ══════════════════════════════════════════════
+      results.mode = "full_pipeline";
+
+      // Check idempotency (don't run twice in same day)
+      const { data: lastRun } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "last_planner_run")
+        .single();
+
+      const today = new Date().toISOString().split("T")[0];
+      if (lastRun?.value && typeof lastRun.value === "string") {
+        const lastRunDate = lastRun.value.split("T")[0];
+        if (lastRunDate === today) {
+          results.skipped = `Already ran today (${lastRun.value})`;
+          doneInvocation(true, results);
+          return new Response(JSON.stringify({ success: true, results }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // Get max suggestions setting
+      const { data: maxSugSetting } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "planner_max_suggestions")
+        .single();
+      maxSuggestions = parseInt(maxSugSetting?.value) || 7;
+
+      // Load pipeline data
+      const { data: caregivers } = await supabase
+        .from("caregivers")
+        .select("id, first_name, last_name, phone, email, phase_override, phase_timestamps, tasks, notes, created_at, archived, board_status, has_hca, hca_expiration")
+        .order("created_at", { ascending: false });
+
+      const { data: clients } = await supabase
+        .from("clients")
+        .select("id, first_name, last_name, phone, email, phase, phase_timestamps, tasks, notes, created_at, archived")
+        .order("created_at", { ascending: false });
+
+      // Build pipeline summary
+      const { entities } = buildPipelineSummary(
+        caregivers || [],
+        clients || [],
+        actionItemRules || [],
+        automationRules || [],
+        recentOutcomes || [],
+      );
+
+      results.pipeline_size = entities.length;
+      results.active_rules = (actionItemRules || []).length;
+      results.active_automations = (automationRules || []).length;
+
+      if (entities.length === 0) {
+        results.skipped = "No active entities in pipeline";
+        doneInvocation(true, results);
+        return new Response(JSON.stringify({ success: true, results }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Build Sonnet prompt
+      const pipelineText = formatPipelineSummaryForPrompt(entities);
+      systemPrompt = PLANNER_SYSTEM_PROMPT.replace("{max_suggestions}", String(maxSuggestions));
+      sourceType = "proactive";
+
+      userPrompt = `## Pipeline (${entities.length} active entities)\n\n${pipelineText}`;
+      if (rules_context) {
+        userPrompt += `\n\n## Active Alert Rules (what our team watches for)\n${rules_context}`;
+      }
+      if (automation_context) {
+        userPrompt += `\n\n## Active Automation Rules (already handled automatically — skip these)\n${automation_context}`;
+      }
+      if (businessContext) {
+        userPrompt += `\n\n## Business Context & Preferences\n${businessContext}`;
+      }
     }
 
     // ── Call Sonnet ──
@@ -283,7 +411,7 @@ Deno.serve(async (req: Request) => {
       const { data: inserted, error: insertErr } = await supabase
         .from("ai_suggestions")
         .insert({
-          source_type: "proactive",
+          source_type: sourceType,
           source_id: null,
           entity_type: sug.entity_type,
           entity_id: sug.entity_id,
@@ -330,13 +458,15 @@ Deno.serve(async (req: Request) => {
     results.suggestions_skipped_dedup = skipped;
     results.auto_executed = autoExecuted;
 
-    // ── Record planner run ──
-    await supabase
-      .from("app_settings")
-      .upsert({
-        key: "last_planner_run",
-        value: new Date().toISOString(),
-      });
+    // ── Record planner run (daily mode only) ──
+    if (!isSingleEntity) {
+      await supabase
+        .from("app_settings")
+        .upsert({
+          key: "last_planner_run",
+          value: new Date().toISOString(),
+        });
+    }
 
     doneInvocation(true, results);
 
