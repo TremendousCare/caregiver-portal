@@ -13,6 +13,7 @@ import forms from '../../styles/forms.module.css';
 import progress from '../../styles/progress.module.css';
 import layout from '../../styles/layout.module.css';
 import d from './Dashboard.module.css';
+import { AIPrioritiesPanel } from './AIPrioritiesPanel';
 
 // ─── EXPORT BUTTON ───────────────────────────────────────────
 function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered, onExportAll }) {
@@ -292,6 +293,9 @@ export function Dashboard({
           </div>
         ))}
       </div>
+
+      {/* AI Priorities */}
+      <AIPrioritiesPanel caregivers={allCaregivers} onSelect={onSelect} />
 
       {/* Action Items */}
       {actionItems.length > 0 && (
