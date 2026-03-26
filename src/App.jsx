@@ -92,15 +92,19 @@ function BoardPage() {
 
 function RosterPage() {
   const navigate = useNavigate();
-  const { showToast } = useApp();
-  const { rosterCaregivers, updateCaregiver } = useCaregivers();
+  const { sidebarCollapsed, showToast } = useApp();
+  const { rosterCaregivers, updateCaregiver, bulkSms, bulkAddNote, bulkArchive } = useCaregivers();
 
   return (
     <ActiveRoster
       caregivers={rosterCaregivers}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
       onUpdateCaregiver={updateCaregiver}
+      onBulkSms={bulkSms}
+      onBulkAddNote={bulkAddNote}
+      onBulkArchive={bulkArchive}
       showToast={showToast}
+      sidebarWidth={sidebarCollapsed ? 64 : 260}
     />
   );
 }
