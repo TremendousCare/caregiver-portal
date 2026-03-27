@@ -64,7 +64,7 @@ Recommend up to {max_suggestions} actions, prioritized by impact. Consider:
 - Draft emails with a clear subject line and brief body
 
 For each recommendation, return a JSON array. Each item must have:
-- entity_id: the ID string from the pipeline data (in brackets)
+- entity_id: the EXACT UUID from the pipeline data (the string inside square brackets, e.g. "223358e6-b25b-4da5-a1a5-fc46b939b3fc"). NEVER generate your own ID — copy the UUID exactly as shown.
 - entity_type: "caregiver" or "client"
 - entity_name: their name
 - action_type: one of: send_sms, send_email, add_note, complete_task, update_phase, create_calendar_event, send_docusign_envelope
@@ -97,7 +97,7 @@ Consider:
 - Draft emails with a clear subject line and brief body
 
 For each recommendation, return a JSON array. Each item must have:
-- entity_id: the ID string of this entity
+- entity_id: the EXACT UUID shown in the Entity Profile section below (e.g. "223358e6-b25b-4da5-a1a5-fc46b939b3fc"). NEVER generate your own ID — copy the UUID exactly.
 - entity_type: "caregiver" or "client"
 - entity_name: their name
 - action_type: one of: send_sms, send_email, add_note, complete_task, update_phase, create_calendar_event, send_docusign_envelope
