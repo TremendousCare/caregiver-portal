@@ -135,7 +135,8 @@ describe('buildPriorityItems', () => {
 
   it('includes pending AI suggestions', () => {
     const sug = makeSuggestion();
-    const result = buildPriorityItems([sug], []);
+    const cg = makeCg(); // matching entity_id 'cg_1'
+    const result = buildPriorityItems([sug], [cg]);
     expect(result.length).toBe(1);
     expect(result[0].type).toBe('suggestion');
     expect(result[0].title).toBe('Send follow-up SMS');
@@ -153,7 +154,8 @@ describe('buildPriorityItems', () => {
   it('sorts by urgency (critical first)', () => {
     const sugHigh = makeSuggestion({ id: 'h', title: '[HIGH] Urgent' });
     const sugLow = makeSuggestion({ id: 'l', entity_id: 'cg_2', title: '[LOW] Low priority' });
-    const result = buildPriorityItems([sugLow, sugHigh], []);
+    const caregivers = [makeCg(), makeCg({ id: 'cg_2' })];
+    const result = buildPriorityItems([sugLow, sugHigh], caregivers);
     expect(result[0].urgency).toBe('critical');
     expect(result[1].urgency).toBe('info');
   });
@@ -162,8 +164,16 @@ describe('buildPriorityItems', () => {
     const suggestions = Array.from({ length: 10 }, (_, i) =>
       makeSuggestion({ id: `s${i}`, entity_id: `cg_${i}`, title: `[MEDIUM] Item ${i}` })
     );
-    const result = buildPriorityItems(suggestions, []);
+    const caregivers = Array.from({ length: 10 }, (_, i) => makeCg({ id: `cg_${i}` }));
+    const result = buildPriorityItems(suggestions, caregivers);
     expect(result.length).toBe(5);
+  });
+
+  it('filters out suggestions whose entity is not in the caregiver list', () => {
+    const sug = makeSuggestion({ entity_id: 'cg_unknown' });
+    const cg = makeCg(); // id: 'cg_1', doesn't match 'cg_unknown'
+    const result = buildPriorityItems([sug], [cg]);
+    expect(result.length).toBe(0);
   });
 
   it('deduplicates entity appearing in both suggestions and stale list', () => {
