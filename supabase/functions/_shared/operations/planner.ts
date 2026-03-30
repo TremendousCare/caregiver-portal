@@ -303,6 +303,9 @@ export async function checkDuplicateSuggestion(
 
 // ─── Response Parser ───
 
+// UUID v4 pattern — reject suggestions with non-UUID entity_id
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const VALID_ACTION_TYPES = new Set([
   "send_sms", "send_email", "add_note", "add_client_note",
   "update_phase", "update_client_phase",
@@ -335,6 +338,11 @@ export function parsePlannerResponse(responseText: string): PlannerSuggestion[] 
     // Validate required fields
     if (!item.entity_id || !item.action_type || !item.title) continue;
     if (!VALID_ACTION_TYPES.has(item.action_type)) continue;
+    // Reject non-UUID entity_id (LLM sometimes generates slug-style IDs)
+    if (!UUID_PATTERN.test(String(item.entity_id))) {
+      console.warn(`[ai-planner] Rejecting suggestion with non-UUID entity_id: ${item.entity_id}`);
+      continue;
+    }
 
     suggestions.push({
       entity_id: String(item.entity_id),
@@ -376,6 +384,7 @@ export function formatSingleEntityPrompt(
 
   lines.push("");
   lines.push(`## Entity Profile`);
+  lines.push(`ID: ${entityContext.id}`);
   lines.push(`Name: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.entity_type})`);
   lines.push(`Phase: ${phase} (${daysInPhase}d in phase)`);
   lines.push(`Phone: ${entityContext.phone || "NONE"}`);

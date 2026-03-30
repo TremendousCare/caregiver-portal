@@ -96,6 +96,18 @@ export function buildPriorityItems(aiSuggestions, caregivers) {
       : sug.title?.includes('[LOW]') ? 'info'
       : 'warning';
 
+    // Resolve entity_id — if it's not a valid UUID, try matching by name
+    let resolvedEntityId = sug.entity_id;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedEntityId || '');
+    if (!isUuid && sug.entity_name && Array.isArray(caregivers)) {
+      const nameLower = sug.entity_name.toLowerCase();
+      const match = caregivers.find((cg) => {
+        const full = `${cg.first_name || ''} ${cg.last_name || ''}`.trim().toLowerCase();
+        return full === nameLower;
+      });
+      if (match) resolvedEntityId = match.id;
+    }
+
     items.push({
       id: `sug_${sug.id}`,
       type: 'suggestion',
@@ -103,14 +115,14 @@ export function buildPriorityItems(aiSuggestions, caregivers) {
       title: (sug.title || 'AI Suggestion').replace(/^\[(HIGH|MEDIUM|LOW)\]\s*/, ''),
       reason: sug.detail || 'AI-recommended action',
       urgency,
-      entityId: sug.entity_id,
+      entityId: resolvedEntityId,
       entityName: sug.entity_name || 'Unknown',
       ctaLabel: ACTION_CTA_LABELS[sug.action_type] || 'Review',
       ctaAction: 'view_profile',
       suggestionId: sug.id,
     });
 
-    if (sug.entity_id) seenEntityIds.add(sug.entity_id);
+    if (resolvedEntityId) seenEntityIds.add(resolvedEntityId);
   }
 
   // 2. Stale caregivers (only if not already covered by a suggestion)
