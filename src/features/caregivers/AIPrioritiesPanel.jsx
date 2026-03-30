@@ -10,12 +10,14 @@ export function AIPrioritiesPanel({ caregivers, onSelect }) {
   const [aiSuggestions, setAiSuggestions] = useState([]);
   const subscriptionRef = useRef(null);
 
-  // ── Fetch pending suggestions ──
+  // ── Fetch pending suggestions (exclude expired + unlinked) ──
   const fetchSuggestions = useCallback(async () => {
     const { data } = await supabase
       .from('ai_suggestions')
-      .select('id, entity_id, entity_name, action_type, title, detail, drafted_content, status, source_type, created_at')
+      .select('id, entity_id, entity_name, action_type, title, detail, drafted_content, status, source_type, created_at, expires_at')
       .eq('status', 'pending')
+      .not('entity_id', 'is', null)
+      .gte('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -55,6 +57,18 @@ export function AIPrioritiesPanel({ caregivers, onSelect }) {
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem('tc_ai_priorities_collapsed', String(next));
+  };
+
+  // ── Dismiss a suggestion ──
+  const handleDismiss = async (suggestionId, e) => {
+    e.stopPropagation();
+    if (!suggestionId) return;
+    await supabase
+      .from('ai_suggestions')
+      .update({ status: 'rejected', resolved_at: new Date().toISOString(), rejection_reason: 'dismissed_by_user' })
+      .eq('id', suggestionId);
+    // Realtime subscription will auto-refresh, but also optimistically remove
+    setAiSuggestions((prev) => prev.filter((s) => s.id !== suggestionId));
   };
 
   // Don't render if nothing to show
@@ -103,6 +117,16 @@ export function AIPrioritiesPanel({ caregivers, onSelect }) {
                 >
                   {item.ctaLabel}
                 </button>
+                {item.suggestionId && (
+                  <button
+                    className={s.dismissBtn}
+                    onClick={(e) => handleDismiss(item.suggestionId, e)}
+                    title="Dismiss"
+                    aria-label="Dismiss suggestion"
+                  >
+                    {'\u2715'}
+                  </button>
+                )}
               </div>
             );
           })}

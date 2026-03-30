@@ -84,8 +84,14 @@ export function buildPriorityItems(aiSuggestions, caregivers) {
   const items = [];
   const seenEntityIds = new Set();
 
+  // Build a set of known caregiver IDs for filtering
+  const knownIds = new Set((caregivers || []).map((cg) => cg.id));
+
   // 1. Pending AI suggestions (highest priority)
+  //    Skip suggestions whose entity is no longer in the active pipeline
   for (const sug of (aiSuggestions || [])) {
+    if (sug.entity_id && !knownIds.has(sug.entity_id)) continue;
+
     const urgency = sug.title?.includes('[HIGH]') ? 'critical'
       : sug.title?.includes('[LOW]') ? 'info'
       : 'warning';
