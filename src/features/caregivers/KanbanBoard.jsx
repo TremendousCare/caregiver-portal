@@ -740,11 +740,6 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
                               })}
                             </div>
                           )}
-                          <div className={kb.cardMoveMenu}>
-                            <select className={kb.cardMoveSelect} value={cg.boardStatus} onChange={(e) => onUpdateStatus(cg.id, e.target.value)}>
-                              {columns.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
-                            </select>
-                          </div>
                         </div>
                       </div>
                       <div className={kb.cardDetails}>

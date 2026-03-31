@@ -249,22 +249,6 @@
   letter-spacing: -0.1px;
 }
 
-.cardMoveMenu {
-  flex-shrink: 0;
-}
-
-.cardMoveSelect {
-  font-size: 10px;
-  border: 1px solid #E2E8F0;
-  border-radius: 4px;
-  padding: 1px 3px;
-  background: #F5F7FA;
-  color: #6B7B8F;
-  font-family: inherit;
-  cursor: pointer;
-  max-width: 72px;
-  outline: none;
-}
 
 .cardDetails {
   display: flex;
