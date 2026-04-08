@@ -107,6 +107,74 @@ export function BoardsIndex() {
         gap: 20,
         marginTop: 8,
       }}>
+        {/* Pinned: Legacy Caregiver Board */}
+        <div
+          onClick={() => navigate('/board')}
+          style={{
+            background: '#fff',
+            borderRadius: 12,
+            border: '2px solid #2E4E8D22',
+            padding: 24,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            position: 'relative',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#2E4E8D';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(46,78,141,0.12)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#2E4E8D22';
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          {/* Color bar */}
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 4,
+            borderRadius: '10px 10px 0 0',
+            background: '#2E4E8D',
+          }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: '#1A1A1A', margin: 0 }}>
+              Caregiver Board
+            </h3>
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#EFF6FF', color: '#2E4E8D', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              Default
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: '#556270', margin: '0 0 16px', lineHeight: 1.5 }}>
+            Manage deployed caregivers — drag cards between columns or use the move menu
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {DEFAULT_BOARD_COLUMNS.slice(0, 4).map((col) => (
+              <span key={col.id} style={{
+                fontSize: 11, padding: '3px 8px', borderRadius: 4,
+                background: `${col.color}14`, color: col.color,
+                fontWeight: 600, whiteSpace: 'nowrap',
+              }}>
+                {col.icon} {col.label}
+              </span>
+            ))}
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, marginTop: 16,
+            paddingTop: 12, borderTop: '1px solid #F1F5F9',
+            fontSize: 12, color: '#8896A6',
+          }}>
+            <span style={{
+              padding: '2px 8px', borderRadius: 4,
+              background: '#EFF6FF', color: '#2E4E8D',
+              fontWeight: 600, fontSize: 11,
+            }}>
+              Caregiver
+            </span>
+            <span>{DEFAULT_BOARD_COLUMNS.length} columns</span>
+          </div>
+        </div>
+
         {boards.map((board) => (
           <div
             key={board.id}
@@ -200,22 +268,32 @@ export function BoardsIndex() {
           </div>
         ))}
 
-        {/* Empty state / Create card */}
+        {/* Hint when no custom boards exist yet */}
         {boards.length === 0 && (
-          <div style={{
-            gridColumn: '1 / -1',
-            textAlign: 'center',
-            padding: '60px 24px',
-            color: '#7A8BA0',
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
-            <h3 style={{ color: '#1A1A1A', marginBottom: 8 }}>No boards yet</h3>
-            <p style={{ marginBottom: 20, fontSize: 14 }}>
-              Create your first board to start organizing your team's work.
-            </p>
-            <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => setShowCreate(true)}>
-              + Create Your First Board
-            </button>
+          <div
+            onClick={() => setShowCreate(true)}
+            style={{
+              background: '#FAFBFC',
+              borderRadius: 12,
+              border: '2px dashed #D1D9E6',
+              padding: 24,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 160,
+              textAlign: 'center',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#D1D9E6'; e.currentTarget.style.background = '#FAFBFC'; }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 8, color: '#A0AEC0' }}>+</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: '#556270' }}>Create a new board</div>
+            <div style={{ fontSize: 12, color: '#8896A6', marginTop: 4 }}>
+              Add boards for training, scheduling, or anything your team needs
+            </div>
           </div>
         )}
       </div>

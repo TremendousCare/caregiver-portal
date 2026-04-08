@@ -78,6 +78,10 @@ function BoardPage() {
   const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateBoardDescription, addNote } = useCaregivers();
   const { currentUserName } = useApp();
 
+  const handleAddCard = useCallback((entityId, columnId) => {
+    updateBoardStatus(entityId, columnId);
+  }, [updateBoardStatus]);
+
   return (
     <KanbanBoard
       caregivers={activeCaregivers}
@@ -90,6 +94,8 @@ function BoardPage() {
       onAddNote={addNote}
       onSelect={(id) => navigate(`/caregiver/${id}`)}
       currentUserName={currentUserName}
+      onAddCard={handleAddCard}
+      availableEntities={activeCaregivers}
     />
   );
 }

@@ -575,7 +575,7 @@ export function KanbanBoard({
               <button className={kb.searchClear} onClick={() => setSearchTerm('')} title="Clear search">&times;</button>
             )}
           </div>
-          {isMultiBoard && onAddCard && (
+          {onAddCard && (
             <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setShowAddCard(true); setAddCardSearch(''); }}>
               + Add Card
             </button>
@@ -670,8 +670,8 @@ export function KanbanBoard({
         </div>
       )}
 
-      {/* Add Card Modal (multi-board only) */}
-      {showAddCard && isMultiBoard && availableEntities && (() => {
+      {/* Add Card Modal */}
+      {showAddCard && onAddCard && availableEntities && (() => {
         const onBoardIds = new Set(caregivers.map((cg) => cg.id));
         const entityLabel = board?.entityType === 'client' ? 'client' : 'caregiver';
         const filtered = availableEntities.filter((e) => {
