@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { DOCUMENT_TYPES } from '../../../lib/constants';
+import { useState, useEffect, useCallback } from 'react';
+import { DOCUMENT_TYPES, UPLOADABLE_DOCUMENT_TYPES } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { fireEventTriggers } from '../../../lib/automations';
 import { DocuSignSection } from './DocuSignSection';
@@ -15,6 +15,13 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
   const [docTypes, setDocTypes] = useState(DOCUMENT_TYPES);
   const [editingDocTypes, setEditingDocTypes] = useState(false);
   const [docTypeDraft, setDocTypeDraft] = useState([]);
+
+  // Request Documents modal state
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestSelectedTypes, setRequestSelectedTypes] = useState([]);
+  const [requestDelivery, setRequestDelivery] = useState('sms'); // 'sms' | 'email' | 'both'
+  const [requestSending, setRequestSending] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
 
   // Fetch documents from caregiver_documents table
   const fetchDocuments = async () => {
@@ -88,6 +95,113 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
       if (showToast) showToast('Failed to save document types');
     }
   };
+
+  // Fetch pending upload requests for this caregiver
+  useEffect(() => {
+    if (!caregiver?.id || !supabase) return;
+    supabase
+      .from('document_upload_tokens')
+      .select('*')
+      .eq('caregiver_id', caregiver.id)
+      .gte('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data) setPendingRequests(data);
+      });
+  }, [caregiver?.id]);
+
+  const generateToken = () => {
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const handleSendRequest = useCallback(async () => {
+    if (!caregiver?.id || !supabase || requestSelectedTypes.length === 0) return;
+    setRequestSending(true);
+    try {
+      const token = generateToken();
+      const portalUrl = window.location.origin;
+      const uploadUrl = `${portalUrl}/upload/${token}`;
+
+      // Insert token into database
+      const { error: insertErr } = await supabase
+        .from('document_upload_tokens')
+        .insert({
+          caregiver_id: caregiver.id,
+          token,
+          requested_types: requestSelectedTypes,
+          created_by: currentUser?.email || 'unknown',
+        });
+      if (insertErr) throw insertErr;
+
+      // Build the message
+      const docLabels = requestSelectedTypes.map((id) =>
+        UPLOADABLE_DOCUMENT_TYPES.find((t) => t.id === id)?.label || id
+      );
+      const docsListText = docLabels.map((l) => `- ${l}`).join('\n');
+
+      const smsMessage = `Hi ${caregiver.first_name}, Tremendous Care needs the following documents from you:\n${docsListText}\n\nPlease upload them here: ${uploadUrl}\n\nThis link expires in 7 days.`;
+
+      const emailSubject = `Document Upload Request - Tremendous Care`;
+      const emailBody = `<p>Hi ${caregiver.first_name},</p>
+<p>We need the following documents from you:</p>
+<ul>${docLabels.map((l) => `<li>${l}</li>`).join('')}</ul>
+<p>Please upload them using the link below:</p>
+<p><a href="${uploadUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Upload Documents</a></p>
+<p>This link expires in 7 days.</p>
+<p>Thank you,<br/>Tremendous Care</p>`;
+
+      // Send via selected delivery method
+      const promises = [];
+
+      if ((requestDelivery === 'sms' || requestDelivery === 'both') && caregiver.phone) {
+        promises.push(
+          supabase.functions.invoke('bulk-sms', {
+            body: {
+              caregiver_ids: [caregiver.id],
+              message: smsMessage,
+              current_user: currentUser?.email || 'system',
+            },
+          })
+        );
+      }
+
+      if ((requestDelivery === 'email' || requestDelivery === 'both') && caregiver.email) {
+        promises.push(
+          supabase.functions.invoke('bulk-email', {
+            body: {
+              client_ids: [],
+              subject: emailSubject,
+              message: emailBody,
+              current_user: currentUser?.email || 'system',
+              custom_recipients: [{ email: caregiver.email, name: `${caregiver.first_name} ${caregiver.last_name}` }],
+            },
+          })
+        );
+      }
+
+      await Promise.allSettled(promises);
+
+      // Refresh pending requests
+      const { data: updated } = await supabase
+        .from('document_upload_tokens')
+        .select('*')
+        .eq('caregiver_id', caregiver.id)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+      if (updated) setPendingRequests(updated);
+
+      setShowRequestModal(false);
+      setRequestSelectedTypes([]);
+      if (showToast) showToast('Document upload link sent!');
+    } catch (err) {
+      console.error('Failed to send document request:', err);
+      if (showToast) showToast(`Failed to send request: ${err.message || 'Unknown error'}`);
+    } finally {
+      setRequestSending(false);
+    }
+  }, [caregiver, currentUser, requestSelectedTypes, requestDelivery, showToast]);
 
   const handleDocUpload = async (docType, file) => {
     if (!file || !supabase) return;
@@ -219,6 +333,30 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
           <div style={{ height: 6, background: '#E5E7EB', borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${Math.round((uploadedTypes.size / docTypes.length) * 100)}%`, background: uploadedTypes.size === docTypes.length ? '#16A34A' : '#2E4E8D', borderRadius: 3, transition: 'width 0.3s ease' }} />
           </div>
+        </div>
+
+        {/* Request Documents button + pending requests */}
+        <div style={{ padding: '0 20px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowRequestModal(true); setRequestSelectedTypes([]); }}
+            style={{
+              padding: '6px 14px', borderRadius: 8, border: '1px solid #2E4E8D', background: '#EBF0FA',
+              color: '#2E4E8D', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            📤 Request Documents
+          </button>
+          {pendingRequests.length > 0 && (
+            <span style={{ fontSize: 11, color: '#6B7B8F', fontWeight: 500 }}>
+              {pendingRequests.length} pending request{pendingRequests.length > 1 ? 's' : ''}
+              {pendingRequests.some((r) => r.used_at) && (
+                <span style={{ color: '#15803D', marginLeft: 4 }}>
+                  ({pendingRequests.filter((r) => r.used_at).length} with uploads)
+                </span>
+              )}
+            </span>
+          )}
         </div>
 
         {/* Document list header with edit button */}
@@ -355,6 +493,132 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
         currentUser={currentUser}
         showToast={showToast}
       />
+
+      {/* Request Documents Modal */}
+      {showRequestModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.4)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }} onClick={() => setShowRequestModal(false)}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480,
+            maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontFamily: 'var(--tc-font-heading)', fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>
+              Request Documents
+            </h3>
+            <p style={{ fontSize: 13, color: '#6B7B8F', marginBottom: 16 }}>
+              Send {caregiver.first_name} a link to upload documents directly to their SharePoint folder.
+            </p>
+
+            {/* Document type checkboxes */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                Select Documents to Request
+              </div>
+              {UPLOADABLE_DOCUMENT_TYPES.map((dt) => (
+                <label key={dt.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                  cursor: 'pointer', fontSize: 13, color: '#1A1A1A',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={requestSelectedTypes.includes(dt.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setRequestSelectedTypes((prev) => [...prev, dt.id]);
+                      } else {
+                        setRequestSelectedTypes((prev) => prev.filter((id) => id !== dt.id));
+                      }
+                    }}
+                    style={{ width: 16, height: 16, accentColor: '#2E4E8D' }}
+                  />
+                  <span style={{ fontWeight: 500 }}>{dt.label}</span>
+                </label>
+              ))}
+              <button
+                style={{
+                  marginTop: 6, padding: '4px 0', background: 'none', border: 'none',
+                  color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+                onClick={() => {
+                  if (requestSelectedTypes.length === UPLOADABLE_DOCUMENT_TYPES.length) {
+                    setRequestSelectedTypes([]);
+                  } else {
+                    setRequestSelectedTypes(UPLOADABLE_DOCUMENT_TYPES.map((t) => t.id));
+                  }
+                }}
+              >
+                {requestSelectedTypes.length === UPLOADABLE_DOCUMENT_TYPES.length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+
+            {/* Delivery method */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                Send Via
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { id: 'sms', label: 'SMS', icon: '💬', disabled: !caregiver.phone },
+                  { id: 'email', label: 'Email', icon: '📧', disabled: !caregiver.email },
+                  { id: 'both', label: 'Both', icon: '📤', disabled: !caregiver.phone || !caregiver.email },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    disabled={opt.disabled}
+                    onClick={() => setRequestDelivery(opt.id)}
+                    style={{
+                      flex: 1, padding: '10px 8px', borderRadius: 10, cursor: opt.disabled ? 'not-allowed' : 'pointer',
+                      border: requestDelivery === opt.id ? '2px solid #2E4E8D' : '1px solid #D1D5DB',
+                      background: requestDelivery === opt.id ? '#EBF0FA' : '#FAFBFC',
+                      color: opt.disabled ? '#B0B8C4' : '#1A1A1A',
+                      fontSize: 12, fontWeight: 600, fontFamily: 'inherit', textAlign: 'center',
+                      opacity: opt.disabled ? 0.5 : 1,
+                    }}
+                  >
+                    <div>{opt.icon}</div>
+                    <div>{opt.label}</div>
+                  </button>
+                ))}
+              </div>
+              {!caregiver.phone && !caregiver.email && (
+                <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>
+                  No phone or email on file. Add contact info to send a request.
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowRequestModal(false)}
+                style={{
+                  padding: '10px 20px', borderRadius: 10, border: '1px solid #D1D5DB',
+                  background: '#fff', color: '#6B7B8F', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendRequest}
+                disabled={requestSelectedTypes.length === 0 || requestSending || (!caregiver.phone && !caregiver.email)}
+                style={{
+                  padding: '10px 20px', borderRadius: 10, border: 'none',
+                  background: requestSelectedTypes.length === 0 || requestSending ? '#B0B8C4' : 'linear-gradient(135deg, #2E4E8D 0%, #1a6b7a 100%)',
+                  color: '#fff', fontSize: 13, fontWeight: 700,
+                  cursor: requestSelectedTypes.length === 0 || requestSending ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', minWidth: 140,
+                }}
+              >
+                {requestSending ? 'Sending...' : `Send Request (${requestSelectedTypes.length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

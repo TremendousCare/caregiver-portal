@@ -21,6 +21,7 @@ import { ClientDetail } from './features/clients/ClientDetail';
 import { SequenceSettings } from './features/clients/SequenceSettings';
 import { AdminSettings } from './components/AdminSettings';
 import { ApplyPage } from './features/apply/ApplyPage';
+import { UploadPage } from './features/upload/UploadPage';
 import { getCurrentPhase } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import btn from './styles/buttons.module.css';
@@ -316,6 +317,13 @@ export default function App() {
   // Public routes — no auth required
   if (location.pathname === '/apply') {
     return <ApplyPage />;
+  }
+  if (location.pathname.startsWith('/upload/')) {
+    return (
+      <Routes>
+        <Route path="/upload/:token" element={<UploadPage />} />
+      </Routes>
+    );
   }
 
   return (
