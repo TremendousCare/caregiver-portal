@@ -295,12 +295,24 @@ function AddLabelRow({ onAdd }) {
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, onUpdateDueDate, onUpdateDescription, currentUserName }) {
+export function KanbanBoard({
+  caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect,
+  onUpdateLabels, onUpdateChecklists, onUpdateDueDate, onUpdateDescription,
+  currentUserName,
+  // ─── Multi-board props (optional) ───
+  board,            // Board object with columns, labels, checklistTemplates
+  onBoardUpdate,    // (updates) => void — saves board config changes
+  boardTitle,       // Custom header title (defaults to 'Caregiver Board')
+  boardSubtitle,    // Custom header subtitle
+  showOrientation = !board, // Show orientation banner (default: only legacy mode)
+}) {
+  const isMultiBoard = !!board;
+
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
-  const [columns, setColumns] = useState(DEFAULT_BOARD_COLUMNS);
-  const [colsLoaded, setColsLoaded] = useState(false);
+  const [columns, setColumns] = useState(board?.columns || DEFAULT_BOARD_COLUMNS);
+  const [colsLoaded, setColsLoaded] = useState(!!board);
   const [showAddCol, setShowAddCol] = useState(false);
   const [editingCol, setEditingCol] = useState(null);
   const [colForm, setColForm] = useState({ label: '', icon: '', color: '#2E4E8D', description: '' });
@@ -313,43 +325,65 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [searchTerm, setSearchTerm] = useState('');
 
   // ─── Label state ───
-  const [labels, setLabels] = useState(DEFAULT_BOARD_LABELS);
-  const [labelsLoaded, setLabelsLoaded] = useState(false);
+  const [labels, setLabels] = useState(board?.labels || DEFAULT_BOARD_LABELS);
+  const [labelsLoaded, setLabelsLoaded] = useState(!!board);
   const [showLabelManager, setShowLabelManager] = useState(false);
   const [labelPickerCgId, setLabelPickerCgId] = useState(null);
   const labelPickerRef = useRef(null);
 
   // ─── Checklist template state ───
-  const [checklistTemplates, setChecklistTemplates] = useState([]);
-  const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(false);
+  const [checklistTemplates, setChecklistTemplates] = useState(board?.checklistTemplates || []);
+  const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(!!board);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
 
   // ─── Modal add-to-card menu state ───
   const [modalAddMenu, setModalAddMenu] = useState(null);
 
+  // Sync columns/labels/templates when board prop changes (multi-board navigation)
   useEffect(() => {
-    loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
-  }, []);
+    if (board) {
+      setColumns(board.columns || []);
+      setColsLoaded(true);
+      setLabels(board.labels || []);
+      setLabelsLoaded(true);
+      setChecklistTemplates(board.checklistTemplates || []);
+      setChecklistTemplatesLoaded(true);
+    }
+  }, [board?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Legacy mode: load from KV storage
+  useEffect(() => {
+    if (!isMultiBoard) {
+      loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (colsLoaded) saveBoardColumns(columns);
-  }, [columns, colsLoaded]);
+    if (!isMultiBoard && colsLoaded) saveBoardColumns(columns);
+    if (isMultiBoard && colsLoaded && onBoardUpdate) onBoardUpdate({ columns });
+  }, [columns, colsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    loadBoardLabels().then((lbls) => { setLabels(lbls); setLabelsLoaded(true); });
-  }, []);
+    if (!isMultiBoard) {
+      loadBoardLabels().then((lbls) => { setLabels(lbls); setLabelsLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (labelsLoaded) saveBoardLabels(labels);
-  }, [labels, labelsLoaded]);
+    if (!isMultiBoard && labelsLoaded) saveBoardLabels(labels);
+    if (isMultiBoard && labelsLoaded && onBoardUpdate) onBoardUpdate({ labels });
+  }, [labels, labelsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    loadChecklistTemplates().then((tpls) => { setChecklistTemplates(tpls); setChecklistTemplatesLoaded(true); });
-  }, []);
+    if (!isMultiBoard) {
+      loadChecklistTemplates().then((tpls) => { setChecklistTemplates(tpls); setChecklistTemplatesLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
-  }, [checklistTemplates, checklistTemplatesLoaded]);
+    if (!isMultiBoard && checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
+    if (isMultiBoard && checklistTemplatesLoaded && onBoardUpdate) onBoardUpdate({ checklistTemplates });
+  }, [checklistTemplates, checklistTemplatesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allBoardCaregivers = caregivers.filter(
     (cg) => cg.boardStatus || getOverallProgress(cg) === 100
@@ -515,8 +549,8 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
     <div className={kb.boardWrapper}>
       <div className={layout.header}>
         <div>
-          <h1 className={layout.pageTitle}>Caregiver Board</h1>
-          <p className={layout.pageSubtitle}>Manage deployed caregivers — drag cards between columns or use the move menu</p>
+          <h1 className={layout.pageTitle}>{boardTitle || 'Caregiver Board'}</h1>
+          <p className={layout.pageSubtitle}>{boardSubtitle || 'Manage deployed caregivers — drag cards between columns or use the move menu'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div className={kb.searchBox}>
