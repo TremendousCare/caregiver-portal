@@ -221,6 +221,18 @@ function MultiBoardPage() {
     updateBoard(id, updates);
   }, [id, board, updateBoard]);
 
+  const handleAddCard = useCallback(async (entityId, columnId) => {
+    const entityType = board?.entityType || 'caregiver';
+    await addCard(id, entityId, entityType, columnId || null);
+  }, [id, board?.entityType, addCard]);
+
+  const handleRemoveCard = useCallback(async (entityId) => {
+    const card = boardCards.find((c) => c.entityId === entityId);
+    if (card) {
+      await removeCard(id, card.id);
+    }
+  }, [boardCards, id, removeCard]);
+
   const handleSelect = useCallback((entityId) => {
     // Navigate to entity detail based on board entity type
     if (board?.entityType === 'client') {
@@ -255,6 +267,9 @@ function MultiBoardPage() {
       currentUserName={currentUserName}
       board={board}
       onBoardUpdate={handleBoardUpdate}
+      onAddCard={handleAddCard}
+      onRemoveCard={handleRemoveCard}
+      availableEntities={board.entityType === 'client' ? activeClients : activeCaregivers}
       boardTitle={board.name}
       boardSubtitle={board.description || 'Drag cards between columns to organize your work'}
     />

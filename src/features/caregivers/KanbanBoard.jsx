@@ -302,6 +302,9 @@ export function KanbanBoard({
   // ─── Multi-board props (optional) ───
   board,            // Board object with columns, labels, checklistTemplates
   onBoardUpdate,    // (updates) => void — saves board config changes
+  onAddCard,        // (entityId, columnId) => void — add entity to board
+  onRemoveCard,     // (entityId) => void — remove entity from board
+  availableEntities, // All entities that can be added to this board
   boardTitle,       // Custom header title (defaults to 'Caregiver Board')
   boardSubtitle,    // Custom header subtitle
   showOrientation = !board, // Show orientation banner (default: only legacy mode)
@@ -338,6 +341,10 @@ export function KanbanBoard({
 
   // ─── Modal add-to-card menu state ───
   const [modalAddMenu, setModalAddMenu] = useState(null);
+
+  // ─── Add Card state (multi-board only) ───
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [addCardSearch, setAddCardSearch] = useState('');
 
   // Sync columns/labels/templates when board prop changes (multi-board navigation)
   useEffect(() => {
@@ -568,6 +575,11 @@ export function KanbanBoard({
               <button className={kb.searchClear} onClick={() => setSearchTerm('')} title="Clear search">&times;</button>
             )}
           </div>
+          {isMultiBoard && onAddCard && (
+            <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setShowAddCard(true); setAddCardSearch(''); }}>
+              + Add Card
+            </button>
+          )}
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowLabelManager(true)}>
             Labels
           </button>
@@ -657,6 +669,89 @@ export function KanbanBoard({
           </div>
         </div>
       )}
+
+      {/* Add Card Modal (multi-board only) */}
+      {showAddCard && isMultiBoard && availableEntities && (() => {
+        const onBoardIds = new Set(caregivers.map((cg) => cg.id));
+        const entityLabel = board?.entityType === 'client' ? 'client' : 'caregiver';
+        const filtered = availableEntities.filter((e) => {
+          if (onBoardIds.has(e.id)) return false;
+          if (!addCardSearch.trim()) return true;
+          const term = addCardSearch.toLowerCase();
+          const name = `${e.firstName || ''} ${e.lastName || ''}`.toLowerCase();
+          const phone = (e.phone || '').toLowerCase();
+          const email = (e.email || '').toLowerCase();
+          return name.includes(term) || phone.includes(term) || email.includes(term);
+        });
+        return (
+          <div className={kb.colFormOverlay} onClick={() => setShowAddCard(false)}>
+            <div className={kb.colFormModal} style={{ maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>
+                Add {entityLabel} to board
+              </h3>
+              <input
+                className={forms.fieldInput}
+                placeholder={`Search ${entityLabel}s by name, phone, or email...`}
+                value={addCardSearch}
+                onChange={(e) => setAddCardSearch(e.target.value)}
+                autoFocus
+                style={{ marginBottom: 12 }}
+              />
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, maxHeight: 400 }}>
+                {filtered.length === 0 && (
+                  <div style={{ color: '#A0AEC0', fontSize: 13, fontStyle: 'italic', padding: '24px 0', textAlign: 'center' }}>
+                    {addCardSearch ? `No matching ${entityLabel}s found` : `All ${entityLabel}s are already on this board`}
+                  </div>
+                )}
+                {filtered.map((entity) => (
+                  <div key={entity.id} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 12px', borderRadius: 8, border: '1px solid #E2E8F0',
+                    marginBottom: 6, background: '#FAFBFC',
+                    transition: 'all 0.1s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#FAFBFC'; }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: '#1A1A1A' }}>
+                        {entity.firstName} {entity.lastName}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>
+                        {[entity.phone, entity.email].filter(Boolean).join(' \u00B7 ') || 'No contact info'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {columns.length > 0 ? columns.map((col) => (
+                        <button
+                          key={col.id}
+                          className={kb.assignBtn}
+                          style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
+                          onClick={() => { onAddCard(entity.id, col.id); }}
+                          title={`Add to ${col.label}`}
+                        >
+                          {col.icon}
+                        </button>
+                      )) : (
+                        <button
+                          className={`tc-btn-primary ${btn.primaryBtn}`}
+                          style={{ padding: '4px 12px', fontSize: 12 }}
+                          onClick={() => { onAddCard(entity.id, null); }}
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
+                <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowAddCard(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Unassigned banner */}
       {unassigned.length > 0 && (
