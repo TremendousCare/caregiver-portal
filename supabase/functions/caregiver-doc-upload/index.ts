@@ -58,10 +58,24 @@ async function handleValidateToken(supabase: ReturnType<typeof createClient>, to
     .select("document_type, file_name, uploaded_at")
     .eq("caregiver_id", tokenRow.caregiver_id);
 
+  // Fetch custom uploadable doc type labels from app_settings
+  let docTypeLabels: Record<string, string> = {};
+  const { data: settingsRow } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "uploadable_document_types")
+    .single();
+  if (settingsRow?.value && Array.isArray(settingsRow.value)) {
+    for (const dt of settingsRow.value) {
+      docTypeLabels[dt.id] = dt.label;
+    }
+  }
+
   return jsonResponse({
     caregiver_first_name: cg?.first_name || "",
     caregiver_last_name: cg?.last_name || "",
     requested_types: tokenRow.requested_types || [],
+    doc_type_labels: docTypeLabels,
     uploaded_docs: existingDocs || [],
     expires_at: tokenRow.expires_at,
   });

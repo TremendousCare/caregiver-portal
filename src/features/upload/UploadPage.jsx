@@ -7,8 +7,9 @@ import s from './UploadPage.module.css';
 const MAX_FILE_SIZE_MB = 10;
 const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.heic'];
 
-function getDocLabel(typeId) {
-  return UPLOADABLE_DOCUMENT_TYPES.find((t) => t.id === typeId)?.label || typeId;
+function getDocLabel(typeId, serverLabels, fallbackTypes) {
+  if (serverLabels && serverLabels[typeId]) return serverLabels[typeId];
+  return fallbackTypes.find((t) => t.id === typeId)?.label || typeId;
 }
 
 export function UploadPage() {
@@ -196,7 +197,7 @@ export function UploadPage() {
             return (
               <div key={typeId} className={`${s.docRow} ${state.uploaded ? s.docRowUploaded : ''}`}>
                 <div className={s.docHeader}>
-                  <div className={s.docLabel}>{getDocLabel(typeId)}</div>
+                  <div className={s.docLabel}>{getDocLabel(typeId, tokenData.doc_type_labels, UPLOADABLE_DOCUMENT_TYPES)}</div>
                   <div className={`${s.docStatus} ${state.uploaded ? s.statusUploaded : s.statusPending}`}>
                     {state.uploaded ? 'Uploaded' : 'Needed'}
                   </div>

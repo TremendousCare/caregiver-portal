@@ -16,6 +16,11 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
   const [editingDocTypes, setEditingDocTypes] = useState(false);
   const [docTypeDraft, setDocTypeDraft] = useState([]);
 
+  // Uploadable document types (editable, persisted to app_settings)
+  const [uploadableDocTypes, setUploadableDocTypes] = useState(UPLOADABLE_DOCUMENT_TYPES);
+  const [editingUploadTypes, setEditingUploadTypes] = useState(false);
+  const [uploadTypeDraft, setUploadTypeDraft] = useState([]);
+
   // Request Documents modal state
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestSelectedTypes, setRequestSelectedTypes] = useState([]);
@@ -96,6 +101,37 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
     }
   };
 
+  // Fetch uploadable document types from app_settings
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'uploadable_document_types')
+      .single()
+      .then(({ data }) => {
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          setUploadableDocTypes(data.value);
+        }
+      });
+  }, []);
+
+  const saveUploadableDocTypes = async (types) => {
+    if (!supabase) return;
+    const cleaned = types.filter((t) => t.label.trim());
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'uploadable_document_types', value: cleaned, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
+      setUploadableDocTypes(cleaned);
+      if (showToast) showToast('Upload document types saved!');
+    } catch (err) {
+      console.error('Failed to save uploadable document types:', err);
+      if (showToast) showToast('Failed to save document types');
+    }
+  };
+
   // Fetch pending upload requests for this caregiver
   useEffect(() => {
     if (!caregiver?.id || !supabase) return;
@@ -137,7 +173,7 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
 
       // Build the message
       const docLabels = requestSelectedTypes.map((id) =>
-        UPLOADABLE_DOCUMENT_TYPES.find((t) => t.id === id)?.label || id
+        uploadableDocTypes.find((t) => t.id === id)?.label || id
       );
       const docsListText = docLabels.map((l) => `- ${l}`).join('\n');
 
@@ -512,46 +548,102 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
               Send {caregiver.first_name} a link to upload documents directly to their SharePoint folder.
             </p>
 
-            {/* Document type checkboxes */}
+            {/* Document type checkboxes + edit mode */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
-                Select Documents to Request
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  {editingUploadTypes ? 'Edit Document Types' : 'Select Documents to Request'}
+                </div>
+                {!editingUploadTypes ? (
+                  <button
+                    onClick={() => { setUploadTypeDraft(uploadableDocTypes.map((t) => ({ ...t }))); setEditingUploadTypes(true); }}
+                    style={{ background: 'none', border: 'none', color: '#2E4E8D', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    ✏️ Edit Types
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => { saveUploadableDocTypes(uploadTypeDraft); setEditingUploadTypes(false); }}
+                      style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#2E4E8D', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Save</button>
+                    <button
+                      onClick={() => setEditingUploadTypes(false)}
+                      style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', color: '#6B7B8F', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Cancel</button>
+                  </div>
+                )}
               </div>
-              {UPLOADABLE_DOCUMENT_TYPES.map((dt) => (
-                <label key={dt.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
-                  cursor: 'pointer', fontSize: 13, color: '#1A1A1A',
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={requestSelectedTypes.includes(dt.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setRequestSelectedTypes((prev) => [...prev, dt.id]);
+
+              {editingUploadTypes ? (
+                <div>
+                  {uploadTypeDraft.map((dt, idx) => (
+                    <div key={dt.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+                      <input
+                        value={dt.label}
+                        onChange={(e) => setUploadTypeDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))}
+                        placeholder="Document name..."
+                        style={{
+                          flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #D1D5DB',
+                          fontSize: 13, fontFamily: 'inherit', background: '#FAFBFC',
+                        }}
+                      />
+                      <button
+                        onClick={() => setUploadTypeDraft((prev) => prev.filter((_, i) => i !== idx))}
+                        style={{
+                          padding: '4px 8px', borderRadius: 6, border: '1px solid #FCA5A5', background: '#FEF2F2',
+                          color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >✕</button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setUploadTypeDraft((prev) => [...prev, { id: 'doc_' + Date.now().toString(36), label: '', required: false }])}
+                    style={{
+                      marginTop: 6, padding: '4px 0', background: 'none', border: 'none',
+                      color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >＋ Add Document Type</button>
+                </div>
+              ) : (
+                <>
+                  {uploadableDocTypes.map((dt) => (
+                    <label key={dt.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                      cursor: 'pointer', fontSize: 13, color: '#1A1A1A',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={requestSelectedTypes.includes(dt.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRequestSelectedTypes((prev) => [...prev, dt.id]);
+                          } else {
+                            setRequestSelectedTypes((prev) => prev.filter((id) => id !== dt.id));
+                          }
+                        }}
+                        style={{ width: 16, height: 16, accentColor: '#2E4E8D' }}
+                      />
+                      <span style={{ fontWeight: 500 }}>{dt.label}</span>
+                    </label>
+                  ))}
+                  <button
+                    style={{
+                      marginTop: 6, padding: '4px 0', background: 'none', border: 'none',
+                      color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                    onClick={() => {
+                      if (requestSelectedTypes.length === uploadableDocTypes.length) {
+                        setRequestSelectedTypes([]);
                       } else {
-                        setRequestSelectedTypes((prev) => prev.filter((id) => id !== dt.id));
+                        setRequestSelectedTypes(uploadableDocTypes.map((t) => t.id));
                       }
                     }}
-                    style={{ width: 16, height: 16, accentColor: '#2E4E8D' }}
-                  />
-                  <span style={{ fontWeight: 500 }}>{dt.label}</span>
-                </label>
-              ))}
-              <button
-                style={{
-                  marginTop: 6, padding: '4px 0', background: 'none', border: 'none',
-                  color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                }}
-                onClick={() => {
-                  if (requestSelectedTypes.length === UPLOADABLE_DOCUMENT_TYPES.length) {
-                    setRequestSelectedTypes([]);
-                  } else {
-                    setRequestSelectedTypes(UPLOADABLE_DOCUMENT_TYPES.map((t) => t.id));
-                  }
-                }}
-              >
-                {requestSelectedTypes.length === UPLOADABLE_DOCUMENT_TYPES.length ? 'Deselect All' : 'Select All'}
-              </button>
+                  >
+                    {requestSelectedTypes.length === uploadableDocTypes.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Delivery method */}
