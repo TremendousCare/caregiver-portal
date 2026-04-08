@@ -1,0 +1,434 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Public Survey Page Styles
+   Standalone public form for caregiver pre-screening (no auth)
+   Reuses the same design tokens as ApplyPage
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Page Layout ── */
+
+.page {
+  min-height: 100vh;
+  background: var(--tc-bg-page);
+  font-family: var(--tc-font-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 16px 60px;
+}
+
+/* ── Header / Branding ── */
+
+.header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.logo {
+  font-family: var(--tc-font-heading);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--tc-navy);
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.logoAccent {
+  color: var(--tc-cyan);
+}
+
+.title {
+  font-family: var(--tc-font-heading);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin: 20px 0 6px;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  font-weight: 400;
+  line-height: 1.5;
+  max-width: 420px;
+}
+
+/* ── Form Card ── */
+
+.card {
+  background: var(--tc-bg-white);
+  border-radius: var(--tc-radius-xl);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  padding: 36px 32px;
+  box-shadow: var(--tc-shadow-card);
+  width: 100%;
+  max-width: 580px;
+}
+
+/* ── Progress Bar ── */
+
+.progressBar {
+  width: 100%;
+  max-width: 580px;
+  margin-bottom: 24px;
+}
+
+.progressTrack {
+  height: 6px;
+  background: #E8ECF1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(135deg, var(--tc-navy) 0%, var(--tc-cyan) 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  font-weight: 500;
+  margin-top: 6px;
+  text-align: right;
+}
+
+/* ── Question ── */
+
+.question {
+  margin-bottom: 28px;
+}
+
+.question:last-of-type {
+  margin-bottom: 0;
+}
+
+.questionNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--tc-navy);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.questionHeader {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.questionText {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+  line-height: 1.5;
+  padding-top: 2px;
+}
+
+.required {
+  color: var(--tc-danger);
+  margin-left: 3px;
+}
+
+/* ── Answer Options (Yes/No, Multiple Choice) ── */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 34px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  background: var(--tc-bg-hover);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.option:hover {
+  border-color: var(--tc-cyan);
+  background: #F0FAFF;
+}
+
+.optionSelected {
+  border-color: var(--tc-cyan);
+  background: #EBF8FF;
+  box-shadow: 0 0 0 2px rgba(41, 190, 228, 0.15);
+}
+
+.optionRadio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #CBD5E0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.optionRadioSelected {
+  border-color: var(--tc-cyan);
+}
+
+.optionRadioDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tc-cyan);
+}
+
+.optionLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tc-text-primary);
+}
+
+/* ── Text/Number Input ── */
+
+.input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-primary);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-weight: 500;
+  margin-left: 34px;
+  max-width: calc(100% - 34px);
+}
+
+.input:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41, 190, 228, 0.12);
+}
+
+.input::placeholder {
+  color: var(--tc-text-light);
+  font-weight: 400;
+}
+
+.textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #E0E4EA;
+  border-radius: 11px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-primary);
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  font-weight: 500;
+  min-height: 80px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  margin-left: 34px;
+  max-width: calc(100% - 34px);
+}
+
+.textarea:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 3px rgba(41, 190, 228, 0.12);
+}
+
+/* ── Submit Button ── */
+
+.submitBtn {
+  width: 100%;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--tc-navy) 0%, var(--tc-cyan-dark) 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--tc-shadow-btn-primary);
+  transition: all 0.15s ease;
+  letter-spacing: 0.2px;
+  margin-top: 28px;
+}
+
+.submitBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--tc-shadow-btn-primary-hover);
+  filter: brightness(1.08);
+}
+
+.submitBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ── Validation Error ── */
+
+.fieldError {
+  font-size: 11px;
+  color: var(--tc-danger);
+  margin-top: 6px;
+  font-weight: 600;
+  margin-left: 34px;
+}
+
+.inputError {
+  border-color: var(--tc-danger) !important;
+}
+
+/* ── Error State ── */
+
+.error {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.errorIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.errorTitle {
+  font-family: var(--tc-font-heading);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin-bottom: 8px;
+}
+
+.errorText {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Success State ── */
+
+.success {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.successIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--tc-success-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 28px;
+}
+
+.successTitle {
+  font-family: var(--tc-font-heading);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin-bottom: 8px;
+}
+
+.successText {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  line-height: 1.6;
+  max-width: 380px;
+  margin: 0 auto;
+}
+
+/* ── Loading State ── */
+
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #E8ECF1;
+  border-top-color: var(--tc-cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loadingText {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  font-weight: 500;
+}
+
+/* ── Footer ── */
+
+.footer {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--tc-text-muted);
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 600px) {
+  .page {
+    padding: 24px 12px 40px;
+  }
+
+  .card {
+    padding: 24px 20px;
+  }
+
+  .logo {
+    font-size: 24px;
+  }
+
+  .title {
+    font-size: 19px;
+  }
+
+  .options {
+    margin-left: 0;
+  }
+
+  .input,
+  .textarea {
+    margin-left: 0;
+    max-width: 100%;
+  }
+
+  .fieldError {
+    margin-left: 0;
+  }
+
+  .submitBtn {
+    font-size: 14px;
+    padding: 13px 20px;
+  }
+}

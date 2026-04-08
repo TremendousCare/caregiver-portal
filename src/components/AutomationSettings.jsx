@@ -24,6 +24,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'document_uploaded', label: 'Document Uploaded', description: 'Fires when a document is uploaded to SharePoint' },
   { value: 'document_signed', label: 'Document Signed', description: 'Fires when a DocuSign envelope is fully signed' },
   { value: 'inbound_sms', label: 'Inbound SMS Received', description: 'Fires when an SMS is received from a caregiver via RingCentral' },
+  { value: 'survey_completed', label: 'Survey Completed', description: 'Fires when a caregiver completes a pre-screening survey' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
@@ -62,6 +63,7 @@ const MERGE_FIELDS = [
   { key: 'phase_name', label: 'Phase Name' },
   { key: 'days_in_phase', label: 'Days in Phase' },
   { key: 'overall_progress', label: 'Progress %' },
+  { key: 'survey_link', label: 'Survey Link', triggers: ['new_caregiver'] },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
@@ -118,6 +120,7 @@ function TriggerBadge({ type }) {
     document_uploaded: { bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
     document_signed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     inbound_sms: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
+    survey_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -131,6 +134,7 @@ function TriggerBadge({ type }) {
     document_uploaded: 'Doc Upload',
     document_signed: 'Doc Signed',
     inbound_sms: 'Inbound SMS',
+    survey_completed: 'Survey Done',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -207,6 +211,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   // Inbound SMS trigger condition
   const [keywordFilter, setKeywordFilter] = useState(rule?.conditions?.keyword || '');
 
+  // Survey completed trigger condition
+  const [surveyStatus, setSurveyStatus] = useState(rule?.conditions?.survey_status || '');
+
   // Derived options based on entity type
   const triggerOptions = getTriggerOptions(entityType);
   const actionOptions = getActionOptions(entityType);
@@ -267,6 +274,7 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         ...(triggerType === 'document_uploaded' && documentType ? { document_type: documentType } : {}),
         ...(triggerType === 'document_signed' && templateNameFilter.trim() ? { template_name: templateNameFilter.trim() } : {}),
         ...(triggerType === 'inbound_sms' && keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
+        ...(triggerType === 'survey_completed' && surveyStatus ? { survey_status: surveyStatus } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
       action_type: actionType,
@@ -417,6 +425,22 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
             />
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
               Only fire when the inbound message contains this keyword. Leave empty to fire on any inbound SMS.
+            </div>
+          </div>
+        )}
+
+        {/* Conditions — survey_completed */}
+        {triggerType === 'survey_completed' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Survey Result Filter (optional)</label>
+            <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={surveyStatus} onChange={(e) => setSurveyStatus(e.target.value)}>
+              <option value="">Any result</option>
+              <option value="qualified">Qualified</option>
+              <option value="flagged">Flagged</option>
+              <option value="disqualified">Disqualified</option>
+            </select>
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Only fire when the survey result matches. Leave empty to fire on any survey completion.
             </div>
           </div>
         )}

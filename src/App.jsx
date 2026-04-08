@@ -24,6 +24,7 @@ import { SequenceSettings } from './features/clients/SequenceSettings';
 import { AdminSettings } from './components/AdminSettings';
 import { ApplyPage } from './features/apply/ApplyPage';
 import { UploadPage } from './features/upload/UploadPage';
+import { SurveyPage } from './features/survey/SurveyPage';
 import { getCurrentPhase, getOverallProgress } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import { saveBoard } from './lib/storage';
@@ -534,6 +535,13 @@ export default function App() {
     return (
       <Routes>
         <Route path="/upload/:token" element={<UploadPage />} />
+      </Routes>
+    );
+  }
+  if (location.pathname.startsWith('/survey/')) {
+    return (
+      <Routes>
+        <Route path="/survey/:token" element={<SurveyPage />} />
       </Routes>
     );
   }

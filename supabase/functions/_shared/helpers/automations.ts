@@ -43,6 +43,9 @@ export function evaluateAutomationConditions(
     if (!messageText.includes(conds.keyword.toLowerCase())) return false;
   }
 
+  // For survey_completed trigger: match survey result status
+  if (conds.survey_status && triggerContext.survey_status !== conds.survey_status) return false;
+
   // days_inactive is evaluated server-side by automation-cron, skip here
 
   return true;
@@ -55,12 +58,20 @@ export function evaluateAutomationConditions(
 export function resolveAutomationMergeFields(
   template: string,
   entity: Record<string, any>,
+  triggerContext?: Record<string, any>,
 ): string {
-  return template
+  let result = template
     .replace(/\{\{first_name\}\}/g, entity.first_name || "")
     .replace(/\{\{last_name\}\}/g, entity.last_name || "")
     .replace(/\{\{phone\}\}/g, entity.phone || "")
     .replace(/\{\{email\}\}/g, entity.email || "");
+
+  // Resolve trigger-context merge fields (e.g., survey_link)
+  if (triggerContext) {
+    result = result.replace(/\{\{survey_link\}\}/g, triggerContext.survey_link || "");
+  }
+
+  return result;
 }
 
 // --- Action Type Normalization ---

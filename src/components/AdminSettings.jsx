@@ -10,6 +10,7 @@ import { AutomationSettings } from './AutomationSettings';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
 import { AgentPerformance } from './AgentPerformance';
+import { SurveySettings } from './SurveySettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -1049,6 +1050,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* AI Business Context */}
       <div style={{ marginBottom: 20 }}>
         <BusinessContextSettings showToast={showToast} />
+      </div>
+
+      {/* Pre-Screening Surveys */}
+      <div style={{ marginBottom: 20 }}>
+        <SurveySettings showToast={showToast} />
       </div>
 
       {/* Automation Engine */}

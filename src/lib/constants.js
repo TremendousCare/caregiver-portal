@@ -46,6 +46,7 @@ export const PHASES = [
 export const DEFAULT_PHASE_TASKS = {
   intake: [
     { id: 'app_reviewed', label: 'Application reviewed within 30 minutes', critical: true },
+    { id: 'survey_completed', label: 'Pre-screening survey completed' },
     { id: 'initial_contact', label: 'Initial contact attempted (Call/VM/Text/Indeed)' },
     { id: 'phone_screen', label: 'Phone screen conducted' },
     { id: 'registry_check', label: 'Registry check: HCA PER ID validated in Guardian' },

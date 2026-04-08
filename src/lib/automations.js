@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { getCurrentPhase } from './utils';
 import { evaluateAutomationConditions } from '../../supabase/functions/_shared/helpers/automations.ts';
+import { generateSurveyToken, buildSurveyUrl } from './surveyUtils';
 
 // ═══════════════════════════════════════════════════════════════
 // Automation Event Triggers
@@ -61,10 +62,27 @@ export async function fireEventTriggers(triggerType, caregiver, triggerContext =
       phase: getCurrentPhase(caregiver) || 'intake',
     };
 
+    // If this is a new_caregiver trigger, check if any rule uses {{survey_link}}
+    // and pre-create a survey response with a unique token
+    let surveyLink = '';
+    if (triggerType === 'new_caregiver') {
+      const needsSurvey = rules.some(
+        (r) => evaluateConditions(r, caregiver, triggerContext) &&
+          r.message_template && r.message_template.includes('{{survey_link}}')
+      );
+      if (needsSurvey) {
+        surveyLink = await createSurveyForCaregiver(caregiver.id);
+      }
+    }
+
     // Fire each rule (fire-and-forget, never blocks UI)
     for (const rule of rules) {
       // Client-side condition check before firing
       if (!evaluateConditions(rule, caregiver, triggerContext)) continue;
+
+      // Inject survey_link into trigger context so Edge Function can resolve it
+      const ctx = { ...triggerContext };
+      if (surveyLink) ctx.survey_link = surveyLink;
 
       supabase.functions.invoke('execute-automation', {
         body: {
@@ -75,7 +93,7 @@ export async function fireEventTriggers(triggerType, caregiver, triggerContext =
           action_config: rule.action_config,
           rule_name: rule.name,
           caregiver: cgPayload,
-          trigger_context: triggerContext,
+          trigger_context: ctx,
         },
         headers: { Authorization: `Bearer ${session.access_token}` },
       }).catch((err) => console.warn('Automation fire error:', err));
@@ -83,5 +101,49 @@ export async function fireEventTriggers(triggerType, caregiver, triggerContext =
   } catch (err) {
     // Never block the main flow — automations are best-effort
     console.warn('fireEventTriggers error:', err);
+  }
+}
+
+/**
+ * Create a survey response for a new caregiver.
+ * Finds the first enabled survey template and creates a pending response with a unique token.
+ * Returns the full survey URL or empty string if no survey template exists.
+ */
+async function createSurveyForCaregiver(caregiverId) {
+  try {
+    // Get the first enabled survey template
+    const { data: templates, error: tErr } = await supabase
+      .from('survey_templates')
+      .select('id, expires_hours')
+      .eq('enabled', true)
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (tErr || !templates || templates.length === 0) return '';
+
+    const template = templates[0];
+    const token = generateSurveyToken();
+    const expiresAt = new Date(Date.now() + (template.expires_hours || 48) * 60 * 60 * 1000).toISOString();
+
+    const { error: insertErr } = await supabase
+      .from('survey_responses')
+      .insert({
+        survey_template_id: template.id,
+        caregiver_id: caregiverId,
+        token,
+        status: 'pending',
+        sent_via: 'sms',
+        expires_at: expiresAt,
+      });
+
+    if (insertErr) {
+      console.warn('Failed to create survey response:', insertErr);
+      return '';
+    }
+
+    return buildSurveyUrl(token);
+  } catch (err) {
+    console.warn('createSurveyForCaregiver error:', err);
+    return '';
   }
 }
