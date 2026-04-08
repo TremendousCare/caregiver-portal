@@ -83,7 +83,7 @@ function StatCard({ label, value, accent, icon }) {
 }
 
 // ─── CAREGIVER CARD ──────────────────────────────────────────
-function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode }) {
+function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode, surveyStatus }) {
   const phase = getCurrentPhase(caregiver);
   const phaseInfo = PHASES.find((p) => p.id === phase);
   const progressPct = getOverallProgress(caregiver);
@@ -123,6 +123,24 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
         </div>
         {greenLight && <span className={progress.greenLightBadge}>🟢 Green Light</span>}
         {urgent && !greenLight && <span className={progress.urgentBadge}>⚠️ Attention</span>}
+        {surveyStatus === 'disqualified' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #FEF2F2, #FEE2E2)', color: '#DC2626',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #FECACA',
+          }}>
+            🚫 Disqualified
+          </span>
+        )}
+        {surveyStatus === 'flagged' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #FFFBEB, #FEF3C7)', color: '#A16207',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #FDE68A',
+          }}>
+            ⚠️ Flagged
+          </span>
+        )}
       </div>
 
       <div className={cards.cgPhaseRow}>
@@ -185,6 +203,27 @@ export function Dashboard({
   const [selectedSmsTemplate, setSelectedSmsTemplate] = useState('');
   const [smsSendStep, setSmsSendStep] = useState('compose'); // 'compose' | 'confirm'
   const [isSending, setIsSending] = useState(false);
+
+  // Load survey statuses for all caregivers (for badge display)
+  const [surveyStatuses, setSurveyStatuses] = useState({});
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('survey_responses')
+      .select('caregiver_id, status')
+      .in('status', ['flagged', 'disqualified'])
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const r of data) {
+          // Keep the worst status per caregiver (disqualified > flagged)
+          if (!map[r.caregiver_id] || r.status === 'disqualified') {
+            map[r.caregiver_id] = r.status;
+          }
+        }
+        setSurveyStatuses(map);
+      });
+  }, []);
 
   // Load board columns for bulk board assignment
   useEffect(() => {
@@ -460,6 +499,7 @@ export function Dashboard({
                   isSelected={selectedIds.has(cg.id)}
                   onToggleSelect={() => toggleSelect(cg.id)}
                   selectionMode={selectionMode}
+                  surveyStatus={surveyStatuses[cg.id]}
                 />
               </div>
             ))}

@@ -120,6 +120,19 @@ export function SurveyPage() {
 
       if (updateErr) throw updateErr;
 
+      // Fire-and-forget: complete the survey task on the caregiver record
+      supabase.functions.invoke('execute-automation', {
+        body: {
+          rule_id: 'survey_completion',
+          caregiver_id: response.caregiver_id,
+          action_type: 'complete_task',
+          action_config: { task_id: 'survey_completed' },
+          rule_name: 'Survey Auto-Complete',
+          caregiver: { first_name: '', last_name: '', phone: '', email: '', phase: 'intake' },
+          trigger_context: { survey_status: status },
+        },
+      }).catch(() => {});
+
       setSubmitted(true);
     } catch (err) {
       console.error('Failed to submit survey:', err);
