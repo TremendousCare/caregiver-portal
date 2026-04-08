@@ -180,13 +180,20 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
       const smsMessage = `Hi ${caregiver.firstName}, Tremendous Care needs the following documents from you:\n${docsListText}\n\nPlease upload them here: ${uploadUrl}\n\nThis link expires in 7 days.`;
 
       const emailSubject = `Document Upload Request - Tremendous Care`;
-      const emailBody = `<p>Hi ${caregiver.firstName},</p>
-<p>We need the following documents from you:</p>
-<ul>${docLabels.map((l) => `<li>${l}</li>`).join('')}</ul>
-<p>Please upload them using the link below:</p>
-<p><a href="${uploadUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Upload Documents</a></p>
-<p>This link expires in 7 days.</p>
-<p>Thank you,<br/>Tremendous Care</p>`;
+      const emailBody = `Hi ${caregiver.firstName},
+
+We need the following documents from you:
+
+${docLabels.map((l) => `  - ${l}`).join('\n')}
+
+Please upload them using the link below:
+
+${uploadUrl}
+
+This link expires in 7 days.
+
+Thank you,
+Tremendous Care`;
 
       // Send via selected delivery method
       const promises = [];
