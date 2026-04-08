@@ -12,6 +12,7 @@ import { PhaseDetail } from './caregiver/PhaseDetail';
 import { DocumentsSection } from './caregiver/DocumentsSection';
 import { ActivityLog } from './caregiver/ActivityLog';
 import { RecommendedNextStep } from './caregiver/RecommendedNextStep';
+import { SurveyResults } from './caregiver/SurveyResults';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -98,6 +99,8 @@ export function CaregiverDetail({
         caregiver={caregiver}
         onUpdateCaregiver={onUpdateCaregiver}
       />
+
+      <SurveyResults caregiver={caregiver} />
 
       <ProgressOverview
         caregiver={caregiver}
