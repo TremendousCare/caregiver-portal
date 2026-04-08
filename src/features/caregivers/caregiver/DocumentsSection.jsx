@@ -205,13 +205,13 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
 
       if ((requestDelivery === 'email' || requestDelivery === 'both') && caregiver.email) {
         promises.push(
-          supabase.functions.invoke('bulk-email', {
+          supabase.functions.invoke('outlook-integration', {
             body: {
-              client_ids: [],
+              action: 'send_email',
+              to_email: caregiver.email,
+              to_name: `${caregiver.firstName} ${caregiver.lastName}`,
               subject: emailSubject,
-              message: emailBody,
-              current_user: currentUser?.email || 'system',
-              custom_recipients: [{ email: caregiver.email, name: `${caregiver.firstName} ${caregiver.lastName}` }],
+              body: emailBody,
             },
           })
         );
