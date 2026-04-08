@@ -177,10 +177,10 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
       );
       const docsListText = docLabels.map((l) => `- ${l}`).join('\n');
 
-      const smsMessage = `Hi ${caregiver.first_name}, Tremendous Care needs the following documents from you:\n${docsListText}\n\nPlease upload them here: ${uploadUrl}\n\nThis link expires in 7 days.`;
+      const smsMessage = `Hi ${caregiver.firstName}, Tremendous Care needs the following documents from you:\n${docsListText}\n\nPlease upload them here: ${uploadUrl}\n\nThis link expires in 7 days.`;
 
       const emailSubject = `Document Upload Request - Tremendous Care`;
-      const emailBody = `<p>Hi ${caregiver.first_name},</p>
+      const emailBody = `<p>Hi ${caregiver.firstName},</p>
 <p>We need the following documents from you:</p>
 <ul>${docLabels.map((l) => `<li>${l}</li>`).join('')}</ul>
 <p>Please upload them using the link below:</p>
@@ -211,7 +211,7 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
               subject: emailSubject,
               message: emailBody,
               current_user: currentUser?.email || 'system',
-              custom_recipients: [{ email: caregiver.email, name: `${caregiver.first_name} ${caregiver.last_name}` }],
+              custom_recipients: [{ email: caregiver.email, name: `${caregiver.firstName} ${caregiver.lastName}` }],
             },
           })
         );
@@ -620,7 +620,7 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
               Request Documents
             </h3>
             <p style={{ fontSize: 13, color: '#6B7B8F', marginBottom: 16 }}>
-              Send {caregiver.first_name} a link to upload documents directly to their SharePoint folder.
+              Send {caregiver.firstName} a link to upload documents directly to their SharePoint folder.
             </p>
 
             {/* Document type checkboxes + edit mode */}
