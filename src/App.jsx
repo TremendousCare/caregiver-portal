@@ -75,12 +75,21 @@ function DashboardPage() {
 
 function BoardPage() {
   const navigate = useNavigate();
-  const { activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateBoardDescription, addNote } = useCaregivers();
+  const { caregivers: allCaregivers, activeCaregivers, updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateBoardDescription, addNote, addCaregiver } = useCaregivers();
   const { currentUserName } = useApp();
 
   const handleAddCard = useCallback((entityId, columnId) => {
+    if (!entityId) {
+      // Blank card — create a new caregiver stub and place it on the board
+      const newCg = addCaregiver({ firstName: 'New', lastName: 'Card' });
+      updateBoardStatus(newCg.id, columnId);
+      return;
+    }
     updateBoardStatus(entityId, columnId);
-  }, [updateBoardStatus]);
+  }, [updateBoardStatus, addCaregiver]);
+
+  // All non-archived caregivers available for adding to board (including onboarding)
+  const allAvailable = useMemo(() => allCaregivers.filter((cg) => !cg.archived), [allCaregivers]);
 
   return (
     <KanbanBoard
@@ -95,7 +104,7 @@ function BoardPage() {
       onSelect={(id) => navigate(`/caregiver/${id}`)}
       currentUserName={currentUserName}
       onAddCard={handleAddCard}
-      availableEntities={activeCaregivers}
+      availableEntities={allAvailable}
     />
   );
 }
@@ -109,8 +118,8 @@ function MultiBoardPage() {
   const navigate = useNavigate();
   const { currentUserName } = useApp();
   const { boards, loadCards, getCards, updateCard, addCard, removeCard, updateBoard } = useBoards();
-  const { activeCaregivers, addNote } = useCaregivers();
-  const { activeClients } = useClients();
+  const { caregivers: allCaregivers, activeCaregivers, addNote } = useCaregivers();
+  const { clients: allClients, activeClients } = useClients();
 
   const board = useMemo(() => boards.find((b) => b.id === id), [boards, id]);
 
@@ -228,6 +237,12 @@ function MultiBoardPage() {
   }, [id, board, updateBoard]);
 
   const handleAddCard = useCallback(async (entityId, columnId) => {
+    if (!entityId) {
+      // Blank card — create a card with a generated placeholder ID
+      const blankId = 'blank_' + crypto.randomUUID().slice(0, 8);
+      await addCard(id, blankId, 'custom', columnId || null);
+      return;
+    }
     const entityType = board?.entityType || 'caregiver';
     await addCard(id, entityId, entityType, columnId || null);
   }, [id, board?.entityType, addCard]);
@@ -275,7 +290,7 @@ function MultiBoardPage() {
       onBoardUpdate={handleBoardUpdate}
       onAddCard={handleAddCard}
       onRemoveCard={handleRemoveCard}
-      availableEntities={board.entityType === 'client' ? activeClients : activeCaregivers}
+      availableEntities={board.entityType === 'client' ? allClients.filter((c) => !c.archived) : allCaregivers.filter((c) => !c.archived)}
       boardTitle={board.name}
       boardSubtitle={board.description || 'Drag cards between columns to organize your work'}
     />

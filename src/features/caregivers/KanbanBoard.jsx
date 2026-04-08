@@ -672,10 +672,9 @@ export function KanbanBoard({
 
       {/* Add Card Modal */}
       {showAddCard && onAddCard && availableEntities && (() => {
-        const onBoardIds = new Set(caregivers.map((cg) => cg.id));
+        const onBoardIds = new Set(caregivers.filter((cg) => cg.boardStatus).map((cg) => cg.id));
         const entityLabel = board?.entityType === 'client' ? 'client' : 'caregiver';
         const filtered = availableEntities.filter((e) => {
-          if (onBoardIds.has(e.id)) return false;
           if (!addCardSearch.trim()) return true;
           const term = addCardSearch.toLowerCase();
           const name = `${e.firstName || ''} ${e.lastName || ''}`.toLowerCase();
@@ -685,10 +684,44 @@ export function KanbanBoard({
         });
         return (
           <div className={kb.colFormOverlay} onClick={() => setShowAddCard(false)}>
-            <div className={kb.colFormModal} style={{ maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div className={kb.colFormModal} style={{ maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>
-                Add {entityLabel} to board
+                Add card to board
               </h3>
+
+              {/* Create blank card option */}
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px', borderRadius: 8, border: '2px dashed #D1D9E6',
+                  marginBottom: 12, background: '#FAFBFC', cursor: 'pointer',
+                  transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#D1D9E6'; e.currentTarget.style.background = '#FAFBFC'; }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#2E4E8D' }}>+ Create blank card</div>
+                  <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>Add a card without linking to an existing {entityLabel}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {columns.map((col) => (
+                    <button
+                      key={col.id}
+                      style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
+                      onClick={() => { onAddCard(null, col.id); setShowAddCard(false); }}
+                      title={`Add to ${col.label}`}
+                    >
+                      {col.icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '1px', color: '#8896A6', fontWeight: 700, marginBottom: 8 }}>
+                Or add an existing {entityLabel}
+              </div>
+
               <input
                 className={forms.fieldInput}
                 placeholder={`Search ${entityLabel}s by name, phone, or email...`}
@@ -697,53 +730,59 @@ export function KanbanBoard({
                 autoFocus
                 style={{ marginBottom: 12 }}
               />
-              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, maxHeight: 400 }}>
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, maxHeight: 360 }}>
                 {filtered.length === 0 && (
                   <div style={{ color: '#A0AEC0', fontSize: 13, fontStyle: 'italic', padding: '24px 0', textAlign: 'center' }}>
-                    {addCardSearch ? `No matching ${entityLabel}s found` : `All ${entityLabel}s are already on this board`}
+                    No matching {entityLabel}s found
                   </div>
                 )}
-                {filtered.map((entity) => (
-                  <div key={entity.id} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '10px 12px', borderRadius: 8, border: '1px solid #E2E8F0',
-                    marginBottom: 6, background: '#FAFBFC',
-                    transition: 'all 0.1s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#FAFBFC'; }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: '#1A1A1A' }}>
-                        {entity.firstName} {entity.lastName}
+                {filtered.map((entity) => {
+                  const alreadyOnBoard = onBoardIds.has(entity.id);
+                  return (
+                    <div key={entity.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 12px', borderRadius: 8, border: '1px solid #E2E8F0',
+                      marginBottom: 6, background: alreadyOnBoard ? '#F8F9FA' : '#FAFBFC',
+                      opacity: alreadyOnBoard ? 0.6 : 1,
+                      transition: 'all 0.1s',
+                    }}
+                    onMouseEnter={(e) => { if (!alreadyOnBoard) { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; } }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = alreadyOnBoard ? '#F8F9FA' : '#FAFBFC'; }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#1A1A1A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {entity.firstName} {entity.lastName}
+                          {alreadyOnBoard && <span style={{ fontSize: 10, color: '#8896A6', fontWeight: 500, background: '#E8ECF1', padding: '1px 6px', borderRadius: 4 }}>on board</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>
+                          {[entity.phone, entity.email].filter(Boolean).join(' \u00B7 ') || 'No contact info'}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>
-                        {[entity.phone, entity.email].filter(Boolean).join(' \u00B7 ') || 'No contact info'}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {columns.length > 0 ? columns.map((col) => (
-                        <button
-                          key={col.id}
-                          className={kb.assignBtn}
-                          style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
-                          onClick={() => { onAddCard(entity.id, col.id); }}
-                          title={`Add to ${col.label}`}
-                        >
-                          {col.icon}
-                        </button>
-                      )) : (
-                        <button
-                          className={`tc-btn-primary ${btn.primaryBtn}`}
-                          style={{ padding: '4px 12px', fontSize: 12 }}
-                          onClick={() => { onAddCard(entity.id, null); }}
-                        >
-                          Add
-                        </button>
+                      {!alreadyOnBoard && (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {columns.length > 0 ? columns.map((col) => (
+                            <button
+                              key={col.id}
+                              style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
+                              onClick={() => { onAddCard(entity.id, col.id); }}
+                              title={`Add to ${col.label}`}
+                            >
+                              {col.icon}
+                            </button>
+                          )) : (
+                            <button
+                              className={`tc-btn-primary ${btn.primaryBtn}`}
+                              style={{ padding: '4px 12px', fontSize: 12 }}
+                              onClick={() => { onAddCard(entity.id, null); }}
+                            >
+                              Add
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
                 <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowAddCard(false)}>Close</button>
