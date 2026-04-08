@@ -308,6 +308,209 @@ export const saveOrientationData = async (data) => {
 // within AuthGate when Supabase is not configured.
 
 // ═══════════════════════════════════════════════════════════════
+// Boards (Multiple Kanban Boards)
+// ═══════════════════════════════════════════════════════════════
+
+export const loadBoards = async () => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('boards')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return (data || []).map(dbToBoard);
+    }
+    return localGet('tc-boards-v1') || [];
+  } catch (e) {
+    console.error('loadBoards failed:', e);
+    return localGet('tc-boards-v1') || [];
+  }
+};
+
+export const loadBoard = async (boardId) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('boards')
+        .select('*')
+        .eq('id', boardId)
+        .single();
+      if (error) throw error;
+      return data ? dbToBoard(data) : null;
+    }
+    const boards = localGet('tc-boards-v1') || [];
+    return boards.find((b) => b.id === boardId) || null;
+  } catch (e) {
+    console.error('loadBoard failed:', e);
+    return null;
+  }
+};
+
+export const saveBoard = async (board) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const row = boardToDb(board);
+      const { error } = await supabase
+        .from('boards')
+        .upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    const all = localGet('tc-boards-v1') || [];
+    const idx = all.findIndex((b) => b.id === board.id);
+    if (idx >= 0) all[idx] = board; else all.push(board);
+    localSet('tc-boards-v1', all);
+  } catch (e) {
+    console.error('saveBoard failed:', e);
+    throw e;
+  }
+};
+
+export const deleteBoard = async (boardId) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase.from('boards').delete().eq('id', boardId);
+      if (error) throw error;
+    }
+    const all = localGet('tc-boards-v1') || [];
+    localSet('tc-boards-v1', all.filter((b) => b.id !== boardId));
+  } catch (e) {
+    console.error('deleteBoard failed:', e);
+    throw e;
+  }
+};
+
+// ─── Board Cards ────────────────────────────────────────────
+
+export const loadBoardCards = async (boardId) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('board_cards')
+        .select('*')
+        .eq('board_id', boardId)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return (data || []).map(dbToBoardCard);
+    }
+    const all = localGet('tc-board-cards-v1') || [];
+    return all.filter((c) => c.boardId === boardId);
+  } catch (e) {
+    console.error('loadBoardCards failed:', e);
+    return [];
+  }
+};
+
+export const saveBoardCard = async (card) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const row = boardCardToDb(card);
+      const { error } = await supabase
+        .from('board_cards')
+        .upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    const all = localGet('tc-board-cards-v1') || [];
+    const idx = all.findIndex((c) => c.id === card.id);
+    if (idx >= 0) all[idx] = card; else all.push(card);
+    localSet('tc-board-cards-v1', all);
+  } catch (e) {
+    console.error('saveBoardCard failed:', e);
+    throw e;
+  }
+};
+
+export const saveBoardCardsBulk = async (cards) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const rows = cards.map(boardCardToDb);
+      const { error } = await supabase
+        .from('board_cards')
+        .upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    const all = localGet('tc-board-cards-v1') || [];
+    const changeMap = new Map(cards.map((c) => [c.id, c]));
+    const updated = all.map((c) => changeMap.get(c.id) || c);
+    for (const card of cards) {
+      if (!all.some((c) => c.id === card.id)) updated.push(card);
+    }
+    localSet('tc-board-cards-v1', updated);
+  } catch (e) {
+    console.error('saveBoardCardsBulk failed:', e);
+    throw e;
+  }
+};
+
+export const deleteBoardCard = async (cardId) => {
+  try {
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase.from('board_cards').delete().eq('id', cardId);
+      if (error) throw error;
+    }
+    const all = localGet('tc-board-cards-v1') || [];
+    localSet('tc-board-cards-v1', all.filter((c) => c.id !== cardId));
+  } catch (e) {
+    console.error('deleteBoardCard failed:', e);
+    throw e;
+  }
+};
+
+// ─── Board Data Migration ───────────────────────────────────
+// Migrates existing single-board data to the new multi-board tables.
+// Creates a default "Caregiver Board" from existing KV columns/labels
+// and copies board_* fields from caregivers into board_cards.
+export const migrateToMultiBoard = async (existingCaregivers) => {
+  // Load existing board config from KV / localStorage
+  const existingColumns = await loadBoardColumns();
+  const existingLabels = await loadBoardLabels();
+  const existingTemplates = await loadChecklistTemplates();
+  const existingOrientation = await loadOrientationData();
+
+  const boardId = crypto.randomUUID();
+  const board = {
+    id: boardId,
+    name: 'Caregiver Board',
+    slug: 'caregiver-board',
+    description: 'Manage deployed caregivers — drag cards between columns',
+    entityType: 'caregiver',
+    columns: existingColumns,
+    labels: existingLabels,
+    checklistTemplates: existingTemplates,
+    orientationData: existingOrientation,
+    sortOrder: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  await saveBoard(board);
+
+  // Migrate caregiver board cards
+  const cards = existingCaregivers
+    .filter((cg) => cg.boardStatus)
+    .map((cg) => ({
+      id: crypto.randomUUID(),
+      boardId: boardId,
+      entityType: 'caregiver',
+      entityId: cg.id,
+      columnId: cg.boardStatus,
+      sortOrder: 0,
+      labels: cg.boardLabels || [],
+      checklists: cg.boardChecklists || [],
+      dueDate: cg.boardDueDate || null,
+      description: cg.boardDescription || null,
+      pinnedNote: cg.boardNote || null,
+      movedAt: cg.boardMovedAt ? new Date(cg.boardMovedAt).toISOString() : null,
+      createdAt: new Date().toISOString(),
+    }));
+
+  if (cards.length > 0) {
+    await saveBoardCardsBulk(cards);
+  }
+
+  return board;
+};
+
+// ═══════════════════════════════════════════════════════════════
 // DB ↔ App Field Mapping
 // ═══════════════════════════════════════════════════════════════
 
@@ -412,4 +615,70 @@ const caregiverToDb = (cg) => ({
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
   created_at: cg.createdAt || Date.now(),
+});
+
+// ─── Board mapping ──────────────────────────────────────────
+
+const dbToBoard = (row) => ({
+  id: row.id,
+  name: row.name,
+  slug: row.slug,
+  description: row.description,
+  entityType: row.entity_type,
+  columns: row.columns || [],
+  labels: row.labels || [],
+  checklistTemplates: row.checklist_templates || [],
+  orientationData: row.orientation_data || {},
+  sortOrder: row.sort_order || 0,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const boardToDb = (b) => ({
+  id: b.id,
+  name: b.name,
+  slug: b.slug,
+  description: b.description || null,
+  entity_type: b.entityType || 'caregiver',
+  columns: b.columns || [],
+  labels: b.labels || [],
+  checklist_templates: b.checklistTemplates || [],
+  orientation_data: b.orientationData || {},
+  sort_order: b.sortOrder || 0,
+  created_by: b.createdBy || null,
+  created_at: b.createdAt || new Date().toISOString(),
+});
+
+const dbToBoardCard = (row) => ({
+  id: row.id,
+  boardId: row.board_id,
+  entityType: row.entity_type,
+  entityId: row.entity_id,
+  columnId: row.column_id,
+  sortOrder: row.sort_order || 0,
+  labels: row.labels || [],
+  checklists: row.checklists || [],
+  dueDate: row.due_date || null,
+  description: row.description || null,
+  pinnedNote: row.pinned_note || null,
+  movedAt: row.moved_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const boardCardToDb = (c) => ({
+  id: c.id,
+  board_id: c.boardId,
+  entity_type: c.entityType || 'caregiver',
+  entity_id: c.entityId,
+  column_id: c.columnId || null,
+  sort_order: c.sortOrder || 0,
+  labels: c.labels || [],
+  checklists: c.checklists || [],
+  due_date: c.dueDate || null,
+  description: c.description || null,
+  pinned_note: c.pinnedNote || null,
+  moved_at: c.movedAt || null,
+  created_at: c.createdAt || new Date().toISOString(),
 });

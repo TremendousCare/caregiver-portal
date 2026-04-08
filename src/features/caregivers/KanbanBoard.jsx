@@ -295,12 +295,27 @@ function AddLabelRow({ onAdd }) {
 // ═══ KANBAN BOARD ════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 
-export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect, onUpdateLabels, onUpdateChecklists, onUpdateDueDate, onUpdateDescription, currentUserName }) {
+export function KanbanBoard({
+  caregivers, onUpdateStatus, onUpdateNote, onAddNote, onSelect,
+  onUpdateLabels, onUpdateChecklists, onUpdateDueDate, onUpdateDescription,
+  currentUserName,
+  // ─── Multi-board props (optional) ───
+  board,            // Board object with columns, labels, checklistTemplates
+  onBoardUpdate,    // (updates) => void — saves board config changes
+  onAddCard,        // (entityId, columnId) => void — add entity to board
+  onRemoveCard,     // (entityId) => void — remove entity from board
+  availableEntities, // All entities that can be added to this board
+  boardTitle,       // Custom header title (defaults to 'Caregiver Board')
+  boardSubtitle,    // Custom header subtitle
+  showOrientation = !board, // Show orientation banner (default: only legacy mode)
+}) {
+  const isMultiBoard = !!board;
+
   const [dragId, setDragId] = useState(null);
   const [editingNote, setEditingNote] = useState(null);
   const [noteText, setNoteText] = useState('');
-  const [columns, setColumns] = useState(DEFAULT_BOARD_COLUMNS);
-  const [colsLoaded, setColsLoaded] = useState(false);
+  const [columns, setColumns] = useState(board?.columns || DEFAULT_BOARD_COLUMNS);
+  const [colsLoaded, setColsLoaded] = useState(!!board);
   const [showAddCol, setShowAddCol] = useState(false);
   const [editingCol, setEditingCol] = useState(null);
   const [colForm, setColForm] = useState({ label: '', icon: '', color: '#2E4E8D', description: '' });
@@ -313,43 +328,69 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
   const [searchTerm, setSearchTerm] = useState('');
 
   // ─── Label state ───
-  const [labels, setLabels] = useState(DEFAULT_BOARD_LABELS);
-  const [labelsLoaded, setLabelsLoaded] = useState(false);
+  const [labels, setLabels] = useState(board?.labels || DEFAULT_BOARD_LABELS);
+  const [labelsLoaded, setLabelsLoaded] = useState(!!board);
   const [showLabelManager, setShowLabelManager] = useState(false);
   const [labelPickerCgId, setLabelPickerCgId] = useState(null);
   const labelPickerRef = useRef(null);
 
   // ─── Checklist template state ───
-  const [checklistTemplates, setChecklistTemplates] = useState([]);
-  const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(false);
+  const [checklistTemplates, setChecklistTemplates] = useState(board?.checklistTemplates || []);
+  const [checklistTemplatesLoaded, setChecklistTemplatesLoaded] = useState(!!board);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
 
   // ─── Modal add-to-card menu state ───
   const [modalAddMenu, setModalAddMenu] = useState(null);
 
+  // ─── Add Card state (multi-board only) ───
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [addCardSearch, setAddCardSearch] = useState('');
+
+  // Sync columns/labels/templates when board prop changes (multi-board navigation)
   useEffect(() => {
-    loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
-  }, []);
+    if (board) {
+      setColumns(board.columns || []);
+      setColsLoaded(true);
+      setLabels(board.labels || []);
+      setLabelsLoaded(true);
+      setChecklistTemplates(board.checklistTemplates || []);
+      setChecklistTemplatesLoaded(true);
+    }
+  }, [board?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Legacy mode: load from KV storage
+  useEffect(() => {
+    if (!isMultiBoard) {
+      loadBoardColumns().then((cols) => { setColumns(cols); setColsLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (colsLoaded) saveBoardColumns(columns);
-  }, [columns, colsLoaded]);
+    if (!isMultiBoard && colsLoaded) saveBoardColumns(columns);
+    if (isMultiBoard && colsLoaded && onBoardUpdate) onBoardUpdate({ columns });
+  }, [columns, colsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    loadBoardLabels().then((lbls) => { setLabels(lbls); setLabelsLoaded(true); });
-  }, []);
+    if (!isMultiBoard) {
+      loadBoardLabels().then((lbls) => { setLabels(lbls); setLabelsLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (labelsLoaded) saveBoardLabels(labels);
-  }, [labels, labelsLoaded]);
+    if (!isMultiBoard && labelsLoaded) saveBoardLabels(labels);
+    if (isMultiBoard && labelsLoaded && onBoardUpdate) onBoardUpdate({ labels });
+  }, [labels, labelsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    loadChecklistTemplates().then((tpls) => { setChecklistTemplates(tpls); setChecklistTemplatesLoaded(true); });
-  }, []);
+    if (!isMultiBoard) {
+      loadChecklistTemplates().then((tpls) => { setChecklistTemplates(tpls); setChecklistTemplatesLoaded(true); });
+    }
+  }, [isMultiBoard]);
 
   useEffect(() => {
-    if (checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
-  }, [checklistTemplates, checklistTemplatesLoaded]);
+    if (!isMultiBoard && checklistTemplatesLoaded) saveChecklistTemplates(checklistTemplates);
+    if (isMultiBoard && checklistTemplatesLoaded && onBoardUpdate) onBoardUpdate({ checklistTemplates });
+  }, [checklistTemplates, checklistTemplatesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allBoardCaregivers = caregivers.filter(
     (cg) => cg.boardStatus || getOverallProgress(cg) === 100
@@ -515,8 +556,8 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
     <div className={kb.boardWrapper}>
       <div className={layout.header}>
         <div>
-          <h1 className={layout.pageTitle}>Caregiver Board</h1>
-          <p className={layout.pageSubtitle}>Manage deployed caregivers — drag cards between columns or use the move menu</p>
+          <h1 className={layout.pageTitle}>{boardTitle || 'Caregiver Board'}</h1>
+          <p className={layout.pageSubtitle}>{boardSubtitle || 'Manage deployed caregivers — drag cards between columns or use the move menu'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div className={kb.searchBox}>
@@ -534,6 +575,11 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
               <button className={kb.searchClear} onClick={() => setSearchTerm('')} title="Clear search">&times;</button>
             )}
           </div>
+          {onAddCard && (
+            <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={() => { setShowAddCard(true); setAddCardSearch(''); }}>
+              + Add Card
+            </button>
+          )}
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowLabelManager(true)}>
             Labels
           </button>
@@ -623,6 +669,128 @@ export function KanbanBoard({ caregivers, onUpdateStatus, onUpdateNote, onAddNot
           </div>
         </div>
       )}
+
+      {/* Add Card Modal */}
+      {showAddCard && onAddCard && availableEntities && (() => {
+        const onBoardIds = new Set(caregivers.filter((cg) => cg.boardStatus).map((cg) => cg.id));
+        const entityLabel = board?.entityType === 'client' ? 'client' : 'caregiver';
+        const filtered = availableEntities.filter((e) => {
+          if (!addCardSearch.trim()) return true;
+          const term = addCardSearch.toLowerCase();
+          const name = `${e.firstName || ''} ${e.lastName || ''}`.toLowerCase();
+          const phone = (e.phone || '').toLowerCase();
+          const email = (e.email || '').toLowerCase();
+          return name.includes(term) || phone.includes(term) || email.includes(term);
+        });
+        return (
+          <div className={kb.colFormOverlay} onClick={() => setShowAddCard(false)}>
+            <div className={kb.colFormModal} style={{ maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>
+                Add card to board
+              </h3>
+
+              {/* Create blank card option */}
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px', borderRadius: 8, border: '2px dashed #D1D9E6',
+                  marginBottom: 12, background: '#FAFBFC', cursor: 'pointer',
+                  transition: 'all 0.1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#D1D9E6'; e.currentTarget.style.background = '#FAFBFC'; }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#2E4E8D' }}>+ Create blank card</div>
+                  <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>Add a card without linking to an existing {entityLabel}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {columns.map((col) => (
+                    <button
+                      key={col.id}
+                      style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
+                      onClick={() => { onAddCard(null, col.id); setShowAddCard(false); }}
+                      title={`Add to ${col.label}`}
+                    >
+                      {col.icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '1px', color: '#8896A6', fontWeight: 700, marginBottom: 8 }}>
+                Or add an existing {entityLabel}
+              </div>
+
+              <input
+                className={forms.fieldInput}
+                placeholder={`Search ${entityLabel}s by name, phone, or email...`}
+                value={addCardSearch}
+                onChange={(e) => setAddCardSearch(e.target.value)}
+                autoFocus
+                style={{ marginBottom: 12 }}
+              />
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, maxHeight: 360 }}>
+                {filtered.length === 0 && (
+                  <div style={{ color: '#A0AEC0', fontSize: 13, fontStyle: 'italic', padding: '24px 0', textAlign: 'center' }}>
+                    No matching {entityLabel}s found
+                  </div>
+                )}
+                {filtered.map((entity) => {
+                  const alreadyOnBoard = onBoardIds.has(entity.id);
+                  return (
+                    <div key={entity.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '10px 12px', borderRadius: 8, border: '1px solid #E2E8F0',
+                      marginBottom: 6, background: alreadyOnBoard ? '#F8F9FA' : '#FAFBFC',
+                      opacity: alreadyOnBoard ? 0.6 : 1,
+                      transition: 'all 0.1s',
+                    }}
+                    onMouseEnter={(e) => { if (!alreadyOnBoard) { e.currentTarget.style.borderColor = '#2E4E8D'; e.currentTarget.style.background = '#F8FAFF'; } }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = alreadyOnBoard ? '#F8F9FA' : '#FAFBFC'; }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#1A1A1A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {entity.firstName} {entity.lastName}
+                          {alreadyOnBoard && <span style={{ fontSize: 10, color: '#8896A6', fontWeight: 500, background: '#E8ECF1', padding: '1px 6px', borderRadius: 4 }}>on board</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2 }}>
+                          {[entity.phone, entity.email].filter(Boolean).join(' \u00B7 ') || 'No contact info'}
+                        </div>
+                      </div>
+                      {!alreadyOnBoard && (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {columns.length > 0 ? columns.map((col) => (
+                            <button
+                              key={col.id}
+                              style={{ background: `${col.color}14`, color: col.color, border: `1px solid ${col.color}30`, fontSize: 11, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, whiteSpace: 'nowrap' }}
+                              onClick={() => { onAddCard(entity.id, col.id); }}
+                              title={`Add to ${col.label}`}
+                            >
+                              {col.icon}
+                            </button>
+                          )) : (
+                            <button
+                              className={`tc-btn-primary ${btn.primaryBtn}`}
+                              style={{ padding: '4px 12px', fontSize: 12 }}
+                              onClick={() => { onAddCard(entity.id, null); }}
+                            >
+                              Add
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
+                <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setShowAddCard(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Unassigned banner */}
       {unassigned.length > 0 && (
