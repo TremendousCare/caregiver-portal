@@ -521,6 +521,81 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
           })}
         </div>
         )}
+
+        {/* Caregiver Uploads section — shows docs uploaded via magic link */}
+        {(() => {
+          const requiredTypeIds = new Set(docTypes.map((t) => t.id));
+          const caregiverUploads = documents.filter((d) => !requiredTypeIds.has(d.document_type));
+          if (caregiverUploads.length === 0) return null;
+
+          return (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px 8px' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>Caregiver Uploads</span>
+                <span style={{
+                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  background: '#EBF0FA', color: '#2E4E8D',
+                }}>
+                  {caregiverUploads.length} file{caregiverUploads.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div style={{ padding: '0 20px 16px' }}>
+                {caregiverUploads.map((doc) => {
+                  const typeLabel = uploadableDocTypes.find((t) => t.id === doc.document_type)?.label || doc.document_type;
+                  return (
+                    <div key={doc.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
+                      borderBottom: '1px solid #F0F0F0',
+                    }}>
+                      {/* Status icon */}
+                      <span style={{
+                        width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 13, fontWeight: 700, flexShrink: 0,
+                        background: '#DCFCE7', color: '#166534',
+                      }}>✓</span>
+
+                      {/* Doc info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{typeLabel}</span>
+                          {doc.uploaded_by === 'caregiver-self-upload' && (
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#EBF0FA', color: '#2E4E8D', fontWeight: 600 }}>Self-uploaded</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B7B8F', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.file_name}</span>
+                          <span>{new Date(doc.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          {doc.uploaded_by && doc.uploaded_by !== 'caregiver-self-upload' && <span>by {doc.uploaded_by.split('@')[0]}</span>}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        {doc.sharepoint_web_url && (
+                          <button
+                            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#FAFBFC', color: '#2E4E8D', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                            onClick={() => handleDocView(doc.sharepoint_web_url)}
+                            title="View in SharePoint"
+                          >View</button>
+                        )}
+                        <button
+                          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#FAFBFC', color: '#2E4E8D', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                          onClick={() => handleDocDownload(doc.id)}
+                          title="Download file"
+                        >Download</button>
+                        <button
+                          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                          onClick={() => handleDocDelete(doc.id, doc.file_name)}
+                          title="Delete document"
+                        >✕</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </>}
 
       {/* DocuSign eSignatures Section */}
