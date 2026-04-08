@@ -139,13 +139,9 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
             value={question.type}
             onChange={(e) => {
               const newType = e.target.value;
-              updateField('type', newType);
-              // Reset options when type changes
-              if (hasOptions(newType)) {
-                updateField('options', getDefaultOptions(newType));
-              } else {
-                updateField('options', []);
-              }
+              const newOptions = hasOptions(newType) ? getDefaultOptions(newType) : [];
+              // Update type and options together to avoid stale state overwrite
+              onChange({ ...question, type: newType, options: newOptions });
             }}
           >
             {QUESTION_TYPES.map((t) => (
