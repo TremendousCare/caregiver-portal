@@ -10,6 +10,7 @@ import cg from './caregiver.module.css';
 export function PhaseDetail({ caregiver, allCaregivers, activePhase, showScripts, onToggleScripts, onUpdateTask, onUpdateTasksBulk, onRefreshTasks }) {
   const [editingTasks, setEditingTasks] = useState(false);
   const [taskDraft, setTaskDraft] = useState([]);
+  const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_phase_expanded') !== 'false');
 
   const PHASE_TASKS = getPhaseTasks();
   const phaseInfo = PHASES.find((p) => p.id === activePhase);
@@ -19,19 +20,26 @@ export function PhaseDetail({ caregiver, allCaregivers, activePhase, showScripts
 
   return (
     <div className={progress.phaseDetail}>
-      <div className={progress.phaseDetailHeader}>
+      <div
+        className={progress.phaseDetailHeader}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => { const next = !expanded; setExpanded(next); localStorage.setItem('tc_phase_expanded', String(next)); }}
+      >
         <div>
-          <h2 className={progress.phaseDetailTitle}>{phaseInfo?.icon} {phaseInfo?.label}</h2>
-          <p className={progress.phaseDetailSub}>{phaseInfo?.description}</p>
+          <h2 className={progress.phaseDetailTitle}>
+            <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', marginRight: 6, fontSize: 12 }}>▶</span>
+            {phaseInfo?.icon} {phaseInfo?.label}
+          </h2>
+          {expanded && <p className={progress.phaseDetailSub}>{phaseInfo?.description}</p>}
         </div>
-        {CHASE_SCRIPTS[activePhase] && (
-          <button className={btn.scriptBtn} onClick={() => onToggleScripts(showScripts === activePhase ? null : activePhase)}>
+        {expanded && CHASE_SCRIPTS[activePhase] && (
+          <button className={btn.scriptBtn} onClick={(e) => { e.stopPropagation(); onToggleScripts(showScripts === activePhase ? null : activePhase); }}>
             📜 {showScripts === activePhase ? 'Hide' : 'Show'} Scripts
           </button>
         )}
       </div>
 
-      {showScripts === activePhase && CHASE_SCRIPTS[activePhase] && (
+      {expanded && showScripts === activePhase && CHASE_SCRIPTS[activePhase] && (
         <div className={cg.scriptsPanel}>
           <h4 className={cg.scriptsPanelTitle}>{CHASE_SCRIPTS[activePhase].title}</h4>
           {CHASE_SCRIPTS[activePhase].scripts.map((s, i) => (
@@ -46,8 +54,9 @@ export function PhaseDetail({ caregiver, allCaregivers, activePhase, showScripts
         </div>
       )}
 
-      {activePhase === 'orientation' && <OrientationBanner caregivers={allCaregivers} />}
+      {expanded && activePhase === 'orientation' && <OrientationBanner caregivers={allCaregivers} />}
 
+      {expanded && <>
       {/* Tasks header with bulk controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F' }}>{editingTasks ? 'Editing Checklist' : 'Checklist'}</span>
@@ -101,6 +110,7 @@ export function PhaseDetail({ caregiver, allCaregivers, activePhase, showScripts
           <button className={cg.addBtn} onClick={() => setTaskDraft((prev) => [...prev, { id: 'custom_' + Date.now().toString(36), label: '', critical: false }])}>＋ Add Task</button>
         </div>
       )}
+      </>}
     </div>
   );
 }

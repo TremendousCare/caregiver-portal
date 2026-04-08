@@ -9,6 +9,7 @@ import { EditField } from './constants';
 export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
 
   const days = getDaysSinceApplication(caregiver);
 
@@ -68,19 +69,29 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
 
   return (
     <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <h3 className={cards.profileCardTitle}>👤 Profile Information</h3>
-        {!editing ? (
-          <button className={btn.editBtn} onClick={startEditing}>✏️ Edit</button>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className={btn.primaryBtn} onClick={saveEdits}>Save</button>
-            <button className={btn.secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        )}
+      <div
+        className={cards.profileCardHeader}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => { const next = !expanded; setExpanded(next); localStorage.setItem('tc_profile_expanded', String(next)); }}
+      >
+        <h3 className={cards.profileCardTitle}>
+          <span style={{ display: 'inline-block', transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', marginRight: 6, fontSize: 12 }}>▶</span>
+          👤 Profile Information
+        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {expanded && !editing && (
+            <button className={btn.editBtn} onClick={(e) => { e.stopPropagation(); startEditing(); }}>✏️ Edit</button>
+          )}
+          {expanded && editing && (
+            <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+              <button className={btn.primaryBtn} onClick={saveEdits}>Save</button>
+              <button className={btn.secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {!editing ? (
+      {expanded && !editing ? (
         <>
           <div className={cards.profileGrid}>
             {profileFields.map((item) => (
@@ -97,7 +108,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             </div>
           )}
         </>
-      ) : (
+      ) : expanded ? (
         <div style={{ padding: '16px 20px' }}>
           <div className={forms.formGrid}>
             <EditField label="First Name" value={editForm.firstName} onChange={(v) => editField('firstName', v)} />
@@ -178,7 +189,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <textarea className={forms.textarea} rows={3} value={editForm.initialNotes} onChange={(e) => editField('initialNotes', e.target.value)} />
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
