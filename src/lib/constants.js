@@ -218,6 +218,18 @@ export const DOCUMENT_TYPES = [
   { id: 'domestic_violence_notice', label: 'Domestic Violence Leave Notice', required: false },
 ];
 
+// ─── Uploadable Document Types (caregiver self-upload via link) ─
+export const UPLOADABLE_DOCUMENT_TYPES = [
+  { id: 'drivers_license', label: "Driver's License", required: true },
+  { id: 'tb_test', label: 'TB Test Results', required: true },
+  { id: 'cpr_cert', label: 'CPR Certification', required: false },
+  { id: 'covid_vaccine', label: 'COVID Vaccine Card', required: false },
+  { id: 'auto_insurance', label: 'Auto Insurance', required: false },
+  { id: 'physical_exam', label: 'Physical Exam Results', required: false },
+  { id: 'background_check', label: 'Background Check', required: false },
+  { id: 'other', label: 'Other', required: false },
+];
+
 // ─── Employment Status (Active Roster) ──────────────────────
 export const EMPLOYMENT_STATUSES = [
   { id: 'onboarding', label: 'Onboarding', color: '#6B7280', bg: '#F3F4F6' },
