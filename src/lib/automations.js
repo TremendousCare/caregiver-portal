@@ -62,17 +62,15 @@ export async function fireEventTriggers(triggerType, caregiver, triggerContext =
       phase: getCurrentPhase(caregiver) || 'intake',
     };
 
-    // If this is a new_caregiver trigger, check if any rule uses {{survey_link}}
-    // and pre-create a survey response with a unique token
+    // Check if any matching rule uses {{survey_link}} and pre-create a survey
+    // response with a unique token. Works for any trigger type.
     let surveyLink = '';
-    if (triggerType === 'new_caregiver') {
-      const needsSurvey = rules.some(
-        (r) => evaluateConditions(r, caregiver, triggerContext) &&
-          r.message_template && r.message_template.includes('{{survey_link}}')
-      );
-      if (needsSurvey) {
-        surveyLink = await createSurveyForCaregiver(caregiver.id);
-      }
+    const needsSurvey = rules.some(
+      (r) => evaluateConditions(r, caregiver, triggerContext) &&
+        r.message_template && r.message_template.includes('{{survey_link}}')
+    );
+    if (needsSurvey) {
+      surveyLink = await createSurveyForCaregiver(caregiver.id);
     }
 
     // Fire each rule (fire-and-forget, never blocks UI)

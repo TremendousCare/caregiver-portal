@@ -63,7 +63,7 @@ const MERGE_FIELDS = [
   { key: 'phase_name', label: 'Phase Name' },
   { key: 'days_in_phase', label: 'Days in Phase' },
   { key: 'overall_progress', label: 'Progress %' },
-  { key: 'survey_link', label: 'Survey Link', triggers: ['new_caregiver'] },
+  { key: 'survey_link', label: 'Survey Link' },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
