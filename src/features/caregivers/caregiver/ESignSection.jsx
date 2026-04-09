@@ -323,13 +323,14 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                 const displayName = env.template_names?.length > 1
                   ? `Full Onboarding Packet (${env.template_names.length} docs)`
                   : env.template_names?.[0] || 'eSign Envelope';
-                // Find matching signed documents for this envelope
+                // Find matching signed documents — prefer stored doc IDs, fall back to filename
                 const envDocs = env.status === 'signed'
-                  ? signedDocs.filter((doc) => {
-                      // Match by template names in filename or by upload time near signed_at
-                      const signedDate = env.signed_at ? new Date(env.signed_at).toISOString().split('T')[0] : '';
-                      return doc.file_name?.includes('_Signed_') && doc.file_name?.includes(signedDate);
-                    })
+                  ? (env.uploaded_doc_ids?.length
+                      ? signedDocs.filter((doc) => env.uploaded_doc_ids.includes(doc.id))
+                      : signedDocs.filter((doc) => {
+                          const signedDate = env.signed_at ? new Date(env.signed_at).toISOString().split('T')[0] : '';
+                          return doc.file_name?.includes('_Signed_') && doc.file_name?.includes(signedDate);
+                        }))
                   : [];
 
                 return (
@@ -340,7 +341,13 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                         Sent {formatDate(env.sent_at)}
                         {env.sent_by ? ` by ${env.sent_by.split('@')[0]}` : ''}
                         {env.signed_at ? ` \u00B7 Signed ${formatDate(env.signed_at)}` : ''}
+                        {env.status === 'declined' && env.declined_at ? ` \u00B7 Declined ${formatDate(env.declined_at)}` : ''}
                       </div>
+                      {env.status === 'declined' && env.decline_reason && (
+                        <div style={{ fontSize: 12, color: '#DC2626', marginTop: 2 }}>
+                          Reason: {env.decline_reason}
+                        </div>
+                      )}
                     </div>
 
                     {/* Right side: status badge + action buttons */}
@@ -371,6 +378,11 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                             Delete
                           </button>
                         </>
+                      )}
+                      {env.status === 'signed' && env.completion_certificate_doc_id && (
+                        <button className={s.docActionBtn} onClick={() => handleDocDownload(env.completion_certificate_doc_id)} title="Download Certificate of Completion" style={{ color: '#2E4E8D' }}>
+                          Certificate
+                        </button>
                       )}
 
                       {/* Resend / Void for unsigned envelopes */}
