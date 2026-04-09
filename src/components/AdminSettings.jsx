@@ -9,6 +9,7 @@ import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
+import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
 
@@ -861,12 +862,21 @@ function ESignSettings({ showToast }) {
 
         if (uploadErr) throw uploadErr;
 
-        // Count pages (rough estimate from PDF — will be refined)
+        // Generate a signed URL for the visual editor
+        let blobUrl = null;
+        try {
+          const { data: urlData } = await supabase.storage
+            .from('esign-templates')
+            .createSignedUrl(storagePath, 3600);
+          if (urlData?.signedUrl) blobUrl = urlData.signedUrl;
+        } catch (_) { /* ok — editor just won't render */ }
+
         setDraft((prev) => prev.map((t, i) => i === index ? {
           ...t,
           file_name: file.name,
           file_storage_path: storagePath,
-          file_page_count: 1, // Default, can be updated
+          file_page_count: 1,
+          _pdfBlobUrl: blobUrl,
           _uploaded: true,
         } : t));
         showToast?.(`Uploaded: ${file.name}`);
@@ -935,8 +945,21 @@ function ESignSettings({ showToast }) {
     }
   }, [draft, templates, showToast]);
 
-  const startEdit = () => {
-    setDraft(templates.map((t) => ({ ...t })));
+  const startEdit = async () => {
+    // Generate signed URLs for existing templates so the visual editor can render them
+    const drafts = await Promise.all(templates.map(async (t) => {
+      let blobUrl = null;
+      if (t.file_storage_path && supabase) {
+        try {
+          const { data } = await supabase.storage
+            .from('esign-templates')
+            .createSignedUrl(t.file_storage_path, 3600);
+          if (data?.signedUrl) blobUrl = data.signedUrl;
+        } catch (_) { /* ok */ }
+      }
+      return { ...t, _pdfBlobUrl: blobUrl };
+    }));
+    setDraft(drafts);
     setEditing(true);
   };
 
@@ -961,41 +984,6 @@ function ESignSettings({ showToast }) {
 
   const removeDraft = (index) => {
     setDraft((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // Add a signature field to a template
-  const addField = (index, fieldType) => {
-    setDraft((prev) => prev.map((t, i) => {
-      if (i !== index) return t;
-      const newField = {
-        id: `${fieldType}_${Date.now().toString(36)}`,
-        type: fieldType,
-        page: 1,
-        x: 100,
-        y: 650,
-        w: fieldType === 'initials' ? 80 : fieldType === 'checkbox' ? 20 : 200,
-        h: fieldType === 'signature' ? 50 : fieldType === 'initials' ? 30 : 20,
-        required: true,
-        label: fieldType === 'text' ? 'Full Legal Name' : '',
-      };
-      return { ...t, fields: [...(t.fields || []), newField] };
-    }));
-  };
-
-  const updateField = (tplIndex, fieldIndex, key, value) => {
-    setDraft((prev) => prev.map((t, i) => {
-      if (i !== tplIndex) return t;
-      const fields = [...(t.fields || [])];
-      fields[fieldIndex] = { ...fields[fieldIndex], [key]: value };
-      return { ...t, fields };
-    }));
-  };
-
-  const removeField = (tplIndex, fieldIndex) => {
-    setDraft((prev) => prev.map((t, i) => {
-      if (i !== tplIndex) return t;
-      return { ...t, fields: (t.fields || []).filter((_, fi) => fi !== fieldIndex) };
-    }));
   };
 
   if (loading) {
@@ -1132,69 +1120,24 @@ function ESignSettings({ showToast }) {
                   </select>
                 </div>
 
-                {/* Row 4: Signature fields */}
-                <div style={{ paddingLeft: 28 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-                    Signing Fields ({(tmpl.fields || []).length})
-                  </div>
-                  {(tmpl.fields || []).map((field, fi) => (
-                    <div key={field.id} style={{
-                      display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4,
-                      padding: '6px 8px', background: '#fff', borderRadius: 6, border: '1px solid #E8ECF0',
-                    }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#2E4E8D', minWidth: 65, textTransform: 'capitalize' }}>
-                        {field.type}
-                      </span>
-                      <label style={{ fontSize: 10, color: '#7A8BA0' }}>Page:</label>
-                      <input
-                        type="number"
-                        className={forms.fieldInput}
-                        style={{ width: 45, fontSize: 11, padding: '3px 6px' }}
-                        value={field.page}
-                        onChange={(e) => updateField(idx, fi, 'page', parseInt(e.target.value) || 1)}
-                        min={1}
-                      />
-                      <label style={{ fontSize: 10, color: '#7A8BA0' }}>X:</label>
-                      <input
-                        type="number"
-                        className={forms.fieldInput}
-                        style={{ width: 50, fontSize: 11, padding: '3px 6px' }}
-                        value={field.x}
-                        onChange={(e) => updateField(idx, fi, 'x', parseInt(e.target.value) || 0)}
-                      />
-                      <label style={{ fontSize: 10, color: '#7A8BA0' }}>Y:</label>
-                      <input
-                        type="number"
-                        className={forms.fieldInput}
-                        style={{ width: 50, fontSize: 11, padding: '3px 6px' }}
-                        value={field.y}
-                        onChange={(e) => updateField(idx, fi, 'y', parseInt(e.target.value) || 0)}
-                      />
-                      <button
-                        style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#DC2626', padding: '0 2px' }}
-                        onClick={() => removeField(idx, fi)}
-                        title="Remove field"
-                      >
-                        &#10005;
-                      </button>
+                {/* Row 4: Visual field placement */}
+                {tmpl.file_storage_path && (
+                  <div style={{ paddingLeft: 28 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                      Place Signing Fields — Click on the PDF to position fields
                     </div>
-                  ))}
-                  <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                    {['signature', 'initials', 'date', 'text'].map((ft) => (
-                      <button
-                        key={ft}
-                        style={{
-                          padding: '3px 8px', border: '1px dashed #C0C8D4', borderRadius: 6,
-                          background: 'transparent', color: '#2E4E8D', fontSize: 10, fontWeight: 600,
-                          cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize',
-                        }}
-                        onClick={() => addField(idx, ft)}
-                      >
-                        + {ft}
-                      </button>
-                    ))}
+                    <ESignFieldEditor
+                      pdfUrl={tmpl._pdfBlobUrl || null}
+                      fields={tmpl.fields || []}
+                      onFieldsChange={(newFields) => updateDraft(idx, 'fields', newFields)}
+                    />
                   </div>
-                </div>
+                )}
+                {!tmpl.file_storage_path && (
+                  <div style={{ paddingLeft: 28, fontSize: 12, color: '#7A8BA0', fontStyle: 'italic' }}>
+                    Upload a PDF to place signing fields visually.
+                  </div>
+                )}
               </div>
             ))}
             <button
