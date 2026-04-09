@@ -150,6 +150,15 @@
   border-bottom: none;
 }
 
+.envelopeActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .envelopeInfo {
   flex: 1;
   min-width: 0;

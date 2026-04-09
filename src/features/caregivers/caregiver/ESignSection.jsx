@@ -341,58 +341,54 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                         {env.sent_by ? ` by ${env.sent_by.split('@')[0]}` : ''}
                         {env.signed_at ? ` \u00B7 Signed ${formatDate(env.signed_at)}` : ''}
                       </div>
+                    </div>
 
-                      {/* Document actions for signed envelopes */}
+                    {/* Right side: status badge + action buttons */}
+                    <div className={s.envelopeActions}>
+                      <span
+                        className={s.statusBadge}
+                        style={{
+                          background: statusConfig.bg,
+                          color: statusConfig.color,
+                          border: `1px solid ${statusConfig.border}`,
+                        }}
+                      >
+                        {statusConfig.label}
+                      </span>
+
+                      {/* View/Download/Delete for signed envelopes */}
                       {env.status === 'signed' && envDocs.length > 0 && (
-                        <div className={s.docActions}>
-                          {envDocs.map((doc) => (
-                            <div key={doc.id} className={s.docActionRow}>
-                              <span className={s.docFileName}>{doc.file_name}</span>
-                              {doc.sharepoint_web_url && (
-                                <button className={s.docActionBtn} onClick={() => handleDocView(doc.sharepoint_web_url)} title="View in SharePoint">
-                                  View
-                                </button>
-                              )}
-                              <button className={s.docActionBtn} onClick={() => handleDocDownload(doc.id)} title="Download">
-                                Download
-                              </button>
-                              <button className={s.docActionBtn} onClick={() => handleDocDelete(doc.id, doc.file_name)} title="Delete" style={{ color: '#DC2626' }}>
-                                Delete
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+                        <>
+                          {envDocs[0].sharepoint_web_url && (
+                            <button className={s.docActionBtn} onClick={() => handleDocView(envDocs[0].sharepoint_web_url)} title="View in SharePoint">
+                              View
+                            </button>
+                          )}
+                          <button className={s.docActionBtn} onClick={() => handleDocDownload(envDocs[0].id)} title="Download">
+                            Download
+                          </button>
+                          <button className={s.docActionBtn} onClick={() => handleDocDelete(envDocs[0].id, envDocs[0].file_name)} title="Delete" style={{ color: '#DC2626' }}>
+                            Delete
+                          </button>
+                        </>
                       )}
-                      {env.status === 'signed' && envDocs.length === 0 && env.documents_uploaded && (
-                        <div className={s.envelopeMeta} style={{ marginTop: 4, fontStyle: 'italic' }}>
-                          Documents uploaded to SharePoint
-                        </div>
+
+                      {/* Resend / Void for unsigned envelopes */}
+                      {canResend && env.status !== 'signed' && (
+                        <button className={s.resendBtn} onClick={() => handleResend(env.id)}>
+                          Resend
+                        </button>
+                      )}
+                      {canVoid && (
+                        <button
+                          className={s.resendBtn}
+                          onClick={() => { if (confirm('Cancel this signing request?')) handleVoid(env.id); }}
+                          style={{ color: '#DC2626' }}
+                        >
+                          Void
+                        </button>
                       )}
                     </div>
-                    <span
-                      className={s.statusBadge}
-                      style={{
-                        background: statusConfig.bg,
-                        color: statusConfig.color,
-                        border: `1px solid ${statusConfig.border}`,
-                      }}
-                    >
-                      {statusConfig.label}
-                    </span>
-                    {canResend && env.status !== 'signed' && (
-                      <button className={s.resendBtn} onClick={() => handleResend(env.id)}>
-                        Resend
-                      </button>
-                    )}
-                    {canVoid && (
-                      <button
-                        className={s.resendBtn}
-                        onClick={() => { if (confirm('Cancel this signing request?')) handleVoid(env.id); }}
-                        style={{ color: '#DC2626' }}
-                      >
-                        Void
-                      </button>
-                    )}
                   </div>
                 );
               })}
