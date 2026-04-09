@@ -8,6 +8,7 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
   const [envelopes, setEnvelopes] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [signedDocs, setSignedDocs] = useState([]); // caregiver_documents uploaded by esign-system
   const [sending, setSending] = useState(false);
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_esign_expanded') === 'true');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -59,7 +60,56 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
     }
   }, []);
 
-  useEffect(() => { fetchEnvelopes(); fetchTemplates(); }, [fetchEnvelopes, fetchTemplates]);
+  // Fetch signed documents uploaded by esign-system
+  const fetchSignedDocs = useCallback(async () => {
+    if (!caregiver?.id || !supabase) return;
+    try {
+      const { data } = await supabase
+        .from('caregiver_documents')
+        .select('*')
+        .eq('caregiver_id', caregiver.id)
+        .eq('uploaded_by', 'esign-system')
+        .order('uploaded_at', { ascending: false });
+      if (data) setSignedDocs(data);
+    } catch (_) {}
+  }, [caregiver?.id]);
+
+  useEffect(() => { fetchEnvelopes(); fetchTemplates(); fetchSignedDocs(); }, [fetchEnvelopes, fetchTemplates, fetchSignedDocs]);
+
+  // View document in SharePoint
+  const handleDocView = useCallback((webUrl) => {
+    if (webUrl) window.open(webUrl, '_blank');
+  }, []);
+
+  // Download document
+  const handleDocDownload = useCallback(async (docId) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('sharepoint-docs', {
+        body: { action: 'get_download_url', doc_id: docId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (data?.download_url) window.open(data.download_url, '_blank');
+    } catch (err) {
+      showToast?.(`Download failed: ${err.message || 'Unknown error'}`);
+    }
+  }, [showToast]);
+
+  // Delete document
+  const handleDocDelete = useCallback(async (docId, docName) => {
+    if (!confirm(`Delete "${docName}"? This will remove it from SharePoint.`)) return;
+    try {
+      const { data, error } = await supabase.functions.invoke('sharepoint-docs', {
+        body: { action: 'delete_file', doc_id: docId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      await fetchSignedDocs();
+      showToast?.('Document deleted.');
+    } catch (err) {
+      showToast?.(`Delete failed: ${err.message || 'Unknown error'}`);
+    }
+  }, [showToast, fetchSignedDocs]);
 
   // Realtime subscription for envelope status changes
   useEffect(() => {
@@ -273,6 +323,15 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                 const displayName = env.template_names?.length > 1
                   ? `Full Onboarding Packet (${env.template_names.length} docs)`
                   : env.template_names?.[0] || 'eSign Envelope';
+                // Find matching signed documents for this envelope
+                const envDocs = env.status === 'signed'
+                  ? signedDocs.filter((doc) => {
+                      // Match by template names in filename or by upload time near signed_at
+                      const signedDate = env.signed_at ? new Date(env.signed_at).toISOString().split('T')[0] : '';
+                      return doc.file_name?.includes('_Signed_') && doc.file_name?.includes(signedDate);
+                    })
+                  : [];
+
                 return (
                   <div key={env.id} className={s.envelopeItem}>
                     <div className={s.envelopeInfo}>
@@ -282,6 +341,33 @@ export function ESignSection({ caregiver, currentUser, showToast }) {
                         {env.sent_by ? ` by ${env.sent_by.split('@')[0]}` : ''}
                         {env.signed_at ? ` \u00B7 Signed ${formatDate(env.signed_at)}` : ''}
                       </div>
+
+                      {/* Document actions for signed envelopes */}
+                      {env.status === 'signed' && envDocs.length > 0 && (
+                        <div className={s.docActions}>
+                          {envDocs.map((doc) => (
+                            <div key={doc.id} className={s.docActionRow}>
+                              <span className={s.docFileName}>{doc.file_name}</span>
+                              {doc.sharepoint_web_url && (
+                                <button className={s.docActionBtn} onClick={() => handleDocView(doc.sharepoint_web_url)} title="View in SharePoint">
+                                  View
+                                </button>
+                              )}
+                              <button className={s.docActionBtn} onClick={() => handleDocDownload(doc.id)} title="Download">
+                                Download
+                              </button>
+                              <button className={s.docActionBtn} onClick={() => handleDocDelete(doc.id, doc.file_name)} title="Delete" style={{ color: '#DC2626' }}>
+                                Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {env.status === 'signed' && envDocs.length === 0 && env.documents_uploaded && (
+                        <div className={s.envelopeMeta} style={{ marginTop: 4, fontStyle: 'italic' }}>
+                          Documents uploaded to SharePoint
+                        </div>
+                      )}
                     </div>
                     <span
                       className={s.statusBadge}
