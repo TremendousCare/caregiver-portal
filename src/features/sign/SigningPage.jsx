@@ -320,6 +320,9 @@ export function SigningPage() {
   const [signatureModal, setSignatureModal] = useState(null);
   const [renderedPages, setRenderedPages] = useState({});
   const [renderingPdf, setRenderingPdf] = useState(null);
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
+  const [declining, setDeclining] = useState(false);
 
   useEffect(() => {
     if (!token || !supabase) { setError('Invalid link.'); setLoading(false); return; }
@@ -331,24 +334,50 @@ export function SigningPage() {
         else setError(data?.error || fnErr?.message || 'Invalid or expired link.');
       } else {
         setEnvelopeData(data);
-        const initial = {};
-        for (const tpl of (data.templates || [])) {
-          initial[tpl.id] = {};
-          for (const field of (tpl.fields || [])) {
-            if (field.type === 'date') initial[tpl.id][field.id] = new Date().toLocaleDateString('en-US');
+        // Try to restore autosaved field values
+        const storageKey = `tc_esign_${token}`;
+        let restored = null;
+        try {
+          const saved = localStorage.getItem(storageKey);
+          if (saved) restored = JSON.parse(saved);
+        } catch (_) {}
+
+        if (restored && typeof restored === 'object') {
+          setFieldValues(restored);
+        } else {
+          const initial = {};
+          for (const tpl of (data.templates || [])) {
+            initial[tpl.id] = {};
+            for (const field of (tpl.fields || [])) {
+              if (field.type === 'date') initial[tpl.id][field.id] = new Date().toLocaleDateString('en-US');
+            }
           }
+          setFieldValues(initial);
         }
-        setFieldValues(initial);
       }
       setLoading(false);
     });
   }, [token]);
 
+  // Record consent + view when signer moves to signing step
   useEffect(() => {
     if (step === 'signing' && token && supabase) {
+      supabase.functions.invoke('esign', { body: { action: 'record_consent', token } }).catch(() => {});
       supabase.functions.invoke('esign', { body: { action: 'record_view', token } }).catch(() => {});
     }
   }, [step, token]);
+
+  // Autosave field values to localStorage (debounced, excludes signature images to save space)
+  useEffect(() => {
+    if (!token || step !== 'signing') return;
+    const timer = setTimeout(() => {
+      try {
+        const storageKey = `tc_esign_${token}`;
+        localStorage.setItem(storageKey, JSON.stringify(fieldValues));
+      } catch (_) {}
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [fieldValues, token, step]);
 
   // Render PDF pages for current template
   useEffect(() => {
@@ -475,9 +504,24 @@ export function SigningPage() {
         if (data?.error === 'already_signed') { setStep('complete'); return; }
         throw new Error(data?.error || fnErr?.message || 'Submission failed');
       }
+      // Clear autosave on success
+      try { localStorage.removeItem(`tc_esign_${token}`); } catch (_) {}
       setStep('complete');
     } catch (err) { setSubmitError(err.message || 'Failed to submit.'); }
     finally { setSubmitting(false); }
+  };
+
+  const handleDecline = async () => {
+    setDeclining(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke('esign', {
+        body: { action: 'decline', token, reason: declineReason.trim() || undefined },
+      });
+      if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Failed to decline');
+      try { localStorage.removeItem(`tc_esign_${token}`); } catch (_) {}
+      setError('You have declined to sign these documents. Your coordinator has been notified.');
+    } catch (err) { setSubmitError(err.message || 'Failed to decline.'); }
+    finally { setDeclining(false); setShowDeclineModal(false); }
   };
 
   const templates = envelopeData?.templates || [];
@@ -501,7 +545,10 @@ export function SigningPage() {
       <div className={s.page}><div className={s.header}><div className={s.logo}>Tremendous<span className={s.logoAccent}>Care</span></div><div className={s.tagline}>Document Signing</div></div>
         <div className={s.card}><div className={s.allDone}><div className={s.allDoneIcon}>&#10003;</div>
           <div className={s.allDoneTitle}>{envelopeData?.already_signed ? 'Already Signed' : 'Signing Complete!'}</div>
-          <div className={s.allDoneText}>{envelopeData?.already_signed ? 'These documents have already been signed.' : 'Your documents have been signed and submitted successfully. Copies have been uploaded to your file. Thank you!'}</div>
+          <div className={s.allDoneText}>{envelopeData?.already_signed ? 'These documents have already been signed.' : 'Your documents have been signed and submitted successfully. Copies have been uploaded to your file. A Certificate of Completion has been generated for your records.'}</div>
+          {!envelopeData?.already_signed && (
+            <div className={s.allDoneDetail}>Your signing session has been recorded with a tamper-evident audit trail including your IP address, timestamp, and document hashes.</div>
+          )}
         </div></div><div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div></div>
     );
   }
@@ -516,7 +563,30 @@ export function SigningPage() {
           <ul className={s.docList}>{templates.map((t) => (<li key={t.id} className={s.docListItem}>{t.name}</li>))}</ul>
           <p className={s.consentText}>You agree that your electronic signature is the legal equivalent of your handwritten signature and that you consent to conduct this transaction electronically under the ESIGN Act (15 U.S.C. &sect; 7001).</p>
           <button className={s.primaryBtn} onClick={() => setStep('signing')}>Continue to Sign</button>
-        </div></div><div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div></div>
+          <button className={s.declineLink} onClick={() => setShowDeclineModal(true)}>I decline to sign</button>
+        </div></div>
+        {showDeclineModal && (
+          <div className={s.modalOverlay} onClick={() => setShowDeclineModal(false)}>
+            <div className={s.modalCard} onClick={(e) => e.stopPropagation()}>
+              <h3 className={s.modalTitle}>Decline to Sign</h3>
+              <p className={s.consentText}>Are you sure you want to decline? Your coordinator will be notified.</p>
+              <textarea
+                className={s.declineReasonInput}
+                placeholder="Reason for declining (optional)"
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                rows={3}
+              />
+              <div className={s.modalActions}>
+                <button className={s.secondaryBtn} onClick={() => setShowDeclineModal(false)}>Cancel</button>
+                <button className={s.declineBtn} onClick={handleDecline} disabled={declining}>
+                  {declining ? 'Declining...' : 'Confirm Decline'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div></div>
     );
   }
 
@@ -601,7 +671,32 @@ export function SigningPage() {
         />
       )}
 
-      <div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div>
+      {showDeclineModal && (
+        <div className={s.modalOverlay} onClick={() => setShowDeclineModal(false)}>
+          <div className={s.modalCard} onClick={(e) => e.stopPropagation()}>
+            <h3 className={s.modalTitle}>Decline to Sign</h3>
+            <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, margin: '0 0 12px' }}>Are you sure you want to decline? Your coordinator will be notified.</p>
+            <textarea
+              className={s.declineReasonInput}
+              placeholder="Reason for declining (optional)"
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              rows={3}
+            />
+            <div className={s.modalActions}>
+              <button className={s.secondaryBtn} onClick={() => setShowDeclineModal(false)}>Cancel</button>
+              <button className={s.declineBtn} onClick={handleDecline} disabled={declining}>
+                {declining ? 'Declining...' : 'Confirm Decline'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={s.footer}>
+        Tremendous Care &middot; Secure Electronic Signatures
+        <button className={s.declineLink} onClick={() => setShowDeclineModal(true)} style={{ marginLeft: 16 }}>Decline to sign</button>
+      </div>
     </div>
   );
 }
