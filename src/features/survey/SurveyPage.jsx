@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { evaluateSurveyAnswers, validateRequiredAnswers } from '../../lib/surveyUtils';
+import { evaluateSurveyAnswers, validateRequiredAnswers, extractProfileFieldUpdates } from '../../lib/surveyUtils';
 import s from './SurveyPage.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -133,6 +133,17 @@ export function SurveyPage() {
         },
       }).catch(() => {});
 
+      // Fire-and-forget: update caregiver profile fields from mapped answers
+      const profileUpdates = extractProfileFieldUpdates(questions, answers);
+      if (Object.keys(profileUpdates).length > 0) {
+        supabase
+          .from('caregivers')
+          .update(profileUpdates)
+          .eq('id', response.caregiver_id)
+          .then(() => {})
+          .catch(() => {});
+      }
+
       setSubmitted(true);
     } catch (err) {
       console.error('Failed to submit survey:', err);
@@ -210,7 +221,9 @@ export function SurveyPage() {
   const questions = survey?.questions || [];
   const answeredCount = questions.filter((q) => {
     const a = answers[q.id];
-    return a !== undefined && a !== null && String(a).trim() !== '';
+    if (a === undefined || a === null) return false;
+    if (Array.isArray(a)) return a.length > 0;
+    return String(a).trim() !== '';
   }).length;
 
   return (
@@ -288,7 +301,7 @@ function QuestionField({ question, index, value, error, onChange }) {
         </span>
       </div>
 
-      {/* Yes/No and Multiple Choice */}
+      {/* Yes/No and Multiple Choice (single select) */}
       {(type === 'yes_no' || type === 'multiple_choice') && (
         <div className={s.options}>
           {(options || []).map((opt) => {
@@ -304,6 +317,50 @@ function QuestionField({ question, index, value, error, onChange }) {
               >
                 <div className={`${s.optionRadio} ${selected ? s.optionRadioSelected : ''}`}>
                   {selected && <div className={s.optionRadioDot} />}
+                </div>
+                <span className={s.optionLabel}>{opt}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Multi-Select (checkboxes) */}
+      {type === 'multi_select' && (
+        <div className={s.options}>
+          {(options || []).map((opt) => {
+            const selectedArr = Array.isArray(value) ? value : [];
+            const checked = selectedArr.includes(opt);
+            return (
+              <div
+                key={opt}
+                className={`${s.option} ${checked ? s.optionSelected : ''}`}
+                onClick={() => {
+                  const next = checked
+                    ? selectedArr.filter((v) => v !== opt)
+                    : [...selectedArr, opt];
+                  onChange(next);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    const next = checked
+                      ? selectedArr.filter((v) => v !== opt)
+                      : [...selectedArr, opt];
+                    onChange(next);
+                  }
+                }}
+              >
+                <div style={{
+                  width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                  border: `2px solid ${checked ? 'var(--tc-cyan)' : '#CBD5E0'}`,
+                  background: checked ? 'var(--tc-cyan)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                }}>
+                  {checked && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700, lineHeight: 1 }}>✓</span>}
                 </div>
                 <span className={s.optionLabel}>{opt}</span>
               </div>
