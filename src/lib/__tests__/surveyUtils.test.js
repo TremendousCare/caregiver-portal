@@ -459,7 +459,25 @@ describe('surveyUtils', () => {
         { id: 'q2', text: 'Has DL?', type: 'yes_no', profile_field: 'has_dl' },
       ];
       const result = extractProfileFieldUpdates(questions, { q1: '5', q2: 'Yes' });
-      expect(result).toEqual({ years_experience: '5', has_dl: 'Yes' });
+      // has_dl normalizes "Yes" to lowercase "yes" to match the caregiver schema
+      expect(result).toEqual({ years_experience: '5', has_dl: 'yes' });
+    });
+
+    it('normalizes Yes/No to lowercase for has_hca and has_dl fields', () => {
+      const questions = [
+        { id: 'q1', text: 'HCA?', type: 'yes_no', profile_field: 'has_hca' },
+        { id: 'q2', text: 'DL?', type: 'yes_no', profile_field: 'has_dl' },
+      ];
+      expect(extractProfileFieldUpdates(questions, { q1: 'Yes', q2: 'No' }))
+        .toEqual({ has_hca: 'yes', has_dl: 'no' });
+    });
+
+    it('does not lowercase non-boolean profile fields', () => {
+      const questions = [
+        { id: 'q1', text: 'Shift?', type: 'multiple_choice', profile_field: 'preferred_shift' },
+      ];
+      expect(extractProfileFieldUpdates(questions, { q1: 'Days' }))
+        .toEqual({ preferred_shift: 'Days' });
     });
 
     it('joins multi-select arrays into comma-separated strings', () => {
