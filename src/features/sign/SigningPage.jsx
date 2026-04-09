@@ -160,7 +160,7 @@ function SignatureModal({ fieldType, onSave, onClose }) {
 }
 
 // ─── PDF Page with Interactive Field Overlays ───
-function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick }) {
+function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick, onCheckAllBoxes }) {
   return (
     <div style={{ position: 'relative', width: pageData.displayWidth, margin: '0 auto 16px' }}>
       <img
@@ -194,7 +194,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               }}
             >
               {value ? (
-                <img src={value} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                <img src={value} alt="Signature" style={{ width: '100%', height: '100%', objectFit: 'fill' }} />
               ) : (
                 <span style={{
                   fontSize: Math.max(10, 11 * pageData.scale), fontWeight: 600,
@@ -237,7 +237,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
-              placeholder={field.label || 'Enter text'}
+              placeholder="Enter text"
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
@@ -257,7 +257,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
           return (
             <div
               key={field.id}
-              onClick={() => onFieldChange(field.id, !value)}
+              onClick={() => onCheckAllBoxes(!value)}
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
@@ -481,6 +481,19 @@ export function SigningPage() {
                     fieldValues={fieldValues[currentTemplate.id] || {}}
                     onFieldChange={(fieldId, value) => updateFieldValue(currentTemplate.id, fieldId, value)}
                     onSignatureClick={(field) => setSignatureModal({ templateId: currentTemplate.id, field })}
+                    onCheckAllBoxes={(checked) => {
+                      // Check/uncheck ALL checkboxes across ALL templates
+                      setFieldValues((prev) => {
+                        const updated = { ...prev };
+                        for (const tpl of templates) {
+                          updated[tpl.id] = { ...(updated[tpl.id] || {}) };
+                          for (const f of (tpl.fields || [])) {
+                            if (f.type === 'checkbox') updated[tpl.id][f.id] = checked;
+                          }
+                        }
+                        return updated;
+                      });
+                    }}
                   />
                 );
               })}
