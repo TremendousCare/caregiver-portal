@@ -8,6 +8,7 @@ import "./tools/communication.ts";
 import "./tools/email.ts";
 import "./tools/calendar.ts";
 import "./tools/docusign.ts";
+import "./tools/esign.ts";
 import "./tools/client.ts";
 import "./tools/awareness.ts";
 

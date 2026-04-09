@@ -54,6 +54,7 @@ const OUTCOME_ACTION_MAP: Record<string, { outcomeType: string; expiryDays: numb
   send_sms: { outcomeType: "sms_sent", expiryDays: 7 },
   send_email: { outcomeType: "email_sent", expiryDays: 7 },
   send_docusign_envelope: { outcomeType: "docusign_sent", expiryDays: 14 },
+  send_esign_envelope: { outcomeType: "esign_sent", expiryDays: 14 },
   create_calendar_event: { outcomeType: "calendar_event_created", expiryDays: 21 },
   update_phase: { outcomeType: "phase_changed", expiryDays: null },
   update_client_phase: { outcomeType: "phase_changed", expiryDays: null },
@@ -114,6 +115,7 @@ const VALID_ACTIONS = [
   "update_board_status",
   "create_calendar_event",
   "send_docusign_envelope",
+  "send_esign_envelope",
   "none",
 ] as const;
 
@@ -1064,6 +1066,30 @@ export async function executeSuggestion(
           template_ids: params.template_ids || [],
           template_names: params.template_names || [],
           is_packet: params.is_packet || false,
+        },
+        executedBy,
+      );
+      break;
+    }
+
+    // ─── eSign ───
+    case "send_esign_envelope": {
+      const { sendESignEnvelope } = await import("./esign.ts");
+      if (!params.caregiver_name) {
+        result = { success: false, message: "", error: "Missing caregiver_name for eSign." };
+        break;
+      }
+      result = await sendESignEnvelope(
+        supabase,
+        entityId,
+        {
+          caregiver_email: params.caregiver_email || "",
+          caregiver_phone: params.caregiver_phone || "",
+          caregiver_name: params.caregiver_name,
+          template_ids: params.template_ids || [],
+          template_names: params.template_names || [],
+          is_packet: params.is_packet || false,
+          send_via: params.send_via || "sms",
         },
         executedBy,
       );

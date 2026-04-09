@@ -3,6 +3,7 @@ import { DOCUMENT_TYPES, UPLOADABLE_DOCUMENT_TYPES } from '../../../lib/constant
 import { supabase } from '../../../lib/supabase';
 import { fireEventTriggers } from '../../../lib/automations';
 import { DocuSignSection } from './DocuSignSection';
+import { ESignSection } from './ESignSection';
 import cards from '../../../styles/cards.module.css';
 import btn from '../../../styles/buttons.module.css';
 import cg from './caregiver.module.css';
@@ -605,7 +606,14 @@ Tremendous Care`;
         })()}
       </>}
 
-      {/* DocuSign eSignatures Section */}
+      {/* eSignatures Section */}
+      <ESignSection
+        caregiver={caregiver}
+        currentUser={currentUser}
+        showToast={showToast}
+      />
+
+      {/* DocuSign eSignatures Section (legacy) */}
       <DocuSignSection
         caregiver={caregiver}
         currentUser={currentUser}
