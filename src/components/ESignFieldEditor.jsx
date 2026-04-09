@@ -40,6 +40,7 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
   const [error, setError] = useState(null);
   const [selectedField, setSelectedField] = useState(null);
   const [dragging, setDragging] = useState(null); // { fieldId, offsetX, offsetY }
+  const [resizing, setResizing] = useState(null); // { fieldId, handle, startX, startY, startW, startH, startFieldX, startFieldY }
   const [activePage, setActivePage] = useState(1);
   const [placingType, setPlacingType] = useState(null); // field type being placed
   const [scale, setScale] = useState(1);
@@ -203,6 +204,68 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
       window.removeEventListener('mouseup', handleUp);
     };
   }, [dragging, fields, onFieldsChange]);
+
+  // Handle resize handle mouse down
+  const handleResizeMouseDown = useCallback((e, fieldId, handle) => {
+    if (readOnly) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const field = fields.find((f) => f.id === fieldId);
+    if (!field) return;
+
+    const pageData = pages.find((p) => p.pageNum === field.page);
+    if (!pageData) return;
+
+    setResizing({
+      fieldId,
+      handle, // 'se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's'
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startW: field.w || 100,
+      startH: field.h || 20,
+      startX: field.x,
+      startY: field.y,
+      pageData,
+    });
+    setSelectedField(fieldId);
+  }, [fields, pages, readOnly]);
+
+  // Handle resize mouse move
+  useEffect(() => {
+    if (!resizing) return;
+
+    const handleMove = (e) => {
+      const { handle, startMouseX, startMouseY, startW, startH, startX, startY, pageData } = resizing;
+      const dx = Math.round((e.clientX - startMouseX) / pageData.scale);
+      const dy = Math.round((e.clientY - startMouseY) / pageData.scale);
+
+      let newW = startW;
+      let newH = startH;
+      let newX = startX;
+      let newY = startY;
+
+      // Adjust based on which handle is being dragged
+      if (handle.includes('e')) newW = Math.max(16, startW + dx);
+      if (handle.includes('w')) { newW = Math.max(16, startW - dx); newX = startX + (startW - newW); }
+      if (handle.includes('s')) newH = Math.max(12, startH + dy);
+      if (handle.includes('n')) { newH = Math.max(12, startH - dy); newY = startY + (startH - newH); }
+
+      const updated = fields.map((f) =>
+        f.id === resizing.fieldId ? { ...f, w: newW, h: newH, x: newX, y: newY } : f
+      );
+      onFieldsChange?.(updated);
+    };
+
+    const handleUp = () => setResizing(null);
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [resizing, fields, onFieldsChange]);
 
   // Delete selected field
   const deleteSelected = useCallback(() => {
@@ -372,6 +435,12 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
             const displayW = (field.w || 100) * pageData.scale;
             const displayH = (field.h || 20) * pageData.scale;
 
+            const handleStyle = (cursor) => ({
+              position: 'absolute', width: 8, height: 8,
+              background: '#fff', border: `2px solid ${colors.border}`,
+              borderRadius: 2, cursor, zIndex: 20,
+            });
+
             return (
               <div
                 key={field.id}
@@ -397,10 +466,34 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                   zIndex: isSelected ? 10 : 1,
                   transition: 'box-shadow 0.1s',
                 }}
-                title={`${colors.label} — Page ${field.page}, X:${field.x}, Y:${field.y}`}
+                title={`${colors.label} — ${field.w}x${field.h}`}
               >
                 {colors.label}
                 {field.required && <span style={{ color: '#DC2626', marginLeft: 2 }}>*</span>}
+
+                {/* Resize handles — only on selected field */}
+                {isSelected && !readOnly && (
+                  <>
+                    {/* Corners */}
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'nw')}
+                      style={{ ...handleStyle('nw-resize'), top: -5, left: -5 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'ne')}
+                      style={{ ...handleStyle('ne-resize'), top: -5, right: -5 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'sw')}
+                      style={{ ...handleStyle('sw-resize'), bottom: -5, left: -5 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'se')}
+                      style={{ ...handleStyle('se-resize'), bottom: -5, right: -5 }} />
+                    {/* Edge midpoints */}
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'n')}
+                      style={{ ...handleStyle('n-resize'), top: -5, left: '50%', marginLeft: -4 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 's')}
+                      style={{ ...handleStyle('s-resize'), bottom: -5, left: '50%', marginLeft: -4 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'w')}
+                      style={{ ...handleStyle('w-resize'), top: '50%', left: -5, marginTop: -4 }} />
+                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'e')}
+                      style={{ ...handleStyle('e-resize'), top: '50%', right: -5, marginTop: -4 }} />
+                  </>
+                )}
               </div>
             );
           })}
