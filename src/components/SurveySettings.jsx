@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-  QUESTION_TYPES, QUALIFICATION_ACTIONS, createBlankQuestion,
+  QUESTION_TYPES, QUALIFICATION_ACTIONS, PROFILE_FIELD_OPTIONS, createBlankQuestion,
   generateQuestionId, getDefaultOptions, hasOptions, buildSurveyUrl,
 } from '../lib/surveyUtils';
 import btn from '../styles/buttons.module.css';
@@ -162,7 +162,24 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
         </div>
       </div>
 
-      {/* Answer options (for yes/no and multiple choice) */}
+      {/* Map to profile field */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Map to Profile Field (optional)</label>
+        <select
+          className={forms.fieldInput}
+          value={question.profile_field || ''}
+          onChange={(e) => updateField('profile_field', e.target.value || '')}
+        >
+          {PROFILE_FIELD_OPTIONS.map((f) => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
+        <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
+          When set, the caregiver's answer will auto-populate this field on their profile.
+        </div>
+      </div>
+
+      {/* Answer options (for yes/no, multiple choice, and multi-select) */}
       {showOptions && (
         <div style={{ marginBottom: 12 }}>
           <label style={labelStyle}>Answer Options</label>
@@ -176,14 +193,14 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
                 onChange={(e) => updateOption(oi, e.target.value)}
                 disabled={question.type === 'yes_no'}
               />
-              {question.type === 'multiple_choice' && (question.options || []).length > 2 && (
+              {(question.type === 'multiple_choice' || question.type === 'multi_select') && (question.options || []).length > 2 && (
                 <button onClick={() => removeOption(oi)} style={{ ...iconBtnStyle, color: '#DC2626', fontSize: 16 }}>
                   &times;
                 </button>
               )}
             </div>
           ))}
-          {question.type === 'multiple_choice' && (
+          {(question.type === 'multiple_choice' || question.type === 'multi_select') && (
             <button
               onClick={addOption}
               style={{ background: 'none', border: 'none', color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '4px 0' }}

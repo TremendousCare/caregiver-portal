@@ -146,7 +146,9 @@ export function SurveyResults({ caregiver }) {
                         fontSize: 13, fontWeight: 600,
                         color: hasIssue ? (isDisqualify ? '#DC2626' : '#A16207') : '#0F1724',
                       }}>
-                        {answer !== undefined && answer !== null ? String(answer) : '—'}
+                        {answer !== undefined && answer !== null
+                          ? (Array.isArray(answer) ? answer.join(', ') : String(answer))
+                          : '—'}
                       </span>
                       {hasIssue && (
                         <span style={{

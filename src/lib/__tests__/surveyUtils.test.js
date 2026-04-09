@@ -8,6 +8,8 @@ import {
   generateSurveyToken,
   createBlankQuestion,
   getDefaultOptions,
+  extractProfileFieldUpdates,
+  PROFILE_FIELD_OPTIONS,
   hasOptions,
   buildSurveyUrl,
   QUESTION_TYPES,
@@ -393,6 +395,109 @@ describe('surveyUtils', () => {
       const summary = getQualificationSummary(results);
       expect(summary).toContain('Disqualified: Not authorized');
       expect(summary).toContain('Flagged: No DL');
+    });
+  });
+
+  // ─── Multi-Select Question Type ───
+
+  describe('multi_select support', () => {
+    it('getDefaultOptions returns placeholder options for multi_select', () => {
+      expect(getDefaultOptions('multi_select')).toEqual(['Option 1', 'Option 2']);
+    });
+
+    it('hasOptions returns true for multi_select', () => {
+      expect(hasOptions('multi_select')).toBe(true);
+    });
+
+    it('validateRequiredAnswers treats empty array as missing', () => {
+      const questions = [{ id: 'q1', required: true }];
+      expect(validateRequiredAnswers(questions, { q1: [] })).toEqual(['q1']);
+    });
+
+    it('validateRequiredAnswers accepts non-empty array', () => {
+      const questions = [{ id: 'q1', required: true }];
+      expect(validateRequiredAnswers(questions, { q1: ['Days', 'Evenings'] })).toEqual([]);
+    });
+
+    it('evaluateSurveyAnswers handles multi_select rules', () => {
+      const questions = [
+        {
+          id: 'q1', text: 'Certifications?', type: 'multi_select',
+          options: ['CNA', 'CPR', 'First Aid', 'None'],
+          qualification_rules: [
+            { answer: 'None', action: 'flag', reason: 'No certifications' },
+          ],
+        },
+      ];
+      // Has certifications — should pass
+      const result1 = evaluateSurveyAnswers(questions, { q1: ['CNA', 'CPR'] });
+      expect(result1.status).toBe('qualified');
+
+      // Selected "None" — should flag
+      const result2 = evaluateSurveyAnswers(questions, { q1: ['None'] });
+      expect(result2.status).toBe('flagged');
+
+      // Selected "None" among others — still flags
+      const result3 = evaluateSurveyAnswers(questions, { q1: ['CNA', 'None'] });
+      expect(result3.status).toBe('flagged');
+    });
+  });
+
+  // ─── extractProfileFieldUpdates ───
+
+  describe('extractProfileFieldUpdates', () => {
+    it('returns empty object when no questions have profile_field', () => {
+      const questions = [
+        { id: 'q1', text: 'Name?', type: 'free_text' },
+      ];
+      expect(extractProfileFieldUpdates(questions, { q1: 'John' })).toEqual({});
+    });
+
+    it('maps single-value answers to profile fields', () => {
+      const questions = [
+        { id: 'q1', text: 'Experience?', type: 'number', profile_field: 'years_experience' },
+        { id: 'q2', text: 'Has DL?', type: 'yes_no', profile_field: 'has_dl' },
+      ];
+      const result = extractProfileFieldUpdates(questions, { q1: '5', q2: 'Yes' });
+      expect(result).toEqual({ years_experience: '5', has_dl: 'Yes' });
+    });
+
+    it('joins multi-select arrays into comma-separated strings', () => {
+      const questions = [
+        { id: 'q1', text: 'Languages?', type: 'multi_select', profile_field: 'languages' },
+      ];
+      const result = extractProfileFieldUpdates(questions, { q1: ['English', 'Spanish', 'Tagalog'] });
+      expect(result).toEqual({ languages: 'English, Spanish, Tagalog' });
+    });
+
+    it('skips empty answers', () => {
+      const questions = [
+        { id: 'q1', text: 'Certs?', type: 'multi_select', profile_field: 'certifications' },
+        { id: 'q2', text: 'Shift?', type: 'multiple_choice', profile_field: 'preferred_shift' },
+      ];
+      const result = extractProfileFieldUpdates(questions, { q1: [], q2: '' });
+      expect(result).toEqual({});
+    });
+
+    it('skips unanswered questions', () => {
+      const questions = [
+        { id: 'q1', text: 'Languages?', type: 'multi_select', profile_field: 'languages' },
+      ];
+      expect(extractProfileFieldUpdates(questions, {})).toEqual({});
+    });
+  });
+
+  // ─── PROFILE_FIELD_OPTIONS ───
+
+  describe('PROFILE_FIELD_OPTIONS', () => {
+    it('includes key caregiver fields for matching', () => {
+      const values = PROFILE_FIELD_OPTIONS.map((f) => f.value);
+      expect(values).toContain('availability');
+      expect(values).toContain('preferred_shift');
+      expect(values).toContain('languages');
+      expect(values).toContain('certifications');
+      expect(values).toContain('years_experience');
+      expect(values).toContain('');  // "None" option
     });
   });
 });

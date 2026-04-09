@@ -11,6 +11,7 @@
 export const QUESTION_TYPES = [
   { value: 'yes_no', label: 'Yes / No' },
   { value: 'multiple_choice', label: 'Multiple Choice' },
+  { value: 'multi_select', label: 'Multiple Select (checkboxes)' },
   { value: 'free_text', label: 'Free Text' },
   { value: 'number', label: 'Number' },
 ];
@@ -53,12 +54,28 @@ export function createBlankQuestion() {
 }
 
 /**
+ * Caregiver profile fields that survey answers can be mapped to.
+ */
+export const PROFILE_FIELD_OPTIONS = [
+  { value: '', label: 'None (don\'t map)' },
+  { value: 'has_hca', label: 'HCA Status' },
+  { value: 'has_dl', label: 'Driver\'s License & Car' },
+  { value: 'years_experience', label: 'Years of Experience' },
+  { value: 'availability', label: 'Availability' },
+  { value: 'preferred_shift', label: 'Preferred Shift' },
+  { value: 'languages', label: 'Languages' },
+  { value: 'specializations', label: 'Specializations' },
+  { value: 'certifications', label: 'Certifications' },
+];
+
+/**
  * Get the default options for a question type.
  */
 export function getDefaultOptions(type) {
   switch (type) {
     case 'yes_no': return ['Yes', 'No'];
     case 'multiple_choice': return ['Option 1', 'Option 2'];
+    case 'multi_select': return ['Option 1', 'Option 2'];
     case 'free_text': return [];
     case 'number': return [];
     default: return [];
@@ -69,7 +86,7 @@ export function getDefaultOptions(type) {
  * Check whether a question type supports predefined answer options.
  */
 export function hasOptions(type) {
-  return type === 'yes_no' || type === 'multiple_choice';
+  return type === 'yes_no' || type === 'multiple_choice' || type === 'multi_select';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -124,14 +141,18 @@ export function evaluateSurveyAnswers(questions, answers) {
 function matchesRule(answer, ruleAnswer, questionType) {
   if (!ruleAnswer && ruleAnswer !== 0) return false;
 
-  const answerStr = String(answer).trim().toLowerCase();
-  const ruleStr = String(ruleAnswer).trim().toLowerCase();
-
   if (questionType === 'number') {
-    // For number type, support comparison operators: <5, >10, <=3, >=5, =3
     return matchesNumberRule(answer, ruleAnswer);
   }
 
+  // For multi_select, check if the rule's answer is in the selected array
+  if (questionType === 'multi_select' && Array.isArray(answer)) {
+    const ruleStr = String(ruleAnswer).trim().toLowerCase();
+    return answer.some((a) => String(a).trim().toLowerCase() === ruleStr);
+  }
+
+  const answerStr = String(answer).trim().toLowerCase();
+  const ruleStr = String(ruleAnswer).trim().toLowerCase();
   return answerStr === ruleStr;
 }
 
@@ -178,7 +199,11 @@ export function validateRequiredAnswers(questions, answers) {
   for (const q of questions) {
     if (!q.required) continue;
     const answer = answers[q.id];
-    if (answer === undefined || answer === null || String(answer).trim() === '') {
+    if (answer === undefined || answer === null) {
+      missing.push(q.id);
+    } else if (Array.isArray(answer)) {
+      if (answer.length === 0) missing.push(q.id);
+    } else if (String(answer).trim() === '') {
       missing.push(q.id);
     }
   }
@@ -203,6 +228,30 @@ export function getQualificationSummary(results) {
     return 'All answers passed qualification checks.';
   }
   return parts.join(' | ');
+}
+
+/**
+ * Extract profile field updates from survey answers based on field mappings.
+ *
+ * @param {Array} questions - The survey template's question array
+ * @param {Object} answers - Map of question_id → answer value
+ * @returns {Object} Map of profile field → value to update
+ */
+export function extractProfileFieldUpdates(questions, answers) {
+  const updates = {};
+  for (const q of questions) {
+    if (!q.profile_field) continue;
+    const answer = answers[q.id];
+    if (answer === undefined || answer === null) continue;
+
+    // For multi-select, join array into comma-separated string
+    if (Array.isArray(answer)) {
+      if (answer.length > 0) updates[q.profile_field] = answer.join(', ');
+    } else if (String(answer).trim() !== '') {
+      updates[q.profile_field] = String(answer).trim();
+    }
+  }
+  return updates;
 }
 
 /**
