@@ -237,6 +237,9 @@ export function getQualificationSummary(results) {
  * @param {Object} answers - Map of question_id → answer value
  * @returns {Object} Map of profile field → value to update
  */
+// Fields that store lowercase 'yes'/'no' values in the caregiver record
+const LOWERCASE_YES_NO_FIELDS = ['has_hca', 'has_dl'];
+
 export function extractProfileFieldUpdates(questions, answers) {
   const updates = {};
   for (const q of questions) {
@@ -248,7 +251,13 @@ export function extractProfileFieldUpdates(questions, answers) {
     if (Array.isArray(answer)) {
       if (answer.length > 0) updates[q.profile_field] = answer.join(', ');
     } else if (String(answer).trim() !== '') {
-      updates[q.profile_field] = String(answer).trim();
+      let value = String(answer).trim();
+      // Normalize "Yes"/"No" to lowercase for fields that expect it
+      if (LOWERCASE_YES_NO_FIELDS.includes(q.profile_field)) {
+        const lower = value.toLowerCase();
+        if (lower === 'yes' || lower === 'no') value = lower;
+      }
+      updates[q.profile_field] = value;
     }
   }
   return updates;
