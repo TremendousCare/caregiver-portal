@@ -372,19 +372,33 @@ export function SigningPage() {
     });
   }, [envelopeData]);
 
-  const allRequiredFilled = useCallback(() => {
-    if (!envelopeData?.templates) return false;
+  // Returns list of missing required fields, or empty array if all filled
+  const getMissingFields = useCallback(() => {
+    if (!envelopeData?.templates) return [];
+    const missing = [];
     for (const tpl of envelopeData.templates) {
       for (const field of (tpl.fields || [])) {
-        if (field.required && !fieldValues[tpl.id]?.[field.id]) return false;
+        if (field.required && !fieldValues[tpl.id]?.[field.id]) {
+          const label = field.type === 'signature' ? 'Signature'
+            : field.type === 'initials' ? 'Initials'
+            : field.type === 'date' ? 'Date'
+            : field.type === 'checkbox' ? 'Checkbox'
+            : (field.label || 'Text field');
+          missing.push({ template: tpl.name, label, fieldId: field.id, type: field.type });
+        }
       }
     }
-    return true;
+    return missing;
   }, [envelopeData, fieldValues]);
 
   const handleSubmit = async () => {
-    if (!consentAgreed) { setSubmitError('Please check the consent box.'); return; }
-    if (!allRequiredFilled()) { setSubmitError('Please complete all required fields.'); return; }
+    if (!consentAgreed) { setSubmitError('Please check the consent box to confirm you agree to sign electronically.'); return; }
+    const missing = getMissingFields();
+    if (missing.length > 0) {
+      const uniqueTypes = [...new Set(missing.map((m) => m.label))];
+      setSubmitError(`Please complete all required fields: ${uniqueTypes.join(', ')} (${missing.length} remaining)`);
+      return;
+    }
     setSubmitting(true); setSubmitError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke('esign', {
@@ -515,7 +529,7 @@ export function SigningPage() {
                   <span>I agree to sign {templates.length > 1 ? 'these documents' : 'this document'} electronically. My electronic signature is the legal equivalent of my handwritten signature.</span>
                 </label>
                 {submitError && <div className={s.errorBanner}>{submitError}</div>}
-                <button className={s.submitBtn} onClick={handleSubmit} disabled={submitting || !consentAgreed || !allRequiredFilled()}>
+                <button className={s.submitBtn} onClick={handleSubmit} disabled={submitting}>
                   {submitting ? (<><span className={s.spinnerSmall} /> Submitting...</>) : `Complete Signing (${templates.length} document${templates.length !== 1 ? 's' : ''})`}
                 </button>
               </div>
