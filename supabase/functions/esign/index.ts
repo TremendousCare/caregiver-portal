@@ -530,6 +530,150 @@ async function handleSubmitSignature(
   });
 }
 
+// ─── Action: Record Consent ───
+// Persists ESIGN Act consent: timestamp, IP, user-agent.
+// Called when signer clicks "Continue to Sign" on the consent page.
+async function handleRecordConsent(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+  req: Request,
+) {
+  const { token } = body;
+  if (!token) return jsonResponse({ error: "Missing token" }, 400);
+
+  const { data: envelope } = await supabase
+    .from("esign_envelopes")
+    .select("id, status, audit_trail")
+    .eq("signing_token", token)
+    .single();
+
+  if (!envelope) return jsonResponse({ error: "Invalid token" }, 404);
+  if (envelope.status === "signed") return jsonResponse({ error: "Already signed" }, 400);
+
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("cf-connecting-ip") || "unknown";
+  const ua = req.headers.get("user-agent") || "unknown";
+  const now = new Date().toISOString();
+
+  await supabase
+    .from("esign_envelopes")
+    .update({
+      consent_timestamp: now,
+      consent_ip: ip,
+      consent_user_agent: ua,
+      audit_trail: appendAudit(envelope.audit_trail, "consent_recorded", { ip, ua }),
+    })
+    .eq("id", envelope.id);
+
+  return jsonResponse({ success: true, consent_timestamp: now });
+}
+
+// ─── Action: Decline ───
+// Signer formally declines to sign, with optional reason.
+// Notifies the sender via email and logs event + note on the caregiver.
+async function handleDecline(
+  supabase: ReturnType<typeof createClient>,
+  body: any,
+  req: Request,
+) {
+  const { token, reason } = body;
+  if (!token) return jsonResponse({ error: "Missing token" }, 400);
+
+  const { data: envelope } = await supabase
+    .from("esign_envelopes")
+    .select("*")
+    .eq("signing_token", token)
+    .single();
+
+  if (!envelope) return jsonResponse({ error: "Invalid token" }, 404);
+  if (envelope.status === "signed") return jsonResponse({ error: "Cannot decline — already signed." }, 400);
+  if (envelope.status === "declined") return jsonResponse({ error: "Already declined." }, 400);
+
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("cf-connecting-ip") || "unknown";
+  const ua = req.headers.get("user-agent") || "unknown";
+  const now = new Date().toISOString();
+
+  // Update envelope
+  await supabase
+    .from("esign_envelopes")
+    .update({
+      status: "declined",
+      declined_at: now,
+      decline_reason: reason || null,
+      signer_ip: ip,
+      signer_user_agent: ua,
+      audit_trail: appendAudit(envelope.audit_trail, "declined", {
+        ip, ua,
+        reason: reason || "No reason provided",
+      }),
+    })
+    .eq("id", envelope.id);
+
+  // Fetch caregiver for notes + sender notification
+  const { data: cg } = await supabase
+    .from("caregivers")
+    .select("first_name, last_name, notes")
+    .eq("id", envelope.caregiver_id)
+    .single();
+
+  const signerName = cg ? `${cg.first_name} ${cg.last_name}` : "Caregiver";
+  const docNames = envelope.template_names?.join(", ") || "documents";
+
+  // Add note to caregiver record
+  if (cg) {
+    try {
+      const note = {
+        text: `eSignature declined — ${docNames}${reason ? `. Reason: ${reason}` : ""}`,
+        type: "esign",
+        timestamp: Date.now(),
+        author: "eSign System",
+        outcome: "declined",
+        direction: "inbound",
+      };
+      await supabase
+        .from("caregivers")
+        .update({ notes: [...(cg.notes || []), note] })
+        .eq("id", envelope.caregiver_id);
+    } catch (_) { /* fire-and-forget */ }
+  }
+
+  // Notify sender via email
+  if (envelope.sent_by) {
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/bulk-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+        body: JSON.stringify({
+          to: [envelope.sent_by],
+          subject: `eSignature Declined — ${signerName}`,
+          body: `<p><strong>${signerName}</strong> has declined to sign: <em>${docNames}</em></p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p>You may resend the documents or follow up with the caregiver.</p><p>— Tremendous Care eSign</p>`,
+          sent_by: "esign-system",
+        }),
+      });
+    } catch (_) { /* fire-and-forget */ }
+  }
+
+  // Log event
+  try {
+    await supabase.from("events").insert({
+      event_type: "esign_declined",
+      entity_type: "caregiver",
+      entity_id: envelope.caregiver_id,
+      actor: "caregiver:self",
+      payload: {
+        envelope_id: envelope.id,
+        template_names: envelope.template_names,
+        reason: reason || null,
+        ip,
+      },
+    });
+  } catch (_) { /* fire-and-forget */ }
+
+  return jsonResponse({ success: true });
+}
+
 // ─── Action: Void Envelope ───
 async function handleVoidEnvelope(
   supabase: ReturnType<typeof createClient>,
@@ -668,6 +812,12 @@ Deno.serve(async (req: Request) => {
 
       case "submit_signature":
         return await handleSubmitSignature(supabase, body, req);
+
+      case "record_consent":
+        return await handleRecordConsent(supabase, body, req);
+
+      case "decline":
+        return await handleDecline(supabase, body, req);
 
       case "void_envelope":
         return await handleVoidEnvelope(supabase, body);
