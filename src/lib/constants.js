@@ -203,6 +203,16 @@ export const DOCUSIGN_STATUSES = {
   voided: { label: 'Voided', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
 };
 
+// ─── eSignature Envelope Statuses ─────────────────────────────
+export const ESIGN_STATUSES = {
+  sent: { label: 'Sent', color: '#6B7280', bg: '#F3F4F6', border: '#D1D5DB' },
+  viewed: { label: 'Viewed', color: '#A16207', bg: '#FFFBEB', border: '#FDE68A' },
+  signed: { label: 'Signed', color: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' },
+  declined: { label: 'Declined', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+  expired: { label: 'Expired', color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' },
+  voided: { label: 'Voided', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+};
+
 // ─── Document Types for SharePoint Integration ──────────────
 export const DOCUMENT_TYPES = [
   { id: 'offer_signed', label: 'Offer Letter Signed', required: true },

@@ -9,6 +9,7 @@ import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
+import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
 
@@ -782,6 +783,431 @@ function DocuSignSettings({ showToast }) {
   );
 }
 
+// ─── eSign Template Settings ───
+function ESignSettings({ showToast }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState([]);
+  const [docTypes, setDocTypes] = useState([]);
+  const [uploading, setUploading] = useState(null);
+
+  // Load document types
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'document_types')
+      .single()
+      .then(({ data }) => {
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          setDocTypes(data.value);
+        }
+      });
+  }, []);
+
+  // Load templates from esign_templates table
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('esign_templates')
+          .select('*')
+          .order('sort_order');
+        if (data) setTemplates(data);
+      } catch (err) {
+        // No templates yet
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  // Get all tasks for dropdown
+  const allTasks = [];
+  const phaseTasks = getPhaseTasks();
+  PHASES.forEach((phase) => {
+    const tasks = phaseTasks[phase.id] || [];
+    tasks.forEach((t) => {
+      allTasks.push({ id: t.id, label: t.label, phase: phase.label, phaseIcon: phase.icon });
+    });
+  });
+
+  // Handle PDF upload for a draft template
+  const handleFileUpload = useCallback(async (index) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf';
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        showToast?.('Only PDF files are accepted for eSign templates.');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        showToast?.('File too large. Maximum 10MB.');
+        return;
+      }
+
+      setUploading(index);
+      try {
+        const storagePath = `templates/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { error: uploadErr } = await supabase.storage
+          .from('esign-templates')
+          .upload(storagePath, file, { contentType: 'application/pdf' });
+
+        if (uploadErr) throw uploadErr;
+
+        // Generate a signed URL for the visual editor
+        let blobUrl = null;
+        try {
+          const { data: urlData } = await supabase.storage
+            .from('esign-templates')
+            .createSignedUrl(storagePath, 3600);
+          if (urlData?.signedUrl) blobUrl = urlData.signedUrl;
+        } catch (_) { /* ok — editor just won't render */ }
+
+        setDraft((prev) => prev.map((t, i) => i === index ? {
+          ...t,
+          file_name: file.name,
+          file_storage_path: storagePath,
+          file_page_count: 1,
+          _pdfBlobUrl: blobUrl,
+          _uploaded: true,
+        } : t));
+        showToast?.(`Uploaded: ${file.name}`);
+      } catch (err) {
+        console.error('Upload failed:', err);
+        showToast?.(`Upload failed: ${err.message || 'Unknown error'}`);
+      } finally {
+        setUploading(null);
+      }
+    };
+    input.click();
+  }, [showToast]);
+
+  // Save templates
+  const saveTemplates = useCallback(async () => {
+    const valid = draft.filter((t) => t.name.trim() && t.file_storage_path);
+    if (valid.length === 0 && draft.length > 0) {
+      showToast?.('Each template needs a name and an uploaded PDF.');
+      return;
+    }
+    setSaving(true);
+    try {
+      // Upsert each template
+      for (let i = 0; i < valid.length; i++) {
+        const t = valid[i];
+        const row = {
+          name: t.name.trim(),
+          description: t.description || '',
+          file_name: t.file_name,
+          file_storage_path: t.file_storage_path,
+          file_page_count: t.file_page_count || 1,
+          fields: t.fields || [],
+          task_name: t.task_name || null,
+          document_type: t.document_type || null,
+          active: t.active !== false,
+          sort_order: i,
+          updated_at: new Date().toISOString(),
+        };
+        if (t.id && !t.id.startsWith('new_')) {
+          // Update existing
+          await supabase.from('esign_templates').update(row).eq('id', t.id);
+        } else {
+          // Insert new
+          await supabase.from('esign_templates').insert(row);
+        }
+      }
+
+      // Delete removed templates
+      const validIds = valid.filter((t) => t.id && !t.id.startsWith('new_')).map((t) => t.id);
+      const existingIds = templates.map((t) => t.id);
+      const toDelete = existingIds.filter((id) => !validIds.includes(id));
+      if (toDelete.length > 0) {
+        await supabase.from('esign_templates').delete().in('id', toDelete);
+      }
+
+      // Refresh
+      const { data } = await supabase.from('esign_templates').select('*').order('sort_order');
+      if (data) setTemplates(data);
+      setEditing(false);
+      showToast?.('eSign templates saved successfully!');
+    } catch (err) {
+      console.error('Failed to save eSign templates:', err);
+      showToast?.('Failed to save templates. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, templates, showToast]);
+
+  const startEdit = async () => {
+    // Generate signed URLs for existing templates so the visual editor can render them
+    const drafts = await Promise.all(templates.map(async (t) => {
+      let blobUrl = null;
+      if (t.file_storage_path && supabase) {
+        try {
+          const { data } = await supabase.storage
+            .from('esign-templates')
+            .createSignedUrl(t.file_storage_path, 3600);
+          if (data?.signedUrl) blobUrl = data.signedUrl;
+        } catch (_) { /* ok */ }
+      }
+      return { ...t, _pdfBlobUrl: blobUrl };
+    }));
+    setDraft(drafts);
+    setEditing(true);
+  };
+
+  const addTemplate = () => {
+    setDraft((prev) => [...prev, {
+      id: 'new_' + Date.now().toString(36),
+      name: '',
+      description: '',
+      file_name: '',
+      file_storage_path: '',
+      file_page_count: 1,
+      fields: [],
+      task_name: '',
+      document_type: '',
+      active: true,
+    }]);
+  };
+
+  const updateDraft = (index, field, value) => {
+    setDraft((prev) => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
+  };
+
+  const removeDraft = (index) => {
+    setDraft((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  if (loading) {
+    return (
+      <SettingsCard title="eSignatures" description="Custom Document Signing">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  return (
+    <SettingsCard title="eSignatures" description="Custom Document Signing">
+      {/* Templates */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Signing Templates ({templates.length})
+          </div>
+          {!editing ? (
+            <button
+              className={btn.editBtn}
+              style={{ padding: '5px 12px', fontSize: 11 }}
+              onClick={startEdit}
+              onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+              onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
+            >
+              Edit Templates
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className={btn.primaryBtn}
+                style={{ padding: '6px 14px', fontSize: 11, opacity: saving ? 0.6 : 1 }}
+                onClick={saveTemplates}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                className={btn.secondaryBtn}
+                style={{ padding: '6px 14px', fontSize: 11 }}
+                onClick={() => setEditing(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        {editing ? (
+          <div>
+            {draft.map((tmpl, idx) => (
+              <div key={tmpl.id} style={{
+                display: 'flex', flexDirection: 'column', gap: 8,
+                padding: '14px 14px', background: '#F9FAFB', borderRadius: 10,
+                border: '1px solid #E2E8F0', marginBottom: 10,
+              }}>
+                {/* Row 1: Name + Remove */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 700, minWidth: 20 }}>
+                    {idx + 1}.
+                  </span>
+                  <input
+                    type="text"
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 13 }}
+                    value={tmpl.name}
+                    onChange={(e) => updateDraft(idx, 'name', e.target.value)}
+                    placeholder="Template name (e.g. Employment Agreement)"
+                  />
+                  <button
+                    style={{
+                      background: 'none', border: 'none', fontSize: 14, cursor: 'pointer',
+                      color: '#DC2626', padding: '2px 4px', flexShrink: 0,
+                    }}
+                    onClick={() => removeDraft(idx)}
+                    title="Remove template"
+                  >
+                    &#10005;
+                  </button>
+                </div>
+
+                {/* Row 2: PDF Upload */}
+                <div style={{ paddingLeft: 28, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    className={btn.editBtn}
+                    style={{ padding: '6px 14px', fontSize: 11, opacity: uploading === idx ? 0.5 : 1 }}
+                    onClick={() => handleFileUpload(idx)}
+                    disabled={uploading === idx}
+                  >
+                    {uploading === idx ? 'Uploading...' : tmpl.file_name ? 'Replace PDF' : 'Upload PDF'}
+                  </button>
+                  {tmpl.file_name && (
+                    <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>
+                      {tmpl.file_name}
+                    </span>
+                  )}
+                  {!tmpl.file_name && (
+                    <span style={{ fontSize: 11, color: '#DC2626' }}>PDF required</span>
+                  )}
+                </div>
+
+                {/* Row 3: Linked task + Document type */}
+                <div style={{ display: 'flex', gap: 8, paddingLeft: 28 }}>
+                  <select
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 12, cursor: 'pointer' }}
+                    value={tmpl.task_name || ''}
+                    onChange={(e) => updateDraft(idx, 'task_name', e.target.value)}
+                  >
+                    <option value="">No linked task</option>
+                    {PHASES.map((phase) => {
+                      const tasks = phaseTasks[phase.id] || [];
+                      return tasks.length > 0 ? (
+                        <optgroup key={phase.id} label={`${phase.icon} ${phase.label}`}>
+                          {tasks.map((t) => (
+                            <option key={t.id} value={t.id}>{t.label}</option>
+                          ))}
+                        </optgroup>
+                      ) : null;
+                    })}
+                  </select>
+                  <select
+                    className={forms.fieldInput}
+                    style={{ flex: 1, fontSize: 12, cursor: 'pointer' }}
+                    value={tmpl.document_type || ''}
+                    onChange={(e) => updateDraft(idx, 'document_type', e.target.value)}
+                  >
+                    <option value="">No document type</option>
+                    {docTypes.map((dt) => (
+                      <option key={dt.id} value={dt.id}>{dt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Row 4: Visual field placement */}
+                {tmpl.file_storage_path && (
+                  <div style={{ paddingLeft: 28 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#7A8BA0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                      Place Signing Fields — Click on the PDF to position fields
+                    </div>
+                    <ESignFieldEditor
+                      pdfUrl={tmpl._pdfBlobUrl || null}
+                      fields={tmpl.fields || []}
+                      onFieldsChange={(newFields) => updateDraft(idx, 'fields', newFields)}
+                    />
+                  </div>
+                )}
+                {!tmpl.file_storage_path && (
+                  <div style={{ paddingLeft: 28, fontSize: 12, color: '#7A8BA0', fontStyle: 'italic' }}>
+                    Upload a PDF to place signing fields visually.
+                  </div>
+                )}
+              </div>
+            ))}
+            <button
+              style={{
+                width: '100%', padding: 10, border: '2px dashed #D0D9E4', borderRadius: 8,
+                background: 'transparent', color: '#2E4E8D', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit', marginTop: 4,
+              }}
+              onClick={addTemplate}
+              onMouseEnter={(e) => { e.target.style.background = '#F0F4FA'; }}
+              onMouseLeave={(e) => { e.target.style.background = 'transparent'; }}
+            >
+              + Add Template
+            </button>
+          </div>
+        ) : (
+          <div>
+            {templates.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '20px 16px', color: '#7A8BA0', fontSize: 13 }}>
+                No templates configured yet. Click "Edit Templates" to upload PDF templates and define signing fields.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid #E0E4EA', borderRadius: 10, overflow: 'hidden' }}>
+                {templates.map((tmpl, i) => (
+                  <div key={tmpl.id || i} style={{
+                    padding: '12px 16px',
+                    borderBottom: i < templates.length - 1 ? '1px solid #F0F3F7' : 'none',
+                    background: '#fff',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724' }}>{tmpl.name}</div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                        background: tmpl.active ? '#DCFCE7' : '#F3F4F6',
+                        color: tmpl.active ? '#15803D' : '#6B7280',
+                      }}>
+                        {tmpl.active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 3, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <span>PDF: {tmpl.file_name}</span>
+                      <span>Fields: {(tmpl.fields || []).length}</span>
+                      {tmpl.task_name && (
+                        <span style={{ color: '#15803D' }}>
+                          Task: {allTasks.find(t => t.id === tmpl.task_name)?.label || tmpl.task_name}
+                        </span>
+                      )}
+                      {tmpl.document_type && (
+                        <span style={{ color: '#2563EB' }}>
+                          Doc: {docTypes.find(d => d.id === tmpl.document_type)?.label || tmpl.document_type}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 12, lineHeight: 1.5 }}>
+        Upload PDF documents and define where signatures, initials, and dates should be placed.
+        Optionally link each template to an onboarding task (auto-completes when signed)
+        and a document type (auto-uploads signed copy to SharePoint).
+      </div>
+    </SettingsCard>
+  );
+}
+
 // ─── RingCentral Webhook Status ───
 function WebhookStatus({ showToast }) {
   const [status, setStatus] = useState(null); // null = loading, 'active', 'inactive', 'error'
@@ -1114,7 +1540,12 @@ export function AdminSettings({ showToast, currentUserEmail }) {
         </SettingsCard>
       </div>
 
-      {/* DocuSign eSignature Integration */}
+      {/* eSignatures (Custom) */}
+      <div style={{ marginBottom: 20 }}>
+        <ESignSettings showToast={showToast} />
+      </div>
+
+      {/* DocuSign eSignature Integration (Legacy) */}
       <div style={{ marginBottom: 20 }}>
         <DocuSignSettings showToast={showToast} />
       </div>

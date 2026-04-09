@@ -22,7 +22,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'phase_change', label: 'Phase Changed', description: 'Fires when a caregiver moves to a new onboarding phase' },
   { value: 'task_completed', label: 'Task Completed', description: 'Fires when a specific onboarding task is marked complete' },
   { value: 'document_uploaded', label: 'Document Uploaded', description: 'Fires when a document is uploaded to SharePoint' },
-  { value: 'document_signed', label: 'Document Signed', description: 'Fires when a DocuSign envelope is fully signed' },
+  { value: 'document_signed', label: 'Document Signed', description: 'Fires when an eSign or DocuSign envelope is fully signed' },
   { value: 'inbound_sms', label: 'Inbound SMS Received', description: 'Fires when an SMS is received from a caregiver via RingCentral' },
   { value: 'survey_completed', label: 'Survey Completed', description: 'Fires when a caregiver completes a pre-screening survey' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
@@ -43,6 +43,7 @@ const CAREGIVER_ACTION_OPTIONS = [
   { value: 'add_note', label: 'Add Note', description: 'Add a note to the caregiver record' },
   { value: 'update_field', label: 'Update Field', description: 'Change a caregiver field value' },
   { value: 'send_docusign_envelope', label: 'Send DocuSign Envelope', description: 'Send document(s) for eSignature via DocuSign' },
+  { value: 'send_esign_envelope', label: 'Send eSign Documents', description: 'Send document(s) for electronic signature (custom eSign)' },
 ];
 
 const CLIENT_ACTION_OPTIONS = [
@@ -157,6 +158,7 @@ function ActionBadge({ type }) {
     add_note: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A', label: 'Note' },
     update_field: { bg: '#F8F9FB', color: '#4B5563', border: '#E0E4EA', label: 'Field' },
     send_docusign_envelope: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE', label: 'DocuSign' },
+    send_esign_envelope: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE', label: 'eSign' },
   };
   const c = config[type] || config.send_sms;
   return (

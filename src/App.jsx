@@ -24,6 +24,7 @@ import { SequenceSettings } from './features/clients/SequenceSettings';
 import { AdminSettings } from './components/AdminSettings';
 import { ApplyPage } from './features/apply/ApplyPage';
 import { UploadPage } from './features/upload/UploadPage';
+import { SigningPage } from './features/sign/SigningPage';
 import { SurveyPage } from './features/survey/SurveyPage';
 import { getCurrentPhase, getOverallProgress } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
@@ -535,6 +536,13 @@ export default function App() {
     return (
       <Routes>
         <Route path="/upload/:token" element={<UploadPage />} />
+      </Routes>
+    );
+  }
+  if (location.pathname.startsWith('/sign/')) {
+    return (
+      <Routes>
+        <Route path="/sign/:token" element={<SigningPage />} />
       </Routes>
     );
   }
