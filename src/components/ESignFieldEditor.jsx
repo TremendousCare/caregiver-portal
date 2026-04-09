@@ -134,7 +134,7 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
       w: size.w,
       h: size.h,
       required: true,
-      label: placingType === 'text' ? 'Full Legal Name' : '',
+      label: '',
     };
 
     const updated = [...fields, newField];
