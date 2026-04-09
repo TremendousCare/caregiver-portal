@@ -93,6 +93,11 @@
   --tc-shadow-btn-primary: 0 4px 16px rgba(46, 78, 141, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   --tc-shadow-btn-primary-hover: 0 6px 20px rgba(46, 78, 141, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 
+  /* ── Layout ── */
+  --tc-sidebar-width: 260px;
+  --tc-sidebar-width-collapsed: 64px;
+  --tc-mobile-breakpoint: 768px;
+
   /* ── Transitions ── */
   --tc-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --tc-transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);

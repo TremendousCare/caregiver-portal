@@ -529,3 +529,24 @@
   cursor: pointer;
   font-family: inherit;
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+  .actionBar {
+    left: 0;
+    padding: 0 12px 12px;
+  }
+
+  .actionBarInner {
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .actionDropdownXWide {
+    min-width: calc(100vw - 48px);
+  }
+
+  .panelHeader {
+    padding: 12px 14px;
+  }
+}

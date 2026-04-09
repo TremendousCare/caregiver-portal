@@ -7,6 +7,7 @@ const AppContext = createContext();
 export function AppProvider({ children }) {
   const [toast, setToast] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
 
   // ─── Load action item rules cache on mount ───
@@ -75,6 +76,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       toast, showToast,
       sidebarCollapsed, setSidebarCollapsed,
+      mobileMenuOpen, setMobileMenuOpen,
       currentUser, currentUserName, currentUserEmail, isAdmin,
       handleUserReady, handleLogout,
     }}>

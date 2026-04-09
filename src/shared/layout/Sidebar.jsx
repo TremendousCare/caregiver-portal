@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import layout from '../../styles/layout.module.css';
 
 // ─── LocalStorage key for persisting collapsed sections ───
@@ -22,6 +23,8 @@ function saveCollapsedSections(state) {
 function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { setMobileMenuOpen } = useApp();
+  const isMobile = useIsMobile();
   const contentRef = useRef(null);
   const [contentHeight, setContentHeight] = useState(isExpanded ? 'auto' : 0);
   const isFirstRender = useRef(true);
@@ -108,6 +111,8 @@ function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
               onClick={() => {
                 navigate(item.path);
                 if (item.onNavigate) item.onNavigate();
+                // Auto-close drawer on mobile after navigation
+                if (isMobile) setMobileMenuOpen(false);
               }}
               title={item.label}
             >
@@ -124,12 +129,30 @@ function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
   );
 }
 
+// ─── Mobile Hamburger Button ───
+function MobileMenuButton({ onClick }) {
+  return (
+    <button
+      className={layout.mobileMenuBtn}
+      onClick={onClick}
+      aria-label="Open navigation menu"
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+        <line x1="3" y1="18" x2="21" y2="18" />
+      </svg>
+    </button>
+  );
+}
+
 // ─── Main Sidebar ───
 export function Sidebar({ sections }) {
-  const { sidebarCollapsed, setSidebarCollapsed, currentUserName, isAdmin, handleLogout } = useApp();
+  const { sidebarCollapsed, setSidebarCollapsed, mobileMenuOpen, setMobileMenuOpen, currentUserName, isAdmin, handleLogout } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
-  const collapsed = sidebarCollapsed;
+  const isMobile = useIsMobile();
+  const collapsed = isMobile ? false : sidebarCollapsed; // Never show icon-only mode on mobile
 
   // Persistent expand/collapse state per section
   const [collapsedSections, setCollapsedSections] = useState(loadCollapsedSections);
@@ -141,6 +164,16 @@ export function Sidebar({ sections }) {
       return next;
     });
   }, []);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    if (isMobile) setMobileMenuOpen(false);
+  }, [location.pathname, isMobile, setMobileMenuOpen]);
+
+  // Close mobile menu when switching to desktop
+  useEffect(() => {
+    if (!isMobile) setMobileMenuOpen(false);
+  }, [isMobile, setMobileMenuOpen]);
 
   // Build full sections list including Settings (admin only)
   const allSections = [...sections];
@@ -154,6 +187,94 @@ export function Sidebar({ sections }) {
     });
   }
 
+  // ─── Mobile: drawer with overlay ───
+  if (isMobile) {
+    return (
+      <>
+        {/* Hamburger button — always visible on mobile */}
+        <MobileMenuButton onClick={() => setMobileMenuOpen(true)} />
+
+        {/* Backdrop overlay */}
+        {mobileMenuOpen && (
+          <div
+            className={layout.mobileOverlay}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+
+        {/* Slide-in drawer */}
+        <aside
+          className={`${layout.sidebar} ${layout.mobileDrawer} ${mobileMenuOpen ? layout.mobileDrawerOpen : ''}`}
+        >
+          {/* Header with close button */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '20px 20px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className={layout.logoIcon}>TC</div>
+              <div>
+                <div className={layout.logoTitle}>Tremendous Care</div>
+                <div className={layout.logoSub}>Platform</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              aria-label="Close navigation menu"
+              style={{
+                background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+                width: 36, height: 36, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 18,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Module Sections */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {allSections.map((section) => (
+              <SidebarSection
+                key={section.id}
+                section={section}
+                sidebarCollapsed={false}
+                isExpanded={!!collapsedSections[section.id]}
+                onToggle={() => toggleSection(section.id)}
+              />
+            ))}
+          </div>
+
+          {/* User info & Logout */}
+          <div style={{
+            marginTop: 'auto',
+            padding: '12px 16px',
+            borderTop: '1px solid #2A2A2A',
+          }}>
+            {currentUserName && (
+              <div style={{
+                fontSize: 12, color: '#8BA3C7', marginBottom: 8,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                👤 {currentUserName}
+              </div>
+            )}
+            <button
+              className={layout.navItem}
+              style={{ justifyContent: 'flex-start', padding: '10px 12px', color: '#DC3545' }}
+              onClick={handleLogout}
+              title="Sign out"
+            >
+              <span className={layout.navIcon}>⏻</span>
+              <span className="sidebar-text">Sign Out</span>
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  // ─── Desktop: original sidebar (unchanged) ───
   return (
     <aside
       className={`${layout.sidebar} tc-sidebar${collapsed ? ' collapsed' : ''}`}
