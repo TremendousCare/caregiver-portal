@@ -160,7 +160,7 @@ function SignatureModal({ fieldType, onSave, onClose }) {
 }
 
 // ─── PDF Page with Interactive Field Overlays ───
-function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick, onCheckAllBoxes }) {
+function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick, allTemplateFields }) {
   return (
     <div style={{ position: 'relative', width: pageData.displayWidth, margin: '0 auto 16px' }}>
       <img
@@ -261,10 +261,25 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
         }
 
         if (field.type === 'checkbox') {
+          const handleCheckboxClick = () => {
+            if (field.group) {
+              // Radio group behavior: select this one, deselect others in same group
+              const groupFields = (allTemplateFields || []).filter(
+                (f) => f.type === 'checkbox' && f.group === field.group
+              );
+              for (const gf of groupFields) {
+                onFieldChange(gf.id, gf.id === field.id ? !value : false);
+              }
+            } else {
+              // Independent checkbox: just toggle this one
+              onFieldChange(field.id, !value);
+            }
+          };
+
           return (
             <div
               key={field.id}
-              onClick={() => onCheckAllBoxes(!value)}
+              onClick={handleCheckboxClick}
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
@@ -386,8 +401,27 @@ export function SigningPage() {
     if (!envelopeData?.templates) return [];
     const missing = [];
     for (const tpl of envelopeData.templates) {
+      const checkedGroups = new Set(); // Track which checkbox groups we've already validated
       for (const field of (tpl.fields || [])) {
-        if (field.required && !fieldValues[tpl.id]?.[field.id]) {
+        if (!field.required) continue;
+
+        // Grouped checkboxes: validate the group, not individual checkboxes
+        if (field.type === 'checkbox' && field.group) {
+          if (checkedGroups.has(field.group)) continue; // Already checked this group
+          checkedGroups.add(field.group);
+          const groupFields = (tpl.fields || []).filter(
+            (f) => f.type === 'checkbox' && f.group === field.group
+          );
+          const anyChecked = groupFields.some((f) => fieldValues[tpl.id]?.[f.id]);
+          if (!anyChecked) {
+            missing.push({ template: tpl.name, label: `Selection (${field.group})`, fieldId: field.id, type: 'checkbox' });
+          }
+          continue;
+        }
+
+        // Non-grouped checkboxes that are required (unusual but supported)
+        // and all other field types
+        if (!fieldValues[tpl.id]?.[field.id]) {
           const label = field.type === 'signature' ? 'Signature'
             : field.type === 'initials' ? 'Initials'
             : field.type === 'date' ? 'Date'
@@ -504,19 +538,7 @@ export function SigningPage() {
                     fieldValues={fieldValues[currentTemplate.id] || {}}
                     onFieldChange={(fieldId, value) => updateFieldValue(currentTemplate.id, fieldId, value)}
                     onSignatureClick={(field) => setSignatureModal({ templateId: currentTemplate.id, field })}
-                    onCheckAllBoxes={(checked) => {
-                      // Check/uncheck ALL checkboxes across ALL templates
-                      setFieldValues((prev) => {
-                        const updated = { ...prev };
-                        for (const tpl of templates) {
-                          updated[tpl.id] = { ...(updated[tpl.id] || {}) };
-                          for (const f of (tpl.fields || [])) {
-                            if (f.type === 'checkbox') updated[tpl.id][f.id] = checked;
-                          }
-                        }
-                        return updated;
-                      });
-                    }}
+                    allTemplateFields={currentTemplate.fields || []}
                   />
                 );
               })}

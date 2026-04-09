@@ -133,8 +133,9 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
       y: pdfY,
       w: size.w,
       h: size.h,
-      required: true,
+      required: placingType !== 'checkbox',
       label: '',
+      ...(placingType === 'checkbox' ? { group: '' } : {}),
     };
 
     const updated = [...fields, newField];
@@ -548,6 +549,18 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                 onChange={(e) => updateSelectedField('label', e.target.value)}
                 placeholder="Field label"
                 style={{ width: 120, fontSize: 11, padding: '2px 6px', border: '1px solid #D5DCE6', borderRadius: 4 }}
+              />
+            </>
+          )}
+          {selectedFieldData.type === 'checkbox' && (
+            <>
+              <label style={{ fontSize: 10, color: '#7A8BA0' }}>Group:</label>
+              <input
+                type="text" value={selectedFieldData.group || ''}
+                onChange={(e) => updateSelectedField('group', e.target.value)}
+                placeholder="e.g. filing_status"
+                title="Checkboxes in the same group act as radio buttons — selecting one deselects the others"
+                style={{ width: 110, fontSize: 11, padding: '2px 6px', border: '1px solid #D5DCE6', borderRadius: 4 }}
               />
             </>
           )}
