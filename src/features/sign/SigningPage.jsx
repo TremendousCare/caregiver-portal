@@ -185,20 +185,23 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '2px solid #15803D' : '2px dashed #2E4E8D',
-                borderRadius: 4,
-                background: value ? 'rgba(255,255,255,0.95)' : 'rgba(46,78,141,0.08)',
+                border: value ? '2px solid #15803D' : '1.5px dashed rgba(46,78,141,0.5)',
+                borderRadius: 3,
+                background: value ? 'rgba(255,255,255,0.95)' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 overflow: 'hidden',
+                transition: 'background 0.15s, border-color 0.15s',
               }}
+              onMouseEnter={(e) => { if (!value) e.currentTarget.style.background = 'rgba(46,78,141,0.06)'; }}
+              onMouseLeave={(e) => { if (!value) e.currentTarget.style.background = 'transparent'; }}
             >
               {value ? (
                 <img src={value} alt="Signature" style={{ width: '100%', height: '100%', objectFit: 'fill' }} />
               ) : (
                 <span style={{
-                  fontSize: Math.max(10, 11 * pageData.scale), fontWeight: 600,
-                  color: '#2E4E8D', opacity: 0.8,
+                  fontSize: Math.max(9, 10 * pageData.scale), fontWeight: 600,
+                  color: '#2E4E8D', opacity: 0.6,
                 }}>
                   {field.type === 'initials' ? 'Tap to initial' : 'Tap to sign'}
                 </span>
@@ -214,18 +217,20 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
-              placeholder="MM/DD/YYYY"
+              placeholder=""
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: '2px solid #EA580C', borderRadius: 3,
-                background: 'rgba(255,255,255,0.92)',
+                border: value ? '1.5px solid #15803D' : '1.5px dashed rgba(234,88,12,0.5)',
+                borderRadius: 2,
+                background: 'transparent',
                 fontSize: Math.max(10, 11 * pageData.scale),
                 fontFamily: 'inherit', color: '#000',
-                padding: '0 4px', boxSizing: 'border-box', outline: 'none',
+                padding: '0 3px', boxSizing: 'border-box', outline: 'none',
+                transition: 'background 0.15s, border-color 0.15s',
               }}
-              onFocus={(e) => { e.target.style.borderColor = '#C2410C'; e.target.style.boxShadow = '0 0 0 2px rgba(234,88,12,0.2)'; }}
-              onBlur={(e) => { e.target.style.borderColor = '#EA580C'; e.target.style.boxShadow = 'none'; }}
+              onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#EA580C'; e.target.style.borderStyle = 'solid'; }}
+              onBlur={(e) => { e.target.style.background = value ? 'transparent' : 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(234,88,12,0.5)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
             />
           );
         }
@@ -237,18 +242,20 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
-              placeholder="Enter text"
+              placeholder=""
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: '2px solid #15803D', borderRadius: 3,
-                background: 'rgba(255,255,255,0.92)',
+                border: value ? '1.5px solid #15803D' : '1.5px dashed rgba(21,128,61,0.4)',
+                borderRadius: 2,
+                background: 'transparent',
                 fontSize: Math.max(10, 11 * pageData.scale),
                 fontFamily: 'inherit', color: '#000',
-                padding: '0 4px', boxSizing: 'border-box', outline: 'none',
+                padding: '0 3px', boxSizing: 'border-box', outline: 'none',
+                transition: 'background 0.15s, border-color 0.15s',
               }}
-              onFocus={(e) => { e.target.style.borderColor = '#166534'; e.target.style.boxShadow = '0 0 0 2px rgba(21,128,61,0.2)'; }}
-              onBlur={(e) => { e.target.style.borderColor = '#15803D'; e.target.style.boxShadow = 'none'; }}
+              onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#15803D'; e.target.style.borderStyle = 'solid'; }}
+              onBlur={(e) => { e.target.style.background = value ? 'transparent' : 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(21,128,61,0.4)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
             />
           );
         }
@@ -261,11 +268,13 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: '2px solid #6B7280', borderRadius: 3,
-                background: value ? '#2E4E8D' : 'rgba(255,255,255,0.92)',
+                border: value ? '2px solid #2E4E8D' : '1.5px dashed rgba(107,114,128,0.5)',
+                borderRadius: 2,
+                background: value ? '#2E4E8D' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: '#fff', fontSize: Math.max(12, 14 * pageData.scale), fontWeight: 700,
+                transition: 'background 0.15s, border-color 0.15s',
               }}
             >
               {value ? '\u2713' : ''}
