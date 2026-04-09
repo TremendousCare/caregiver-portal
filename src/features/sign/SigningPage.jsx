@@ -214,6 +214,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
           return (
             <input
               key={field.id}
+              data-field-id={field.id}
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
@@ -239,6 +240,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
           return (
             <input
               key={field.id}
+              data-field-id={field.id}
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
@@ -414,7 +416,7 @@ export function SigningPage() {
           );
           const anyChecked = groupFields.some((f) => fieldValues[tpl.id]?.[f.id]);
           if (!anyChecked) {
-            missing.push({ template: tpl.name, label: `Selection (${field.group})`, fieldId: field.id, type: 'checkbox' });
+            missing.push({ template: tpl.name, label: `Selection (${field.group})`, fieldId: field.id, type: 'checkbox', page: field.page || 1 });
           }
           continue;
         }
@@ -427,7 +429,7 @@ export function SigningPage() {
             : field.type === 'date' ? 'Date'
             : field.type === 'checkbox' ? 'Checkbox'
             : (field.label || 'Text field');
-          missing.push({ template: tpl.name, label, fieldId: field.id, type: field.type });
+          missing.push({ template: tpl.name, label, fieldId: field.id, type: field.type, page: field.page || 1 });
         }
       }
     }
@@ -436,10 +438,32 @@ export function SigningPage() {
 
   const handleSubmit = async () => {
     if (!consentAgreed) { setSubmitError('Please check the consent box to confirm you agree to sign electronically.'); return; }
+
+    // Collect current values from DOM inputs as a safety net
+    // (in case React state didn't capture a value on mobile)
+    setFieldValues((prev) => {
+      const patched = { ...prev };
+      for (const tpl of (envelopeData?.templates || [])) {
+        patched[tpl.id] = { ...(patched[tpl.id] || {}) };
+        for (const field of (tpl.fields || [])) {
+          if (field.type === 'text' || field.type === 'date') {
+            const inputEl = document.querySelector(`[data-field-id="${field.id}"]`);
+            if (inputEl && inputEl.value && !patched[tpl.id][field.id]) {
+              patched[tpl.id][field.id] = inputEl.value;
+            }
+          }
+        }
+      }
+      return patched;
+    });
+
+    // Wait one tick for the state to settle
+    await new Promise((r) => setTimeout(r, 50));
+
     const missing = getMissingFields();
     if (missing.length > 0) {
-      const uniqueTypes = [...new Set(missing.map((m) => m.label))];
-      setSubmitError(`Please complete all required fields: ${uniqueTypes.join(', ')} (${missing.length} remaining)`);
+      const details = missing.map((m) => `${m.label} on "${m.template}" (page ${m.page || '?'}, id: ${m.fieldId.substring(0, 8)})`).join('; ');
+      setSubmitError(`Missing ${missing.length} required field(s): ${details}`);
       return;
     }
     setSubmitting(true); setSubmitError(null);
