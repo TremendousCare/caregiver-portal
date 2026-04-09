@@ -134,14 +134,20 @@ export function SurveyPage() {
       }).catch(() => {});
 
       // Fire-and-forget: update caregiver profile fields from mapped answers
+      // Uses execute-automation (service role) since the public page has no auth
       const profileUpdates = extractProfileFieldUpdates(questions, answers);
       if (Object.keys(profileUpdates).length > 0) {
-        supabase
-          .from('caregivers')
-          .update(profileUpdates)
-          .eq('id', response.caregiver_id)
-          .then(() => {})
-          .catch(() => {});
+        supabase.functions.invoke('execute-automation', {
+          body: {
+            rule_id: 'survey_profile_update',
+            caregiver_id: response.caregiver_id,
+            action_type: 'update_profile_fields',
+            action_config: { fields: profileUpdates },
+            rule_name: 'Survey Profile Update',
+            caregiver: { first_name: '', last_name: '', phone: '', email: '', phase: 'intake' },
+            trigger_context: {},
+          },
+        }).catch(() => {});
       }
 
       setSubmitted(true);
