@@ -248,7 +248,7 @@ async function handleCreateEnvelope(
             to_email: caregiver_email,
             to_name: displayName,
             subject: `Tremendous Care — Please sign your ${docNames}`,
-            body: `<p>Hi ${displayName.split(" ")[0]},</p><p>Please review and sign your ${docNames} for Tremendous Care.</p><p><a href="${signingUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Review & Sign Documents</a></p><p>This link expires in 14 days.</p><p>Thank you,<br/>Tremendous Care</p>`,
+            body: `Hi ${displayName.split(" ")[0]},\n\nPlease review and sign your ${docNames} for Tremendous Care.\n\nSign here: ${signingUrl}\n\nThis link expires in 14 days.\n\nThank you,\nTremendous Care`,
           }),
         });
       } catch (err) {
@@ -756,7 +756,7 @@ async function handleSubmitSignature(
           to_email: envelope.sent_by,
           to_name: envelope.sent_by,
           subject: `eSignature Complete — ${signerName}`,
-          body: `<p><strong>${signerName}</strong> has completed signing the following documents:</p><ul>${templates.map((t: any) => `<li>${t.name}</li>`).join("")}</ul><p><strong>Signed at:</strong> ${new Date().toLocaleString("en-US")}</p><p>Signed documents and a Certificate of Completion have been uploaded to SharePoint.</p><p>— Tremendous Care eSign</p>`,
+          body: `${signerName} has completed signing the following documents:\n\n${templates.map((t: any) => `• ${t.name}`).join("\n")}\n\nSigned at: ${new Date().toLocaleString("en-US")}\n\nSigned documents and a Certificate of Completion have been uploaded to SharePoint.\n\n— Tremendous Care eSign`,
         }),
       });
       // Mark sender as notified
@@ -897,7 +897,7 @@ async function handleDecline(
           to_email: envelope.sent_by,
           to_name: envelope.sent_by,
           subject: `eSignature Declined — ${signerName}`,
-          body: `<p><strong>${signerName}</strong> has declined to sign: <em>${docNames}</em></p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p>You may resend the documents or follow up with the caregiver.</p><p>— Tremendous Care eSign</p>`,
+          body: `${signerName} has declined to sign: ${docNames}${reason ? `\n\nReason: ${reason}` : ""}\n\nYou may resend the documents or follow up with the caregiver.\n\n— Tremendous Care eSign`,
         }),
       });
     } catch (_) { /* fire-and-forget */ }
@@ -1017,7 +1017,7 @@ async function handleResend(
           to_email: cg.email,
           to_name: `${cg.first_name} ${cg.last_name}`.trim(),
           subject: `Reminder: Please sign your ${docNames} — Tremendous Care`,
-          body: `<p>Hi ${cg.first_name},</p><p>This is a reminder to review and sign your ${docNames}.</p><p><a href="${signingUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Review & Sign Documents</a></p><p>This link expires in 14 days.</p><p>Thank you,<br/>Tremendous Care</p>`,
+          body: `Hi ${cg.first_name},\n\nThis is a reminder to review and sign your ${docNames}.\n\nSign here: ${signingUrl}\n\nThis link expires in 14 days.\n\nThank you,\nTremendous Care`,
         }),
       });
     } catch (err) {
