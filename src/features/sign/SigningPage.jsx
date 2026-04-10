@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -160,7 +160,7 @@ function SignatureModal({ fieldType, onSave, onClose }) {
 }
 
 // ─── PDF Page with Interactive Field Overlays ───
-function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick, allTemplateFields }) {
+function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatureClick, allTemplateFields, activeFieldId, onFieldComplete }) {
   return (
     <div style={{ position: 'relative', width: pageData.displayWidth, margin: '0 auto 16px' }}>
       <img
@@ -176,32 +176,35 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
         const displayW = (field.w || 100) * pageData.scale;
         const displayH = (field.h || 20) * pageData.scale;
         const value = fieldValues?.[field.id];
+        const isActive = field.id === activeFieldId && !value;
 
         if (field.type === 'signature' || field.type === 'initials') {
           return (
             <div
               key={field.id}
+              data-field-id={field.id}
               onClick={() => onSignatureClick(field)}
+              className={isActive ? s.guideActiveField : undefined}
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '2px solid #15803D' : '1.5px dashed rgba(46,78,141,0.5)',
+                border: isActive ? '2px solid #EAB308' : (value ? '2px solid #15803D' : '1.5px dashed rgba(46,78,141,0.5)'),
                 borderRadius: 3,
-                background: value ? 'rgba(255,255,255,0.95)' : 'transparent',
+                background: value ? 'rgba(255,255,255,0.95)' : (isActive ? 'rgba(234,179,8,0.08)' : 'transparent'),
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 overflow: 'hidden',
                 transition: 'background 0.15s, border-color 0.15s',
               }}
-              onMouseEnter={(e) => { if (!value) e.currentTarget.style.background = 'rgba(46,78,141,0.06)'; }}
-              onMouseLeave={(e) => { if (!value) e.currentTarget.style.background = 'transparent'; }}
+              onMouseEnter={(e) => { if (!value && !isActive) e.currentTarget.style.background = 'rgba(46,78,141,0.06)'; }}
+              onMouseLeave={(e) => { if (!value) e.currentTarget.style.background = isActive ? 'rgba(234,179,8,0.08)' : 'transparent'; }}
             >
               {value ? (
                 <img src={value} alt="Signature" style={{ width: '100%', height: '100%', objectFit: 'fill' }} />
               ) : (
                 <span style={{
                   fontSize: Math.max(9, 10 * pageData.scale), fontWeight: 600,
-                  color: '#2E4E8D', opacity: 0.6,
+                  color: isActive ? '#92400E' : '#2E4E8D', opacity: isActive ? 0.9 : 0.6,
                 }}>
                   {field.type === 'initials' ? 'Tap to initial' : 'Tap to sign'}
                 </span>
@@ -218,20 +221,21 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
+              className={isActive ? s.guideActiveField : undefined}
               placeholder=""
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '1.5px solid #15803D' : '1.5px dashed rgba(234,88,12,0.5)',
+                border: isActive ? '2px solid #EAB308' : (value ? '1.5px solid #15803D' : '1.5px dashed rgba(234,88,12,0.5)'),
                 borderRadius: 2,
-                background: 'transparent',
+                background: isActive ? 'rgba(234,179,8,0.08)' : 'transparent',
                 fontSize: Math.max(10, 11 * pageData.scale),
                 fontFamily: 'inherit', color: '#000',
                 padding: '0 3px', boxSizing: 'border-box', outline: 'none',
                 transition: 'background 0.15s, border-color 0.15s',
               }}
               onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#EA580C'; e.target.style.borderStyle = 'solid'; }}
-              onBlur={(e) => { e.target.style.background = value ? 'transparent' : 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(234,88,12,0.5)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
+              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(234,88,12,0.5)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
             />
           );
         }
@@ -244,20 +248,21 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               type="text"
               value={value || ''}
               onChange={(e) => onFieldChange(field.id, e.target.value)}
+              className={isActive ? s.guideActiveField : undefined}
               placeholder=""
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '1.5px solid #15803D' : '1.5px dashed rgba(21,128,61,0.4)',
+                border: isActive ? '2px solid #EAB308' : (value ? '1.5px solid #15803D' : '1.5px dashed rgba(21,128,61,0.4)'),
                 borderRadius: 2,
-                background: 'transparent',
+                background: isActive ? 'rgba(234,179,8,0.08)' : 'transparent',
                 fontSize: Math.max(10, 11 * pageData.scale),
                 fontFamily: 'inherit', color: '#000',
                 padding: '0 3px', boxSizing: 'border-box', outline: 'none',
                 transition: 'background 0.15s, border-color 0.15s',
               }}
               onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#15803D'; e.target.style.borderStyle = 'solid'; }}
-              onBlur={(e) => { e.target.style.background = value ? 'transparent' : 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(21,128,61,0.4)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
+              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(21,128,61,0.4)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
             />
           );
         }
@@ -276,23 +281,27 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               // Independent checkbox: just toggle this one
               onFieldChange(field.id, !value);
             }
+            // Auto-advance guide when checking (not unchecking)
+            if (!value && onFieldComplete) onFieldComplete();
           };
 
           return (
             <div
               key={field.id}
+              data-field-id={field.id}
               onClick={handleCheckboxClick}
+              className={isActive ? s.guideActiveField : undefined}
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '2px solid #2E4E8D' : '2px solid #2E4E8D',
+                border: isActive ? '2px solid #EAB308' : (value ? '2px solid #2E4E8D' : '2px solid #2E4E8D'),
                 borderRadius: 3,
-                background: value ? '#2E4E8D' : 'rgba(219,234,254,0.7)',
+                background: value ? '#2E4E8D' : (isActive ? 'rgba(234,179,8,0.15)' : 'rgba(219,234,254,0.7)'),
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: value ? '#fff' : '#2E4E8D',
                 fontSize: Math.max(12, 14 * pageData.scale), fontWeight: 700,
-                boxShadow: value ? 'none' : '0 0 0 2px rgba(46,78,141,0.15)',
+                boxShadow: value ? 'none' : (isActive ? undefined : '0 0 0 2px rgba(46,78,141,0.15)'),
                 transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s',
               }}
             >
@@ -325,6 +334,7 @@ export function SigningPage() {
   const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
   const [declining, setDeclining] = useState(false);
+  const [pendingAdvance, setPendingAdvance] = useState(false);
 
   useEffect(() => {
     if (!token || !supabase) { setError('Invalid link.'); setLoading(false); return; }
@@ -543,6 +553,95 @@ export function SigningPage() {
     }
   }, [token, declineReason]);
 
+  // ─── Guided Signing Flow ───
+  const orderedRequiredFields = useMemo(() => {
+    if (!envelopeData?.templates) return [];
+    const result = [];
+    const seenGroups = new Set();
+    envelopeData.templates.forEach((tpl, tplIdx) => {
+      for (const f of (tpl.fields || [])) {
+        if (!f.required) continue;
+        if (f.type === 'checkbox' && f.group) {
+          const gk = `${tpl.id}:${f.group}`;
+          if (seenGroups.has(gk)) continue;
+          seenGroups.add(gk);
+        }
+        result.push({
+          templateId: tpl.id, templateIndex: tplIdx, fieldId: f.id, field: f,
+          page: f.page || 1, y: f.y || 0, x: f.x || 0, type: f.type,
+          label: f.type === 'signature' ? 'Sign here' : f.type === 'initials' ? 'Add initials'
+            : f.type === 'date' ? 'Enter date' : f.type === 'checkbox' ? 'Check box'
+            : (f.label || 'Fill in field'),
+          group: f.group,
+        });
+      }
+    });
+    result.sort((a, b) => a.templateIndex - b.templateIndex || a.page - b.page || a.y - b.y || a.x - b.x);
+    return result;
+  }, [envelopeData]);
+
+  const isGuideFieldComplete = useCallback((entry) => {
+    const vals = fieldValues[entry.templateId] || {};
+    if (entry.type === 'checkbox' && entry.group) {
+      const tpl = envelopeData?.templates?.find(t => t.id === entry.templateId);
+      return (tpl?.fields || []).filter(f => f.type === 'checkbox' && f.group === entry.group).some(f => vals[f.id]);
+    }
+    return !!vals[entry.fieldId];
+  }, [fieldValues, envelopeData]);
+
+  const totalRequired = orderedRequiredFields.length;
+  const completedCount = orderedRequiredFields.filter(e => isGuideFieldComplete(e)).length;
+  const nextIncomplete = useMemo(() => orderedRequiredFields.find(e => !isGuideFieldComplete(e)) || null, [orderedRequiredFields, isGuideFieldComplete]);
+  const activeFieldId = nextIncomplete?.fieldId || null;
+
+  useEffect(() => {
+    if (!pendingAdvance) return;
+    setPendingAdvance(false);
+    if (!nextIncomplete) {
+      setTimeout(() => {
+        const el = document.querySelector('[data-section="submit"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return;
+    }
+    if (nextIncomplete.templateIndex !== currentDocIndex) {
+      setCurrentDocIndex(nextIncomplete.templateIndex);
+    }
+    const fid = nextIncomplete.fieldId;
+    const tryScroll = () => {
+      const el = document.querySelector(`[data-field-id="${fid}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return true; }
+      return false;
+    };
+    if (!tryScroll()) {
+      const t1 = setTimeout(tryScroll, 300);
+      const t2 = setTimeout(tryScroll, 800);
+      const t3 = setTimeout(tryScroll, 1500);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    }
+  }, [pendingAdvance, nextIncomplete, currentDocIndex]);
+
+  const handleGuideNext = useCallback(() => {
+    if (!nextIncomplete) {
+      const el = document.querySelector('[data-section="submit"]');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (nextIncomplete.templateIndex !== currentDocIndex) {
+      setCurrentDocIndex(nextIncomplete.templateIndex);
+    }
+    const fid = nextIncomplete.fieldId;
+    const tryScroll = () => {
+      const el = document.querySelector(`[data-field-id="${fid}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return true; }
+      return false;
+    };
+    if (!tryScroll()) {
+      setTimeout(tryScroll, 300);
+      setTimeout(tryScroll, 800);
+    }
+  }, [nextIncomplete, currentDocIndex]);
+
   const templates = envelopeData?.templates || [];
   const currentTemplate = templates[currentDocIndex];
   const currentPages = currentTemplate ? (renderedPages[currentTemplate.id] || []) : [];
@@ -618,7 +717,7 @@ export function SigningPage() {
 
   // ─── Signing (inline fields on PDF) ───
   return (
-    <div className={s.page}>
+    <div className={s.page} style={totalRequired > 0 ? { paddingBottom: 120 } : undefined}>
       <div className={s.header}>
         <div className={s.logo}>Tremendous<span className={s.logoAccent}>Care</span></div>
         <div className={s.tagline}>Document Signing</div>
@@ -659,6 +758,8 @@ export function SigningPage() {
                     onFieldChange={(fieldId, value) => updateFieldValue(currentTemplate.id, fieldId, value)}
                     onSignatureClick={(field) => setSignatureModal({ templateId: currentTemplate.id, field })}
                     allTemplateFields={currentTemplate.fields || []}
+                    activeFieldId={activeFieldId}
+                    onFieldComplete={() => setPendingAdvance(true)}
                   />
                 );
               })}
@@ -674,7 +775,7 @@ export function SigningPage() {
             </div>
 
             {currentDocIndex === templates.length - 1 && (
-              <div className={s.submitSection}>
+              <div className={s.submitSection} data-section="submit">
                 <label className={s.consentCheckbox}>
                   <input type="checkbox" checked={consentAgreed} onChange={(e) => setConsentAgreed(e.target.checked)} />
                   <span>I agree to sign {templates.length > 1 ? 'these documents' : 'this document'} electronically. My electronic signature is the legal equivalent of my handwritten signature.</span>
@@ -692,9 +793,35 @@ export function SigningPage() {
       {signatureModal && (
         <SignatureModal
           fieldType={signatureModal.field.type}
-          onSave={(dataUrl) => applySignatureToAll(dataUrl, signatureModal.field.type)}
+          onSave={(dataUrl) => {
+            applySignatureToAll(dataUrl, signatureModal.field.type);
+            setPendingAdvance(true);
+          }}
           onClose={() => setSignatureModal(null)}
         />
+      )}
+
+      {totalRequired > 0 && (
+        <div className={s.guideBar}>
+          <div className={s.guideProgressBar}>
+            <div className={s.guideProgressFill} style={{ width: `${(completedCount / totalRequired) * 100}%` }} />
+          </div>
+          <div className={s.guideContent}>
+            <div className={s.guideText}>
+              {nextIncomplete ? (
+                <>
+                  <span className={s.guideStep}>Step {completedCount + 1} of {totalRequired}</span>
+                  <span className={s.guideLabel}>{nextIncomplete.label}</span>
+                </>
+              ) : (
+                <span className={s.guideStep}>All {totalRequired} fields complete</span>
+              )}
+            </div>
+            <button className={s.guideBtn} onClick={handleGuideNext}>
+              {nextIncomplete ? 'Next \u2192' : 'Review & Submit \u2192'}
+            </button>
+          </div>
+        </div>
       )}
 
       <div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div>

@@ -667,3 +667,86 @@
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+/* ── Guided Signing Flow ── */
+
+@keyframes guidePulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.35); }
+  50% { box-shadow: 0 0 0 7px rgba(234, 179, 8, 0.12); }
+}
+
+.guideActiveField {
+  animation: guidePulse 1.8s ease-in-out infinite;
+  z-index: 5;
+}
+
+.guideBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-top: 1px solid #E0E4EA;
+  z-index: 100;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.guideProgressBar {
+  height: 3px;
+  background: #E5E7EB;
+  width: 100%;
+}
+
+.guideProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #15803D, #16A34A);
+  border-radius: 0 2px 2px 0;
+  transition: width 0.4s ease;
+}
+
+.guideContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.guideText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guideStep {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+}
+
+.guideLabel {
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  font-weight: 500;
+}
+
+.guideBtn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, var(--tc-navy) 0%, var(--tc-cyan-dark) 100%);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: var(--tc-shadow-btn-primary);
+  transition: all 0.15s;
+}
+
+.guideBtn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
