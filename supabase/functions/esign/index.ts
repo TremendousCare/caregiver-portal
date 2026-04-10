@@ -423,31 +423,85 @@ async function handleSubmitSignature(
     .eq("id", envelope.caregiver_id)
     .single();
 
-  const documentHashes: string[] = [];
+  const documentHashes: Record<string, string> = {};
   const uploadedDocIds: string[] = [];
   const completedTasks: string[] = [];
+  const failedUploads: string[] = [];
+  const processingLog: Record<string, any>[] = [];  // DB-level diagnostics
+
+  // Helper: upload to SharePoint with one retry after 2s delay
+  async function uploadToSharePoint(
+    caregiverId: string, docType: string, fileName: string, base64Content: string,
+  ): Promise<{ doc_id?: string; error?: string }> {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (attempt > 1) {
+          console.log(`[esign] Retry attempt ${attempt} for ${fileName}`);
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        const spResponse = await fetch(`${SUPABASE_URL}/functions/v1/sharepoint-docs`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+          body: JSON.stringify({
+            action: "upload_file",
+            caregiver_id: caregiverId,
+            document_type: docType,
+            file_name: fileName,
+            file_content_base64: base64Content,
+            uploaded_by: "esign-system",
+          }),
+        });
+        const result = await spResponse.json();
+        if (!result.error) return result;
+        console.error(`[esign] SharePoint returned error for ${fileName} (attempt ${attempt}):`, result.error);
+      } catch (err) {
+        console.error(`[esign] SharePoint fetch threw for ${fileName} (attempt ${attempt}):`, err);
+      }
+    }
+    return { error: "All upload attempts failed" };
+  }
 
   // Process each template: embed signature, upload to SharePoint
-  for (const template of templates) {
+  for (let tIdx = 0; tIdx < templates.length; tIdx++) {
+    const template = templates[tIdx];
+    const tLog: Record<string, any> = { name: template.name, id: template.id, document_type: template.document_type || null, steps: {} };
+    processingLog.push(tLog);
+    console.log(`[esign] Processing template ${tIdx + 1}/${templates.length}: ${template.name} (${template.id})`);
+
+    // Add delay between documents to avoid rapid sequential SharePoint calls
+    if (tIdx > 0) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    // Step 1: Download template PDF
+    let pdfBytes: Uint8Array;
     try {
-      // Download the template PDF from storage
       const { data: pdfData, error: dlErr } = await supabase.storage
         .from("esign-templates")
         .download(template.file_storage_path);
-
       if (dlErr || !pdfData) {
-        console.error(`[esign] Failed to download template ${template.name}:`, dlErr);
+        tLog.steps["1_download"] = { ok: false, error: String(dlErr) };
+        failedUploads.push(template.name);
         continue;
       }
+      pdfBytes = new Uint8Array(await pdfData.arrayBuffer());
+      tLog.steps["1_download"] = { ok: true, bytes: pdfBytes.length };
+    } catch (dlErr) {
+      tLog.steps["1_download"] = { ok: false, threw: String(dlErr) };
+      failedUploads.push(template.name);
+      continue;
+    }
 
-      const pdfBytes = new Uint8Array(await pdfData.arrayBuffer());
+    // Step 2: Load PDF and embed fields
+    let signedPdfBytes: Uint8Array;
+    try {
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const pages = pdfDoc.getPages();
-
-      // Get fields for this template from field_values
       const templateFields = field_values[template.id] || {};
 
-      // Embed each field value into the PDF
       for (const fieldDef of (template.fields || [])) {
         const value = templateFields[fieldDef.id];
         if (!value) continue;
@@ -456,12 +510,9 @@ async function handleSubmitSignature(
         if (pageIdx >= pages.length) continue;
         const page = pages[pageIdx];
         const { height: pageHeight } = page.getSize();
-
-        // Convert from top-left origin (CSS) to bottom-left origin (PDF)
         const pdfY = pageHeight - fieldDef.y - (fieldDef.h || 20);
 
         if (fieldDef.type === "signature" || fieldDef.type === "initials") {
-          // Value is a base64 PNG data URL
           try {
             const imgData = value.replace(/^data:image\/png;base64,/, "");
             const imgBytes = base64Decode(imgData);
@@ -474,16 +525,9 @@ async function handleSubmitSignature(
               height: dims.height,
             });
           } catch (imgErr) {
-            console.error(`[esign] Failed to embed signature image for field ${fieldDef.id}:`, imgErr);
+            console.error(`[esign] Failed to embed signature for field ${fieldDef.id}:`, imgErr);
           }
-        } else if (fieldDef.type === "date") {
-          page.drawText(value, {
-            x: fieldDef.x,
-            y: pdfY + 4,
-            size: 11,
-            color: rgb(0, 0, 0),
-          });
-        } else if (fieldDef.type === "text") {
+        } else if (fieldDef.type === "date" || fieldDef.type === "text") {
           page.drawText(value, {
             x: fieldDef.x,
             y: pdfY + 4,
@@ -492,19 +536,28 @@ async function handleSubmitSignature(
           });
         } else if (fieldDef.type === "checkbox") {
           if (value === true || value === "true") {
-            page.drawText("\u2713", {
-              x: fieldDef.x + 3,
-              y: pdfY + 3,
-              size: 14,
-              color: rgb(0, 0, 0),
-            });
+            try {
+              page.drawText("\u2713", {
+                x: fieldDef.x + 3,
+                y: pdfY + 3,
+                size: 14,
+                color: rgb(0, 0, 0),
+              });
+            } catch {
+              // WinAnsi-encoded PDFs can't render Unicode checkmark — fall back to X
+              page.drawText("X", {
+                x: fieldDef.x + 3,
+                y: pdfY + 3,
+                size: 14,
+                color: rgb(0, 0, 0),
+              });
+            }
           }
         }
       }
 
       // Add signing footer to last page
       const lastPage = pages[pages.length - 1];
-      const { width: pw, height: ph } = lastPage.getSize();
       const footerText = `Electronically signed via Tremendous Care on ${new Date().toISOString().split("T")[0]} | IP: ${ip}`;
       lastPage.drawText(footerText, {
         x: 36,
@@ -513,76 +566,82 @@ async function handleSubmitSignature(
         color: rgb(0.45, 0.45, 0.45),
       });
 
-      // Save signed PDF
-      const signedPdfBytes = await pdfDoc.save();
-      const docHash = await hashDocument(signedPdfBytes);
-      documentHashes.push(docHash);
+      signedPdfBytes = await pdfDoc.save();
+      tLog.steps["2_embed_save"] = { ok: true, originalBytes: pdfBytes.length, signedBytes: signedPdfBytes.length, inflation: `${((signedPdfBytes.length / pdfBytes.length) * 100).toFixed(0)}%` };
+    } catch (embedErr) {
+      tLog.steps["2_embed_save"] = { ok: false, threw: String(embedErr) };
+      failedUploads.push(template.name);
+      continue;
+    }
 
-      // Upload to SharePoint via existing sharepoint-docs edge function
+    // Step 3: Hash the signed PDF
+    try {
+      const docHash = await hashDocument(signedPdfBytes);
+      documentHashes[template.name] = docHash;
+      tLog.steps["3_hash"] = { ok: true, hash: docHash.slice(0, 12) };
+    } catch (hashErr) {
+      tLog.steps["3_hash"] = { ok: false, threw: String(hashErr) };
+      // Non-fatal: continue with upload even if hash fails
+    }
+
+    // Step 4: Base64 encode and upload to SharePoint
+    try {
       const signedBase64 = base64Encode(signedPdfBytes);
+      tLog.steps["4_encode"] = { ok: true, base64Chars: signedBase64.length };
       const signedFileName = `${template.name.replace(/[^a-zA-Z0-9 _-]/g, "")}_Signed_${new Date().toISOString().split("T")[0]}.pdf`;
 
+      const spResult = await uploadToSharePoint(
+        envelope.caregiver_id,
+        template.document_type || "esign_document",
+        signedFileName,
+        signedBase64,
+      );
+
+      if (spResult.error) {
+        tLog.steps["4_upload"] = { ok: false, error: String(spResult.error), docType: template.document_type || "esign_document" };
+        failedUploads.push(template.name);
+      } else {
+        uploadedDocIds.push(spResult.doc_id || template.name);
+        tLog.steps["4_upload"] = { ok: true, doc_id: spResult.doc_id || "fallback", docType: template.document_type || "esign_document" };
+      }
+    } catch (encodeErr) {
+      tLog.steps["4_encode_upload"] = { ok: false, threw: String(encodeErr) };
+      failedUploads.push(template.name);
+    }
+
+    // Step 5: Auto-complete linked task
+    if (template.task_name && cg?.tasks) {
       try {
-        const spResponse = await fetch(`${SUPABASE_URL}/functions/v1/sharepoint-docs`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        const updatedTasks = {
+          ...cg.tasks,
+          [template.task_name]: {
+            completed: true,
+            completedAt: Date.now(),
+            completedBy: "eSign",
           },
-          body: JSON.stringify({
-            action: "upload_file",
-            caregiver_id: envelope.caregiver_id,
-            document_type: template.document_type || "esign_document",
-            file_name: signedFileName,
-            file_content_base64: signedBase64,
-            uploaded_by: "esign-system",
-          }),
-        });
-
-        const spResult = await spResponse.json();
-        if (spResult.error) {
-          console.error(`[esign] SharePoint upload error for ${template.name}:`, spResult.error);
-        } else {
-          uploadedDocIds.push(spResult.doc_id || template.name);
-        }
-      } catch (spErr) {
-        console.error(`[esign] SharePoint upload failed for ${template.name}:`, spErr);
+        };
+        await supabase
+          .from("caregivers")
+          .update({ tasks: updatedTasks })
+          .eq("id", envelope.caregiver_id);
+        completedTasks.push(template.task_name);
+        cg.tasks = updatedTasks;
+      } catch (taskErr) {
+        console.error(`[esign] Task completion error for ${template.task_name}:`, taskErr);
       }
-
-      // Auto-complete linked task on the caregiver
-      if (template.task_name && cg?.tasks) {
-        try {
-          const updatedTasks = {
-            ...cg.tasks,
-            [template.task_name]: {
-              completed: true,
-              completedAt: Date.now(),
-              completedBy: "eSign",
-            },
-          };
-          await supabase
-            .from("caregivers")
-            .update({ tasks: updatedTasks })
-            .eq("id", envelope.caregiver_id);
-          completedTasks.push(template.task_name);
-          // Update local ref for subsequent templates
-          cg.tasks = updatedTasks;
-        } catch (taskErr) {
-          console.error(`[esign] Task completion error for ${template.task_name}:`, taskErr);
-        }
-      }
-    } catch (err) {
-      console.error(`[esign] Error processing template ${template.name}:`, err);
     }
   }
 
-  // Build per-document hash map: { "Document Name": "sha256hash" }
-  const docHashMap: Record<string, string> = {};
-  templates.forEach((t: any, i: number) => {
-    if (documentHashes[i]) docHashMap[t.name] = documentHashes[i];
-  });
+  if (failedUploads.length > 0) {
+    console.error(`[esign] WARNING: ${failedUploads.length} document(s) failed: ${failedUploads.join(", ")}`);
+  }
+
+  // documentHashes is already a { "Doc Name": "sha256hash" } map
+  const docHashMap = documentHashes;
 
   // Generate Certificate of Completion PDF
+  // Delay before certificate upload to avoid rapid SharePoint calls
+  await new Promise((r) => setTimeout(r, 1500));
   const signerName = cg ? `${cg.first_name} ${cg.last_name}` : "Unknown";
   let certificateDocId: string | null = null;
   try {
@@ -591,34 +650,26 @@ async function handleSubmitSignature(
     );
     const certBase64 = base64Encode(certBytes);
     const certFileName = `Certificate_of_Completion_${new Date().toISOString().split("T")[0]}.pdf`;
+    console.log(`[esign] Uploading Certificate of Completion (${certBase64.length} chars base64)`);
 
-    const spResponse = await fetch(`${SUPABASE_URL}/functions/v1/sharepoint-docs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-      body: JSON.stringify({
-        action: "upload_file",
-        caregiver_id: envelope.caregiver_id,
-        document_type: "esign_certificate",
-        file_name: certFileName,
-        file_content_base64: certBase64,
-        uploaded_by: "esign-system",
-      }),
-    });
-    const spResult = await spResponse.json();
+    const spResult = await uploadToSharePoint(
+      envelope.caregiver_id,
+      "esign_certificate",
+      certFileName,
+      certBase64,
+    );
     if (!spResult.error) {
       certificateDocId = spResult.doc_id || null;
+      console.log(`[esign] Certificate uploaded → doc_id=${certificateDocId}`);
     } else {
-      console.error("[esign] Certificate upload error:", spResult.error);
+      console.error("[esign] Certificate upload failed after retries:", spResult.error);
     }
   } catch (certErr) {
     console.error("[esign] Certificate generation error:", certErr);
   }
 
   // Update envelope status with all compliance fields
-  const combinedHash = documentHashes.join("|");
+  const combinedHash = Object.values(documentHashes).join("|");
   await supabase
     .from("esign_envelopes")
     .update({
@@ -641,6 +692,8 @@ async function handleSubmitSignature(
         documents_uploaded: uploadedDocIds.length,
         tasks_completed: completedTasks,
         certificate_generated: !!certificateDocId,
+        failed_uploads: failedUploads,
+        processing_log: processingLog,
       }),
     })
     .eq("id", envelope.id);
