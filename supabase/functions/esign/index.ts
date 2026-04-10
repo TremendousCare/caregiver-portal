@@ -427,6 +427,7 @@ async function handleSubmitSignature(
   const uploadedDocIds: string[] = [];
   const completedTasks: string[] = [];
   const failedUploads: string[] = [];
+  const processingLog: Record<string, any>[] = [];  // DB-level diagnostics
 
   // Helper: upload to SharePoint with one retry after 2s delay
   async function uploadToSharePoint(
@@ -466,6 +467,8 @@ async function handleSubmitSignature(
   // Process each template: embed signature, upload to SharePoint
   for (let tIdx = 0; tIdx < templates.length; tIdx++) {
     const template = templates[tIdx];
+    const tLog: Record<string, any> = { name: template.name, id: template.id, document_type: template.document_type || null, steps: {} };
+    processingLog.push(tLog);
     console.log(`[esign] Processing template ${tIdx + 1}/${templates.length}: ${template.name} (${template.id})`);
 
     // Add delay between documents to avoid rapid sequential SharePoint calls
@@ -480,14 +483,14 @@ async function handleSubmitSignature(
         .from("esign-templates")
         .download(template.file_storage_path);
       if (dlErr || !pdfData) {
-        console.error(`[esign] STEP 1 FAILED - download ${template.name}:`, dlErr);
+        tLog.steps["1_download"] = { ok: false, error: String(dlErr) };
         failedUploads.push(template.name);
         continue;
       }
       pdfBytes = new Uint8Array(await pdfData.arrayBuffer());
-      console.log(`[esign] Step 1 OK: downloaded ${template.name} (${pdfBytes.length} bytes)`);
+      tLog.steps["1_download"] = { ok: true, bytes: pdfBytes.length };
     } catch (dlErr) {
-      console.error(`[esign] STEP 1 THREW - download ${template.name}:`, dlErr);
+      tLog.steps["1_download"] = { ok: false, threw: String(dlErr) };
       failedUploads.push(template.name);
       continue;
     }
@@ -554,9 +557,9 @@ async function handleSubmitSignature(
       });
 
       signedPdfBytes = await pdfDoc.save();
-      console.log(`[esign] Step 2 OK: embedded fields in ${template.name} (${signedPdfBytes.length} bytes)`);
+      tLog.steps["2_embed_save"] = { ok: true, originalBytes: pdfBytes.length, signedBytes: signedPdfBytes.length, inflation: `${((signedPdfBytes.length / pdfBytes.length) * 100).toFixed(0)}%` };
     } catch (embedErr) {
-      console.error(`[esign] STEP 2 THREW - embed/save ${template.name}:`, embedErr);
+      tLog.steps["2_embed_save"] = { ok: false, threw: String(embedErr) };
       failedUploads.push(template.name);
       continue;
     }
@@ -565,17 +568,17 @@ async function handleSubmitSignature(
     try {
       const docHash = await hashDocument(signedPdfBytes);
       documentHashes[template.name] = docHash;
-      console.log(`[esign] Step 3 OK: hashed ${template.name} → ${docHash.slice(0, 12)}...`);
+      tLog.steps["3_hash"] = { ok: true, hash: docHash.slice(0, 12) };
     } catch (hashErr) {
-      console.error(`[esign] STEP 3 THREW - hash ${template.name}:`, hashErr);
+      tLog.steps["3_hash"] = { ok: false, threw: String(hashErr) };
       // Non-fatal: continue with upload even if hash fails
     }
 
     // Step 4: Base64 encode and upload to SharePoint
     try {
       const signedBase64 = base64Encode(signedPdfBytes);
+      tLog.steps["4_encode"] = { ok: true, base64Chars: signedBase64.length };
       const signedFileName = `${template.name.replace(/[^a-zA-Z0-9 _-]/g, "")}_Signed_${new Date().toISOString().split("T")[0]}.pdf`;
-      console.log(`[esign] Step 4: uploading ${template.name} (${signedBase64.length} chars base64)`);
 
       const spResult = await uploadToSharePoint(
         envelope.caregiver_id,
@@ -585,14 +588,14 @@ async function handleSubmitSignature(
       );
 
       if (spResult.error) {
-        console.error(`[esign] STEP 4 FAILED - upload ${template.name}:`, spResult.error);
+        tLog.steps["4_upload"] = { ok: false, error: String(spResult.error), docType: template.document_type || "esign_document" };
         failedUploads.push(template.name);
       } else {
         uploadedDocIds.push(spResult.doc_id || template.name);
-        console.log(`[esign] Step 4 OK: uploaded ${template.name} → doc_id=${spResult.doc_id || "fallback"}`);
+        tLog.steps["4_upload"] = { ok: true, doc_id: spResult.doc_id || "fallback", docType: template.document_type || "esign_document" };
       }
     } catch (encodeErr) {
-      console.error(`[esign] STEP 4 THREW - encode/upload ${template.name}:`, encodeErr);
+      tLog.steps["4_encode_upload"] = { ok: false, threw: String(encodeErr) };
       failedUploads.push(template.name);
     }
 
@@ -679,6 +682,8 @@ async function handleSubmitSignature(
         documents_uploaded: uploadedDocIds.length,
         tasks_completed: completedTasks,
         certificate_generated: !!certificateDocId,
+        failed_uploads: failedUploads,
+        processing_log: processingLog,
       }),
     })
     .eq("id", envelope.id);
