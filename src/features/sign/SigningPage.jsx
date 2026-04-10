@@ -235,7 +235,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
                 transition: 'background 0.15s, border-color 0.15s',
               }}
               onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#EA580C'; e.target.style.borderStyle = 'solid'; }}
-              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(234,88,12,0.5)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
+              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(234,88,12,0.5)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; if (e.target.value && onFieldComplete) onFieldComplete(); }}
             />
           );
         }
@@ -262,7 +262,7 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
                 transition: 'background 0.15s, border-color 0.15s',
               }}
               onFocus={(e) => { e.target.style.background = 'rgba(255,255,255,0.9)'; e.target.style.borderColor = '#15803D'; e.target.style.borderStyle = 'solid'; }}
-              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(21,128,61,0.4)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; }}
+              onBlur={(e) => { e.target.style.background = 'transparent'; e.target.style.borderColor = value ? '#15803D' : 'rgba(21,128,61,0.4)'; e.target.style.borderStyle = value ? 'solid' : 'dashed'; if (e.target.value && onFieldComplete) onFieldComplete(); }}
             />
           );
         }
@@ -335,6 +335,7 @@ export function SigningPage() {
   const [declineReason, setDeclineReason] = useState('');
   const [declining, setDeclining] = useState(false);
   const [pendingAdvance, setPendingAdvance] = useState(false);
+  const initialScrollDone = useRef(false);
 
   useEffect(() => {
     if (!token || !supabase) { setError('Invalid link.'); setLoading(false); return; }
@@ -610,7 +611,11 @@ export function SigningPage() {
     const fid = nextIncomplete.fieldId;
     const tryScroll = () => {
       const el = document.querySelector(`[data-field-id="${fid}"]`);
-      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return true; }
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
+        return true;
+      }
       return false;
     };
     if (!tryScroll()) {
@@ -633,7 +638,11 @@ export function SigningPage() {
     const fid = nextIncomplete.fieldId;
     const tryScroll = () => {
       const el = document.querySelector(`[data-field-id="${fid}"]`);
-      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return true; }
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
+        return true;
+      }
       return false;
     };
     if (!tryScroll()) {
@@ -641,6 +650,47 @@ export function SigningPage() {
       setTimeout(tryScroll, 800);
     }
   }, [nextIncomplete, currentDocIndex]);
+
+  const handleGuideBack = useCallback(() => {
+    const currentIdx = nextIncomplete
+      ? orderedRequiredFields.indexOf(nextIncomplete)
+      : orderedRequiredFields.length;
+    if (currentIdx <= 0) return;
+    const prevEntry = orderedRequiredFields[currentIdx - 1];
+    if (prevEntry.templateIndex !== currentDocIndex) {
+      setCurrentDocIndex(prevEntry.templateIndex);
+    }
+    const fid = prevEntry.fieldId;
+    const tryScroll = () => {
+      const el = document.querySelector(`[data-field-id="${fid}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
+        return true;
+      }
+      return false;
+    };
+    if (!tryScroll()) {
+      setTimeout(tryScroll, 300);
+      setTimeout(tryScroll, 800);
+    }
+  }, [nextIncomplete, orderedRequiredFields, currentDocIndex]);
+
+  // Auto-scroll to first required field when entering signing mode
+  useEffect(() => {
+    if (step !== 'signing' || initialScrollDone.current || !nextIncomplete) return;
+    const tpl = envelopeData?.templates?.[nextIncomplete.templateIndex];
+    if (!tpl || !renderedPages[tpl.id]?.length) return;
+    initialScrollDone.current = true;
+    const fid = nextIncomplete.fieldId;
+    setTimeout(() => {
+      const el = document.querySelector(`[data-field-id="${fid}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
+      }
+    }, 500);
+  }, [step, nextIncomplete, renderedPages, envelopeData]);
 
   const templates = envelopeData?.templates || [];
   const currentTemplate = templates[currentDocIndex];
@@ -811,15 +861,30 @@ export function SigningPage() {
               {nextIncomplete ? (
                 <>
                   <span className={s.guideStep}>Step {completedCount + 1} of {totalRequired}</span>
-                  <span className={s.guideLabel}>{nextIncomplete.label}</span>
+                  <span className={s.guideLabel}>
+                    {nextIncomplete.label}
+                    {templates.length > 1 && <span style={{ opacity: 0.7 }}>{' \u2014 '}{templates[nextIncomplete.templateIndex]?.name}</span>}
+                  </span>
                 </>
               ) : (
-                <span className={s.guideStep}>All {totalRequired} fields complete</span>
+                <>
+                  <span className={s.guideStep} style={{ color: '#15803D' }}>All {totalRequired} fields complete!</span>
+                  <span className={s.guideLabel}>Ready to submit</span>
+                </>
               )}
             </div>
-            <button className={s.guideBtn} onClick={handleGuideNext}>
-              {nextIncomplete ? 'Next \u2192' : 'Review & Submit \u2192'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {completedCount > 0 && nextIncomplete && (
+                <button className={s.guideBackBtn} onClick={handleGuideBack}>{'\u2190'} Back</button>
+              )}
+              <button
+                className={s.guideBtn}
+                onClick={handleGuideNext}
+                style={!nextIncomplete ? { background: 'linear-gradient(135deg, #15803D, #16A34A)' } : undefined}
+              >
+                {nextIncomplete ? 'Next \u2192' : 'Review & Submit \u2192'}
+              </button>
+            </div>
           </div>
         </div>
       )}
