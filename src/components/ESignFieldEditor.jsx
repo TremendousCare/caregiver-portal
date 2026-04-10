@@ -68,12 +68,14 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
           const pageScale = Math.min((containerWidth - 32) / viewport.width, 1.5);
           const scaledViewport = page.getViewport({ scale: pageScale });
 
+          const dpr = window.devicePixelRatio || 1;
+          const renderViewport = page.getViewport({ scale: pageScale * dpr });
           const canvas = document.createElement('canvas');
-          canvas.width = scaledViewport.width;
-          canvas.height = scaledViewport.height;
+          canvas.width = renderViewport.width;
+          canvas.height = renderViewport.height;
           const ctx = canvas.getContext('2d');
 
-          await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+          await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
 
           rendered.push({
             dataUrl: canvas.toDataURL(),

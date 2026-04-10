@@ -392,12 +392,14 @@ export function SigningPage() {
           const vp = page.getViewport({ scale: 1 });
           const targetW = Math.min(window.innerWidth - 32, 620);
           const sc = targetW / vp.width;
-          const svp = page.getViewport({ scale: sc });
+          const dpr = window.devicePixelRatio || 1;
+          const renderVp = page.getViewport({ scale: sc * dpr });
+          const displayVp = page.getViewport({ scale: sc });
           const canvas = document.createElement('canvas');
-          canvas.width = svp.width;
-          canvas.height = svp.height;
-          await page.render({ canvasContext: canvas.getContext('2d'), viewport: svp }).promise;
-          pages.push({ dataUrl: canvas.toDataURL(), displayWidth: svp.width, displayHeight: svp.height, pageNum: i, scale: sc });
+          canvas.width = renderVp.width;
+          canvas.height = renderVp.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: renderVp }).promise;
+          pages.push({ dataUrl: canvas.toDataURL(), displayWidth: displayVp.width, displayHeight: displayVp.height, pageNum: i, scale: sc });
         }
         if (!cancelled) setRenderedPages((prev) => ({ ...prev, [tpl.id]: pages }));
       } catch (err) { console.error('PDF render error:', err); }
