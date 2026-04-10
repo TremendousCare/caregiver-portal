@@ -285,16 +285,18 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
               style={{
                 position: 'absolute', left: displayX, top: displayY,
                 width: displayW, height: displayH,
-                border: value ? '2px solid #2E4E8D' : '1.5px dashed rgba(107,114,128,0.5)',
-                borderRadius: 2,
-                background: value ? '#2E4E8D' : 'transparent',
+                border: value ? '2px solid #2E4E8D' : '2px solid #2E4E8D',
+                borderRadius: 3,
+                background: value ? '#2E4E8D' : 'rgba(219,234,254,0.7)',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: Math.max(12, 14 * pageData.scale), fontWeight: 700,
-                transition: 'background 0.15s, border-color 0.15s',
+                color: value ? '#fff' : '#2E4E8D',
+                fontSize: Math.max(12, 14 * pageData.scale), fontWeight: 700,
+                boxShadow: value ? 'none' : '0 0 0 2px rgba(46,78,141,0.15)',
+                transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s',
               }}
             >
-              {value ? '\u2713' : ''}
+              {value ? '\u2713' : '\u2610'}
             </div>
           );
         }
