@@ -1,0 +1,148 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Email Accounts & Routing — Multi-Mailbox Foundation
+--
+-- Two tables that decouple app functions from specific mailboxes.
+-- email_accounts: registry of Microsoft 365 mailboxes the app
+--   can read from / send through (auth is handled by the existing
+--   Azure client-credentials grant — no per-account tokens needed).
+-- email_routing: maps app functions (e.g. "indeed_parsing",
+--   "scheduling") to which mailbox they should check, with
+--   optional filter rules.
+--
+-- Phase 1: TAS mailbox + Indeed parsing route.
+-- Future: add OC, admin, etc. via INSERT — no code changes.
+-- ═══════════════════════════════════════════════════════════════
+
+-- ── 1. Email Accounts Table ──
+
+CREATE TABLE IF NOT EXISTS email_accounts (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label           TEXT NOT NULL,
+  -- Human-readable name, e.g. "Talent Acquisition Specialist"
+  email_address   TEXT NOT NULL UNIQUE,
+  -- Microsoft 365 UPN / email address
+  role            TEXT NOT NULL DEFAULT 'general',
+  -- Logical role: 'talent_acquisition', 'office_coordinator', 'admin', 'general'
+  enabled         BOOLEAN NOT NULL DEFAULT true,
+  last_checked_at TIMESTAMPTZ,
+  -- Tracks when this mailbox was last polled (per-function tracking is on email_routing)
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ── 2. Email Routing Table ──
+
+CREATE TABLE IF NOT EXISTS email_routing (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  function_name     TEXT NOT NULL,
+  -- App function identifier: 'indeed_parsing', 'communications', 'scheduling', etc.
+  email_account_id  UUID NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+  filter_rules      JSONB NOT NULL DEFAULT '{}',
+  -- Optional filters: {"sender_contains": "indeed.com", "subject_contains": "applied"}
+  enabled           BOOLEAN NOT NULL DEFAULT true,
+  last_checked_at   TIMESTAMPTZ,
+  -- Per-route last-check timestamp (more granular than account-level)
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Each function can only be routed to a given account once
+  UNIQUE (function_name, email_account_id)
+);
+
+-- ── 3. Indexes ──
+
+CREATE INDEX IF NOT EXISTS idx_email_accounts_enabled
+  ON email_accounts (enabled) WHERE enabled = true;
+
+CREATE INDEX IF NOT EXISTS idx_email_routing_function
+  ON email_routing (function_name) WHERE enabled = true;
+
+CREATE INDEX IF NOT EXISTS idx_email_routing_account
+  ON email_routing (email_account_id);
+
+-- ── 4. RLS — service_role only ──
+-- These tables are managed by Edge Functions and (future) Settings UI.
+-- No direct browser access needed yet.
+
+ALTER TABLE email_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE email_routing ENABLE ROW LEVEL SECURITY;
+
+-- ── 5. Seed Data ──
+-- TAS mailbox — update the email_address to match your actual TAS mailbox.
+-- The outlook_mailbox value from app_settings is used as the initial seed.
+
+DO $$
+DECLARE
+  tas_id UUID;
+  tas_email TEXT;
+BEGIN
+  -- Try to read the existing outlook_mailbox from app_settings
+  SELECT value INTO tas_email
+  FROM app_settings
+  WHERE key = 'outlook_mailbox'
+  LIMIT 1;
+
+  -- Fall back to a placeholder if not set
+  IF tas_email IS NULL OR tas_email = '' THEN
+    tas_email := 'UPDATE_ME@tremendouscare.com';
+  END IF;
+
+  -- Strip surrounding quotes if present (app_settings stores some values as JSON strings)
+  tas_email := TRIM(BOTH '"' FROM tas_email);
+
+  -- Insert the TAS account
+  INSERT INTO email_accounts (id, label, email_address, role, enabled)
+  VALUES (
+    gen_random_uuid(),
+    'Talent Acquisition Specialist',
+    tas_email,
+    'talent_acquisition',
+    true
+  )
+  ON CONFLICT (email_address) DO NOTHING
+  RETURNING id INTO tas_id;
+
+  -- If the account already existed, fetch its ID
+  IF tas_id IS NULL THEN
+    SELECT id INTO tas_id FROM email_accounts WHERE email_address = tas_email;
+  END IF;
+
+  -- Route Indeed parsing to the TAS mailbox
+  IF tas_id IS NOT NULL THEN
+    INSERT INTO email_routing (function_name, email_account_id, filter_rules, enabled)
+    VALUES (
+      'indeed_parsing',
+      tas_id,
+      '{"sender_contains": "indeed.com"}'::jsonb,
+      true
+    )
+    ON CONFLICT (function_name, email_account_id) DO NOTHING;
+
+    -- Also route general caregiver communications to TAS
+    INSERT INTO email_routing (function_name, email_account_id, filter_rules, enabled)
+    VALUES (
+      'communications',
+      tas_id,
+      '{}'::jsonb,
+      true
+    )
+    ON CONFLICT (function_name, email_account_id) DO NOTHING;
+  END IF;
+END $$;
+
+-- ── 6. pg_cron — check for Indeed emails every 5 minutes ──
+-- Same vault-secret pattern as automation-cron and intake-processor.
+
+SELECT cron.schedule(
+  'indeed-email-parser',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_post(
+    url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1) || '/functions/v1/indeed-email-parser',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'publishable_key' LIMIT 1)
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  ) AS request_id;
+  $$
+);

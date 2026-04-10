@@ -57,7 +57,7 @@ If any step fails, the PR is blocked.
 - **Tasks format**: Flat `{taskId: {completed, completedAt, completedBy}}` — never nested
 - **AI chat deploys via CLI**, not MCP tool: `npx supabase functions deploy ai-chat --no-verify-jwt`
 - **Edge Functions not in git** (except ai-chat and outcome-analyzer): outlook-integration, docusign-integration, execute-automation, automation-cron, sharepoint-docs, get-communications
-- **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2)
+- **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2), indeed-email-parser (every 5min), intake-processor (every 2min)
 
 ---
 
@@ -111,6 +111,31 @@ Frontend (AIChatbot.jsx)
 - `entity_id` is `text` (matches `caregivers.id`), NOT `uuid` (unlike `context_memory.entity_id` which is uuid)
 - Expiry windows: SMS/email 7d, DocuSign 14d, calendar 21d
 - **Migration**: `supabase/migrations/20260222_action_outcomes.sql`
+
+**`email_accounts`** — Multi-mailbox registry
+- `email_address`: Microsoft 365 mailbox UPN (auth uses existing Azure client credentials)
+- `role`: `talent_acquisition`, `office_coordinator`, `admin`, `general`
+- `label`: Human-readable name for Settings UI
+- `last_checked_at`: When this mailbox was last polled
+- **Migration**: `supabase/migrations/20260410_email_accounts.sql`
+
+**`email_routing`** — Maps app functions to mailboxes
+- `function_name`: `indeed_parsing`, `communications`, `scheduling`, etc.
+- `email_account_id`: FK to `email_accounts`
+- `filter_rules`: JSONB filters like `{"sender_contains": "indeed.com"}`
+- `last_checked_at`: Per-route timestamp for polling
+- Adding a new mailbox or function is an INSERT, not a code change
+
+### Indeed Email Parser (`supabase/functions/indeed-email-parser/index.ts`)
+
+- Cron-triggered every 5 minutes
+- Reads routing config from `email_routing` where `function_name = 'indeed_parsing'`
+- Polls configured Outlook mailbox via Microsoft Graph API for Indeed notification emails
+- Parses applicant data (name, email, phone, location) from email subject + body
+- Pushes parsed applicants into `intake_queue` with `source: 'Indeed'`
+- Deduplicates by Graph API message ID to avoid reprocessing
+- Parsing logic mirrored in `src/lib/indeedEmailParser.js` (with 72 Vitest tests)
+- Deploy: `npx supabase functions deploy indeed-email-parser --no-verify-jwt`
 
 **`context_snapshots`** — Session continuity (one per user)
 - `user_id`: Current user name
