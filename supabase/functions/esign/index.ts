@@ -536,12 +536,22 @@ async function handleSubmitSignature(
           });
         } else if (fieldDef.type === "checkbox") {
           if (value === true || value === "true") {
-            page.drawText("\u2713", {
-              x: fieldDef.x + 3,
-              y: pdfY + 3,
-              size: 14,
-              color: rgb(0, 0, 0),
-            });
+            try {
+              page.drawText("\u2713", {
+                x: fieldDef.x + 3,
+                y: pdfY + 3,
+                size: 14,
+                color: rgb(0, 0, 0),
+              });
+            } catch {
+              // WinAnsi-encoded PDFs can't render Unicode checkmark — fall back to X
+              page.drawText("X", {
+                x: fieldDef.x + 3,
+                y: pdfY + 3,
+                size: 14,
+                color: rgb(0, 0, 0),
+              });
+            }
           }
         }
       }
