@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import * as pdfjsLib from 'pdfjs-dist';
+import { PDFDocument, rgb } from 'pdf-lib';
 import s from './SigningPage.module.css';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -335,6 +336,8 @@ export function SigningPage() {
   const [declineReason, setDeclineReason] = useState('');
   const [declining, setDeclining] = useState(false);
   const [pendingAdvance, setPendingAdvance] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(null);
   const initialScrollDone = useRef(false);
 
   useEffect(() => {
@@ -554,6 +557,79 @@ export function SigningPage() {
     }
   }, [token, declineReason]);
 
+  // ─── Download Signed Documents ───
+  const handleDownload = useCallback(async () => {
+    if (!envelopeData?.templates?.length) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const mergedPdf = await PDFDocument.create();
+      for (const tpl of envelopeData.templates) {
+        const pdfBytes = await fetch(tpl.pdf_url).then((r) => r.arrayBuffer());
+        const srcPdf = await PDFDocument.load(pdfBytes);
+        const copiedPages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
+
+        for (let pageIdx = 0; pageIdx < copiedPages.length; pageIdx++) {
+          const page = copiedPages[pageIdx];
+          mergedPdf.addPage(page);
+          const { height } = page.getSize();
+          const pageFields = (tpl.fields || []).filter((f) => (f.page || 1) === pageIdx + 1);
+
+          for (const field of pageFields) {
+            const value = fieldValues[tpl.id]?.[field.id];
+            if (!value) continue;
+            const fx = field.x;
+            const fy = height - field.y - (field.h || 20);
+            const fw = field.w || 100;
+            const fh = field.h || 20;
+
+            if (field.type === 'signature' || field.type === 'initials') {
+              const base64 = value.split(',')[1];
+              const imgBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+              const img = await mergedPdf.embedPng(imgBytes);
+              page.drawImage(img, { x: fx, y: fy, width: fw, height: fh });
+            } else if (field.type === 'text' || field.type === 'date') {
+              const fontSize = Math.min(12, fh * 0.6);
+              page.drawText(String(value), {
+                x: fx + 2, y: fy + fh * 0.3,
+                size: fontSize, color: rgb(0, 0, 0),
+              });
+            } else if (field.type === 'checkbox' && value) {
+              // Draw checkmark with two lines
+              page.drawLine({
+                start: { x: fx + fw * 0.2, y: fy + fh * 0.45 },
+                end: { x: fx + fw * 0.4, y: fy + fh * 0.2 },
+                thickness: 2, color: rgb(0.18, 0.31, 0.55),
+              });
+              page.drawLine({
+                start: { x: fx + fw * 0.4, y: fy + fh * 0.2 },
+                end: { x: fx + fw * 0.8, y: fy + fh * 0.8 },
+                thickness: 2, color: rgb(0.18, 0.31, 0.55),
+              });
+            }
+          }
+        }
+      }
+
+      const finalBytes = await mergedPdf.save();
+      const blob = new Blob([finalBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const name = envelopeData.caregiver_name?.replace(/\s+/g, '_') || 'Signed';
+      a.download = `${name}_Signed_Documents.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download error:', err);
+      setDownloadError('Unable to generate download. Your signed documents have been saved — contact your coordinator if you need a copy.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [envelopeData, fieldValues]);
+
   // ─── Guided Signing Flow ───
   const orderedRequiredFields = useMemo(() => {
     if (!envelopeData?.templates) return [];
@@ -714,6 +790,14 @@ export function SigningPage() {
         <div className={s.card}><div className={s.allDone}><div className={s.allDoneIcon}>&#10003;</div>
           <div className={s.allDoneTitle}>{envelopeData?.already_signed ? 'Already Signed' : 'Signing Complete!'}</div>
           <div className={s.allDoneText}>{envelopeData?.already_signed ? 'These documents have already been signed.' : 'Your documents have been signed and submitted successfully. A Certificate of Completion with tamper-evident document hashes has been generated. Copies have been uploaded to your file. Thank you!'}</div>
+          {!envelopeData?.already_signed && envelopeData?.templates?.length > 0 && (
+            <div className={s.downloadSection}>
+              <button className={s.downloadBtn} onClick={handleDownload} disabled={downloading}>
+                {downloading ? (<><span className={s.spinnerSmall} /> Preparing...</>) : 'Download Signed Documents'}
+              </button>
+              {downloadError && <div className={s.downloadError}>{downloadError}</div>}
+            </div>
+          )}
         </div></div><div className={s.footer}>Tremendous Care &middot; Secure Electronic Signatures</div></div>
     );
   }
