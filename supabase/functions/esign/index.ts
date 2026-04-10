@@ -237,17 +237,18 @@ async function handleCreateEnvelope(
   if (send_via === "email" || send_via === "both") {
     if (caregiver_email) {
       try {
-        await fetch(`${SUPABASE_URL}/functions/v1/bulk-email`, {
+        await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
           },
           body: JSON.stringify({
-            to: [caregiver_email],
+            action: "send_email",
+            to_email: caregiver_email,
+            to_name: displayName,
             subject: `Tremendous Care — Please sign your ${docNames}`,
             body: `<p>Hi ${displayName.split(" ")[0]},</p><p>Please review and sign your ${docNames} for Tremendous Care.</p><p><a href="${signingUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Review & Sign Documents</a></p><p>This link expires in 14 days.</p><p>Thank you,<br/>Tremendous Care</p>`,
-            sent_by: sent_by || "system",
           }),
         });
       } catch (err) {
@@ -744,17 +745,18 @@ async function handleSubmitSignature(
   if (envelope.sent_by) {
     try {
       const docList = templates.map((t: any) => t.name).join(", ");
-      await fetch(`${SUPABASE_URL}/functions/v1/bulk-email`, {
+      await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
         body: JSON.stringify({
-          to: [envelope.sent_by],
+          action: "send_email",
+          to_email: envelope.sent_by,
+          to_name: envelope.sent_by,
           subject: `eSignature Complete — ${signerName}`,
           body: `<p><strong>${signerName}</strong> has completed signing the following documents:</p><ul>${templates.map((t: any) => `<li>${t.name}</li>`).join("")}</ul><p><strong>Signed at:</strong> ${new Date().toLocaleString("en-US")}</p><p>Signed documents and a Certificate of Completion have been uploaded to SharePoint.</p><p>— Tremendous Care eSign</p>`,
-          sent_by: "esign-system",
         }),
       });
       // Mark sender as notified
@@ -884,17 +886,18 @@ async function handleDecline(
   // Notify sender via email
   if (envelope.sent_by) {
     try {
-      await fetch(`${SUPABASE_URL}/functions/v1/bulk-email`, {
+      await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
         body: JSON.stringify({
-          to: [envelope.sent_by],
+          action: "send_email",
+          to_email: envelope.sent_by,
+          to_name: envelope.sent_by,
           subject: `eSignature Declined — ${signerName}`,
           body: `<p><strong>${signerName}</strong> has declined to sign: <em>${docNames}</em></p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p>You may resend the documents or follow up with the caregiver.</p><p>— Tremendous Care eSign</p>`,
-          sent_by: "esign-system",
         }),
       });
     } catch (_) { /* fire-and-forget */ }
@@ -1003,17 +1006,18 @@ async function handleResend(
 
   if ((sendVia === "email" || sendVia === "both") && cg.email) {
     try {
-      await fetch(`${SUPABASE_URL}/functions/v1/bulk-email`, {
+      await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
         body: JSON.stringify({
-          to: [cg.email],
+          action: "send_email",
+          to_email: cg.email,
+          to_name: `${cg.first_name} ${cg.last_name}`.trim(),
           subject: `Reminder: Please sign your ${docNames} — Tremendous Care`,
           body: `<p>Hi ${cg.first_name},</p><p>This is a reminder to review and sign your ${docNames}.</p><p><a href="${signingUrl}" style="display:inline-block;padding:12px 24px;background:#2E4E8D;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Review & Sign Documents</a></p><p>This link expires in 14 days.</p><p>Thank you,<br/>Tremendous Care</p>`,
-          sent_by: resent_by || "system",
         }),
       });
     } catch (err) {
