@@ -414,19 +414,25 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 520px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .emailThread {
   border: 1px solid var(--tc-border-light);
   border-radius: var(--tc-radius-lg);
   overflow: hidden;
-  transition: box-shadow var(--tc-transition-fast);
+  transition: box-shadow var(--tc-transition-fast), border-color var(--tc-transition-fast);
 }
 
 .emailThread:hover {
   box-shadow: var(--tc-shadow-sm);
+  border-color: var(--tc-border);
+}
+
+.emailThreadExpanded {
+  border-color: var(--tc-navy);
+  box-shadow: var(--tc-shadow-md);
 }
 
 .emailThreadHeader {
@@ -435,7 +441,7 @@
   justify-content: space-between;
   gap: 16px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 16px 20px;
   background: #fff;
   border: none;
   cursor: pointer;
@@ -517,10 +523,16 @@
 
 .emailThreadBody {
   background: var(--tc-bg-page);
+  border-left: 3px solid var(--tc-navy);
+  margin-left: 16px;
+  margin-right: 16px;
+  margin-bottom: 12px;
+  border-radius: 0 0 var(--tc-radius-md) var(--tc-radius-md);
+  overflow: hidden;
 }
 
 .emailMessage {
-  padding: 16px;
+  padding: 20px;
   border-bottom: 1px solid var(--tc-border-lighter);
   background: #fff;
 }
@@ -594,10 +606,19 @@
 
 .emailMessageBody {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--tc-text-primary);
   white-space: pre-wrap;
   word-wrap: break-word;
+  padding: 12px 0 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.emailPreviewOnly {
+  font-style: italic;
+  color: var(--tc-text-tertiary);
+  font-size: 13px;
 }
 
 /* ─── Responsive ─────────────────────────────────────────────── */

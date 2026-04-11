@@ -87,25 +87,23 @@ export function EmailThreadView({ emails }) {
         return;
       }
 
-      // Build a map of full bodies keyed by date (for matching back to our messages)
-      const bodies = {};
-      for (const e of data.emails) {
-        // Use the email body, stripping excessive length
+      // Store full bodies as an array sorted by date, plus a timestamp-keyed map for matching
+      const threadData = data.emails.map((e) => {
         const body = e.body && e.body.length > 5000
           ? e.body.substring(0, 5000) + '\n\n... (truncated)'
           : e.body || '';
-        const key = new Date(e.date).getTime();
-        bodies[key] = {
+        return {
           fullBody: body,
           from: e.from,
           fromName: e.from_name,
           to: e.to,
           cc: e.cc,
           subject: e.subject,
+          timestamp: new Date(e.date).getTime(),
         };
-      }
+      }).sort((a, b) => a.timestamp - b.timestamp);
 
-      setThreadBodies((prev) => ({ ...prev, [outlookMsg.conversationId]: bodies }));
+      setThreadBodies((prev) => ({ ...prev, [outlookMsg.conversationId]: threadData }));
     } catch (err) {
       console.warn('Thread fetch error:', err);
     } finally {
@@ -115,21 +113,30 @@ export function EmailThreadView({ emails }) {
 
   /**
    * Resolve the full body for an Outlook-sourced email.
-   * Tries to match by timestamp against the loaded thread data.
+   * Matches by closest timestamp against the loaded thread data.
    */
   const resolveBody = (email) => {
     if (email.fullBody) return email.fullBody;
     if (email.source !== 'outlook' || !email.conversationId) return getDisplayBody(email);
 
-    const bodies = threadBodies[email.conversationId];
-    if (!bodies) return getDisplayBody(email);
+    const threadData = threadBodies[email.conversationId];
+    if (!threadData || !Array.isArray(threadData)) return getDisplayBody(email);
 
-    // Match by closest timestamp (within 60 seconds)
+    // Find the closest match by timestamp
     const emailTime = new Date(email.timestamp).getTime();
-    for (const [key, data] of Object.entries(bodies)) {
-      if (Math.abs(Number(key) - emailTime) < 60000) {
-        return data.fullBody;
+    let bestMatch = null;
+    let bestDiff = Infinity;
+    for (const entry of threadData) {
+      const diff = Math.abs(entry.timestamp - emailTime);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestMatch = entry;
       }
+    }
+
+    // Accept match within 5 minutes
+    if (bestMatch && bestDiff < 300000) {
+      return bestMatch.fullBody;
     }
 
     return getDisplayBody(email);
@@ -170,7 +177,7 @@ export function EmailThreadView({ emails }) {
         const isLoadingThis = loadingThread === thread.normalizedKey;
 
         return (
-          <div key={thread.normalizedKey} className={styles.emailThread}>
+          <div key={thread.normalizedKey} className={`${styles.emailThread} ${isExpanded ? styles.emailThreadExpanded : ''}`}>
             {/* Thread header — clickable to expand */}
             <button
               className={`${styles.emailThreadHeader} ${isExpanded ? styles.emailThreadHeaderExpanded : ''}`}
@@ -240,7 +247,7 @@ export function EmailThreadView({ emails }) {
                       </span>
                     </div>
                     <div className={styles.emailMessageBody}>
-                      {resolveBody(email)}
+                      {resolveBody(email) || <span className={styles.emailPreviewOnly}>No content available</span>}
                     </div>
                   </div>
                 ))}
