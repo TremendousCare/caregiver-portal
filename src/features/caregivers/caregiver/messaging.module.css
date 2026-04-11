@@ -1,0 +1,399 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Messaging Center Styles
+   Chat-style SMS, email threads, call log, and compose bar
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Detail Tab Bar ─────────────────────────────────────────── */
+
+.detailTabBar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 4px;
+  background: var(--tc-bg-card);
+  border-radius: var(--tc-radius-lg);
+  border: 1px solid var(--tc-border-light);
+}
+
+.detailTab {
+  flex: 1;
+  padding: 10px 20px;
+  border-radius: var(--tc-radius-md);
+  border: none;
+  background: transparent;
+  color: var(--tc-text-tertiary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--tc-font-base);
+  transition: all var(--tc-transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.detailTab:hover {
+  background: var(--tc-bg-hover);
+  color: var(--tc-text-secondary);
+}
+
+.detailTabActive {
+  background: var(--tc-navy);
+  color: #fff;
+  box-shadow: var(--tc-shadow-sm);
+}
+
+.detailTabActive:hover {
+  background: var(--tc-navy);
+  color: #fff;
+}
+
+.tabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--tc-danger);
+  color: #fff;
+}
+
+.detailTabActive .tabBadge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+/* ─── Messaging Container ────────────────────────────────────── */
+
+.messagingContainer {
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.messagingHeader {
+  padding: 20px 24px 0;
+}
+
+.messagingTitle {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  font-family: var(--tc-font-heading);
+  color: #0F1724;
+  letter-spacing: -0.2px;
+}
+
+/* ─── Channel Filter Tabs ────────────────────────────────────── */
+
+.channelTabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 0 24px 16px;
+}
+
+.channelTab {
+  padding: 6px 14px;
+  border-radius: var(--tc-radius-pill);
+  border: 1px solid var(--tc-border-input);
+  background: var(--tc-bg-card);
+  color: var(--tc-text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--tc-font-base);
+  transition: all var(--tc-transition-fast);
+}
+
+.channelTab:hover {
+  border-color: var(--tc-navy);
+  color: var(--tc-navy);
+}
+
+.channelTabActive {
+  border-color: var(--tc-navy);
+  background: var(--tc-bg-selected);
+  color: var(--tc-navy);
+}
+
+.channelCount {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+/* ─── SMS Conversation View ──────────────────────────────────── */
+
+.chatContainer {
+  background: var(--tc-bg-page);
+  max-height: 480px;
+  min-height: 200px;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chatEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--tc-text-tertiary);
+  font-size: 14px;
+  text-align: center;
+  gap: 8px;
+}
+
+.chatEmptyIcon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.dateSeparator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dateSeparator::before,
+.dateSeparator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--tc-border-light);
+}
+
+/* ─── Chat Bubbles ───────────────────────────────────────────── */
+
+.bubbleRow {
+  display: flex;
+  margin-bottom: 2px;
+}
+
+.bubbleRowInbound {
+  justify-content: flex-start;
+}
+
+.bubbleRowOutbound {
+  justify-content: flex-end;
+}
+
+.bubbleWrapper {
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+}
+
+.bubble {
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.bubbleInbound {
+  background: #fff;
+  color: var(--tc-text-primary);
+  border: 1px solid var(--tc-border-light);
+  border-bottom-left-radius: 4px;
+}
+
+.bubbleOutbound {
+  background: var(--tc-navy);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.bubbleMeta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--tc-text-light);
+  font-weight: 500;
+}
+
+.bubbleMetaOutbound {
+  justify-content: flex-end;
+}
+
+.bubbleMetaInbound {
+  justify-content: flex-start;
+}
+
+.bubbleAuthor {
+  color: var(--tc-navy);
+  font-weight: 600;
+}
+
+/* ─── SMS Compose Bar ────────────────────────────────────────── */
+
+.composeBar {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--tc-border-light);
+  background: #fff;
+  align-items: flex-end;
+}
+
+.composeInputWrapper {
+  flex: 1;
+  position: relative;
+}
+
+.composeInput {
+  width: 100%;
+  padding: 10px 14px;
+  padding-right: 50px;
+  border: 1px solid var(--tc-border-input);
+  border-radius: var(--tc-radius-md);
+  font-size: 14px;
+  font-family: var(--tc-font-base);
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-input);
+  outline: none;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.composeInput:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 2px rgba(41, 190, 228, 0.12);
+  background: #fff;
+}
+
+.composeInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.charCount {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  font-size: 10px;
+  color: var(--tc-text-light);
+  font-weight: 500;
+}
+
+.charCountWarn {
+  color: var(--tc-warning);
+}
+
+.charCountOver {
+  color: var(--tc-danger);
+}
+
+.composeButton {
+  padding: 10px 20px;
+  border-radius: var(--tc-radius-md);
+  border: none;
+  background: linear-gradient(135deg, var(--tc-navy), var(--tc-navy-dark));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--tc-font-base);
+  box-shadow: var(--tc-shadow-btn-primary);
+  transition: all var(--tc-transition-fast);
+  white-space: nowrap;
+  min-height: 40px;
+}
+
+.composeButton:hover {
+  box-shadow: var(--tc-shadow-btn-primary-hover);
+  transform: translateY(-1px);
+}
+
+.composeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.composeDisabledMsg {
+  padding: 12px 24px;
+  border-top: 1px solid var(--tc-border-light);
+  background: var(--tc-bg-card);
+  color: var(--tc-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ─── Loading Spinner ────────────────────────────────────────── */
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  color: var(--tc-text-tertiary);
+  font-size: 13px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--tc-border-input);
+  border-top-color: var(--tc-navy);
+  border-radius: 50%;
+  animation: msgSpin 0.8s linear infinite;
+}
+
+@keyframes msgSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Responsive ─────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .bubbleWrapper {
+    max-width: 85%;
+  }
+
+  .channelTabs {
+    padding: 0 16px 12px;
+  }
+
+  .chatContainer {
+    padding: 16px;
+    max-height: 400px;
+  }
+
+  .composeBar {
+    padding: 12px 16px;
+  }
+
+  .messagingHeader {
+    padding: 16px 16px 0;
+  }
+
+  .detailTabBar {
+    flex-direction: column;
+  }
+}

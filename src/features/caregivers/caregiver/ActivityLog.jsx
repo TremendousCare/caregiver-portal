@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { supabase } from '../../../lib/supabase';
+import { useState, useRef } from 'react';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
+import { useCommsTimeline } from './useCommsTimeline';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -11,85 +11,16 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const [noteType, setNoteType] = useState('note');
   const [noteDirection, setNoteDirection] = useState('outbound');
   const [noteOutcome, setNoteOutcome] = useState('');
-  const [rcData, setRcData] = useState({ sms: [], calls: [] });
-  const [rcLoading, setRcLoading] = useState(false);
   const [showPortalOnly, setShowPortalOnly] = useState(false);
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
-  const accessTokenRef = useRef('');
   const [expandedTranscriptId, setExpandedTranscriptId] = useState(null);
   const [transcriptLoading, setTranscriptLoading] = useState(null);
   const [transcriptError, setTranscriptError] = useState(null);
   const transcriptCacheRef = useRef({});
 
-  // Get Supabase access token for recording playback URLs
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      accessTokenRef.current = session?.access_token || '';
-    });
-  }, []);
-
-  // Fetch RingCentral communication data
-  useEffect(() => {
-    if (!caregiver?.id || !supabase) return;
-    let cancelled = false;
-    setRcLoading(true);
-    supabase.functions.invoke('get-communications', {
-      body: { caregiver_id: caregiver.id, days_back: 90 },
-    }).then(({ data, error }) => {
-      if (cancelled) return;
-      if (error || !data) {
-        console.warn('RC fetch failed:', error);
-        setRcData({ sms: [], calls: [] });
-      } else {
-        setRcData({ sms: data.sms || [], calls: data.calls || [] });
-      }
-    }).catch((err) => {
-      if (!cancelled) {
-        console.warn('RC fetch error:', err);
-        setRcData({ sms: [], calls: [] });
-      }
-    }).finally(() => {
-      if (!cancelled) setRcLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [caregiver?.id]);
-
-  // Merge portal notes + RC data into unified timeline
-  const mergedTimeline = useMemo(() => {
-    const portalEntries = (caregiver.notes || []).map((n, i) => ({
-      ...n,
-      id: `portal-${i}`,
-      source: n.source || 'portal',
-      timestamp: n.timestamp || n.date,
-    }));
-
-    const rcEntries = [...rcData.sms, ...rcData.calls];
-
-    // Deduplication: skip RC entries that match portal notes within 2 minutes
-    const portalOutboundTexts = portalEntries.filter(
-      (n) => n.type === 'text' && n.direction === 'outbound' && n.source === 'portal'
-    );
-    const portalRCNotes = portalEntries.filter((n) => n.source === 'ringcentral');
-    const deduped = rcEntries.filter((rc) => {
-      const rcTime = new Date(rc.timestamp).getTime();
-      // Skip RC outbound texts matching portal outbound notes (automation-sent SMS)
-      if (rc.type === 'text' && rc.direction === 'outbound') {
-        if (portalOutboundTexts.some((pn) => Math.abs(rcTime - new Date(pn.timestamp).getTime()) < 120000)) return false;
-      }
-      // Skip RC entries matching webhook-written notes (inbound SMS logged by webhook)
-      if (portalRCNotes.some((pn) => {
-        if (pn.type !== rc.type || pn.direction !== rc.direction) return false;
-        return Math.abs(rcTime - new Date(pn.timestamp).getTime()) < 120000;
-      })) return false;
-      return true;
-    });
-
-    return [...portalEntries, ...deduped].sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  }, [caregiver.notes, rcData]);
+  // Use the shared comms timeline hook
+  const { mergedTimeline, rcLoading, accessToken } = useCommsTimeline(caregiver);
 
   const isCommunication = noteType !== 'note';
 
@@ -117,7 +48,7 @@ export function ActivityLog({ caregiver, onAddNote }) {
     setTranscriptLoading(recordingId);
     setTranscriptError(null);
     try {
-      const url = buildTranscriptionUrl(recordingId, accessTokenRef.current);
+      const url = buildTranscriptionUrl(recordingId, accessToken.current);
       const res = await fetch(url);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Transcription failed' }));
@@ -286,7 +217,7 @@ export function ActivityLog({ caregiver, onAddNote }) {
                   <audio
                     controls
                     autoPlay
-                    src={buildRecordingUrl(n.recordingId, accessTokenRef.current)}
+                    src={buildRecordingUrl(n.recordingId, accessToken.current)}
                     onError={() => setRecordingError(n.recordingId)}
                     onEnded={() => setPlayingRecordingId(null)}
                     style={{ width: '100%', height: 36, borderRadius: 8 }}
