@@ -13,6 +13,9 @@ import { DocumentsSection } from './caregiver/DocumentsSection';
 import { ActivityLog } from './caregiver/ActivityLog';
 import { RecommendedNextStep } from './caregiver/RecommendedNextStep';
 import { SurveyResults } from './caregiver/SurveyResults';
+import { DetailTabBar } from './caregiver/DetailTabBar';
+import { MessagingCenter } from './caregiver/MessagingCenter';
+import { useCommsTimeline } from './caregiver/useCommsTimeline';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -22,6 +25,9 @@ export function CaregiverDetail({
   const [activePhase, setActivePhase] = useState(getCurrentPhase(caregiver));
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [detailTab, setDetailTab] = useState('tasks');
+
+  const { smsMessages, emailMessages, callEntries, rcLoading, needsResponse } = useCommsTimeline(caregiver);
 
   const greenLight = isGreenLight(caregiver);
   const onboardingComplete = getOverallProgress(caregiver) === 100;
@@ -111,28 +117,49 @@ export function CaregiverDetail({
 
       <RecommendedNextStep caregiver={caregiver} />
 
-      <PhaseDetail
-        caregiver={caregiver}
-        allCaregivers={allCaregivers}
-        activePhase={activePhase}
-        showScripts={showScripts}
-        onToggleScripts={setShowScripts}
-        onUpdateTask={onUpdateTask}
-        onUpdateTasksBulk={onUpdateTasksBulk}
-        onRefreshTasks={onRefreshTasks}
+      <DetailTabBar
+        activeTab={detailTab}
+        onChange={setDetailTab}
+        needsResponse={needsResponse}
       />
 
-      <DocumentsSection
-        caregiver={caregiver}
-        currentUser={currentUser}
-        showToast={showToast}
-        onUpdateCaregiver={onUpdateCaregiver}
-      />
+      {detailTab === 'tasks' ? (
+        <>
+          <PhaseDetail
+            caregiver={caregiver}
+            allCaregivers={allCaregivers}
+            activePhase={activePhase}
+            showScripts={showScripts}
+            onToggleScripts={setShowScripts}
+            onUpdateTask={onUpdateTask}
+            onUpdateTasksBulk={onUpdateTasksBulk}
+            onRefreshTasks={onRefreshTasks}
+          />
 
-      <ActivityLog
-        caregiver={caregiver}
-        onAddNote={onAddNote}
-      />
+          <DocumentsSection
+            caregiver={caregiver}
+            currentUser={currentUser}
+            showToast={showToast}
+            onUpdateCaregiver={onUpdateCaregiver}
+          />
+
+          <ActivityLog
+            caregiver={caregiver}
+            onAddNote={onAddNote}
+          />
+        </>
+      ) : (
+        <MessagingCenter
+          caregiver={caregiver}
+          smsMessages={smsMessages}
+          emailMessages={emailMessages}
+          callEntries={callEntries}
+          rcLoading={rcLoading}
+          currentUser={currentUser}
+          onAddNote={onAddNote}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
