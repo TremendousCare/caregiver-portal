@@ -194,23 +194,49 @@ export function EmailThreadView({ emails, caregiver, currentUser, onAddNote, sho
     if (!replyBody.trim() || !caregiver?.email || !supabase) return;
 
     const trimmedBody = replyBody.trim();
-    // Add "Re: " if the subject doesn't already have it
     const rawSubject = thread.subject || '(No subject)';
     const replySubject = rawSubject.match(/^re:/i) ? rawSubject : `Re: ${rawSubject}`;
 
+    // Find the most recent Outlook email ID in this thread to reply to
+    const outlookMessages = [...thread.messages]
+      .filter((m) => m.source === 'outlook' && m.outlookId)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const replyToId = outlookMessages.length > 0 ? outlookMessages[0].outlookId : null;
+
     setReplySending(true);
     try {
-      const { error } = await supabase.functions.invoke('outlook-integration', {
-        body: {
-          action: 'send_email',
-          to_email: caregiver.email,
-          to_name: `${caregiver.first_name || ''} ${caregiver.last_name || ''}`.trim() || null,
-          subject: replySubject,
-          body: trimmedBody,
-        },
-      });
+      let sent = false;
 
-      if (error) throw error;
+      // Try threaded reply first (requires reply_to_email action on Edge Function)
+      if (replyToId) {
+        const { data, error } = await supabase.functions.invoke('outlook-integration', {
+          body: {
+            action: 'reply_to_email',
+            email_id: replyToId,
+            body: trimmedBody,
+          },
+        });
+        // If the action isn't supported yet, data may contain an error about unknown action
+        if (!error && data && !data.error) {
+          sent = true;
+        } else {
+          console.warn('[EmailThreadView] reply_to_email failed, falling back to send_email:', error || data?.error);
+        }
+      }
+
+      // Fallback: send as a new email with Re: subject
+      if (!sent) {
+        const { error } = await supabase.functions.invoke('outlook-integration', {
+          body: {
+            action: 'send_email',
+            to_email: caregiver.email,
+            to_name: `${caregiver.first_name || ''} ${caregiver.last_name || ''}`.trim() || null,
+            subject: replySubject,
+            body: trimmedBody,
+          },
+        });
+        if (error) throw error;
+      }
 
       // Log as a note so it appears in the thread immediately
       onAddNote(caregiver.id, {
