@@ -621,6 +621,64 @@
   font-size: 13px;
 }
 
+/* ─── Email Inline Reply ─────────────────────────────────────── */
+
+.emailReplySection {
+  padding: 12px 20px 16px;
+  background: var(--tc-bg-card);
+  border-top: 1px solid var(--tc-border-lighter);
+}
+
+.emailReplyBtn {
+  padding: 8px 20px;
+  border-radius: var(--tc-radius-md);
+  border: 1px solid var(--tc-navy);
+  background: transparent;
+  color: var(--tc-navy);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--tc-font-base);
+  transition: all var(--tc-transition-fast);
+}
+
+.emailReplyBtn:hover {
+  background: var(--tc-bg-selected);
+}
+
+.emailReplyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.emailReplyTextarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--tc-border-input);
+  border-radius: var(--tc-radius-sm);
+  font-size: 14px;
+  font-family: var(--tc-font-base);
+  color: var(--tc-text-primary);
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.emailReplyTextarea:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 2px rgba(41, 190, 228, 0.12);
+}
+
+.emailReplyActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ─── Email Compose Form ─────────────────────────────────────── */
 
 .composeEmailBtnRow {

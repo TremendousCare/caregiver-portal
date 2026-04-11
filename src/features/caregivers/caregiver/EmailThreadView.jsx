@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { groupEmailsByThread, extractBodyFromText } from './emailUtils';
+import { groupEmailsByThread, extractBodyFromText, normalizeSubject } from './emailUtils';
 import styles from './messaging.module.css';
 
 /**
@@ -57,10 +57,13 @@ function getDisplayBody(email) {
  * Email thread view — groups emails by subject, shows expandable thread cards.
  * Lazy-loads full email bodies from Outlook when a thread is expanded.
  */
-export function EmailThreadView({ emails }) {
+export function EmailThreadView({ emails, caregiver, currentUser, onAddNote, showToast }) {
   const [expandedThread, setExpandedThread] = useState(null);
   const [loadedBodies, setLoadedBodies] = useState({}); // { outlookId: fullBody } — flat map keyed by email ID
   const [loadingThread, setLoadingThread] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null); // thread normalizedKey
+  const [replyBody, setReplyBody] = useState('');
+  const [replySending, setReplySending] = useState(false);
 
   const threads = groupEmailsByThread(emails);
 
@@ -187,6 +190,51 @@ export function EmailThreadView({ emails }) {
     return getDisplayBody(email);
   };
 
+  const handleReply = async (thread) => {
+    if (!replyBody.trim() || !caregiver?.email || !supabase) return;
+
+    const trimmedBody = replyBody.trim();
+    // Add "Re: " if the subject doesn't already have it
+    const rawSubject = thread.subject || '(No subject)';
+    const replySubject = rawSubject.match(/^re:/i) ? rawSubject : `Re: ${rawSubject}`;
+
+    setReplySending(true);
+    try {
+      const { error } = await supabase.functions.invoke('outlook-integration', {
+        body: {
+          action: 'send_email',
+          to_email: caregiver.email,
+          to_name: `${caregiver.first_name || ''} ${caregiver.last_name || ''}`.trim() || null,
+          subject: replySubject,
+          body: trimmedBody,
+        },
+      });
+
+      if (error) throw error;
+
+      // Log as a note so it appears in the thread immediately
+      onAddNote(caregiver.id, {
+        text: `Email sent \u2014 Subject: ${replySubject}\n\n${trimmedBody.length > 300 ? trimmedBody.substring(0, 300) + '...' : trimmedBody}`,
+        type: 'email',
+        direction: 'outbound',
+        outcome: `sent via Outlook to ${caregiver.email}`,
+        source: 'portal',
+        fullBody: trimmedBody,
+        subject: replySubject,
+        toEmail: caregiver.email,
+      });
+
+      setReplyBody('');
+      setReplyingTo(null);
+      if (showToast) showToast('Reply sent', 'success');
+    } catch (err) {
+      console.error('[EmailThreadView] Reply failed:', err);
+      if (showToast) showToast('Failed to send reply. Please try again.', 'error');
+    } finally {
+      setReplySending(false);
+    }
+  };
+
   if (threads.length === 0) {
     return (
       <div className={styles.chatContainer}>
@@ -298,6 +346,48 @@ export function EmailThreadView({ emails }) {
                     </div>
                   </div>
                 ))}
+
+                {/* Inline reply */}
+                {caregiver?.email && (
+                  <div className={styles.emailReplySection}>
+                    {replyingTo === thread.normalizedKey ? (
+                      <div className={styles.emailReplyForm}>
+                        <textarea
+                          className={styles.emailReplyTextarea}
+                          placeholder="Write your reply..."
+                          value={replyBody}
+                          onChange={(e) => setReplyBody(e.target.value)}
+                          disabled={replySending}
+                          rows={4}
+                          autoFocus
+                        />
+                        <div className={styles.emailReplyActions}>
+                          <button
+                            className={styles.composeEmailCancel}
+                            onClick={() => { setReplyingTo(null); setReplyBody(''); }}
+                            disabled={replySending}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className={styles.composeButton}
+                            onClick={() => handleReply(thread)}
+                            disabled={!replyBody.trim() || replySending}
+                          >
+                            {replySending ? 'Sending...' : 'Send Reply'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className={styles.emailReplyBtn}
+                        onClick={() => { setReplyingTo(thread.normalizedKey); setReplyBody(''); }}
+                      >
+                        Reply
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

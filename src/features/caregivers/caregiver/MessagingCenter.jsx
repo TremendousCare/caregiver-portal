@@ -73,7 +73,13 @@ export function MessagingCenter({
                 Loading email history from Outlook...
               </div>
             )}
-            <EmailThreadView emails={emailMessages} />
+            <EmailThreadView
+              emails={emailMessages}
+              caregiver={caregiver}
+              currentUser={currentUser}
+              onAddNote={onAddNote}
+              showToast={showToast}
+            />
             <EmailComposeForm
               caregiver={caregiver}
               currentUser={currentUser}
