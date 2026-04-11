@@ -27,7 +27,7 @@ export function CaregiverDetail({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [detailTab, setDetailTab] = useState('tasks');
 
-  const { smsMessages, emailMessages, callEntries, rcLoading, emailLoading, needsResponse } = useCommsTimeline(caregiver);
+  const { smsMessages, emailMessages, callEntries, rcLoading, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
 
   const greenLight = isGreenLight(caregiver);
   const onboardingComplete = getOverallProgress(caregiver) === 100;
@@ -156,6 +156,7 @@ export function CaregiverDetail({
           callEntries={callEntries}
           rcLoading={rcLoading}
           emailLoading={emailLoading}
+          accessToken={accessToken}
           currentUser={currentUser}
           onAddNote={onAddNote}
           showToast={showToast}
