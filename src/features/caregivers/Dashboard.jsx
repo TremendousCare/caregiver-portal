@@ -155,9 +155,6 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
           >
             {phaseInfo.icon} {phaseInfo.short}
           </span>
-          {caregiver.phaseOverride && (
-            <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }} title="Phase manually overridden">⚙️</span>
-          )}
         </span>
         <span className={cards.cgDays}>Day {days}</span>
       </div>
