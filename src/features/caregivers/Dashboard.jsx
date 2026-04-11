@@ -184,7 +184,7 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
 // ─── DASHBOARD ───────────────────────────────────────────────
 export function Dashboard({
   caregivers, allCaregivers, filterPhase, searchTerm, setSearchTerm,
-  onSelect, onAdd, onBulkPhaseOverride, onBulkAddNote, onBulkBoardStatus,
+  onSelect, onAdd, onImportIndeed, onBulkPhaseOverride, onBulkAddNote, onBulkBoardStatus,
   onBulkArchive, onBulkSms, showToast, sidebarWidth,
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
@@ -310,6 +310,9 @@ export function Dashboard({
             onExportFiltered={() => exportToCSV(sortedCaregivers, filterPhase)}
             onExportAll={() => exportToCSV(allCaregivers, 'all')}
           />
+          <button className={btn.secondaryBtn} onClick={onImportIndeed}>
+            Import Indeed CSV
+          </button>
           <button className={btn.primaryBtn} onClick={onAdd}>
             ＋ New Caregiver
           </button>
