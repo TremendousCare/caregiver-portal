@@ -25,6 +25,7 @@ export function MessagingCenter({
   emailMessages,
   callEntries,
   rcLoading,
+  emailLoading,
   currentUser,
   onAddNote,
   showToast,
@@ -63,7 +64,17 @@ export function MessagingCenter({
         );
 
       case 'emails':
-        return <EmailThreadView emails={emailMessages} />;
+        return (
+          <>
+            {emailLoading && (
+              <div className={styles.loadingRow}>
+                <span className={styles.spinner} />
+                Loading email history from Outlook...
+              </div>
+            )}
+            <EmailThreadView emails={emailMessages} />
+          </>
+        );
 
       case 'calls':
         return (

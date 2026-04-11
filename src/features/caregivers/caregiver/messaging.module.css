@@ -579,6 +579,12 @@
   color: var(--tc-text-tertiary);
 }
 
+.emailAttachmentIcon {
+  font-size: 13px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
 .emailMessageTime {
   font-size: 12px;
   color: var(--tc-text-light);
