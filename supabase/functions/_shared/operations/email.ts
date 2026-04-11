@@ -63,6 +63,11 @@ export async function sendEmail(
         },
         actor,
       );
+      // Store full email data for the Messaging Center thread view
+      (emailNote as any).fullBody = body;
+      (emailNote as any).subject = subject;
+      (emailNote as any).toEmail = toEmail;
+      (emailNote as any).ccEmail = cc || null;
       await supabase
         .from("caregivers")
         .update({ notes: [...(cg.notes || []), emailNote] })

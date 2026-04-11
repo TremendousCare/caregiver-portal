@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SMSConversationView } from './SMSConversationView';
 import { SMSComposeBar } from './SMSComposeBar';
+import { EmailThreadView } from './EmailThreadView';
 import styles from './messaging.module.css';
 
 const CHANNELS = [
@@ -62,15 +63,7 @@ export function MessagingCenter({
         );
 
       case 'emails':
-        return (
-          <div className={styles.chatContainer}>
-            <div className={styles.chatEmpty}>
-              <span className={styles.chatEmptyIcon}>✉️</span>
-              <div>{emailMessages.length === 0 ? 'No emails yet' : `${emailMessages.length} email${emailMessages.length !== 1 ? 's' : ''}`}</div>
-              <div style={{ fontSize: 12 }}>Email thread view coming soon</div>
-            </div>
-          </div>
-        );
+        return <EmailThreadView emails={emailMessages} />;
 
       case 'calls':
         return (

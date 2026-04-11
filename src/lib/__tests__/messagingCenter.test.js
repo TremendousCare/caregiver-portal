@@ -1,4 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import {
+  normalizeSubject,
+  extractSubjectFromText,
+  extractBodyFromText,
+  groupEmailsByThread,
+} from '../../features/caregivers/caregiver/emailUtils';
 
 // ─── caregiverNeedsResponse ───────────────────────────────────
 // Test the needs-response detection logic inline (same algorithm as useCommsTimeline)
@@ -256,5 +262,149 @@ describe('deduplicateTimeline', () => {
     const result = deduplicateTimeline(notes, []);
     expect(result[0].text).toBe('Newer');
     expect(result[1].text).toBe('Older');
+  });
+});
+
+// ─── Email Utility Tests ──────────────────────────────────────
+
+describe('normalizeSubject', () => {
+  it('strips Re: prefix', () => {
+    expect(normalizeSubject('Re: Welcome aboard')).toBe('welcome aboard');
+  });
+
+  it('strips Fwd: prefix', () => {
+    expect(normalizeSubject('Fwd: Welcome aboard')).toBe('welcome aboard');
+  });
+
+  it('strips FW: prefix', () => {
+    expect(normalizeSubject('FW: Welcome aboard')).toBe('welcome aboard');
+  });
+
+  it('strips nested Re: Re: Fwd: prefixes', () => {
+    expect(normalizeSubject('Re: Re: Fwd: Welcome aboard')).toBe('welcome aboard');
+  });
+
+  it('is case-insensitive', () => {
+    expect(normalizeSubject('RE: RE: FWD: Hello')).toBe('hello');
+  });
+
+  it('handles empty/null subject', () => {
+    expect(normalizeSubject('')).toBe('');
+    expect(normalizeSubject(null)).toBe('');
+    expect(normalizeSubject(undefined)).toBe('');
+  });
+
+  it('trims whitespace', () => {
+    expect(normalizeSubject('  Re:  Spaced subject  ')).toBe('spaced subject');
+  });
+
+  it('leaves normal subjects lowercase', () => {
+    expect(normalizeSubject('Background Check Documents')).toBe('background check documents');
+  });
+});
+
+describe('extractSubjectFromText', () => {
+  it('extracts subject from legacy email note format', () => {
+    expect(extractSubjectFromText('Email sent — Subject: Welcome to TC\n\nBody here'))
+      .toBe('Welcome to TC');
+  });
+
+  it('handles subject with no body', () => {
+    expect(extractSubjectFromText('Email sent — Subject: Just a subject'))
+      .toBe('Just a subject');
+  });
+
+  it('returns "(No subject)" for empty text', () => {
+    expect(extractSubjectFromText('')).toBe('(No subject)');
+    expect(extractSubjectFromText(null)).toBe('(No subject)');
+  });
+
+  it('returns "(No subject)" when no Subject: pattern found', () => {
+    expect(extractSubjectFromText('Some random note text')).toBe('(No subject)');
+  });
+});
+
+describe('extractBodyFromText', () => {
+  it('extracts body after double newline', () => {
+    expect(extractBodyFromText('Email sent — Subject: Test\n\nHello, this is the body.'))
+      .toBe('Hello, this is the body.');
+  });
+
+  it('returns full text when no double newline', () => {
+    expect(extractBodyFromText('Single line note')).toBe('Single line note');
+  });
+
+  it('returns empty string for empty/null text', () => {
+    expect(extractBodyFromText('')).toBe('');
+    expect(extractBodyFromText(null)).toBe('');
+  });
+
+  it('handles body with multiple paragraphs', () => {
+    const text = 'Email sent — Subject: Test\n\nParagraph 1\n\nParagraph 2';
+    expect(extractBodyFromText(text)).toBe('Paragraph 1\n\nParagraph 2');
+  });
+});
+
+describe('groupEmailsByThread', () => {
+  it('returns empty array for no emails', () => {
+    expect(groupEmailsByThread([])).toEqual([]);
+  });
+
+  it('groups emails with same subject into one thread', () => {
+    const emails = [
+      { text: 'Email sent — Subject: Welcome\n\nHi there', type: 'email', direction: 'outbound', timestamp: Date.now() - 60000 },
+      { text: 'Email sent — Subject: Re: Welcome\n\nThanks!', type: 'email', direction: 'inbound', timestamp: Date.now() },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].messages).toHaveLength(2);
+  });
+
+  it('keeps different subjects as separate threads', () => {
+    const emails = [
+      { text: 'Email sent — Subject: Welcome\n\nHi', type: 'email', direction: 'outbound', timestamp: Date.now() },
+      { text: 'Email sent — Subject: Background Check\n\nPlease complete', type: 'email', direction: 'outbound', timestamp: Date.now() },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads).toHaveLength(2);
+  });
+
+  it('sorts threads by most recent message (newest first)', () => {
+    const now = Date.now();
+    const emails = [
+      { text: 'Email sent — Subject: Old Thread\n\nOld', type: 'email', direction: 'outbound', timestamp: now - 100000 },
+      { text: 'Email sent — Subject: New Thread\n\nNew', type: 'email', direction: 'outbound', timestamp: now },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads[0].subject).toContain('New Thread');
+  });
+
+  it('sorts messages within a thread chronologically (oldest first)', () => {
+    const now = Date.now();
+    const emails = [
+      { text: 'Email sent — Subject: Re: Welcome\n\nReply', type: 'email', direction: 'inbound', timestamp: now },
+      { text: 'Email sent — Subject: Welcome\n\nOriginal', type: 'email', direction: 'outbound', timestamp: now - 60000 },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads[0].messages[0].text).toContain('Original');
+    expect(threads[0].messages[1].text).toContain('Reply');
+  });
+
+  it('uses fullBody and subject fields when available', () => {
+    const emails = [
+      { text: 'Email sent — Subject: Test\n\nTruncated...', fullBody: 'Full email body here', subject: 'Test', type: 'email', direction: 'outbound', timestamp: Date.now() },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads[0].subject).toBe('Test');
+    expect(threads[0].messages[0].fullBody).toBe('Full email body here');
+  });
+
+  it('handles single email as a thread of one', () => {
+    const emails = [
+      { text: 'Email sent — Subject: Solo\n\nJust one email', type: 'email', direction: 'outbound', timestamp: Date.now() },
+    ];
+    const threads = groupEmailsByThread(emails);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].messages).toHaveLength(1);
   });
 });
