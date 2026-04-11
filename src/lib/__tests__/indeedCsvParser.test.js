@@ -163,9 +163,14 @@ describe('mapIndeedRow', () => {
     expect(caregiverData.phone).toBe('6575574368');
   });
 
-  it('maps email directly', () => {
+  it('skips @indeedemail.com masked emails', () => {
     const { caregiverData } = mapIndeedRow(sampleRow);
-    expect(caregiverData.email).toBe('jaquelynnerivkudo_6hp@indeedemail.com');
+    expect(caregiverData.email).toBe('');
+  });
+
+  it('keeps real email addresses', () => {
+    const { caregiverData } = mapIndeedRow({ ...sampleRow, email: 'jaquelyn@gmail.com' });
+    expect(caregiverData.email).toBe('jaquelyn@gmail.com');
   });
 
   it('splits candidate location into city and state', () => {
