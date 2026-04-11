@@ -59,86 +59,131 @@ function getDisplayBody(email) {
  */
 export function EmailThreadView({ emails }) {
   const [expandedThread, setExpandedThread] = useState(null);
-  const [threadBodies, setThreadBodies] = useState({}); // { conversationId: [emails with full bodies] }
+  const [loadedBodies, setLoadedBodies] = useState({}); // { outlookId: fullBody } — flat map keyed by email ID
   const [loadingThread, setLoadingThread] = useState(null);
 
   const threads = groupEmailsByThread(emails);
 
-  // Fetch full email thread from Outlook when expanding a thread with Outlook-sourced messages
+  // Fetch full email bodies from Outlook when expanding a thread
   const fetchThreadBodies = useCallback(async (thread) => {
-    // Find a conversationId from any Outlook-sourced message in this thread
-    const outlookMsg = thread.messages.find((m) => m.source === 'outlook' && m.conversationId);
-    if (!outlookMsg || !supabase) return;
+    if (!supabase) return;
 
-    // Already loaded
-    if (threadBodies[outlookMsg.conversationId]) return;
+    const outlookMsgs = thread.messages.filter((m) => m.source === 'outlook');
+    if (outlookMsgs.length === 0) return;
+
+    // Check if all Outlook messages in this thread already have loaded bodies
+    const allLoaded = outlookMsgs.every((m) => m.outlookId && loadedBodies[m.outlookId]);
+    if (allLoaded) return;
 
     setLoadingThread(thread.normalizedKey);
     try {
-      const { data, error } = await supabase.functions.invoke('outlook-integration', {
-        body: {
-          action: 'get_email_thread',
-          conversation_id: outlookMsg.conversationId,
-        },
-      });
+      // Try fetching by conversation_id first (gets the full thread in one call)
+      const convMsg = outlookMsgs.find((m) => m.conversationId);
+      if (convMsg) {
+        const { data, error } = await supabase.functions.invoke('outlook-integration', {
+          body: { action: 'get_email_thread', conversation_id: convMsg.conversationId },
+        });
 
-      if (error || !data || !data.emails) {
-        console.warn('Thread fetch failed:', error);
-        return;
+        if (!error && data?.emails?.length) {
+          // Sort fetched emails chronologically to match our display order
+          const fetched = data.emails
+            .map((e) => ({
+              body: e.body || '',
+              timestamp: new Date(e.date).getTime(),
+              from: e.from,
+              subject: e.subject,
+            }))
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+          // Match fetched bodies to our messages using multiple strategies
+          const newBodies = { ...loadedBodies };
+          for (const msg of outlookMsgs) {
+            if (msg.outlookId && newBodies[msg.outlookId]) continue;
+
+            const msgTime = new Date(msg.timestamp).getTime();
+
+            // Strategy 1: Match by closest timestamp
+            let bestMatch = null;
+            let bestDiff = Infinity;
+            for (const f of fetched) {
+              const diff = Math.abs(f.timestamp - msgTime);
+              if (diff < bestDiff) {
+                bestDiff = diff;
+                bestMatch = f;
+              }
+            }
+
+            if (bestMatch && msg.outlookId) {
+              const body = bestMatch.body.length > 5000
+                ? bestMatch.body.substring(0, 5000) + '\n\n... (truncated)'
+                : bestMatch.body;
+              newBodies[msg.outlookId] = body;
+            }
+          }
+
+          // Strategy 2: For any still unmatched, assign by position
+          const unmatched = outlookMsgs.filter((m) => m.outlookId && !newBodies[m.outlookId]);
+          if (unmatched.length > 0 && fetched.length > 0) {
+            // Sort unmatched by timestamp and pair with remaining fetched emails
+            const sortedUnmatched = [...unmatched].sort(
+              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+            for (let i = 0; i < sortedUnmatched.length && i < fetched.length; i++) {
+              const msg = sortedUnmatched[i];
+              if (!newBodies[msg.outlookId]) {
+                const body = fetched[i].body.length > 5000
+                  ? fetched[i].body.substring(0, 5000) + '\n\n... (truncated)'
+                  : fetched[i].body;
+                newBodies[msg.outlookId] = body;
+              }
+            }
+          }
+
+          setLoadedBodies(newBodies);
+          setLoadingThread(null);
+          return;
+        }
       }
 
-      // Store full bodies as an array sorted by date, plus a timestamp-keyed map for matching
-      const threadData = data.emails.map((e) => {
-        const body = e.body && e.body.length > 5000
-          ? e.body.substring(0, 5000) + '\n\n... (truncated)'
-          : e.body || '';
-        return {
-          fullBody: body,
-          from: e.from,
-          fromName: e.from_name,
-          to: e.to,
-          cc: e.cc,
-          subject: e.subject,
-          timestamp: new Date(e.date).getTime(),
-        };
-      }).sort((a, b) => a.timestamp - b.timestamp);
-
-      setThreadBodies((prev) => ({ ...prev, [outlookMsg.conversationId]: threadData }));
+      // Fallback: fetch individual emails by email_id
+      const newBodies = { ...loadedBodies };
+      for (const msg of outlookMsgs) {
+        if (!msg.outlookId || newBodies[msg.outlookId]) continue;
+        try {
+          const { data, error } = await supabase.functions.invoke('outlook-integration', {
+            body: { action: 'get_email_thread', email_id: msg.outlookId },
+          });
+          if (!error && data?.emails?.[0]?.body) {
+            const body = data.emails[0].body.length > 5000
+              ? data.emails[0].body.substring(0, 5000) + '\n\n... (truncated)'
+              : data.emails[0].body;
+            newBodies[msg.outlookId] = body;
+          }
+        } catch (err) {
+          console.warn('Individual email fetch failed:', msg.outlookId, err);
+        }
+      }
+      setLoadedBodies(newBodies);
     } catch (err) {
       console.warn('Thread fetch error:', err);
     } finally {
       setLoadingThread(null);
     }
-  }, [threadBodies]);
+  }, [loadedBodies]);
 
   /**
-   * Resolve the full body for an Outlook-sourced email.
-   * Matches by closest timestamp against the loaded thread data.
+   * Resolve the display body for an email.
    */
   const resolveBody = (email) => {
+    // Portal notes with fullBody stored directly
     if (email.fullBody) return email.fullBody;
-    if (email.source !== 'outlook' || !email.conversationId) return getDisplayBody(email);
 
-    const threadData = threadBodies[email.conversationId];
-    if (!threadData || !Array.isArray(threadData)) return getDisplayBody(email);
-
-    // Find the closest match by timestamp
-    const emailTime = new Date(email.timestamp).getTime();
-    let bestMatch = null;
-    let bestDiff = Infinity;
-    for (const entry of threadData) {
-      const diff = Math.abs(entry.timestamp - emailTime);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestMatch = entry;
-      }
+    // Check loaded Outlook bodies by email ID
+    if (email.outlookId && loadedBodies[email.outlookId]) {
+      return loadedBodies[email.outlookId];
     }
 
-    // Accept match within 5 minutes
-    if (bestMatch && bestDiff < 300000) {
-      return bestMatch.fullBody;
-    }
-
+    // Fall back to whatever we have
     return getDisplayBody(email);
   };
 
@@ -159,9 +204,11 @@ export function EmailThreadView({ emails }) {
       setExpandedThread(null);
     } else {
       setExpandedThread(key);
-      // Lazy-load full bodies for Outlook-sourced threads
-      const hasOutlook = thread.messages.some((m) => m.source === 'outlook' && !m.fullBody);
-      if (hasOutlook) {
+      // Lazy-load full bodies for any Outlook-sourced messages that don't have bodies yet
+      const needsLoad = thread.messages.some(
+        (m) => m.source === 'outlook' && !m.fullBody && m.outlookId && !loadedBodies[m.outlookId]
+      );
+      if (needsLoad) {
         fetchThreadBodies(thread);
       }
     }
