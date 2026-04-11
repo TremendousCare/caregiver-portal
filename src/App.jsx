@@ -8,7 +8,6 @@ import { ClientProvider } from './shared/context/ClientContext';
 import { BoardProvider, useBoards } from './shared/context/BoardContext';
 import { AuthGate } from './shared/components/AuthGate';
 import { AIChatbot } from './shared/components/AIChatbot';
-import { NotificationCenter } from './shared/components/NotificationCenter';
 import { AppShell } from './shared/layout/AppShell';
 import { ErrorBoundary } from './shared/components/ErrorBoundary';
 import { Dashboard } from './features/caregivers/Dashboard';
@@ -576,7 +575,6 @@ export default function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
-            <NotificationCenter currentUser={currentUserName} />
             <AIChatbot caregiverId={null} currentUser={currentUserName} />
           </BoardProviderBridge>
         </ClientProvider>
