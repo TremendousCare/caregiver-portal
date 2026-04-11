@@ -58,6 +58,11 @@ export function createBlankQuestion() {
  */
 export const PROFILE_FIELD_OPTIONS = [
   { value: '', label: 'None (don\'t map)' },
+  { value: 'email', label: 'Email' },
+  { value: 'address', label: 'Address' },
+  { value: 'city', label: 'City' },
+  { value: 'state', label: 'State' },
+  { value: 'zip', label: 'Zip Code' },
   { value: 'has_hca', label: 'HCA Status' },
   { value: 'has_dl', label: 'Driver\'s License & Car' },
   { value: 'years_experience', label: 'Years of Experience' },
