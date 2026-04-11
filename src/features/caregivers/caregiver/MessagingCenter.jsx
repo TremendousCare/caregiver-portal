@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { SMSConversationView } from './SMSConversationView';
 import { SMSComposeBar } from './SMSComposeBar';
 import { EmailThreadView } from './EmailThreadView';
+import { EmailComposeForm } from './EmailComposeForm';
 import styles from './messaging.module.css';
 
 const CHANNELS = [
@@ -73,6 +74,12 @@ export function MessagingCenter({
               </div>
             )}
             <EmailThreadView emails={emailMessages} />
+            <EmailComposeForm
+              caregiver={caregiver}
+              currentUser={currentUser}
+              onAddNote={onAddNote}
+              showToast={showToast}
+            />
           </>
         );
 
