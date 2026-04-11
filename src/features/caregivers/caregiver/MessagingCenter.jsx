@@ -3,6 +3,7 @@ import { SMSConversationView } from './SMSConversationView';
 import { SMSComposeBar } from './SMSComposeBar';
 import { EmailThreadView } from './EmailThreadView';
 import { EmailComposeForm } from './EmailComposeForm';
+import { CallLogView } from './CallLogView';
 import styles from './messaging.module.css';
 
 const CHANNELS = [
@@ -27,6 +28,7 @@ export function MessagingCenter({
   callEntries,
   rcLoading,
   emailLoading,
+  accessToken,
   currentUser,
   onAddNote,
   showToast,
@@ -84,15 +86,7 @@ export function MessagingCenter({
         );
 
       case 'calls':
-        return (
-          <div className={styles.chatContainer}>
-            <div className={styles.chatEmpty}>
-              <span className={styles.chatEmptyIcon}>📞</span>
-              <div>{callEntries.length === 0 ? 'No call records yet' : `${callEntries.length} call${callEntries.length !== 1 ? 's' : ''}`}</div>
-              <div style={{ fontSize: 12 }}>Call log view coming soon</div>
-            </div>
-          </div>
-        );
+        return <CallLogView calls={callEntries} accessToken={accessToken} />;
 
       case 'all':
       default:
