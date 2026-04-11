@@ -151,7 +151,7 @@ export function mapIndeedRow(row) {
     firstName,
     lastName,
     phone,
-    email: row.email || '',
+    email: (row.email && !row.email.toLowerCase().endsWith('@indeedemail.com')) ? row.email : '',
     city,
     state,
     source: 'Indeed',
