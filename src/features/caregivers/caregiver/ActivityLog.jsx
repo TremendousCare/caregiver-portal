@@ -6,12 +6,14 @@ import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
 import { NOTE_TYPES, NOTE_OUTCOMES } from './constants';
 
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'All', icon: '📋' },
+  ...NOTE_TYPES,
+];
+
 export function ActivityLog({ caregiver, onAddNote }) {
   const [noteText, setNoteText] = useState('');
-  const [noteType, setNoteType] = useState('note');
-  const [noteDirection, setNoteDirection] = useState('outbound');
-  const [noteOutcome, setNoteOutcome] = useState('');
-  const [showPortalOnly, setShowPortalOnly] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('all');
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState(null);
@@ -22,19 +24,15 @@ export function ActivityLog({ caregiver, onAddNote }) {
   // Use the shared comms timeline hook
   const { mergedTimeline, rcLoading, accessToken } = useCommsTimeline(caregiver);
 
-  const isCommunication = noteType !== 'note';
-
   const handleAddNote = () => {
     if (!noteText.trim()) return;
-    const note = { text: noteText.trim(), type: noteType };
-    if (isCommunication) {
-      note.direction = noteDirection;
-      if (noteOutcome) note.outcome = noteOutcome;
-    }
-    onAddNote(caregiver.id, note);
+    onAddNote(caregiver.id, { text: noteText.trim(), type: 'note' });
     setNoteText('');
-    setNoteOutcome('');
   };
+
+  const filteredTimeline = activeFilter === 'all'
+    ? mergedTimeline
+    : mergedTimeline.filter((n) => n.type === activeFilter);
 
   const fetchTranscript = async (recordingId) => {
     if (expandedTranscriptId === recordingId) {
@@ -69,73 +67,28 @@ export function ActivityLog({ caregiver, onAddNote }) {
     <div className={cg.notesSection}>
       <h3 className={cg.notesSectionTitle}>📝 Activity Log</h3>
 
-      {/* Type selector pills */}
+      {/* Filter pills */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {NOTE_TYPES.map((t) => (
+        {FILTER_OPTIONS.map((t) => (
           <button
             key={t.value}
             style={{
               padding: '5px 12px', borderRadius: 20, border: '1px solid',
-              borderColor: noteType === t.value ? '#2E4E8D' : '#D1D5DB',
-              background: noteType === t.value ? '#EBF0FA' : '#FAFBFC',
-              color: noteType === t.value ? '#2E4E8D' : '#6B7B8F',
+              borderColor: activeFilter === t.value ? '#2E4E8D' : '#D1D5DB',
+              background: activeFilter === t.value ? '#EBF0FA' : '#FAFBFC',
+              color: activeFilter === t.value ? '#2E4E8D' : '#6B7B8F',
               fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}
-            onClick={() => setNoteType(t.value)}
+            onClick={() => setActiveFilter(activeFilter === t.value ? 'all' : t.value)}
           >
             {t.icon} {t.label}
           </button>
         ))}
-        <span style={{ width: 1, height: 20, background: '#D1D5DB', margin: '0 4px' }} />
-        <button
-          style={{
-            padding: '5px 12px', borderRadius: 20, border: '1px solid',
-            borderColor: showPortalOnly ? '#2E4E8D' : '#D1D5DB',
-            background: showPortalOnly ? '#EBF0FA' : '#FAFBFC',
-            color: showPortalOnly ? '#2E4E8D' : '#6B7B8F',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-          }}
-          onClick={() => setShowPortalOnly(!showPortalOnly)}
-        >
-          {showPortalOnly ? '✓ ' : ''}Internal Notes Only
-        </button>
       </div>
-
-      {/* Direction + Outcome row for communications */}
-      {isCommunication && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {['outbound', 'inbound'].map((d) => (
-              <button
-                key={d}
-                style={{
-                  padding: '4px 10px', borderRadius: 6, border: '1px solid',
-                  borderColor: noteDirection === d ? '#1084C3' : '#D1D5DB',
-                  background: noteDirection === d ? '#EBF5FB' : '#FAFBFC',
-                  color: noteDirection === d ? '#1084C3' : '#6B7B8F',
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                }}
-                onClick={() => setNoteDirection(d)}
-              >
-                {d === 'outbound' ? '↗ Outbound' : '↙ Inbound'}
-              </button>
-            ))}
-          </div>
-          <select
-            className={forms.fieldInput}
-            style={{ padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
-            value={noteOutcome}
-            onChange={(e) => setNoteOutcome(e.target.value)}
-          >
-            <option value="">Outcome...</option>
-            {NOTE_OUTCOMES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-      )}
 
       {/* Note text input */}
       <div className={forms.noteInputRow}>
-        <input className={forms.noteInput} placeholder={isCommunication ? 'What was discussed or attempted...' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+        <input className={forms.noteInput} placeholder="Add an internal note..." value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
         <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleAddNote}>Add</button>
       </div>
 
@@ -147,7 +100,7 @@ export function ActivityLog({ caregiver, onAddNote }) {
         </div>
       )}
       <div className={cg.notesList}>
-        {(showPortalOnly ? mergedTimeline.filter((n) => n.source !== 'ringcentral') : mergedTimeline).map((n) => {
+        {filteredTimeline.map((n) => {
           const typeInfo = NOTE_TYPES.find((t) => t.value === n.type);
           const outcomeInfo = NOTE_OUTCOMES.find((o) => o.value === n.outcome);
           const isRC = n.source === 'ringcentral';
@@ -245,11 +198,10 @@ export function ActivityLog({ caregiver, onAddNote }) {
             </div>
           );
         })}
-        {mergedTimeline.length === 0 && !rcLoading && !showPortalOnly && (
-          <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No activity yet. Log your outreach and communications here.</div>
-        )}
-        {showPortalOnly && mergedTimeline.filter((n) => n.source !== 'ringcentral').length === 0 && (
-          <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>No internal notes yet.</div>
+        {filteredTimeline.length === 0 && !rcLoading && (
+          <div style={{ color: '#6B7B8F', fontSize: 13, padding: 16, textAlign: 'center' }}>
+            {activeFilter === 'all' ? 'No activity yet.' : `No ${FILTER_OPTIONS.find((f) => f.value === activeFilter)?.label.toLowerCase() || 'matching'} entries found.`}
+          </div>
         )}
       </div>
     </div>
