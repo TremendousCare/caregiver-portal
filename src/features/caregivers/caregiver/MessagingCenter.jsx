@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { SMSConversationView } from './SMSConversationView';
 import { SMSComposeBar } from './SMSComposeBar';
 import { EmailThreadView } from './EmailThreadView';
+import { EmailComposeForm } from './EmailComposeForm';
 import styles from './messaging.module.css';
 
 const CHANNELS = [
@@ -25,6 +26,7 @@ export function MessagingCenter({
   emailMessages,
   callEntries,
   rcLoading,
+  emailLoading,
   currentUser,
   onAddNote,
   showToast,
@@ -63,7 +65,23 @@ export function MessagingCenter({
         );
 
       case 'emails':
-        return <EmailThreadView emails={emailMessages} />;
+        return (
+          <>
+            {emailLoading && (
+              <div className={styles.loadingRow}>
+                <span className={styles.spinner} />
+                Loading email history from Outlook...
+              </div>
+            )}
+            <EmailThreadView emails={emailMessages} />
+            <EmailComposeForm
+              caregiver={caregiver}
+              currentUser={currentUser}
+              onAddNote={onAddNote}
+              showToast={showToast}
+            />
+          </>
+        );
 
       case 'calls':
         return (
