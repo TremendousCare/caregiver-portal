@@ -25,6 +25,7 @@ import { ApplyPage } from './features/apply/ApplyPage';
 import { UploadPage } from './features/upload/UploadPage';
 import { SigningPage } from './features/sign/SigningPage';
 import { SurveyPage } from './features/survey/SurveyPage';
+import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { getCurrentPhase, getOverallProgress } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import { saveBoard } from './lib/storage';
@@ -37,9 +38,11 @@ function DashboardPage() {
   const { sidebarCollapsed, showToast } = useApp();
   const {
     activeCaregivers, archivedCaregivers, onboardingCaregivers, filterPhase, tasksVersion,
+    addCaregiver, addNote,
     bulkPhaseOverride, bulkAddNote, bulkBoardStatus, bulkArchive, bulkSms,
   } = useCaregivers();
   const [searchTerm, setSearchTerm] = useState('');
+  const [showIndeedImport, setShowIndeedImport] = useState(false);
 
   const filtered = useMemo(() => {
     const base = filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers;
@@ -54,23 +57,42 @@ function DashboardPage() {
     });
   }, [onboardingCaregivers, archivedCaregivers, filterPhase, searchTerm, tasksVersion]);
 
+  const allCaregivers = filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers;
+
+  const handleImportCaregiver = useCallback((caregiverData, note) => {
+    const newCg = addCaregiver(caregiverData);
+    if (newCg && note) {
+      addNote(newCg.id, note);
+    }
+  }, [addCaregiver, addNote]);
+
   return (
-    <Dashboard
-      caregivers={filtered}
-      allCaregivers={filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers}
-      filterPhase={filterPhase}
-      searchTerm={searchTerm}
-      setSearchTerm={setSearchTerm}
-      sidebarWidth={sidebarCollapsed ? 64 : 260}
-      onSelect={(id) => navigate(`/caregiver/${id}`)}
-      onAdd={() => navigate('/add')}
-      onBulkPhaseOverride={bulkPhaseOverride}
-      onBulkAddNote={bulkAddNote}
-      onBulkBoardStatus={bulkBoardStatus}
-      onBulkArchive={bulkArchive}
-      onBulkSms={bulkSms}
-      showToast={showToast}
-    />
+    <>
+      <Dashboard
+        caregivers={filtered}
+        allCaregivers={allCaregivers}
+        filterPhase={filterPhase}
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+        sidebarWidth={sidebarCollapsed ? 64 : 260}
+        onSelect={(id) => navigate(`/caregiver/${id}`)}
+        onAdd={() => navigate('/add')}
+        onImportIndeed={() => setShowIndeedImport(true)}
+        onBulkPhaseOverride={bulkPhaseOverride}
+        onBulkAddNote={bulkAddNote}
+        onBulkBoardStatus={bulkBoardStatus}
+        onBulkArchive={bulkArchive}
+        onBulkSms={bulkSms}
+        showToast={showToast}
+      />
+      {showIndeedImport && (
+        <IndeedImportModal
+          onClose={() => setShowIndeedImport(false)}
+          onImport={handleImportCaregiver}
+          existingCaregivers={[...onboardingCaregivers, ...archivedCaregivers]}
+        />
+      )}
+    </>
   );
 }
 
