@@ -1,0 +1,293 @@
+/* ─── Availability editor layout ─── */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  user-select: none;
+}
+
+.loading {
+  padding: 24px;
+  text-align: center;
+  color: #7A8BA0;
+  font-size: 14px;
+}
+
+.errorBanner {
+  padding: 16px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #7F1D1D;
+  font-size: 14px;
+}
+
+/* ─── Toolbar ─── */
+
+.toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.toolbarInfo {
+  flex: 1;
+  min-width: 220px;
+}
+
+.toolbarButtons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0F1724;
+  margin: 0 0 4px;
+}
+
+.sectionSubtitle {
+  font-size: 13px;
+  color: #7A8BA0;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ─── Weekly grid ─── */
+
+.gridWrap {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  overflow: hidden;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 72px repeat(7, minmax(72px, 1fr));
+  background: #F5F8FC;
+  min-width: 640px;
+}
+
+.headerCell {
+  padding: 10px 8px;
+  background: #F5F8FC;
+  color: #5A6B80;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+  border-bottom: 1px solid #E1E7EF;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.timeCell {
+  padding: 0 8px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 10px;
+  color: #A2B0C4;
+  background: #F5F8FC;
+  border-right: 1px solid #E1E7EF;
+}
+
+.timeCellHour {
+  color: #5A6B80;
+  font-weight: 500;
+  border-top: 1px solid #D8E0EC;
+}
+
+/* ─── Clickable slot cells ─── */
+
+.cell {
+  height: 16px;
+  background: #fff;
+  border-right: 1px solid #EEF2F7;
+  border-bottom: 1px solid #F5F8FC;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.cell:hover {
+  background: #E8F1FE;
+}
+
+.cellHourStart {
+  border-top: 1px solid #D8E0EC;
+}
+
+.cellActive {
+  background: #2E4E8D;
+}
+
+.cellActive:hover {
+  background: #253f73;
+}
+
+/* ─── Summary ─── */
+
+.summary {
+  padding: 12px 16px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #5A6B80;
+  line-height: 1.5;
+}
+
+.divider {
+  height: 1px;
+  background: #E1E7EF;
+  margin: 8px 0;
+}
+
+/* ─── Time-off form ─── */
+
+.timeOffForm {
+  padding: 16px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.timeOffFormRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 12px;
+}
+
+.timeOffFormActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5A6B80;
+}
+
+.fieldInput {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.fieldInput:focus {
+  border-color: #2E4E8D;
+}
+
+/* ─── One-off list ─── */
+
+.empty {
+  padding: 12px 16px;
+  color: #A2B0C4;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.oneOffList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oneOffItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.oneOffText {
+  color: #0F1724;
+}
+
+.oneOffReason {
+  color: #5A6B80;
+}
+
+.oneOffPending {
+  color: #D97706;
+  font-style: italic;
+  margin-left: 4px;
+}
+
+.oneOffRemove {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #7A8BA0;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.oneOffRemove:hover {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
+/* ─── Footer / save ─── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.dirtyNote {
+  font-size: 13px;
+  color: #5A6B80;
+}
+
+@media (max-width: 720px) {
+  .timeOffFormRow {
+    grid-template-columns: 1fr;
+  }
+  .grid {
+    min-width: 560px;
+  }
+}

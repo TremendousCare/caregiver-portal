@@ -16,6 +16,7 @@ import { SurveyResults } from './caregiver/SurveyResults';
 import { DetailTabBar } from './caregiver/DetailTabBar';
 import { MessagingCenter } from './caregiver/MessagingCenter';
 import { useCommsTimeline } from './caregiver/useCommsTimeline';
+import { AvailabilityEditor } from '../scheduling/AvailabilityEditor';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -123,7 +124,7 @@ export function CaregiverDetail({
         needsResponse={needsResponse}
       />
 
-      {detailTab === 'tasks' ? (
+      {detailTab === 'tasks' && (
         <>
           <PhaseDetail
             caregiver={caregiver}
@@ -148,7 +149,9 @@ export function CaregiverDetail({
             onAddNote={onAddNote}
           />
         </>
-      ) : (
+      )}
+
+      {detailTab === 'messages' && (
         <MessagingCenter
           caregiver={caregiver}
           smsMessages={smsMessages}
@@ -159,6 +162,14 @@ export function CaregiverDetail({
           accessToken={accessToken}
           currentUser={currentUser}
           onAddNote={onAddNote}
+          showToast={showToast}
+        />
+      )}
+
+      {detailTab === 'availability' && (
+        <AvailabilityEditor
+          caregiver={caregiver}
+          currentUserName={currentUser?.displayName}
           showToast={showToast}
         />
       )}
