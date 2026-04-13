@@ -61,8 +61,14 @@ export function AppShell() {
         ],
         extra: <ClientSidebarExtra />,
       },
+      {
+        id: 'scheduling',
+        label: 'Scheduling',
+        items: [
+          { id: 'schedule', path: '/schedule', icon: '📅', label: 'Calendar' },
+        ],
+      },
       // Future:
-      // { id: 'scheduling', label: 'Scheduling', items: [...] },
       // { id: 'billing', label: 'Billing', items: [...] },
     ];
   }, [setFilterPhase, setClientFilterPhase, boards]);

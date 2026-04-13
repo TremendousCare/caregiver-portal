@@ -20,6 +20,7 @@ import { ClientDashboard } from './features/clients/ClientDashboard';
 import { AddClient } from './features/clients/AddClient';
 import { ClientDetail } from './features/clients/ClientDetail';
 import { SequenceSettings } from './features/clients/SequenceSettings';
+import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AdminSettings } from './components/AdminSettings';
 import { ApplyPage } from './features/apply/ApplyPage';
 import { UploadPage } from './features/upload/UploadPage';
@@ -593,6 +594,7 @@ export default function App() {
                 <Route path="clients/add" element={<AddClientPage />} />
                 <Route path="clients/sequences" element={<SequenceSettingsPage />} />
                 <Route path="clients/:id" element={<ClientDetailPage />} />
+                <Route path="schedule" element={<SchedulePage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
