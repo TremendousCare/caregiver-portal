@@ -37,9 +37,15 @@ jobs:
 
     steps:
       - name: Install PostgreSQL 17 client
-        # We install from the official PostgreSQL APT repository to guarantee
-        # we have a pg_dump version that is compatible with Supabase's server.
-        # pg_dump 17 is backward-compatible with all current Supabase versions.
+        # Installs pg_dump / psql v17 from the official PostgreSQL APT repository.
+        # We must use v17 because Supabase runs PostgreSQL 17 and pg_dump refuses
+        # to dump a server that is newer than the client (by design — prevents
+        # corrupted backups from missing schema features).
+        #
+        # The GitHub Ubuntu runner ships with postgresql-client-16 preinstalled,
+        # so simply calling `pg_dump` resolves to v16. We work around this by
+        # invoking the v17 binaries via their explicit install path:
+        #   /usr/lib/postgresql/17/bin/{pg_dump,psql}
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl --fail --silent --show-error \
@@ -49,7 +55,9 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client-17
-          pg_dump --version
+          # Sanity check: confirm the v17 binaries actually exist before continuing.
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          /usr/lib/postgresql/17/bin/psql --version
 
       - name: Record backup timestamp
         id: ts
@@ -63,7 +71,7 @@ jobs:
           PGCONNECT_TIMEOUT: '30'
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          pg_dump "$DATABASE_URL" \
+          /usr/lib/postgresql/17/bin/pg_dump "$DATABASE_URL" \
             --schema=public \
             --no-owner \
             --no-privileges \
@@ -80,7 +88,7 @@ jobs:
           set -e
           for table in caregivers clients events context_memory; do
             echo "Exporting public.$table..."
-            psql "$DATABASE_URL" --quiet --no-align --tuples-only \
+            /usr/lib/postgresql/17/bin/psql "$DATABASE_URL" --quiet --no-align --tuples-only \
               --command="\copy (SELECT * FROM public.$table) TO 'backup/csv/${table}-${{ steps.ts.outputs.date }}.csv' WITH CSV HEADER" \
               || echo "::warning::Failed to export public.$table (table may not exist)"
           done
