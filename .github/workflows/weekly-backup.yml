@@ -1,0 +1,111 @@
+name: Weekly Database Backup
+
+# What this does:
+#   Every Sunday at 08:00 UTC (3 AM EST / 4 AM EDT), this workflow connects to
+#   the Supabase database and creates an offsite backup of the `public` schema
+#   (all application data: caregivers, clients, events, memory, etc.).
+#
+#   Output is stored as a GitHub Actions artifact with 90-day retention:
+#     - A compressed SQL dump (restorable via pg_restore / psql)
+#     - Human-readable CSV exports of the most important tables
+#
+#   You can also trigger this job manually from the Actions tab at any time
+#   (see the "Run workflow" button on the workflow page).
+#
+# How to restore:
+#   1. Open the Actions tab, find the run you want, download the artifact.
+#   2. The `.sql.gz` file can be restored with:
+#        gunzip caregiver-portal-YYYY-MM-DD.sql.gz
+#        psql "<connection-string>" -f caregiver-portal-YYYY-MM-DD.sql
+#   3. The `.csv` files can be opened directly in Excel / Google Sheets.
+#
+# Security:
+#   The database connection string is stored as the `SUPABASE_DB_URL` repo
+#   secret. It is never written to logs or committed to the repo.
+
+on:
+  schedule:
+    # Minute  Hour  Day  Month  DayOfWeek  → Sundays at 08:00 UTC
+    - cron: '0 8 * * 0'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    name: Backup public schema + CSV exports
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Install PostgreSQL 17 client
+        # We install from the official PostgreSQL APT repository to guarantee
+        # we have a pg_dump version that is compatible with Supabase's server.
+        # pg_dump 17 is backward-compatible with all current Supabase versions.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          pg_dump --version
+
+      - name: Record backup timestamp
+        id: ts
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Create backup directories
+        run: mkdir -p backup/csv
+
+      - name: Dump public schema (SQL)
+        env:
+          PGCONNECT_TIMEOUT: '30'
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          pg_dump "$DATABASE_URL" \
+            --schema=public \
+            --no-owner \
+            --no-privileges \
+            --format=plain \
+            --file="backup/caregiver-portal-${{ steps.ts.outputs.date }}.sql"
+          gzip -9 "backup/caregiver-portal-${{ steps.ts.outputs.date }}.sql"
+          ls -lh "backup/caregiver-portal-${{ steps.ts.outputs.date }}.sql.gz"
+
+      - name: Export key tables as CSV
+        env:
+          PGCONNECT_TIMEOUT: '30'
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -e
+          for table in caregivers clients events context_memory; do
+            echo "Exporting public.$table..."
+            psql "$DATABASE_URL" --quiet --no-align --tuples-only \
+              --command="\copy (SELECT * FROM public.$table) TO 'backup/csv/${table}-${{ steps.ts.outputs.date }}.csv' WITH CSV HEADER" \
+              || echo "::warning::Failed to export public.$table (table may not exist)"
+          done
+          ls -lh backup/csv/
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: caregiver-portal-backup-${{ steps.ts.outputs.date }}
+          path: backup/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Write backup summary
+        if: always()
+        run: |
+          {
+            echo "### Weekly backup: ${{ steps.ts.outputs.date }}"
+            echo ""
+            echo "**SQL dump:**"
+            ls -lh backup/*.sql.gz 2>/dev/null || echo "(missing)"
+            echo ""
+            echo "**CSV exports:**"
+            ls -lh backup/csv/ 2>/dev/null || echo "(missing)"
+            echo ""
+            echo "Download the backup from the **Artifacts** section of this run."
+            echo "Retention: 90 days."
+          } >> "$GITHUB_STEP_SUMMARY"
