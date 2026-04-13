@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   dbToCarePlan,
   carePlanToDb,
+  buildCarePlanPatchRow,
   dbToShift,
   shiftToDb,
   dbToAvailability,
@@ -85,6 +86,62 @@ describe('care plan mappers', () => {
   it('carePlanToDb provides default status = draft for new plans', () => {
     const row = carePlanToDb({ clientId: 'c' });
     expect(row.status).toBe('draft');
+  });
+});
+
+// ─── buildCarePlanPatchRow ─────────────────────────────────────
+// Regression tests for the bug where a status-only update would
+// also wipe title, notes, dates, hours, etc. This helper must only
+// emit fields that are present in the patch.
+
+describe('buildCarePlanPatchRow', () => {
+  it('returns an empty-ish row (just updated_at) for an empty patch', () => {
+    const row = buildCarePlanPatchRow({});
+    expect(row.updated_at).toBeTruthy();
+    expect(Object.keys(row)).toEqual(['updated_at']);
+  });
+
+  it('handles null or non-object patches without crashing', () => {
+    expect(() => buildCarePlanPatchRow(null)).not.toThrow();
+    expect(() => buildCarePlanPatchRow(undefined)).not.toThrow();
+  });
+
+  it('only emits the status field when patch is {status: "paused"}', () => {
+    const row = buildCarePlanPatchRow({ status: 'paused' });
+    expect(row.status).toBe('paused');
+    expect(row.title).toBeUndefined();
+    expect(row.notes).toBeUndefined();
+    expect(row.start_date).toBeUndefined();
+    expect(row.end_date).toBeUndefined();
+    expect(row.hours_per_week).toBeUndefined();
+    expect(row.service_type).toBeUndefined();
+    expect(row.client_id).toBeUndefined();
+  });
+
+  it('emits multiple fields when multiple are present', () => {
+    const row = buildCarePlanPatchRow({
+      title: 'Renamed',
+      status: 'active',
+      hoursPerWeek: 30,
+    });
+    expect(row.title).toBe('Renamed');
+    expect(row.status).toBe('active');
+    expect(row.hours_per_week).toBe(30);
+    expect(row.notes).toBeUndefined();
+    expect(row.start_date).toBeUndefined();
+  });
+
+  it('preserves explicit null values in the patch', () => {
+    const row = buildCarePlanPatchRow({ endDate: null });
+    expect(row.end_date).toBeNull();
+    // Only end_date and updated_at should be set
+    expect(Object.keys(row).sort()).toEqual(['end_date', 'updated_at']);
+  });
+
+  it('always stamps updated_at', () => {
+    const row = buildCarePlanPatchRow({ status: 'ended' });
+    const stamp = new Date(row.updated_at);
+    expect(Number.isNaN(stamp.getTime())).toBe(false);
   });
 });
 

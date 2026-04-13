@@ -67,10 +67,36 @@ export const createCarePlan = async (plan) => {
   return dbToCarePlan(data);
 };
 
+/**
+ * Build a partial-update row for care_plans that only includes the
+ * fields present in `patch`. Prevents accidental column wipes when
+ * callers pass a small patch like `{ status: 'paused' }` — which
+ * would otherwise clobber title, notes, dates, etc. via the full
+ * carePlanToDb mapper.
+ *
+ * Exported for unit testing.
+ */
+export const buildCarePlanPatchRow = (patch) => {
+  const row = {};
+  if (!patch || typeof patch !== 'object') return row;
+  if ('clientId' in patch) row.client_id = patch.clientId;
+  if ('title' in patch) row.title = patch.title;
+  if ('serviceType' in patch) row.service_type = patch.serviceType;
+  if ('hoursPerWeek' in patch) row.hours_per_week = patch.hoursPerWeek;
+  if ('preferredTimes' in patch) row.preferred_times = patch.preferredTimes;
+  if ('recurrencePattern' in patch) row.recurrence_pattern = patch.recurrencePattern;
+  if ('startDate' in patch) row.start_date = patch.startDate;
+  if ('endDate' in patch) row.end_date = patch.endDate;
+  if ('status' in patch) row.status = patch.status;
+  if ('notes' in patch) row.notes = patch.notes;
+  if ('createdBy' in patch) row.created_by = patch.createdBy;
+  row.updated_at = new Date().toISOString();
+  return row;
+};
+
 export const updateCarePlan = async (id, patch) => {
   if (!isSupabaseConfigured()) return null;
-  const row = carePlanToDb({ ...patch, id });
-  delete row.id;
+  const row = buildCarePlanPatchRow(patch);
   const { data, error } = await supabase
     .from('care_plans')
     .update(row)

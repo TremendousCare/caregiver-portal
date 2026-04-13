@@ -1,0 +1,267 @@
+/* ─── Care plans panel (client detail section) ─── */
+
+.panel {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 22px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  margin-bottom: 20px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #7A8BA0;
+  margin: 0;
+  line-height: 1.5;
+  max-width: 540px;
+}
+
+.loading {
+  padding: 12px 0;
+  color: #7A8BA0;
+  font-size: 13px;
+}
+
+.errorBanner {
+  padding: 12px 16px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #7F1D1D;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.empty {
+  padding: 20px;
+  text-align: center;
+  color: #A2B0C4;
+  font-size: 13px;
+  font-style: italic;
+  background: #F5F8FC;
+  border: 1px dashed #D8E0EC;
+  border-radius: 10px;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listItem {
+  padding: 0;
+}
+
+/* ─── Read-only card ─── */
+
+.card {
+  background: #F8FAFC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.cardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0F1724;
+}
+
+.statusPill {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
+}
+
+.cardMeta {
+  font-size: 12px;
+  color: #5A6B80;
+}
+
+.cardServiceType {
+  font-size: 13px;
+  color: #334155;
+  font-style: italic;
+}
+
+.cardNotes {
+  font-size: 13px;
+  color: #334155;
+  padding-top: 4px;
+  border-top: 1px solid #E1E7EF;
+  white-space: pre-wrap;
+}
+
+.cardFooter {
+  padding-top: 6px;
+}
+
+.statusShortcuts {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.linkBtn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2E4E8D;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.linkBtn:hover {
+  color: #253f73;
+  text-decoration: underline;
+}
+
+/* ─── Inline edit form ─── */
+
+.form {
+  padding: 16px;
+  background: #F5F8FC;
+  border: 1px solid #D8E0EC;
+  border-radius: 10px;
+}
+
+.formHeader {
+  margin-bottom: 12px;
+}
+
+.formTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.fieldLabel,
+.fieldLabelWide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5A6B80;
+}
+
+.fieldLabelWide {
+  grid-column: 1 / -1;
+}
+
+.fieldHint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #A2B0C4;
+  margin-left: 4px;
+}
+
+.fieldInput,
+.fieldTextarea {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.fieldInput:focus,
+.fieldTextarea:focus {
+  border-color: #2E4E8D;
+}
+
+.fieldTextarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.formError {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  color: #7F1D1D;
+  font-size: 12px;
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
