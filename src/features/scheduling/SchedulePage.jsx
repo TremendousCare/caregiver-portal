@@ -3,8 +3,6 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { useApp } from '../../shared/context/AppContext';
-import layout from '../../styles/layout.module.css';
 import s from './SchedulePage.module.css';
 
 // ─── Scheduling — Phase 0 Scaffold ───
@@ -22,7 +20,6 @@ import s from './SchedulePage.module.css';
 // The data model and plan are documented in the Scheduling Feature Plan.
 
 export function SchedulePage() {
-  const { sidebarCollapsed } = useApp();
   const calendarRef = useRef(null);
   const [currentView, setCurrentView] = useState('timeGridWeek');
 
@@ -36,10 +33,7 @@ export function SchedulePage() {
   };
 
   return (
-    <div
-      className={s.page}
-      style={{ marginLeft: sidebarCollapsed ? 64 : 0 }}
-    >
+    <div className={s.page}>
       <header className={s.header}>
         <div>
           <h1 className={s.title}>Schedule</h1>
@@ -91,7 +85,7 @@ export function SchedulePage() {
             center: 'title',
             right: '',
           }}
-          height="100%"
+          height="auto"
           allDaySlot={false}
           slotDuration="00:15:00"
           slotLabelInterval="01:00"
@@ -99,7 +93,6 @@ export function SchedulePage() {
           slotMaxTime="23:00:00"
           nowIndicator
           firstDay={0}
-          expandRows
           stickyHeaderDates
           events={events}
           eventColor="#2E4E8D"

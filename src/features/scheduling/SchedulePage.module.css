@@ -1,11 +1,11 @@
 /* ─── Scheduling page layout ─── */
+/* Note: outer padding is handled by .main in layout.module.css;
+   this page just adds vertical rhythm between its sections. */
 
 .page {
-  padding: 24px 32px 32px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: calc(100vh - 0px);
   max-width: 1600px;
 }
 
@@ -91,8 +91,6 @@
 /* ─── Calendar container ─── */
 
 .calendarWrap {
-  flex: 1;
-  min-height: 600px;
   background: #fff;
   border: 1px solid #E1E7EF;
   border-radius: 12px;
@@ -155,9 +153,6 @@
 }
 
 @media (max-width: 900px) {
-  .page {
-    padding: 16px;
-  }
   .calendarWrap {
     padding: 8px;
   }
