@@ -4,6 +4,8 @@ import { EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../lib/constants';
 import { getExpiryStatus } from '../../lib/rosterUtils';
 import { resolveCaregiverMergeFields, normalizePhone } from '../../lib/mergeFields';
 import { supabase } from '../../lib/supabase';
+import { useCommunicationRoutes } from '../../shared/hooks/useCommunicationRoutes';
+import { RouteSelectorChip, RouteSummaryLine } from '../../shared/components/RouteSelectorChip';
 import layout from '../../styles/layout.module.css';
 import d from './Dashboard.module.css';
 
@@ -113,6 +115,11 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
   const [smsSendStep, setSmsSendStep] = useState('compose');
   const [isSending, setIsSending] = useState(false);
 
+  // Communication route selection for bulk SMS
+  const { routes, showSelector: showRouteSelector, smartDefaultCategoryFor, isRouteConfigured } = useCommunicationRoutes();
+  const [smsCategory, setSmsCategory] = useState(null);
+  const [smsCategoryTouched, setSmsCategoryTouched] = useState(false);
+
   // Load SMS templates
   useEffect(() => {
     if (!supabase) return;
@@ -148,6 +155,23 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
   }, [caregivers, searchTerm, statusFilter, availabilityFilter]);
 
   const selectionMode = selectedIds.size > 0;
+
+  // Seed the SMS category smart default as selection changes, until the user
+  // explicitly picks a route via the chip.
+  useEffect(() => {
+    if (smsCategoryTouched) return;
+    if (!showRouteSelector) return;
+    const selectedCgs = filtered.filter((cg) => selectedIds.has(cg.id));
+    const next = smartDefaultCategoryFor(selectedCgs);
+    if (next && next !== smsCategory) setSmsCategory(next);
+  }, [selectedIds, filtered, smartDefaultCategoryFor, showRouteSelector, smsCategoryTouched, smsCategory]);
+
+  // Reset the touched flag when the panel closes so next open re-applies default
+  useEffect(() => {
+    if (smsSendStep === 'compose' && selectedIds.size === 0) {
+      setSmsCategoryTouched(false);
+    }
+  }, [smsSendStep, selectedIds.size]);
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds((prev) => {
@@ -401,6 +425,9 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
                   const selectedCgs = filtered.filter((cg) => selectedIds.has(cg.id));
                   const withPhone = selectedCgs.filter((cg) => normalizePhone(cg.phone) !== null);
                   const withoutPhone = selectedCgs.length - withPhone.length;
+                  const selectedRoute = showRouteSelector
+                    ? routes.find((r) => r.category === smsCategory) || null
+                    : null;
 
                   if (smsSendStep === 'confirm') {
                     const previewCg = withPhone[0];
@@ -416,6 +443,7 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
                               {withoutPhone} will be skipped (no phone number)
                             </div>
                           )}
+                          {showRouteSelector && <RouteSummaryLine route={selectedRoute} />}
                           <div className={d.confirmPreviewLabel}>Preview ({previewCg ? `${previewCg.firstName} ${previewCg.lastName}` : ''})</div>
                           <div className={d.confirmPreviewBox}>{previewText}</div>
                           <div className={d.composeActions}>
@@ -426,7 +454,7 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
                               onClick={async () => {
                                 setIsSending(true);
                                 try {
-                                  const result = await onBulkSms([...selectedIds], bulkSmsText.trim());
+                                  const result = await onBulkSms([...selectedIds], bulkSmsText.trim(), showRouteSelector ? smsCategory : undefined);
                                   const { sent = 0, skipped = 0, failed = 0 } = result || {};
                                   let msg = `SMS sent to ${sent} caregiver${sent !== 1 ? 's' : ''}`;
                                   if (skipped > 0) msg += `, ${skipped} skipped`;
@@ -487,6 +515,18 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
                         {withPhone.length} of {selectedCgs.length} have a valid phone number
                         {withoutPhone > 0 && ` · ${withoutPhone} will be skipped`}
                       </div>
+                      {showRouteSelector && (
+                        <RouteSelectorChip
+                          routes={routes}
+                          isRouteConfigured={isRouteConfigured}
+                          value={smsCategory}
+                          onChange={(cat) => {
+                            setSmsCategory(cat);
+                            setSmsCategoryTouched(true);
+                          }}
+                          disabled={isSending}
+                        />
+                      )}
                       <div className={d.composeActions}>
                         <button
                           className={d.sendBtn}

@@ -1,0 +1,160 @@
+/* ─── Route selector chip (reusable across bulk SMS compose panels) ───
+ * Subtle chip that says "Send from: <route>" with a dropdown menu for override.
+ * Used in Dashboard.jsx and ActiveRoster.jsx bulk SMS compose flows.
+ */
+
+.chipRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 10px 0;
+  font-size: 11px;
+  color: #7A8BA0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid #D5DCE6;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #7A8BA0;
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.chip:hover:not(:disabled) {
+  background: #F0F4FA;
+  border-color: #A8B5C8;
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chip strong {
+  color: #0F1724;
+  font-weight: 600;
+}
+
+.chipIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.chipArrow {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-width: 320px;
+  background: #fff;
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 36, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #0F1724;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.menuItem:hover:not(:disabled) {
+  background: #F0F4FA;
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menuItemActive {
+  background: #EEF2FF;
+  color: #3730A3;
+  font-weight: 600;
+}
+
+.menuItemActive:hover:not(:disabled) {
+  background: #E0E7FF;
+}
+
+.menuItemLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.defaultBadge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #15803D;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.notSetBadge {
+  font-size: 10px;
+  color: #A16207;
+  font-weight: 600;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+/* Read-only summary used in the confirm panel before sending */
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #F8FAFF;
+  border: 1px solid #D5DCE6;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #475569;
+  margin: 8px 0;
+}
+
+.summary strong {
+  color: #0F1724;
+  font-weight: 600;
+}

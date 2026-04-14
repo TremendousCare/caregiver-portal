@@ -14,6 +14,8 @@ import progress from '../../styles/progress.module.css';
 import layout from '../../styles/layout.module.css';
 import d from './Dashboard.module.css';
 import { AIPrioritiesPanel } from './AIPrioritiesPanel';
+import { useCommunicationRoutes } from '../../shared/hooks/useCommunicationRoutes';
+import { RouteSelectorChip, RouteSummaryLine } from '../../shared/components/RouteSelectorChip';
 
 // ─── EXPORT BUTTON ───────────────────────────────────────────
 function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered, onExportAll }) {
@@ -201,6 +203,13 @@ export function Dashboard({
   const [smsSendStep, setSmsSendStep] = useState('compose'); // 'compose' | 'confirm'
   const [isSending, setIsSending] = useState(false);
 
+  // Communication route selection for bulk SMS. The chip is only rendered
+  // when ≥2 routes are configured; otherwise the send falls through to the
+  // legacy env-var path in the bulk-sms Edge Function.
+  const { routes, showSelector: showRouteSelector, smartDefaultCategoryFor, isRouteConfigured } = useCommunicationRoutes();
+  const [smsCategory, setSmsCategory] = useState(null); // null = not yet seeded
+  const [smsCategoryTouched, setSmsCategoryTouched] = useState(false);
+
   // Load survey statuses for all caregivers (for badge display)
   const [surveyStatuses, setSurveyStatuses] = useState({});
   useEffect(() => {
@@ -257,6 +266,24 @@ export function Dashboard({
 
   const selectionMode = selectedIds.size > 0;
   const sortedCaregivers = [...caregivers].sort((a, b) => getOverallProgress(b) - getOverallProgress(a));
+
+  // Seed the SMS category smart default as selection changes, but only until
+  // the user explicitly picks a route via the chip (then their choice sticks).
+  useEffect(() => {
+    if (smsCategoryTouched) return;
+    if (!showRouteSelector) return;
+    const selectedCgs = sortedCaregivers.filter((cg) => selectedIds.has(cg.id));
+    const next = smartDefaultCategoryFor(selectedCgs);
+    if (next && next !== smsCategory) setSmsCategory(next);
+  }, [selectedIds, sortedCaregivers, smartDefaultCategoryFor, showRouteSelector, smsCategoryTouched, smsCategory]);
+
+  // Reset the user's explicit-pick flag when they close the SMS panel so the
+  // next time they open it, the smart default re-applies fresh.
+  useEffect(() => {
+    if (smsSendStep === 'compose' && selectedIds.size === 0) {
+      setSmsCategoryTouched(false);
+    }
+  }, [smsSendStep, selectedIds.size]);
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
@@ -617,6 +644,10 @@ export function Dashboard({
                   const withPhone = selectedCgs.filter((cg) => normalizePhone(cg.phone) !== null);
                   const withoutPhone = selectedCgs.length - withPhone.length;
 
+                  const selectedRoute = showRouteSelector
+                    ? routes.find((r) => r.category === smsCategory) || null
+                    : null;
+
                   if (smsSendStep === 'confirm') {
                     const previewCg = withPhone[0];
                     const previewText = previewCg ? resolveCaregiverMergeFields(bulkSmsText, previewCg) : bulkSmsText;
@@ -631,6 +662,7 @@ export function Dashboard({
                               {withoutPhone} will be skipped (no phone number)
                             </div>
                           )}
+                          {showRouteSelector && <RouteSummaryLine route={selectedRoute} />}
                           <div className={d.confirmPreviewLabel}>Preview ({previewCg ? `${previewCg.firstName} ${previewCg.lastName}` : ''})</div>
                           <div className={d.confirmPreviewBox}>{previewText}</div>
                           <div className={d.composeActions}>
@@ -641,7 +673,7 @@ export function Dashboard({
                               onClick={async () => {
                                 setIsSending(true);
                                 try {
-                                  const result = await onBulkSms([...selectedIds], bulkSmsText.trim());
+                                  const result = await onBulkSms([...selectedIds], bulkSmsText.trim(), showRouteSelector ? smsCategory : undefined);
                                   const { sent = 0, skipped = 0, failed = 0 } = result || {};
                                   let msg = `SMS sent to ${sent} caregiver${sent !== 1 ? 's' : ''}`;
                                   if (skipped > 0) msg += `, ${skipped} skipped`;
@@ -702,6 +734,18 @@ export function Dashboard({
                         {withPhone.length} of {selectedCgs.length} have a valid phone number
                         {withoutPhone > 0 && ` · ${withoutPhone} will be skipped`}
                       </div>
+                      {showRouteSelector && (
+                        <RouteSelectorChip
+                          routes={routes}
+                          isRouteConfigured={isRouteConfigured}
+                          value={smsCategory}
+                          onChange={(cat) => {
+                            setSmsCategory(cat);
+                            setSmsCategoryTouched(true);
+                          }}
+                          disabled={isSending}
+                        />
+                      )}
                       <div className={d.composeActions}>
                         <button
                           className={d.sendBtn}
