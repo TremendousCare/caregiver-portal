@@ -435,13 +435,18 @@ export function CaregiverProvider({ children }) {
     showToast(`${ids.length} caregiver${ids.length !== 1 ? 's' : ''} archived`);
   }, [showToast, currentUserName]);
 
-  const bulkSms = useCallback(async (ids, message) => {
+  // bulkSms accepts an optional `category` to route the send through a
+  // specific communication_routes entry. When undefined, the Edge Function
+  // falls through to its legacy env-var path (byte-identical to pre-Step-5
+  // behavior). Call sites like Dashboard and ActiveRoster pass a category
+  // that comes from the user's route selector chip.
+  const bulkSms = useCallback(async (ids, message, category) => {
     if (!supabase || !ids.length || !message.trim()) return { sent: 0, skipped: 0, failed: 0, results: [] };
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
-    const { data, error } = await supabase.functions.invoke('bulk-sms', {
-      body: { caregiver_ids: ids, message, current_user: currentUserName },
-    });
+    const body = { caregiver_ids: ids, message, current_user: currentUserName };
+    if (category) body.category = category;
+    const { data, error } = await supabase.functions.invoke('bulk-sms', { body });
     if (error) throw error;
     return data;
   }, [currentUserName]);
