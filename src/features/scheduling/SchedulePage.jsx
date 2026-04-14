@@ -16,6 +16,7 @@ import {
 } from './shiftHelpers';
 import { ShiftCreateModal } from './ShiftCreateModal';
 import { ShiftDrawer } from './ShiftDrawer';
+import { BroadcastModal } from './BroadcastModal';
 import s from './SchedulePage.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -52,7 +53,7 @@ const EMPTY_DRAFT_BASE = {
 
 export function SchedulePage() {
   const calendarRef = useRef(null);
-  const { showToast, currentUserName } = useApp();
+  const { showToast, currentUserName, currentUserEmail } = useApp();
   const { activeClients } = useClients();
   const { rosterCaregivers } = useCaregivers();
 
@@ -75,6 +76,7 @@ export function SchedulePage() {
   // Modal / drawer state
   const [createDraft, setCreateDraft] = useState(null); // null = closed
   const [selectedShift, setSelectedShift] = useState(null);
+  const [broadcastShift, setBroadcastShift] = useState(null);
 
   // Precompute lookup maps
   const clientsById = useMemo(() => {
@@ -421,6 +423,23 @@ export function SchedulePage() {
           onClose={handleDrawerClose}
           onSaved={handleDrawerSaved}
           onCancelled={handleDrawerCancelled}
+          onBroadcast={(shift) => setBroadcastShift(shift)}
+          showToast={showToast}
+        />
+      )}
+
+      {broadcastShift && (
+        <BroadcastModal
+          shift={broadcastShift}
+          caregivers={rosterCaregivers}
+          client={clientsById[broadcastShift.clientId] || null}
+          currentUserName={currentUserName}
+          currentUserEmail={currentUserEmail}
+          onClose={() => setBroadcastShift(null)}
+          onBroadcastSent={() => {
+            setBroadcastShift(null);
+            loadShifts();
+          }}
           showToast={showToast}
         />
       )}

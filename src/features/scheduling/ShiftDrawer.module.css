@@ -156,6 +156,112 @@
   margin-bottom: 16px;
 }
 
+/* ─── Broadcast history box ─── */
+
+.offersBox {
+  margin-top: 8px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+}
+
+.offersHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.offersHeader strong {
+  font-size: 12px;
+  color: #0F1724;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.offersSummary {
+  font-size: 11px;
+  color: #5A6B80;
+}
+
+.offersList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.offerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.offerName {
+  color: #0F1724;
+  font-weight: 500;
+}
+
+.offerStatus {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #F5F8FC;
+  color: #5A6B80;
+  border: 1px solid #E1E7EF;
+}
+
+.offerStatus_sent {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: #FBBF24;
+}
+
+.offerStatus_accepted {
+  background: #DCFCE7;
+  color: #166534;
+  border-color: #4ADE80;
+}
+
+.offerStatus_declined {
+  background: #FEE2E2;
+  color: #991B1B;
+  border-color: #F87171;
+}
+
+.offerStatus_expired {
+  background: #F5F5F5;
+  color: #737373;
+  border-color: #D4D4D4;
+}
+
+.offerStatus_assigned {
+  background: #DBEAFE;
+  color: #1E40AF;
+  border-color: #60A5FA;
+}
+
+.offersNote {
+  font-size: 11px;
+  color: #7A8BA0;
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .cancelBox {
   margin-top: 16px;
   padding: 14px;

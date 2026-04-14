@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { updateShift, cancelShift } from './storage';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import {
+  updateShift,
+  cancelShift,
+  getShiftOffersForShift,
+} from './storage';
 import {
   SHIFT_CANCEL_REASONS,
   buildShiftUpdatePatch,
@@ -30,6 +35,7 @@ export function ShiftDrawer({
   onClose,
   onSaved,
   onCancelled,
+  onBroadcast,
   showToast,
 }) {
   const [draft, setDraft] = useState(shift);
@@ -38,6 +44,7 @@ export function ShiftDrawer({
   const [error, setError] = useState(null);
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [offers, setOffers] = useState([]);
 
   useEffect(() => {
     setDraft(shift);
@@ -45,6 +52,54 @@ export function ShiftDrawer({
     setShowCancelForm(false);
     setCancelReason('');
   }, [shift]);
+
+  // ─── Load shift offers for this shift ───────────────────────
+  const loadOffers = useCallback(async () => {
+    if (!shift?.id) return;
+    try {
+      const rows = await getShiftOffersForShift(shift.id);
+      setOffers(rows);
+    } catch (e) {
+      console.error('Failed to load shift offers:', e);
+    }
+  }, [shift?.id]);
+
+  useEffect(() => {
+    loadOffers();
+  }, [loadOffers]);
+
+  // Realtime: watch for new/updated offers on this shift
+  useEffect(() => {
+    if (!supabase || !shift?.id) return undefined;
+    const channel = supabase
+      .channel(`shift-offers-${shift.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'shift_offers',
+          filter: `shift_id=eq.${shift.id}`,
+        },
+        () => {
+          loadOffers();
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shift?.id, loadOffers]);
+
+  // ─── Offer summary counts ───────────────────────────────────
+  const offerCounts = useMemo(() => {
+    const counts = { total: 0, sent: 0, accepted: 0, declined: 0, expired: 0, assigned: 0 };
+    for (const offer of offers) {
+      counts.total++;
+      if (counts[offer.status] != null) counts[offer.status]++;
+    }
+    return counts;
+  }, [offers]);
 
   const patch = useMemo(() => buildShiftUpdatePatch(shift, draft), [shift, draft]);
   const isDirty = Object.keys(patch).length > 0;
@@ -154,6 +209,15 @@ export function ShiftDrawer({
           {!isCancelled && (
             <div className={s.quickActions}>
               <span className={s.quickActionsLabel}>Quick actions:</span>
+              {(draft.status === 'open' || draft.status === 'offered') && (
+                <button
+                  className={s.linkBtn}
+                  onClick={() => onBroadcast?.(shift)}
+                  disabled={saving}
+                >
+                  📣 Broadcast shift
+                </button>
+              )}
               {draft.status === 'assigned' && (
                 <button
                   className={s.linkBtn}
@@ -197,6 +261,40 @@ export function ShiftDrawer({
             <div className={s.cancelledBanner}>
               <strong>Cancelled.</strong>
               {shift.cancelReason && <> Reason: {shift.cancelReason}</>}
+            </div>
+          )}
+
+          {offers.length > 0 && (
+            <div className={s.offersBox}>
+              <div className={s.offersHeader}>
+                <strong>Broadcast history</strong>
+                <span className={s.offersSummary}>
+                  {offerCounts.total} offered
+                  {offerCounts.sent > 0 && ` · ${offerCounts.sent} awaiting response`}
+                  {offerCounts.accepted > 0 && ` · ${offerCounts.accepted} accepted`}
+                  {offerCounts.declined > 0 && ` · ${offerCounts.declined} declined`}
+                </span>
+              </div>
+              <ul className={s.offersList}>
+                {offers.map((offer) => {
+                  const cg = caregivers?.find((c) => c.id === offer.caregiverId);
+                  const name = cg
+                    ? `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id
+                    : offer.caregiverId;
+                  return (
+                    <li key={offer.id} className={s.offerRow}>
+                      <span className={s.offerName}>{name}</span>
+                      <span className={`${s.offerStatus} ${s[`offerStatus_${offer.status}`] || ''}`}>
+                        {offer.status}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className={s.offersNote}>
+                Inbound response tracking comes in Phase 5b. For now, watch RingCentral for
+                replies and assign the caregiver manually.
+              </div>
             </div>
           )}
 
