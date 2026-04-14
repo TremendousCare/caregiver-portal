@@ -60,7 +60,6 @@ export function MessagingCenter({
             <SMSComposeBar
               caregiver={caregiver}
               currentUser={currentUser}
-              onAddNote={onAddNote}
               showToast={showToast}
             />
           </>
@@ -97,7 +96,6 @@ export function MessagingCenter({
             <SMSComposeBar
               caregiver={caregiver}
               currentUser={currentUser}
-              onAddNote={onAddNote}
               showToast={showToast}
             />
           </>
