@@ -33,6 +33,30 @@
 
 /* ─── View toggle (Day/Week/Month) ─── */
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn {
+  padding: 9px 16px;
+  background: #2E4E8D;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.primaryBtn:hover {
+  background: #253f73;
+}
+
 .viewToggle {
   display: inline-flex;
   border: 1px solid #E1E7EF;
@@ -72,20 +96,63 @@
   color: #fff;
 }
 
-/* ─── Phase 0 banner ─── */
+/* ─── Filters bar ─── */
 
-.scaffoldBanner {
-  padding: 12px 16px;
-  background: #FEF9E6;
-  border: 1px solid #F5E1A4;
-  border-radius: 8px;
-  color: #7A5F0E;
-  font-size: 13px;
-  line-height: 1.5;
+.filtersBar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  flex-wrap: wrap;
 }
 
-.scaffoldBanner strong {
-  color: #5A4509;
+.filterLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5A6B80;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  min-width: 180px;
+}
+
+.filterInput {
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.filterInput:focus {
+  border-color: #2E4E8D;
+}
+
+.filterSummary {
+  margin-left: auto;
+  font-size: 12px;
+  color: #7A8BA0;
+  padding-bottom: 6px;
+}
+
+.errorBanner {
+  padding: 12px 16px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #7F1D1D;
+  font-size: 13px;
 }
 
 /* ─── Calendar container ─── */
