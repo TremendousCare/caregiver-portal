@@ -2,13 +2,34 @@ import { PHASES } from '../../../lib/constants';
 import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication } from '../../../lib/utils';
 import progress from '../../../styles/progress.module.css';
 
-export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpdateCaregiver }) {
+const ACTIVE_ROSTER_OPTION = '__active_roster__';
+
+export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpdateCaregiver, currentUser, showToast }) {
   const overallPct = getOverallProgress(caregiver);
   const days = getDaysSinceApplication(caregiver);
   const calculated = getCalculatedPhase(caregiver);
   const isOverridden = !!caregiver.phaseOverride;
   const currentPhase = getCurrentPhase(caregiver);
   const currentPhaseInfo = PHASES.find((p) => p.id === currentPhase);
+  const isOnRoster = caregiver.employmentStatus && caregiver.employmentStatus !== 'onboarding';
+
+  const promoteToActiveRoster = () => {
+    const name = `${caregiver.firstName || caregiver.first_name || ''} ${caregiver.lastName || caregiver.last_name || ''}`.trim() || 'this applicant';
+    const confirmed = window.confirm(
+      `Move ${name} to the Active Roster?\n\n` +
+      `This will mark them as an active caregiver (employment status: Active) ` +
+      `and they will appear on the Active Roster page. You can still change this later ` +
+      `from their profile or the Active Roster.\n\n` +
+      `Click OK to confirm, or Cancel to go back.`
+    );
+    if (!confirmed) return;
+    onUpdateCaregiver(caregiver.id, {
+      employmentStatus: 'active',
+      employmentStatusChangedAt: Date.now(),
+      employmentStatusChangedBy: currentUser?.displayName || 'Unknown',
+    });
+    if (showToast) showToast(`${name} moved to Active Roster`, 'success');
+  };
 
   return (
     <div className={progress.progressOverview}>
@@ -34,6 +55,12 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
           <select className={progress.phaseOverrideSelect} value={caregiver.phaseOverride || ''}
             onChange={(e) => {
               const val = e.target.value;
+              if (val === ACTIVE_ROSTER_OPTION) {
+                // Reset select immediately so it doesn't appear "selected" regardless of confirm outcome
+                e.target.value = caregiver.phaseOverride || '';
+                promoteToActiveRoster();
+                return;
+              }
               if (val === '') {
                 onUpdateCaregiver(caregiver.id, { phaseOverride: null });
               } else {
@@ -44,6 +71,8 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
           >
             <option value="">Auto (based on tasks)</option>
             {PHASES.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}{p.id === calculated ? ' ← calculated' : ''}</option>)}
+            {!isOnRoster && <option disabled>──────────</option>}
+            {!isOnRoster && <option value={ACTIVE_ROSTER_OPTION}>🚀 Move to Active Roster…</option>}
           </select>
         </div>
       </div>
