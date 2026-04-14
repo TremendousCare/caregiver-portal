@@ -284,13 +284,33 @@ export function BroadcastModal({
 
       const sentCount = results.filter((r) => r.status === 'sent').length;
       const failedCount = results.filter((r) => r.status !== 'sent').length;
-      if (failedCount === 0) {
+
+      if (failedCount === 0 && sentCount > 0) {
         showToast?.(`Broadcast sent to ${sentCount} caregiver${sentCount === 1 ? '' : 's'}`);
-      } else {
-        showToast?.(`Sent ${sentCount}, ${failedCount} failed or skipped`);
+        onBroadcastSent?.({ sentCount, failedCount, results });
+        return;
       }
 
-      onBroadcastSent?.({ sentCount, failedCount, results });
+      // Something failed. Surface the real reason(s) inline in the
+      // modal so the scheduler can diagnose and retry without losing
+      // their selection.
+      const failureReasons = results
+        .filter((r) => r.status !== 'sent')
+        .map((r) => {
+          const recipient = caregivers.find((c) => c.id === r.id);
+          const name = recipient
+            ? `${recipient.firstName || ''} ${recipient.lastName || ''}`.trim() || r.id
+            : r.id;
+          return `${name}: ${r.reason || r.status || 'unknown error'}`;
+        });
+
+      const summary = sentCount > 0
+        ? `Sent ${sentCount}, ${failedCount} failed:`
+        : `Broadcast failed — no SMS sent.`;
+      setError(`${summary}\n${failureReasons.join('\n')}`);
+
+      // Still fire the callback so the drawer refreshes any partial writes.
+      onBroadcastSent?.({ sentCount, failedCount, results, keepOpen: true });
     } catch (e) {
       console.error('Broadcast failed:', e);
       setError(e.message || 'Broadcast failed');

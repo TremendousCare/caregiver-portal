@@ -233,6 +233,8 @@
   border-radius: 6px;
   color: #7F1D1D;
   font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 .list {

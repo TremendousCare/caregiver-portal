@@ -436,9 +436,13 @@ export function SchedulePage() {
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           onClose={() => setBroadcastShift(null)}
-          onBroadcastSent={() => {
-            setBroadcastShift(null);
+          onBroadcastSent={(result) => {
+            // Refresh shifts either way so the drawer reflects any
+            // partial writes. Only auto-close on full success.
             loadShifts();
+            if (!result?.keepOpen) {
+              setBroadcastShift(null);
+            }
           }}
           showToast={showToast}
         />
