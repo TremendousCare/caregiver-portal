@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { useCaregivers } from '../../../shared/context/CaregiverContext';
 import styles from './messaging.module.css';
 
 const MAX_CHARS = 1000;
@@ -11,8 +12,16 @@ const SpeechRecognition = typeof window !== 'undefined'
 /**
  * Inline SMS compose bar at the bottom of the conversation view.
  * Sends via the existing bulk-sms Edge Function with a single caregiver ID.
+ *
+ * Note logging: the bulk-sms Edge Function writes the authoritative note
+ * to the caregiver's record on the server. This component only does a
+ * local-only optimistic update (via addNoteLocalOnly) so the bubble
+ * appears immediately in the UI — it does NOT write a second note to
+ * the database. This prevents the duplicate-entry bug and ensures that
+ * failed sends never leave a stale "sent" bubble in the timeline.
  */
-export function SMSComposeBar({ caregiver, currentUser, onAddNote, showToast }) {
+export function SMSComposeBar({ caregiver, currentUser, showToast }) {
+  const { addNoteLocalOnly } = useCaregivers();
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -84,8 +93,12 @@ export function SMSComposeBar({ caregiver, currentUser, onAddNote, showToast }) 
 
       if (error) throw error;
 
-      // Optimistically add the note to the local state so it appears immediately
-      onAddNote(caregiver.id, {
+      // Optimistic, client-only update so the bubble appears immediately.
+      // The Edge Function has already written the authoritative note
+      // server-side — we intentionally do NOT persist here to avoid a
+      // duplicate entry in the timeline. The optimistic note is replaced
+      // by the real server note on the next full caregivers refetch.
+      addNoteLocalOnly(caregiver.id, {
         text,
         type: 'text',
         direction: 'outbound',

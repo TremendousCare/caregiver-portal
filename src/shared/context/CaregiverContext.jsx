@@ -182,6 +182,24 @@ export function CaregiverProvider({ children }) {
     if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
   }, [showToast, currentUserName]);
 
+  // Optimistic, client-only variant of addNote.
+  // Appends a note to the local caregiver state WITHOUT persisting to the
+  // database. Used when the server (e.g. the bulk-sms edge function) has
+  // already written the authoritative note — calling addNote here would
+  // cause a duplicate entry in the timeline. The optimistic note will be
+  // replaced by the real server note on the next full caregivers refetch.
+  const addNoteLocalOnly = useCallback((cgId, noteData) => {
+    const note = typeof noteData === 'string'
+      ? { text: noteData, timestamp: Date.now(), author: currentUserName }
+      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUserName };
+    setCaregivers((prev) =>
+      prev.map((cg) => {
+        if (cg.id !== cgId) return cg;
+        return { ...cg, notes: [...(cg.notes || []), note] };
+      })
+    );
+  }, [currentUserName]);
+
   const archiveCaregiver = useCallback((cgId, reason, detail) => {
     let changed;
     setCaregivers((prev) =>
@@ -445,7 +463,7 @@ export function CaregiverProvider({ children }) {
       caregivers, loaded, tasksVersion,
       activeCaregivers, archivedCaregivers, rosterCaregivers, onboardingCaregivers,
       filterPhase, setFilterPhase,
-      addCaregiver, updateTask, updateTasksBulk, addNote,
+      addCaregiver, updateTask, updateTasksBulk, addNote, addNoteLocalOnly,
       archiveCaregiver, unarchiveCaregiver, deleteCaregiver,
       updateBoardStatus, updateBoardNote, updateBoardLabels, updateBoardChecklists, updateBoardDueDate, updateBoardDescription, updateCaregiver,
       refreshTasks,
