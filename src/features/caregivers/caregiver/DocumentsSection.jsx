@@ -206,6 +206,12 @@ Tremendous Care`;
               caregiver_ids: [caregiver.id],
               message: smsMessage,
               current_user: currentUser?.email || 'system',
+              // Document upload requests are always part of the onboarding
+              // workflow (TAS territory), so hardcode the route. If the
+              // onboarding route is not yet configured, the edge function
+              // falls back to an error — prompting the admin to configure it
+              // in Admin Settings → Communication Routes.
+              category: 'onboarding',
             },
           })
         );
