@@ -321,6 +321,41 @@ export const getAvailability = async (caregiverId) => {
   return (data || []).map(dbToAvailability);
 };
 
+/**
+ * Bulk-fetch availability rows for many caregivers in a single query.
+ * Used by the Phase 4c caregiver picker to rank eligibility without
+ * issuing one query per caregiver.
+ */
+export const getAvailabilityForCaregivers = async (caregiverIds) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!Array.isArray(caregiverIds) || caregiverIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('caregiver_availability')
+    .select('*')
+    .in('caregiver_id', caregiverIds);
+  if (error) throw error;
+  return (data || []).map(dbToAvailability);
+};
+
+/**
+ * Bulk-fetch shifts assigned to any of the given caregivers within a
+ * date window. Used by the caregiver picker to check conflicts and
+ * compute hours-this-week without N+1 queries.
+ */
+export const getShiftsForCaregivers = async ({ caregiverIds, startDate, endDate }) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!Array.isArray(caregiverIds) || caregiverIds.length === 0) return [];
+  let query = supabase
+    .from('shifts')
+    .select('*')
+    .in('assigned_caregiver_id', caregiverIds);
+  if (startDate) query = query.gte('start_time', startDate);
+  if (endDate) query = query.lte('start_time', endDate);
+  const { data, error } = await query.order('start_time', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToShift);
+};
+
 
 // ─── caregiver_assignments ─────────────────────────────────────
 

@@ -6,6 +6,7 @@ import {
   isoToTimeInput,
   parseSkillsInput,
 } from './shiftHelpers';
+import { CaregiverPicker } from './CaregiverPicker';
 import s from './ShiftForm.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -181,21 +182,18 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
 
       {/* ── Assignment ── */}
       <div className={s.row}>
-        <label className={s.fieldWide}>
+        <div className={s.fieldWide}>
           Assigned caregiver <span className={s.hint}>(leave blank for open)</span>
-          <select
-            className={s.input}
-            value={draft.assignedCaregiverId || ''}
-            onChange={(e) => setField('assignedCaregiverId', e.target.value || null)}
-          >
-            <option value="">— Open (unassigned) —</option>
-            {(caregivers || []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {`${c.firstName || ''} ${c.lastName || ''}`.trim() || c.id}
-              </option>
-            ))}
-          </select>
-        </label>
+          <CaregiverPicker
+            caregivers={caregivers}
+            clientId={draft.clientId}
+            proposedStartTime={draft.startTime}
+            proposedEndTime={draft.endTime}
+            shiftId={draft.id}
+            value={draft.assignedCaregiverId || null}
+            onChange={(id) => setField('assignedCaregiverId', id)}
+          />
+        </div>
       </div>
 
       {/* ── Location ── */}
