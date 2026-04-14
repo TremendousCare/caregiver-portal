@@ -4,12 +4,13 @@ import {
   filterAvailableCaregivers,
 } from '../scheduling/availabilityMatching';
 
-// Helper: build a UTC ISO timestamp for a specific day/hour
-// 2026-05-04 is a Monday. Day-of-week = 1.
+// Helper: build a timezone-independent ISO timestamp for a specific
+// day/hour. We construct a Date in LOCAL time so getDay()/getHours()
+// on the parsed result yield the expected values regardless of the
+// test runner's timezone.
 function t(dateStr, hours, minutes = 0) {
-  const h = String(hours).padStart(2, '0');
-  const m = String(minutes).padStart(2, '0');
-  return `${dateStr}T${h}:${m}:00.000Z`;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, hours, minutes, 0, 0).toISOString();
 }
 
 // ─── Constants ─────────────────────────────────────────────────

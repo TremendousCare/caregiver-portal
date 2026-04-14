@@ -44,19 +44,27 @@ function clockToMinutes(str) {
 }
 
 /**
- * Parse an ISO date string or Date into components in UTC.
+ * Parse an ISO date string or Date into components in LOCAL time.
  * Returns { dayOfWeek, minutesOfDay, dateOnly } for matching.
- *   - dayOfWeek: 0 (Sun) .. 6 (Sat)
- *   - minutesOfDay: 0 .. 1439
- *   - dateOnly: 'YYYY-MM-DD' string in UTC
+ *   - dayOfWeek: 0 (Sun) .. 6 (Sat) in the browser's local timezone
+ *   - minutesOfDay: 0 .. 1439 (local clock)
+ *   - dateOnly: 'YYYY-MM-DD' string in local time
+ *
+ * Why local time: the availability editor stores clock times like
+ * '08:00' that the user painted on a visual grid representing their
+ * local week. Shifts are created with combineDateAndTimeToIso(),
+ * which builds a local Date and serializes to a UTC ISO string —
+ * so the ISO string represents a specific local moment. To match
+ * a stored "Mon 08:00" availability row against a stored UTC
+ * shift, we have to interpret the shift back in local time.
  */
 function parseMoment(value) {
   const d = value instanceof Date ? value : new Date(value);
-  const dayOfWeek = d.getUTCDay();
-  const minutesOfDay = d.getUTCHours() * 60 + d.getUTCMinutes();
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const dayOfWeek = d.getDay();
+  const minutesOfDay = d.getHours() * 60 + d.getMinutes();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
   return { dayOfWeek, minutesOfDay, dateOnly: `${yyyy}-${mm}-${dd}`, ms: d.getTime() };
 }
 
