@@ -326,7 +326,7 @@ function UserManagement({ showToast, currentUserEmail }) {
 
   if (loading) {
     return (
-      <SettingsCard title="Team Members" description="Roles & Access">
+      <SettingsCard title="User Access & Roles" description="Login Permissions">
         <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
       </SettingsCard>
     );
@@ -336,7 +336,7 @@ function UserManagement({ showToast, currentUserEmail }) {
   const members = users.filter((u) => u.role === 'member');
 
   return (
-    <SettingsCard title="Team Members" description={`${users.length} user${users.length !== 1 ? 's' : ''}`}>
+    <SettingsCard title="User Access & Roles" description={`${users.length} user${users.length !== 1 ? 's' : ''}`}>
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
           Admins can access Settings, change integration configurations, and manage team roles.
@@ -422,6 +422,418 @@ function UserManagement({ showToast, currentUserEmail }) {
           );
         })}
       </div>
+    </SettingsCard>
+  );
+}
+
+// ─── Team Members Directory ───
+// CRUD for the `team_members` table: the employee directory.
+// This is separate from UserManagement (which controls login access via
+// `user_roles`). A team member is any employee we want on record —
+// regardless of whether they log into the app.
+function TeamMembersManagement({ showToast, currentUserEmail }) {
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
+  // editingKey: null | '__new__' | existing email of row being edited
+  const [editingKey, setEditingKey] = useState(null);
+  const [formData, setFormData] = useState({
+    email: '',
+    display_name: '',
+    job_title: '',
+    personal_phone: '',
+    notes: '',
+    is_active: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('team_members')
+          .select('*')
+          .order('display_name', { ascending: true });
+        if (error) throw error;
+        setMembers(data || []);
+      } catch (err) {
+        console.error('Failed to load team members:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setFormData({
+      email: '',
+      display_name: '',
+      job_title: '',
+      personal_phone: '',
+      notes: '',
+      is_active: true,
+    });
+    setFormError('');
+  }, []);
+
+  const startAdd = useCallback(() => {
+    resetForm();
+    setEditingKey('__new__');
+  }, [resetForm]);
+
+  const startEdit = useCallback((member) => {
+    setFormData({
+      email: member.email || '',
+      display_name: member.display_name || '',
+      job_title: member.job_title || '',
+      personal_phone: member.personal_phone || '',
+      notes: member.notes || '',
+      is_active: member.is_active !== false,
+    });
+    setFormError('');
+    setEditingKey(member.email);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingKey(null);
+    resetForm();
+  }, [resetForm]);
+
+  const save = useCallback(async () => {
+    const name = formData.display_name.trim();
+    const email = formData.email.trim().toLowerCase();
+    const title = formData.job_title.trim();
+    const phone = formData.personal_phone.trim();
+    const notes = formData.notes.trim();
+
+    if (!name) { setFormError('Display name is required.'); return; }
+    if (!email) { setFormError('Email is required.'); return; }
+    const emailErr = validateEmail(email);
+    if (emailErr) { setFormError(emailErr); return; }
+    if (phone) {
+      const phoneErr = validatePhoneNumber(phone);
+      if (phoneErr) { setFormError(phoneErr); return; }
+    }
+
+    setSaving(true);
+    setFormError('');
+    try {
+      const isNew = editingKey === '__new__';
+      const payload = {
+        email,
+        display_name: name,
+        job_title: title || null,
+        personal_phone: phone || null,
+        notes: notes || null,
+        is_active: formData.is_active,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUserEmail || null,
+      };
+
+      if (isNew) {
+        const { error } = await supabase
+          .from('team_members')
+          .insert(payload);
+        if (error) throw error;
+        setMembers((prev) => [...prev, payload].sort((a, b) =>
+          (a.display_name || '').localeCompare(b.display_name || '')
+        ));
+        showToast?.(`${name} added to team members.`);
+      } else {
+        // Editing existing: email is the PK, disallow changing it here
+        const { error } = await supabase
+          .from('team_members')
+          .update(payload)
+          .eq('email', editingKey);
+        if (error) throw error;
+        setMembers((prev) => prev.map((m) =>
+          m.email === editingKey ? { ...m, ...payload } : m
+        ).sort((a, b) => (a.display_name || '').localeCompare(b.display_name || '')));
+        showToast?.(`${name} updated.`);
+      }
+
+      setEditingKey(null);
+      resetForm();
+    } catch (err) {
+      console.error('Failed to save team member:', err);
+      if (err?.code === '23505') {
+        setFormError('A team member with that email already exists.');
+      } else {
+        setFormError('Failed to save. Please try again.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [formData, editingKey, currentUserEmail, showToast, resetForm]);
+
+  const toggleActive = useCallback(async (member) => {
+    const newActive = !member.is_active;
+    const verb = newActive ? 'reactivate' : 'deactivate';
+    if (!window.confirm(`Are you sure you want to ${verb} ${member.display_name}?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('team_members')
+        .update({
+          is_active: newActive,
+          updated_at: new Date().toISOString(),
+          updated_by: currentUserEmail || null,
+        })
+        .eq('email', member.email);
+      if (error) throw error;
+      setMembers((prev) => prev.map((m) =>
+        m.email === member.email ? { ...m, is_active: newActive } : m
+      ));
+      showToast?.(`${member.display_name} ${newActive ? 'reactivated' : 'deactivated'}.`);
+    } catch (err) {
+      console.error('Failed to toggle active:', err);
+      showToast?.('Failed to update. Please try again.');
+    }
+  }, [currentUserEmail, showToast]);
+
+  const activeMembers = members.filter((m) => m.is_active !== false);
+  const archivedMembers = members.filter((m) => m.is_active === false);
+  const visibleMembers = showArchived ? archivedMembers : activeMembers;
+
+  if (loading) {
+    return (
+      <SettingsCard title="Team Members" description="Employee Directory">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  const renderForm = () => (
+    <div style={{
+      padding: 16,
+      background: '#F8FAFF',
+      border: '1px solid #D5DCE6',
+      borderRadius: 10,
+      marginBottom: 14,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#0F1724', marginBottom: 12 }}>
+        {editingKey === '__new__' ? 'Add Team Member' : `Edit ${formData.display_name || formData.email}`}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
+        <div>
+          <label className={forms.fieldLabel}>Display Name *</label>
+          <input
+            type="text"
+            className={forms.fieldInput}
+            value={formData.display_name}
+            onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+            placeholder="e.g. Daniela Hernandez"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className={forms.fieldLabel}>Email *</label>
+          <input
+            type="email"
+            className={forms.fieldInput}
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            placeholder="e.g. daniela@tremendouscareca.com"
+            disabled={editingKey !== '__new__'}
+            style={{ opacity: editingKey !== '__new__' ? 0.6 : 1 }}
+          />
+          {editingKey !== '__new__' && (
+            <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
+              Email cannot be changed. Deactivate and re-add if needed.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
+        <div>
+          <label className={forms.fieldLabel}>Job Title</label>
+          <input
+            type="text"
+            className={forms.fieldInput}
+            value={formData.job_title}
+            onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
+            placeholder="e.g. Talent Acquisition Specialist"
+          />
+        </div>
+        <div>
+          <label className={forms.fieldLabel}>Personal Phone</label>
+          <input
+            type="tel"
+            className={forms.fieldInput}
+            value={formData.personal_phone}
+            onChange={(e) => setFormData({ ...formData, personal_phone: e.target.value })}
+            placeholder="e.g. (949) 555-0100"
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label className={forms.fieldLabel}>Notes</label>
+        <textarea
+          className={forms.fieldInput}
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          placeholder="Optional — anything else you want to remember about this team member"
+          rows={2}
+          style={{ resize: 'vertical', fontFamily: 'inherit' }}
+        />
+      </div>
+
+      {formError && (
+        <div style={{
+          fontSize: 12, color: '#DC4A3A', fontWeight: 600,
+          marginBottom: 10, padding: '6px 10px',
+          background: '#FEF2F2', borderRadius: 6,
+          border: '1px solid #FECACA',
+        }}>
+          {formError}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          className={btn.primaryBtn}
+          style={{ padding: '8px 18px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
+          onClick={save}
+          disabled={saving}
+        >
+          {saving ? 'Saving...' : (editingKey === '__new__' ? 'Add Member' : 'Save Changes')}
+        </button>
+        <button
+          className={btn.secondaryBtn}
+          style={{ padding: '8px 18px', fontSize: 13 }}
+          onClick={cancelEdit}
+          disabled={saving}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <SettingsCard
+      title="Team Members"
+      description={`${activeMembers.length} active${archivedMembers.length > 0 ? ` · ${archivedMembers.length} archived` : ''}`}
+    >
+      <div style={{ marginBottom: 12, fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
+        The employee directory — name, job title, email, and personal phone for each team member.
+        This is used for audit trails and (later) to route SMS/email outreach to the right person.
+        Adding someone here does NOT give them app access; login permissions are managed under User Access &amp; Roles above.
+      </div>
+
+      {/* Form (shown when adding or editing) */}
+      {editingKey !== null && renderForm()}
+
+      {/* Header row with Add button + archived toggle */}
+      {editingKey === null && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <button
+            className={btn.primaryBtn}
+            style={{ padding: '8px 16px', fontSize: 13 }}
+            onClick={startAdd}
+          >
+            + Add Team Member
+          </button>
+          {archivedMembers.length > 0 && (
+            <button
+              className={btn.secondaryBtn}
+              style={{ padding: '6px 12px', fontSize: 11 }}
+              onClick={() => setShowArchived((s) => !s)}
+            >
+              {showArchived ? `Show active (${activeMembers.length})` : `Show archived (${archivedMembers.length})`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Team member list */}
+      {visibleMembers.length === 0 ? (
+        <div style={{
+          padding: 28,
+          textAlign: 'center',
+          color: '#7A8BA0',
+          fontSize: 13,
+          background: '#F8F9FB',
+          borderRadius: 10,
+          border: '1px dashed #E0E4EA',
+        }}>
+          {showArchived
+            ? 'No archived team members.'
+            : 'No team members yet. Click "Add Team Member" to add your first employee.'}
+        </div>
+      ) : (
+        <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+          {/* Header row */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1.4fr 1.4fr 1.6fr 1.2fr 140px',
+            padding: '10px 16px', background: '#F8F9FB',
+            fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+            textTransform: 'uppercase', letterSpacing: 1,
+            borderBottom: '1px solid #E0E4EA',
+          }}>
+            <span>Name</span>
+            <span>Job Title</span>
+            <span>Email</span>
+            <span>Personal Phone</span>
+            <span style={{ textAlign: 'right' }}>Actions</span>
+          </div>
+
+          {visibleMembers.map((member, i) => (
+            <div
+              key={member.email}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.4fr 1.4fr 1.6fr 1.2fr 140px',
+                alignItems: 'center',
+                padding: '12px 16px',
+                borderBottom: i < visibleMembers.length - 1 ? '1px solid #F0F3F7' : 'none',
+                background: '#fff',
+                opacity: member.is_active === false ? 0.6 : 1,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {member.display_name || '—'}
+              </div>
+              <div style={{ fontSize: 12, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {member.job_title || <span style={{ color: '#94A3B8' }}>—</span>}
+              </div>
+              <div style={{ fontSize: 12, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {member.email}
+              </div>
+              <div style={{ fontSize: 12, color: '#475569' }}>
+                {member.personal_phone ? formatPhoneDisplay(member.personal_phone) : <span style={{ color: '#94A3B8' }}>—</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <button
+                  className={btn.editBtn}
+                  style={{ padding: '5px 10px', fontSize: 11 }}
+                  onClick={() => startEdit(member)}
+                >
+                  Edit
+                </button>
+                <button
+                  className={btn.editBtn}
+                  style={{
+                    padding: '5px 10px',
+                    fontSize: 11,
+                    color: member.is_active === false ? '#15803D' : '#DC4A3A',
+                    borderColor: member.is_active === false ? '#BBF7D0' : '#FECACA',
+                  }}
+                  onClick={() => toggleActive(member)}
+                >
+                  {member.is_active === false ? 'Reactivate' : 'Archive'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </SettingsCard>
   );
 }
@@ -1463,9 +1875,14 @@ export function AdminSettings({ showToast, currentUserEmail }) {
         <AgentPerformance />
       </div>
 
-      {/* User Management */}
+      {/* User Access & Roles (login permissions) */}
       <div style={{ marginBottom: 20 }}>
         <UserManagement showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Team Members Directory (employee info) */}
+      <div style={{ marginBottom: 20 }}>
+        <TeamMembersManagement showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* AI Autonomy Levels */}
