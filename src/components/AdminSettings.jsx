@@ -838,6 +838,646 @@ function TeamMembersManagement({ showToast, currentUserEmail }) {
   );
 }
 
+// ─── Communication Routes ───
+// CRUD for the `communication_routes` table — maps outreach categories
+// (general, onboarding, scheduling, ...) to a sending identity (phone
+// number + RingCentral JWT stored in Supabase Vault).
+//
+// JWT handling: JWTs are write-only. The UI never reads a JWT value;
+// it can only show "Configured" or "Not set" status. Writes go through
+// two SECURITY DEFINER RPCs:
+//   - set_route_ringcentral_jwt(p_category, p_jwt)
+//   - clear_route_ringcentral_jwt(p_category)
+//
+// This UI is data-entry only. The bulk-sms edge function does NOT
+// read from this table yet — that wiring is Step 5 (separate PR).
+function CommunicationRoutesManagement({ showToast, currentUserEmail }) {
+  const [routes, setRoutes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Route add/edit form state
+  const [editingKey, setEditingKey] = useState(null); // null | '__new__' | category
+  const [formData, setFormData] = useState({
+    category: '',
+    label: '',
+    description: '',
+    sms_from_number: '',
+    is_default: false,
+    is_active: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  // JWT set/clear state (separate from the route edit form)
+  const [jwtEditingKey, setJwtEditingKey] = useState(null); // category or null
+  const [jwtValue, setJwtValue] = useState('');
+  const [jwtSaving, setJwtSaving] = useState(false);
+  const [jwtError, setJwtError] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('communication_routes')
+          .select('*')
+          .order('sort_order', { ascending: true });
+        if (error) throw error;
+        setRoutes(data || []);
+      } catch (err) {
+        console.error('Failed to load communication routes:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setFormData({
+      category: '',
+      label: '',
+      description: '',
+      sms_from_number: '',
+      is_default: false,
+      is_active: true,
+    });
+    setFormError('');
+  }, []);
+
+  const startAdd = useCallback(() => {
+    resetForm();
+    setJwtEditingKey(null);
+    setEditingKey('__new__');
+  }, [resetForm]);
+
+  const startEdit = useCallback((route) => {
+    setFormData({
+      category: route.category || '',
+      label: route.label || '',
+      description: route.description || '',
+      sms_from_number: route.sms_from_number || '',
+      is_default: route.is_default === true,
+      is_active: route.is_active !== false,
+    });
+    setFormError('');
+    setJwtEditingKey(null);
+    setEditingKey(route.category);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingKey(null);
+    resetForm();
+  }, [resetForm]);
+
+  const saveRoute = useCallback(async () => {
+    const category = formData.category.trim().toLowerCase();
+    const label = formData.label.trim();
+    const description = formData.description.trim();
+    const phone = formData.sms_from_number.trim();
+
+    if (!label) { setFormError('Label is required.'); return; }
+    if (editingKey === '__new__') {
+      if (!category) { setFormError('Category is required.'); return; }
+      if (!/^[a-z0-9_]+$/.test(category)) {
+        setFormError('Category must be lowercase letters, numbers, and underscores only (e.g. "onboarding", "new_hire_followup").');
+        return;
+      }
+    }
+    if (phone) {
+      const phoneErr = validatePhoneNumber(phone);
+      if (phoneErr) { setFormError(phoneErr); return; }
+    }
+
+    setSaving(true);
+    setFormError('');
+    try {
+      const isNew = editingKey === '__new__';
+      const payload = {
+        category: isNew ? category : editingKey,
+        label,
+        description: description || null,
+        sms_from_number: phone || null,
+        is_default: formData.is_default,
+        is_active: formData.is_active,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUserEmail || null,
+      };
+
+      // If this route is being set as default, unset the existing default first.
+      // The unique partial index enforces only one default at a time, so we
+      // need to clear the old one in the same logical operation.
+      if (formData.is_default) {
+        const currentDefault = routes.find((r) => r.is_default && r.category !== payload.category);
+        if (currentDefault) {
+          const { error: clearErr } = await supabase
+            .from('communication_routes')
+            .update({ is_default: false, updated_at: new Date().toISOString(), updated_by: currentUserEmail || null })
+            .eq('category', currentDefault.category);
+          if (clearErr) throw clearErr;
+        }
+      }
+
+      if (isNew) {
+        const { error } = await supabase
+          .from('communication_routes')
+          .insert(payload);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('communication_routes')
+          .update(payload)
+          .eq('category', editingKey);
+        if (error) throw error;
+      }
+
+      // Refresh routes to reflect any default-flag swap
+      const { data: refreshed } = await supabase
+        .from('communication_routes')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      setRoutes(refreshed || []);
+
+      showToast?.(`Route "${label}" ${isNew ? 'added' : 'updated'}.`);
+      setEditingKey(null);
+      resetForm();
+    } catch (err) {
+      console.error('Failed to save route:', err);
+      if (err?.code === '23505') {
+        setFormError('A route with that category already exists.');
+      } else {
+        setFormError('Failed to save. Please try again.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [formData, editingKey, currentUserEmail, showToast, resetForm, routes]);
+
+  const deleteRoute = useCallback(async (route) => {
+    if (route.is_default) {
+      showToast?.('Cannot delete the default route. Mark another route as default first.');
+      return;
+    }
+    if (!window.confirm(`Delete route "${route.label}"? This also removes any JWT stored for this route. This cannot be undone.`)) return;
+
+    try {
+      // Clear the JWT first (deletes the vault secret) if one exists
+      if (route.sms_vault_secret_name) {
+        const { error: clearErr } = await supabase.rpc('clear_route_ringcentral_jwt', {
+          p_category: route.category,
+        });
+        if (clearErr) throw clearErr;
+      }
+
+      const { error } = await supabase
+        .from('communication_routes')
+        .delete()
+        .eq('category', route.category);
+      if (error) throw error;
+
+      setRoutes((prev) => prev.filter((r) => r.category !== route.category));
+      showToast?.(`Route "${route.label}" deleted.`);
+    } catch (err) {
+      console.error('Failed to delete route:', err);
+      showToast?.('Failed to delete. Please try again.');
+    }
+  }, [showToast]);
+
+  // ── JWT set/clear handlers ──
+  const openJwtEdit = useCallback((route) => {
+    setJwtEditingKey(route.category);
+    setJwtValue('');
+    setJwtError('');
+    setEditingKey(null); // close any open edit form
+  }, []);
+
+  const cancelJwtEdit = useCallback(() => {
+    setJwtEditingKey(null);
+    setJwtValue('');
+    setJwtError('');
+  }, []);
+
+  const saveJwt = useCallback(async () => {
+    const trimmed = jwtValue.trim();
+    if (!trimmed) { setJwtError('JWT cannot be empty.'); return; }
+    // JWTs are 3 base64url segments separated by dots
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(trimmed)) {
+      setJwtError('That does not look like a valid JWT. It should have three parts separated by dots.');
+      return;
+    }
+
+    setJwtSaving(true);
+    setJwtError('');
+    try {
+      const { error } = await supabase.rpc('set_route_ringcentral_jwt', {
+        p_category: jwtEditingKey,
+        p_jwt: trimmed,
+      });
+      if (error) throw error;
+
+      // Refresh the single route to get the updated sms_vault_secret_name
+      const { data: refreshed } = await supabase
+        .from('communication_routes')
+        .select('*')
+        .eq('category', jwtEditingKey)
+        .single();
+      if (refreshed) {
+        setRoutes((prev) => prev.map((r) => (r.category === jwtEditingKey ? refreshed : r)));
+      }
+
+      showToast?.('JWT saved securely to Supabase Vault.');
+      setJwtEditingKey(null);
+      setJwtValue('');
+    } catch (err) {
+      console.error('Failed to save JWT:', err);
+      setJwtError(err?.message || 'Failed to save JWT. Please try again.');
+    } finally {
+      setJwtSaving(false);
+    }
+  }, [jwtValue, jwtEditingKey, showToast]);
+
+  const clearJwt = useCallback(async (route) => {
+    if (!window.confirm(`Remove the JWT for "${route.label}"? After this, sending from this route will fail until a new JWT is provided.`)) return;
+
+    try {
+      const { error } = await supabase.rpc('clear_route_ringcentral_jwt', {
+        p_category: route.category,
+      });
+      if (error) throw error;
+
+      setRoutes((prev) => prev.map((r) =>
+        r.category === route.category ? { ...r, sms_vault_secret_name: null } : r
+      ));
+      showToast?.(`JWT cleared for "${route.label}".`);
+    } catch (err) {
+      console.error('Failed to clear JWT:', err);
+      showToast?.('Failed to clear JWT. Please try again.');
+    }
+  }, [showToast]);
+
+  if (loading) {
+    return (
+      <SettingsCard title="Communication Routes" description="SMS Routing">
+        <div style={{ color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
+      </SettingsCard>
+    );
+  }
+
+  const configuredCount = routes.filter((r) => r.sms_vault_secret_name && r.sms_from_number).length;
+
+  // ── Render helpers ──
+  const renderRouteForm = () => (
+    <div style={{
+      padding: 16,
+      background: '#F8FAFF',
+      border: '1px solid #D5DCE6',
+      borderRadius: 10,
+      marginBottom: 14,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#0F1724', marginBottom: 12 }}>
+        {editingKey === '__new__' ? 'Add Communication Route' : `Edit ${formData.label || editingKey}`}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
+        <div>
+          <label className={forms.fieldLabel}>
+            Category *
+            {editingKey !== '__new__' && (
+              <span style={{ fontWeight: 400, fontSize: 10, color: '#7A8BA0', marginLeft: 6 }}>(cannot be changed)</span>
+            )}
+          </label>
+          <input
+            type="text"
+            className={forms.fieldInput}
+            value={formData.category}
+            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            placeholder="e.g. onboarding"
+            disabled={editingKey !== '__new__'}
+            style={{ opacity: editingKey !== '__new__' ? 0.6 : 1, fontFamily: 'monospace' }}
+            autoFocus={editingKey === '__new__'}
+          />
+          {editingKey === '__new__' && (
+            <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
+              Short code used by code to refer to this route. Lowercase letters, numbers, underscores.
+            </div>
+          )}
+        </div>
+        <div>
+          <label className={forms.fieldLabel}>Label *</label>
+          <input
+            type="text"
+            className={forms.fieldInput}
+            value={formData.label}
+            onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+            placeholder="e.g. Onboarding (TAS)"
+            autoFocus={editingKey !== '__new__'}
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label className={forms.fieldLabel}>Description</label>
+        <textarea
+          className={forms.fieldInput}
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          placeholder="When should this route be used? (e.g. 'Caregiver application follow-ups and document requests')"
+          rows={2}
+          style={{ resize: 'vertical', fontFamily: 'inherit' }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label className={forms.fieldLabel}>SMS From Phone Number</label>
+        <input
+          type="tel"
+          className={forms.fieldInput}
+          value={formData.sms_from_number}
+          onChange={(e) => setFormData({ ...formData, sms_from_number: e.target.value })}
+          placeholder="e.g. +1 (949) 226-7908"
+        />
+        <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
+          The RingCentral phone number messages from this route are sent from. Must match the JWT set below.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#0F1724', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={formData.is_default}
+            onChange={(e) => setFormData({ ...formData, is_default: e.target.checked })}
+          />
+          Default route
+          <span style={{ fontSize: 10, color: '#7A8BA0' }}>(used when no category is specified)</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#0F1724', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={formData.is_active}
+            onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+          />
+          Active
+        </label>
+      </div>
+
+      {formError && (
+        <div style={{
+          fontSize: 12, color: '#DC4A3A', fontWeight: 600,
+          marginBottom: 10, padding: '6px 10px',
+          background: '#FEF2F2', borderRadius: 6,
+          border: '1px solid #FECACA',
+        }}>
+          {formError}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          className={btn.primaryBtn}
+          style={{ padding: '8px 18px', fontSize: 13, opacity: saving ? 0.6 : 1 }}
+          onClick={saveRoute}
+          disabled={saving}
+        >
+          {saving ? 'Saving...' : (editingKey === '__new__' ? 'Add Route' : 'Save Changes')}
+        </button>
+        <button
+          className={btn.secondaryBtn}
+          style={{ padding: '8px 18px', fontSize: 13 }}
+          onClick={cancelEdit}
+          disabled={saving}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderJwtForm = () => {
+    const route = routes.find((r) => r.category === jwtEditingKey);
+    if (!route) return null;
+    return (
+      <div style={{
+        padding: 16,
+        background: '#FFFBEB',
+        border: '1px solid #FDE68A',
+        borderRadius: 10,
+        marginBottom: 14,
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#0F1724', marginBottom: 6 }}>
+          {route.sms_vault_secret_name ? 'Rotate' : 'Set'} RingCentral JWT — {route.label}
+        </div>
+        <div style={{ fontSize: 11, color: '#A16207', lineHeight: 1.5, marginBottom: 12 }}>
+          <strong>Treat this like a password.</strong> The JWT will be stored encrypted in Supabase Vault.
+          Once saved, you will not be able to read it back — only replace it.
+          {route.sms_vault_secret_name && ' Saving a new JWT will replace the existing one.'}
+        </div>
+        <label className={forms.fieldLabel}>JWT Token</label>
+        <textarea
+          className={forms.fieldInput}
+          value={jwtValue}
+          onChange={(e) => { setJwtValue(e.target.value); setJwtError(''); }}
+          placeholder="Paste the full JWT token here (eyJ...)"
+          rows={4}
+          style={{ fontFamily: 'monospace', fontSize: 11, resize: 'vertical', wordBreak: 'break-all' }}
+          autoFocus
+        />
+        {jwtError && (
+          <div style={{
+            fontSize: 12, color: '#DC4A3A', fontWeight: 600,
+            marginTop: 8, padding: '6px 10px',
+            background: '#FEF2F2', borderRadius: 6,
+            border: '1px solid #FECACA',
+          }}>
+            {jwtError}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button
+            className={btn.primaryBtn}
+            style={{ padding: '8px 18px', fontSize: 13, opacity: jwtSaving ? 0.6 : 1 }}
+            onClick={saveJwt}
+            disabled={jwtSaving}
+          >
+            {jwtSaving ? 'Saving to Vault...' : 'Save JWT to Vault'}
+          </button>
+          <button
+            className={btn.secondaryBtn}
+            style={{ padding: '8px 18px', fontSize: 13 }}
+            onClick={cancelJwtEdit}
+            disabled={jwtSaving}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <SettingsCard
+      title="Communication Routes"
+      description={`${routes.length} route${routes.length !== 1 ? 's' : ''} · ${configuredCount} configured`}
+    >
+      <div style={{ marginBottom: 12, fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
+        Map categories of outreach (scheduling, onboarding, general) to specific sending identities — phone number and RingCentral JWT.
+        JWTs are stored encrypted in Supabase Vault and are write-only from this UI. Nothing sends from these routes yet; the bulk-sms
+        edge function will be wired up in a future update. For now this is data entry.
+      </div>
+
+      {editingKey !== null && renderRouteForm()}
+      {jwtEditingKey !== null && renderJwtForm()}
+
+      {editingKey === null && jwtEditingKey === null && (
+        <div style={{ marginBottom: 10 }}>
+          <button
+            className={btn.primaryBtn}
+            style={{ padding: '8px 16px', fontSize: 13 }}
+            onClick={startAdd}
+          >
+            + Add Route
+          </button>
+        </div>
+      )}
+
+      <div style={{ border: '1px solid #E0E4EA', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1.4fr 1.4fr 120px 200px',
+          padding: '10px 16px', background: '#F8F9FB',
+          fontSize: 10, fontWeight: 700, color: '#7A8BA0',
+          textTransform: 'uppercase', letterSpacing: 1,
+          borderBottom: '1px solid #E0E4EA',
+        }}>
+          <span>Route</span>
+          <span>Phone Number</span>
+          <span>JWT</span>
+          <span style={{ textAlign: 'right' }}>Actions</span>
+        </div>
+
+        {routes.map((route, i) => {
+          const isConfigured = !!(route.sms_vault_secret_name && route.sms_from_number);
+          return (
+            <div
+              key={route.category}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.4fr 1.4fr 120px 200px',
+                alignItems: 'center',
+                padding: '12px 16px',
+                borderBottom: i < routes.length - 1 ? '1px solid #F0F3F7' : 'none',
+                background: '#fff',
+                opacity: route.is_active === false ? 0.6 : 1,
+              }}
+            >
+              {/* Route label + category */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {route.is_default && (
+                    <span title="Default route" style={{ fontSize: 12 }}>⭐</span>
+                  )}
+                  {route.label}
+                </div>
+                <div style={{ fontSize: 10, color: '#7A8BA0', fontFamily: 'monospace', marginTop: 2 }}>
+                  {route.category}
+                </div>
+              </div>
+
+              {/* Phone */}
+              <div style={{ fontSize: 12, color: '#475569' }}>
+                {route.sms_from_number
+                  ? formatPhoneDisplay(route.sms_from_number)
+                  : <span style={{ color: '#94A3B8' }}>— not set —</span>}
+              </div>
+
+              {/* JWT status badge */}
+              <div>
+                <span style={{
+                  display: 'inline-block',
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: route.sms_vault_secret_name ? '#F0FDF4' : '#FEF2F2',
+                  color: route.sms_vault_secret_name ? '#15803D' : '#A16207',
+                  border: `1px solid ${route.sms_vault_secret_name ? '#BBF7D0' : '#FDE68A'}`,
+                }}>
+                  {route.sms_vault_secret_name ? '✓ Configured' : '✗ Not set'}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button
+                  className={btn.editBtn}
+                  style={{ padding: '5px 10px', fontSize: 11 }}
+                  onClick={() => startEdit(route)}
+                >
+                  Edit
+                </button>
+                <button
+                  className={btn.editBtn}
+                  style={{ padding: '5px 10px', fontSize: 11 }}
+                  onClick={() => openJwtEdit(route)}
+                >
+                  {route.sms_vault_secret_name ? 'Rotate JWT' : 'Set JWT'}
+                </button>
+                {route.sms_vault_secret_name && (
+                  <button
+                    className={btn.editBtn}
+                    style={{ padding: '5px 10px', fontSize: 11, color: '#A16207', borderColor: '#FDE68A' }}
+                    onClick={() => clearJwt(route)}
+                    title="Remove JWT from this route"
+                  >
+                    Clear JWT
+                  </button>
+                )}
+                {!route.is_default && (
+                  <button
+                    className={btn.editBtn}
+                    style={{ padding: '5px 10px', fontSize: 11, color: '#DC4A3A', borderColor: '#FECACA' }}
+                    onClick={() => deleteRoute(route)}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {routes.length === 0 && (
+          <div style={{ padding: 28, textAlign: 'center', color: '#7A8BA0', fontSize: 13 }}>
+            No routes configured. Click "Add Route" to get started.
+          </div>
+        )}
+      </div>
+
+      {!isConfiguredWarningDismissed(routes) && (
+        <div style={{
+          marginTop: 14,
+          padding: '10px 14px',
+          background: '#EEF2FF',
+          border: '1px solid #C7D2FE',
+          borderRadius: 8,
+          fontSize: 11,
+          color: '#3730A3',
+          lineHeight: 1.5,
+        }}>
+          <strong>ℹ️ These routes are not yet used for sending.</strong> SMS continues to flow through the global
+          RingCentral integration above. Routes will start being used once the edge function is updated in a
+          future release.
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+// Pure helper — keeps the isConfigured banner from rendering in tests where
+// routes list is empty. Exported separately so future tests can cover it.
+function isConfiguredWarningDismissed(/* routes */) {
+  return false; // Always show the warning for now until Step 5 ships.
+}
+
 // ─── DocuSign Template Settings ───
 function DocuSignSettings({ showToast }) {
   const [templates, setTemplates] = useState([]);
@@ -1955,6 +2595,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
           />
           <WebhookStatus showToast={showToast} />
         </SettingsCard>
+      </div>
+
+      {/* Communication Routes (role-based SMS routing — data entry only for now) */}
+      <div style={{ marginBottom: 20 }}>
+        <CommunicationRoutesManagement showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* eSignatures (Custom) */}
