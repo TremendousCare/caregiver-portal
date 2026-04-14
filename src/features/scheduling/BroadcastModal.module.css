@@ -1,0 +1,383 @@
+/* ─── Broadcast modal ─── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 36, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px 16px;
+  z-index: 110;
+  overflow-y: auto;
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 720px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Header ─── */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid #E1E7EF;
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #7A8BA0;
+}
+
+.closeBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #7A8BA0;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.closeBtn:hover {
+  background: #F5F8FC;
+  color: #0F1724;
+}
+
+/* ─── Body ─── */
+
+.body {
+  padding: 18px 24px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.selectionCount {
+  font-size: 11px;
+  font-weight: 500;
+  color: #7A8BA0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ─── Template editor ─── */
+
+.templateInput {
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+.templateInput:focus {
+  border-color: #2E4E8D;
+}
+
+.charCount {
+  font-size: 11px;
+  color: #7A8BA0;
+}
+
+.charWarn {
+  color: #D97706;
+  font-weight: 700;
+}
+
+.charOver {
+  color: #DC2626;
+  font-weight: 700;
+}
+
+.preview {
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.previewLabel {
+  font-size: 10px;
+  color: #7A8BA0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.previewText {
+  font-size: 13px;
+  color: #0F1724;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ─── Bulk actions ─── */
+
+.bulkActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.linkBtn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2E4E8D;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.linkBtn:hover:not(:disabled) {
+  color: #253f73;
+  text-decoration: underline;
+}
+
+.linkBtn:disabled {
+  color: #A2B0C4;
+  cursor: not-allowed;
+}
+
+.linkSep {
+  color: #C9D3E1;
+  font-size: 11px;
+}
+
+/* ─── Recipient list ─── */
+
+.loading,
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: #A2B0C4;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.error {
+  padding: 10px 12px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  color: #7F1D1D;
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  padding: 6px;
+  background: #fff;
+}
+
+.row {
+  display: flex;
+}
+
+.rowLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #F8FAFC;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.rowLabel:hover {
+  background: #E8F1FE;
+  border-color: #C9D3E1;
+}
+
+.rowSelected .rowLabel {
+  background: #DBEAFE;
+  border-color: #60A5FA;
+}
+
+.checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.rowText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F1724;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noPhone {
+  color: #DC2626;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.rowReason {
+  font-size: 11px;
+  color: #5A6B80;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowFiltered .rowLabel {
+  background: #FEF9E6;
+  border-color: #F5E1A4;
+}
+
+.rowFiltered .rowLabel:hover {
+  background: #FEF3C7;
+}
+
+.rowFiltered .rowName {
+  color: #7A5F0E;
+}
+
+.rowFiltered .rowReason {
+  color: #92400E;
+}
+
+/* ─── Filtered section collapsible ─── */
+
+.filteredBlock {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #EEF2F7;
+}
+
+.filteredToggle {
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: #7A8BA0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.filteredToggle:hover {
+  color: #5A6B80;
+}
+
+/* ─── Footer ─── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid #E1E7EF;
+  background: #F8FAFC;
+  border-radius: 0 0 14px 14px;
+}
+
+.footerNote {
+  font-size: 12px;
+  color: #5A6B80;
+}
+
+.footerActions {
+  display: flex;
+  gap: 8px;
+}

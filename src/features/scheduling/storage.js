@@ -443,3 +443,103 @@ export const getAssignmentsForClient = async (clientId, { activeOnly = true } = 
   if (error) throw error;
   return (data || []).map(dbToAssignment);
 };
+
+
+// ─── shift_offers ──────────────────────────────────────────────
+// Tracks every broadcast SMS sent to a caregiver about an open shift.
+// Created and updated in the Phase 5 broadcast workflow. Unused until
+// now — Phase 1 created the table and we're finally populating it.
+
+export const dbToShiftOffer = (row) => ({
+  id: row.id,
+  shiftId: row.shift_id,
+  caregiverId: row.caregiver_id,
+  status: row.status || 'sent',
+  sentAt: row.sent_at,
+  respondedAt: row.responded_at,
+  responseText: row.response_text,
+  messageSid: row.message_sid,
+  expiresAt: row.expires_at,
+  notes: row.notes,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const shiftOfferToDb = (offer) => ({
+  id: offer.id,
+  shift_id: offer.shiftId,
+  caregiver_id: offer.caregiverId,
+  status: offer.status ?? 'sent',
+  sent_at: offer.sentAt ?? new Date().toISOString(),
+  responded_at: offer.respondedAt ?? null,
+  response_text: offer.responseText ?? null,
+  message_sid: offer.messageSid ?? null,
+  expires_at: offer.expiresAt ?? null,
+  notes: offer.notes ?? null,
+  created_by: offer.createdBy ?? null,
+  updated_at: new Date().toISOString(),
+});
+
+/**
+ * Insert many shift_offer rows in a single request. Used by the
+ * broadcast modal to record who the shift was offered to. Returns
+ * the inserted rows (with generated ids and timestamps).
+ */
+export const createShiftOffers = async (offers) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!Array.isArray(offers) || offers.length === 0) return [];
+  const rows = offers.map((offer) => {
+    const row = shiftOfferToDb(offer);
+    delete row.id;
+    return row;
+  });
+  const { data, error } = await supabase
+    .from('shift_offers')
+    .insert(rows)
+    .select();
+  if (error) throw error;
+  return (data || []).map(dbToShiftOffer);
+};
+
+/**
+ * Fetch all offer rows for a given shift. Used by the ShiftDrawer
+ * to display "Offered to X · Y accepted · Z declined" tracking.
+ */
+export const getShiftOffersForShift = async (shiftId) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!shiftId) return [];
+  const { data, error } = await supabase
+    .from('shift_offers')
+    .select('*')
+    .eq('shift_id', shiftId)
+    .order('sent_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToShiftOffer);
+};
+
+/**
+ * Partial update for a shift_offer row. Follows the same pattern as
+ * buildCarePlanPatchRow / updateShift — only fields explicitly
+ * present in the patch are written, so status-only updates don't
+ * clobber response_text or sent_at.
+ */
+export const updateShiftOffer = async (id, patch) => {
+  if (!isSupabaseConfigured()) return null;
+  const row = {};
+  if ('status' in patch) row.status = patch.status;
+  if ('respondedAt' in patch) row.responded_at = patch.respondedAt;
+  if ('responseText' in patch) row.response_text = patch.responseText;
+  if ('messageSid' in patch) row.message_sid = patch.messageSid;
+  if ('expiresAt' in patch) row.expires_at = patch.expiresAt;
+  if ('notes' in patch) row.notes = patch.notes;
+  row.updated_at = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('shift_offers')
+    .update(row)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return dbToShiftOffer(data);
+};
