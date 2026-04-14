@@ -8,11 +8,67 @@ import { normalizePhoneNumber } from "../helpers/phone.ts";
 import { requireCaregiver, withResolve } from "../helpers/resolve.ts";
 import {
   getRingCentralAccessToken,
-  getRCFromNumber,
   fetchRCMessages,
   fetchRCCallLog,
 } from "../helpers/ringcentral.ts";
 import { sendSMS } from "../../_shared/operations/sms.ts";
+
+/**
+ * Resolve a smart-default category for an AI-initiated SMS send based on
+ * the caregiver's employment status. Mirrors the SMSComposeBar frontend
+ * logic so AI sends feel consistent with manual sends:
+ *   - Onboarding or no employmentStatus → 'onboarding' (if the route is
+ *     configured and has a JWT)
+ *   - Otherwise → the is_default route
+ *   - If no routes exist or none are configured → null (fall through to
+ *     legacy env-var path)
+ *
+ * Returns { category, routeLabel, phone } for inclusion in the confirmation
+ * summary so the user can see which number the AI plans to send from.
+ */
+async function resolveSmartRoute(
+  supabase: any,
+  caregiver: any,
+): Promise<{ category: string | null; routeLabel: string; phone: string | null }> {
+  try {
+    const { data: routes, error } = await supabase
+      .from("communication_routes")
+      .select("category, label, is_default, sms_from_number, sms_vault_secret_name")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+
+    const list = routes || [];
+    const isConfigured = (r: any) => !!(r?.sms_vault_secret_name && r?.sms_from_number);
+    const configured = list.filter(isConfigured);
+
+    // Zero or one configured routes → no decision, use legacy path
+    if (configured.length < 2) return { category: null, routeLabel: "(default)", phone: null };
+
+    const isOnboarding = !caregiver.employment_status || caregiver.employment_status === "onboarding";
+    if (isOnboarding) {
+      const onboarding = list.find(
+        (r: any) => r.category === "onboarding" && isConfigured(r),
+      );
+      if (onboarding) {
+        return {
+          category: onboarding.category,
+          routeLabel: onboarding.label,
+          phone: onboarding.sms_from_number,
+        };
+      }
+    }
+    const def = list.find((r: any) => r.is_default && isConfigured(r));
+    if (def) {
+      return { category: def.category, routeLabel: def.label, phone: def.sms_from_number };
+    }
+    const first = configured[0];
+    return { category: first.category, routeLabel: first.label, phone: first.sms_from_number };
+  } catch (err) {
+    console.warn("[send_sms] route lookup failed, falling back to legacy:", (err as Error).message);
+    return { category: null, routeLabel: "(default)", phone: null };
+  }
+}
 
 // ── send_sms (confirm) ──
 
@@ -20,7 +76,7 @@ registerTool(
   {
     name: "send_sms",
     description:
-      "Send a real SMS text message to a caregiver via RingCentral. REQUIRES USER CONFIRMATION. The message will actually be sent to their phone. After sending, the message is auto-logged as a note on the caregiver record.",
+      "Send a real SMS text message to a caregiver via RingCentral. REQUIRES USER CONFIRMATION. The message will actually be sent to their phone. The sending number is selected automatically based on the caregiver's onboarding status (Onboarding route for caregivers in the pipeline, General otherwise), so the AI does not need to pick one. After sending, the message is auto-logged as a note on the caregiver record.",
     input_schema: {
       type: "object",
       properties: {
@@ -39,18 +95,34 @@ registerTool(
     if (!cg.phone) return { error: `Cannot send SMS: no phone number on file for ${cg.first_name} ${cg.last_name}. Please update their phone number first.` };
     const normalized = normalizePhoneNumber(cg.phone);
     if (!normalized) return { error: `Cannot send SMS: invalid phone number format "${cg.phone}" for ${cg.first_name} ${cg.last_name}. Expected a 10-digit US number.` };
-    const fromNumber = await getRCFromNumber(ctx.supabase);
+
+    const route = await resolveSmartRoute(ctx.supabase, cg);
+    const fromDisplay = route.phone
+      ? `${route.phone} (${route.routeLabel})`
+      : "(default)";
+
     return {
       requires_confirmation: true,
       action: "send_sms",
-      summary: `**Send SMS to ${cg.first_name} ${cg.last_name}**\n\n**To:** ${normalized}\n**From:** ${fromNumber || "(not configured)"}\n\n**Message:**\n${input.message}`,
+      summary: `**Send SMS to ${cg.first_name} ${cg.last_name}**\n\n**To:** ${normalized}\n**From:** ${fromDisplay}\n\n**Message:**\n${input.message}`,
       caregiver_id: cg.id,
-      params: { message: input.message, normalized_phone: normalized },
+      params: {
+        message: input.message,
+        normalized_phone: normalized,
+        category: route.category,
+      },
     };
   }),
   // Confirmed handler — delegates to shared operation
   async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const result = await sendSMS(supabase, caregiverId, params.message, params.normalized_phone, currentUser);
+    const result = await sendSMS(
+      supabase,
+      caregiverId,
+      params.message,
+      params.normalized_phone,
+      currentUser,
+      params.category || null,
+    );
     return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );

@@ -4,13 +4,33 @@
 
 export const RC_API_URL = "https://platform.ringcentral.com";
 
+// Legacy helper: uses the global RINGCENTRAL_JWT_TOKEN env var.
+// Still used by helpers that don't participate in category routing
+// (fetchRCMessages, fetchRCCallLog) — those read call logs which have
+// always been account-level and don't depend on sender identity.
 export async function getRingCentralAccessToken(): Promise<string> {
+  const jwtToken = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
+  if (!jwtToken) {
+    throw new Error("RingCentral JWT not configured (RINGCENTRAL_JWT_TOKEN env var missing)");
+  }
+  return getRingCentralAccessTokenWithJwt(jwtToken);
+}
+
+// Category-aware helper: takes a JWT as a parameter so the caller can
+// decide which RingCentral extension to authenticate as. Used by the
+// sendSMS shared operation after a route lookup via
+// getSendingCredentials() below.
+export async function getRingCentralAccessTokenWithJwt(
+  jwt: string,
+): Promise<string> {
   const clientId = Deno.env.get("RINGCENTRAL_CLIENT_ID");
   const clientSecret = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
-  const jwtToken = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
 
-  if (!clientId || !clientSecret || !jwtToken) {
-    throw new Error("RingCentral credentials not configured");
+  if (!clientId || !clientSecret) {
+    throw new Error("RingCentral client credentials not configured");
+  }
+  if (!jwt) {
+    throw new Error("RingCentral JWT not provided");
   }
 
   const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
@@ -21,7 +41,7 @@ export async function getRingCentralAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwtToken,
+      assertion: jwt,
     }),
   });
 
@@ -32,6 +52,77 @@ export async function getRingCentralAccessToken(): Promise<string> {
 
   const data = await response.json();
   return data.access_token;
+}
+
+/**
+ * Resolve the sending phone number + JWT pair for an SMS send based on an
+ * optional `category`. This mirrors the logic in bulk-sms/index.ts so all
+ * edge functions that send SMS can share a single source of truth.
+ *
+ * - When `category` is provided → calls the service-role-only
+ *   get_route_ringcentral_jwt RPC to look up the route's phone and
+ *   decrypted JWT from Supabase Vault. Throws with a descriptive error
+ *   if the route is missing, inactive, or incomplete.
+ *
+ * - When `category` is null/undefined → falls back to the legacy env-var
+ *   path (app_settings.ringcentral_from_number + RINGCENTRAL_JWT_TOKEN).
+ *   Byte-identical to pre-routing behavior.
+ */
+export async function getSendingCredentials(
+  supabase: any,
+  category: string | null | undefined,
+): Promise<{ fromNumber: string; jwt: string }> {
+  // ── Path A: category specified → route-based lookup ──
+  if (category) {
+    const { data, error } = await supabase.rpc("get_route_ringcentral_jwt", {
+      p_category: category,
+    });
+    if (error) {
+      throw new Error(
+        `Route lookup failed for "${category}": ${error.message}`,
+      );
+    }
+    if (!data || data.length === 0) {
+      throw new Error(
+        `Communication route "${category}" not found or inactive.`,
+      );
+    }
+    const route = data[0];
+    if (!route.sms_from_number) {
+      throw new Error(
+        `Route "${category}" has no phone number configured. Set one in Admin Settings → Communication Routes.`,
+      );
+    }
+    if (!route.jwt) {
+      throw new Error(
+        `Route "${category}" has no JWT configured. Set one in Admin Settings → Communication Routes.`,
+      );
+    }
+    // Normalize the phone number to E.164
+    const digits = String(route.sms_from_number).replace(/\D/g, "");
+    let normalized: string | null = null;
+    if (digits.length === 10) normalized = `+1${digits}`;
+    else if (digits.length === 11 && digits.startsWith("1")) normalized = `+${digits}`;
+    if (!normalized) {
+      throw new Error(
+        `Route "${category}" has an invalid phone number: ${route.sms_from_number}`,
+      );
+    }
+    return { fromNumber: normalized, jwt: route.jwt };
+  }
+
+  // ── Path B: no category → legacy env-var path ──
+  const fromNumber = await getRCFromNumber(supabase);
+  if (!fromNumber) {
+    throw new Error("RingCentral from number not configured");
+  }
+  const jwt = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
+  if (!jwt) {
+    throw new Error(
+      "RingCentral JWT not configured (RINGCENTRAL_JWT_TOKEN env var missing)",
+    );
+  }
+  return { fromNumber, jwt };
 }
 
 export async function getRCFromNumber(

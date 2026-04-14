@@ -4,18 +4,26 @@
 import type { OperationResult } from "./types.ts";
 import { createNote } from "./notes.ts";
 import {
-  getRingCentralAccessToken,
-  getRCFromNumber,
+  getRingCentralAccessTokenWithJwt,
+  getSendingCredentials,
   RC_API_URL,
 } from "../helpers/ringcentral.ts";
 
-/** Send SMS via RingCentral and log a note to the caregiver record */
+/**
+ * Send SMS via RingCentral and log a note to the caregiver record.
+ *
+ * The optional `category` argument routes the send through a specific
+ * communication_routes entry (phone number + vault-stored JWT). When
+ * omitted, falls back to the legacy env-var path — byte-identical to
+ * pre-routing behavior.
+ */
 export async function sendSMS(
   supabase: any,
   caregiverId: string,
   message: string,
   normalizedPhone: string,
   actor: string,
+  category?: string | null,
 ): Promise<OperationResult> {
   // Fetch caregiver for note appending
   const { data: cg, error: fetchErr } = await supabase
@@ -26,20 +34,27 @@ export async function sendSMS(
   if (fetchErr || !cg)
     return { success: false, message: "", error: "Caregiver not found." };
 
-  // Get from number
-  const fromNumber = await getRCFromNumber(supabase);
-  if (!fromNumber)
+  // Resolve phone number + JWT based on whether a category was specified.
+  // When category is omitted, this falls through to the legacy env-var
+  // path and the behavior is byte-identical to the pre-routing code.
+  let fromNumber: string;
+  let jwt: string;
+  try {
+    const creds = await getSendingCredentials(supabase, category);
+    fromNumber = creds.fromNumber;
+    jwt = creds.jwt;
+  } catch (err) {
     return {
       success: false,
       message: "",
-      error:
-        "RingCentral from number not configured. Set it in Settings > RingCentral.",
+      error: (err as Error).message,
     };
+  }
 
-  // Authenticate with RingCentral
+  // Authenticate with RingCentral using the resolved JWT
   let accessToken: string;
   try {
-    accessToken = await getRingCentralAccessToken();
+    accessToken = await getRingCentralAccessTokenWithJwt(jwt);
   } catch (err) {
     return {
       success: false,
@@ -80,13 +95,16 @@ export async function sendSMS(
       );
     }
 
-    // Log note
+    // Log note. Include the route in the outcome when one was used, so the
+    // audit trail can distinguish routed vs. legacy sends.
     const smsNote = createNote(
       {
         text: message,
         type: "text",
         direction: "outbound",
-        outcome: "sent via RingCentral",
+        outcome: category
+          ? `sent via RingCentral (route: ${category})`
+          : "sent via RingCentral",
       },
       actor,
     );
@@ -97,7 +115,7 @@ export async function sendSMS(
 
     return {
       success: true,
-      message: `SMS sent to ${cg.first_name} ${cg.last_name} at ${normalizedPhone}. Message logged to their record.`,
+      message: `SMS sent to ${cg.first_name} ${cg.last_name} at ${normalizedPhone} (from ${fromNumber}${category ? `, route: ${category}` : ""}). Message logged to their record.`,
     };
   } catch (err) {
     console.error("RC SMS error:", err);
