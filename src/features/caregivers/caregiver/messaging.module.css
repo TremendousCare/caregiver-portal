@@ -307,6 +307,141 @@
   color: var(--tc-danger);
 }
 
+/* ─── Route selector (per-message "Send from:" chip) ─── */
+.routeSelector {
+  position: relative;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #7A8BA0;
+}
+
+.routeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #7A8BA0;
+  font-family: var(--tc-font-base);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.routeChip:hover:not(:disabled) {
+  background: #F0F4FA;
+  border-color: #D5DCE6;
+}
+
+.routeChip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.routeChip strong {
+  color: #0F1724;
+  font-weight: 600;
+}
+
+.routeChipIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.routeChipArrow {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.routePickerMenu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-width: 320px;
+  background: #fff;
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 36, 0.08);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.routePickerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #0F1724;
+  text-align: left;
+  width: 100%;
+  font-family: var(--tc-font-base);
+  transition: background 0.12s ease;
+}
+
+.routePickerItem:hover:not(:disabled) {
+  background: #F0F4FA;
+}
+
+.routePickerItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.routePickerItemActive {
+  background: #EEF2FF;
+  color: #3730A3;
+  font-weight: 600;
+}
+
+.routePickerItemActive:hover:not(:disabled) {
+  background: #E0E7FF;
+}
+
+.routePickerItemLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.routePickerItemDefaultBadge {
+  font-size: 9px;
+  font-weight: 700;
+  color: #15803D;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.routePickerItemNotSet {
+  font-size: 10px;
+  color: #A16207;
+  font-weight: 600;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
 .composeButton {
   padding: 10px 20px;
   border-radius: var(--tc-radius-md);
