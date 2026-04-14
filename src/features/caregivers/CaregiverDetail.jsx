@@ -114,6 +114,8 @@ export function CaregiverDetail({
         activePhase={activePhase}
         onPhaseChange={setActivePhase}
         onUpdateCaregiver={onUpdateCaregiver}
+        currentUser={currentUser}
+        showToast={showToast}
       />
 
       <RecommendedNextStep caregiver={caregiver} />
