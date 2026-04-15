@@ -25,6 +25,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'document_signed', label: 'Document Signed', description: 'Fires when an eSign or DocuSign envelope is fully signed' },
   { value: 'inbound_sms', label: 'Inbound SMS Received', description: 'Fires when an SMS is received from a caregiver via RingCentral' },
   { value: 'survey_completed', label: 'Survey Completed', description: 'Fires when a caregiver completes a pre-screening survey' },
+  { value: 'survey_pending', label: 'Survey Pending Reminder', description: 'Re-sends the pre-screening survey daily (or at a custom interval) until the caregiver completes it' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
@@ -122,6 +123,7 @@ function TriggerBadge({ type }) {
     document_signed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     inbound_sms: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
     survey_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
+    survey_pending: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -136,6 +138,7 @@ function TriggerBadge({ type }) {
     document_signed: 'Doc Signed',
     inbound_sms: 'Inbound SMS',
     survey_completed: 'Survey Done',
+    survey_pending: 'Survey Reminder',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -216,6 +219,12 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   // Survey completed trigger condition
   const [surveyStatus, setSurveyStatus] = useState(rule?.conditions?.survey_status || '');
 
+  // Survey pending reminder trigger conditions
+  const [reminderHours, setReminderHours] = useState(rule?.conditions?.hours ?? 24);
+  const [maxReminders, setMaxReminders] = useState(rule?.conditions?.max_reminders ?? 5);
+  const [reminderStartHour, setReminderStartHour] = useState(rule?.conditions?.start_hour ?? 9);
+  const [reminderEndHour, setReminderEndHour] = useState(rule?.conditions?.end_hour ?? 18);
+
   // Derived options based on entity type
   const triggerOptions = getTriggerOptions(entityType);
   const actionOptions = getActionOptions(entityType);
@@ -275,6 +284,17 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
     if (triggerType === 'days_inactive' && (!daysInactive || daysInactive <= 0)) {
       setError('Days of inactivity must be a positive number.'); return;
     }
+    if (triggerType === 'survey_pending') {
+      const hrs = parseFloat(reminderHours);
+      const max = parseInt(maxReminders, 10);
+      const sh = parseInt(reminderStartHour, 10);
+      const eh = parseInt(reminderEndHour, 10);
+      if (!hrs || hrs <= 0) { setError('Reminder interval must be a positive number of hours.'); return; }
+      if (!max || max <= 0) { setError('Max reminders must be a positive number.'); return; }
+      if (!Number.isFinite(sh) || sh < 0 || sh > 23) { setError('Send window start hour must be between 0 and 23.'); return; }
+      if (!Number.isFinite(eh) || eh < 1 || eh > 24) { setError('Send window end hour must be between 1 and 24.'); return; }
+      if (sh >= eh) { setError('Send window start hour must be earlier than the end hour.'); return; }
+    }
     if (actionType === 'send_email' && !emailSubject.trim()) { setError('Email subject is required.'); return; }
     if (actionType === 'update_phase' && !targetPhase) { setError('Select a target phase.'); return; }
     if (actionType === 'complete_task' && !actionTaskId) { setError('Select a task to complete.'); return; }
@@ -295,6 +315,12 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         ...(triggerType === 'document_signed' && templateNameFilter.trim() ? { template_name: templateNameFilter.trim() } : {}),
         ...(triggerType === 'inbound_sms' && keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
         ...(triggerType === 'survey_completed' && surveyStatus ? { survey_status: surveyStatus } : {}),
+        ...(triggerType === 'survey_pending' ? {
+          hours: parseFloat(reminderHours),
+          max_reminders: parseInt(maxReminders, 10),
+          start_hour: parseInt(reminderStartHour, 10),
+          end_hour: parseInt(reminderEndHour, 10),
+        } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
       action_type: actionType,
@@ -470,6 +496,95 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
               Only fire when the survey result matches. Leave empty to fire on any survey completion.
             </div>
           </div>
+        )}
+
+        {/* Conditions — survey_pending (reminder loop) */}
+        {triggerType === 'survey_pending' && (
+          <>
+            <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className={forms.fieldLabel}>Remind Every (hours)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={reminderHours}
+                  onChange={(e) => { setReminderHours(e.target.value); setError(''); }}
+                  min="1"
+                  step="1"
+                  placeholder="24"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  Default 24 = once per day.
+                </div>
+              </div>
+              <div>
+                <label className={forms.fieldLabel}>Max Reminders</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={maxReminders}
+                  onChange={(e) => { setMaxReminders(e.target.value); setError(''); }}
+                  min="1"
+                  step="1"
+                  placeholder="5"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  Stop after this many. Default 5.
+                </div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className={forms.fieldLabel}>Send Window Start (hour)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={reminderStartHour}
+                  onChange={(e) => { setReminderStartHour(e.target.value); setError(''); }}
+                  min="0"
+                  max="23"
+                  step="1"
+                  placeholder="9"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  0&ndash;23 (Eastern Time). Default 9 = 9am.
+                </div>
+              </div>
+              <div>
+                <label className={forms.fieldLabel}>Send Window End (hour)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={reminderEndHour}
+                  onChange={(e) => { setReminderEndHour(e.target.value); setError(''); }}
+                  min="1"
+                  max="24"
+                  step="1"
+                  placeholder="18"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  0&ndash;24 (exclusive). Default 18 = 6pm.
+                </div>
+              </div>
+            </div>
+            <div style={{
+              marginBottom: 16,
+              padding: '10px 12px',
+              background: '#FFFBEB',
+              border: '1px solid #FDE68A',
+              borderRadius: 8,
+              fontSize: 11,
+              color: '#A16207',
+              lineHeight: 1.5,
+            }}>
+              <strong>How this works:</strong> Every {parseFloat(reminderHours) || 24} hour(s), between{' '}
+              {parseInt(reminderStartHour, 10) || 9}:00 and {parseInt(reminderEndHour, 10) || 18}:00 Eastern, this rule
+              re-sends the original survey link to any caregiver whose pre-screening survey is still pending.
+              Stops automatically after {parseInt(maxReminders, 10) || 5} reminder(s) or when the caregiver completes it.
+              You can stop reminders for an individual caregiver from their profile.
+              Use <code>{'{{survey_link}}'}</code> in the message template below.
+            </div>
+          </>
         )}
 
         {/* Universal phase filter — all trigger types */}
@@ -763,6 +878,12 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             {rule.trigger_type === 'inbound_sms' && rule.conditions?.keyword && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 Keyword: &ldquo;{rule.conditions.keyword}&rdquo;
+              </div>
+            )}
+            {rule.trigger_type === 'survey_pending' && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Every {rule.conditions?.hours ?? 24}h &middot; up to {rule.conditions?.max_reminders ?? 5} reminders
+                {' '}&middot; {rule.conditions?.start_hour ?? 9}:00&ndash;{rule.conditions?.end_hour ?? 18}:00 ET
               </div>
             )}
             {rule.conditions?.phase && (

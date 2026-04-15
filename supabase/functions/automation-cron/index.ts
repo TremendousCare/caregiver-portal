@@ -1,5 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeActionType, resolveAutomationMergeFields } from "../_shared/helpers/automations.ts";
+import {
+  buildSurveyUrlFromToken,
+  isWithinSendWindow,
+  resolveReminderConditions,
+  shouldRemindSurvey,
+} from "../_shared/helpers/surveyReminders.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -155,6 +161,8 @@ Deno.serve(async (req) => {
     sequence_steps_enqueued: 0,
     response_cancellations: 0,
     out_of_order_skips: 0,
+    survey_reminders_sent: 0,
+    survey_reminders_skipped: 0,
   };
 
   try {
@@ -264,6 +272,169 @@ Deno.serve(async (req) => {
           }
         }
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 1.5: SURVEY_PENDING REMINDER RULES
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Re-sends the pre-screening survey to caregivers who haven't completed it.
+    // Each rule's conditions control the interval (hours), cap (max_reminders),
+    // and local-time send window. Per-caregiver opt-out lives on
+    // survey_responses.reminders_stopped (toggle from the caregiver profile).
+    //
+    // We never create a new survey token for a reminder — we reuse the token
+    // that was generated when the survey was first sent, so the link in every
+    // reminder matches the original one.
+
+    try {
+      const now = new Date();
+
+      const { data: surveyRules, error: surveyRulesErr } = await supabase
+        .from("automation_rules")
+        .select("*")
+        .eq("enabled", true)
+        .eq("trigger_type", "survey_pending");
+
+      if (surveyRulesErr) {
+        console.error("Failed to fetch survey_pending rules:", surveyRulesErr);
+      } else if (surveyRules && surveyRules.length > 0) {
+        const appBaseUrl =
+          Deno.env.get("APP_BASE_URL") || "https://caregiver-portal.vercel.app";
+
+        for (const rule of surveyRules) {
+          summary.rules_processed++;
+          const resolved = resolveReminderConditions(rule.conditions);
+
+          // Gate on the configured local-time window. Checked per-rule so
+          // different rules could have different timezones in future.
+          if (!isWithinSendWindow(now, resolved.tz, resolved.start_hour, resolved.end_hour)) {
+            continue;
+          }
+
+          // Pull candidate rows — the shouldRemindSurvey helper does the
+          // precise filtering in JS so the logic is unit-testable.
+          const { data: candidates, error: candErr } = await supabase
+            .from("survey_responses")
+            .select(
+              "id, caregiver_id, token, status, reminders_sent, last_reminder_sent_at, reminders_stopped, sent_at"
+            )
+            .eq("status", "pending")
+            .eq("reminders_stopped", false)
+            .lt("reminders_sent", resolved.max_reminders);
+
+          if (candErr) {
+            console.error(`Failed to fetch pending surveys for rule ${rule.id}:`, candErr);
+            summary.errors++;
+            continue;
+          }
+
+          const dueSurveys = (candidates || []).filter((sr: any) =>
+            shouldRemindSurvey(sr, rule.conditions, now)
+          );
+
+          if (dueSurveys.length === 0) continue;
+
+          // Bulk fetch caregivers for the due surveys
+          const caregiverIds = Array.from(
+            new Set(dueSurveys.map((s: any) => s.caregiver_id).filter(Boolean))
+          );
+          if (caregiverIds.length === 0) continue;
+
+          const { data: caregivers, error: cgErr } = await supabase
+            .from("caregivers")
+            .select("id, first_name, last_name, phone, email, phase, archived")
+            .in("id", caregiverIds);
+
+          if (cgErr) {
+            console.error(`Failed to fetch caregivers for rule ${rule.id}:`, cgErr);
+            summary.errors++;
+            continue;
+          }
+
+          const cgMap = new Map((caregivers || []).map((c: any) => [c.id, c]));
+
+          for (const survey of dueSurveys) {
+            const caregiver = cgMap.get(survey.caregiver_id);
+            if (!caregiver || caregiver.archived) {
+              summary.survey_reminders_skipped++;
+              summary.skipped++;
+              continue;
+            }
+
+            const surveyLink = buildSurveyUrlFromToken(survey.token, appBaseUrl);
+
+            try {
+              const response = await fetch(
+                `${SUPABASE_URL}/functions/v1/execute-automation`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                  },
+                  body: JSON.stringify({
+                    rule_id: rule.id,
+                    caregiver_id: caregiver.id,
+                    action_type: rule.action_type,
+                    message_template: rule.message_template,
+                    action_config: rule.action_config,
+                    rule_name: rule.name,
+                    caregiver: {
+                      id: caregiver.id,
+                      first_name: caregiver.first_name,
+                      last_name: caregiver.last_name,
+                      phone: caregiver.phone,
+                      email: caregiver.email,
+                      phase: caregiver.phase,
+                    },
+                    trigger_context: {
+                      survey_link: surveyLink,
+                      survey_response_id: survey.id,
+                      reminder_number: (survey.reminders_sent || 0) + 1,
+                      max_reminders: resolved.max_reminders,
+                    },
+                  }),
+                }
+              );
+
+              const result = await response.json();
+
+              if (result.success) {
+                summary.executions++;
+                summary.survey_reminders_sent++;
+                // Atomically bump the counter + last-sent timestamp. We use
+                // the previously-read reminders_sent as the optimistic base;
+                // if two cron runs collide, only one will win — the other's
+                // update is still safe (just increments by 1 either way).
+                await supabase
+                  .from("survey_responses")
+                  .update({
+                    reminders_sent: (survey.reminders_sent || 0) + 1,
+                    last_reminder_sent_at: now.toISOString(),
+                  })
+                  .eq("id", survey.id);
+              } else if (result.skipped) {
+                summary.skipped++;
+                summary.survey_reminders_skipped++;
+              } else {
+                summary.errors++;
+                console.error(
+                  `Survey reminder failed for rule ${rule.name}, survey ${survey.id}:`,
+                  result.error
+                );
+              }
+            } catch (err) {
+              summary.errors++;
+              console.error(
+                `Failed to call execute-automation for survey reminder ${survey.id}:`,
+                err
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Survey reminder section failed:", err);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

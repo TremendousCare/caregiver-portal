@@ -22,6 +22,7 @@ export function SurveyResults({ caregiver }) {
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
+  const [togglingReminders, setTogglingReminders] = useState(false);
 
   useEffect(() => {
     if (!supabase || !caregiver?.id) {
@@ -39,6 +40,23 @@ export function SurveyResults({ caregiver }) {
         setLoading(false);
       });
   }, [caregiver?.id]);
+
+  const toggleReminders = async (responseId, nextStopped) => {
+    if (!supabase) return;
+    setTogglingReminders(true);
+    const { error } = await supabase
+      .from('survey_responses')
+      .update({ reminders_stopped: nextStopped })
+      .eq('id', responseId);
+    setTogglingReminders(false);
+    if (error) {
+      console.warn('Failed to toggle survey reminders:', error);
+      return;
+    }
+    setResponses((prev) =>
+      prev.map((r) => (r.id === responseId ? { ...r, reminders_stopped: nextStopped } : r))
+    );
+  };
 
   // Don't render the section if no surveys exist for this caregiver
   if (loading || responses.length === 0) return null;
@@ -86,13 +104,58 @@ export function SurveyResults({ caregiver }) {
       {expanded && (
         <div style={{ padding: '20px 24px' }}>
           {/* Timestamps */}
-          <div style={{ display: 'flex', gap: 20, marginBottom: 16, fontSize: 12, color: '#7A8BA0' }}>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 16, fontSize: 12, color: '#7A8BA0', flexWrap: 'wrap' }}>
             {sentDate && <span>Sent: <strong style={{ color: '#4B5563' }}>{sentDate}</strong></span>}
             {submittedDate && <span>Submitted: <strong style={{ color: '#4B5563' }}>{submittedDate}</strong></span>}
             {!submittedDate && latest.status === 'pending' && (
               <span style={{ color: '#A16207', fontWeight: 600 }}>Awaiting response</span>
             )}
+            {latest.status === 'pending' && (latest.reminders_sent ?? 0) > 0 && (
+              <span>
+                Reminders sent: <strong style={{ color: '#4B5563' }}>{latest.reminders_sent}</strong>
+                {latest.last_reminder_sent_at && (
+                  <> &middot; last {new Date(latest.last_reminder_sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>
+                )}
+              </span>
+            )}
           </div>
+
+          {/* Reminder controls — only while the survey is still pending */}
+          {latest.status === 'pending' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
+              padding: '10px 14px',
+              background: latest.reminders_stopped ? '#F8F9FB' : '#FFFBEB',
+              border: `1px solid ${latest.reminders_stopped ? '#E0E4EA' : '#FDE68A'}`,
+              borderRadius: 10,
+            }}>
+              <span style={{ fontSize: 12, color: '#4B5563', flex: 1 }}>
+                {latest.reminders_stopped
+                  ? 'Automatic reminders are paused for this caregiver.'
+                  : 'Automatic daily reminders are active for this caregiver.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => toggleReminders(latest.id, !latest.reminders_stopped)}
+                disabled={togglingReminders}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  border: '1px solid',
+                  borderColor: latest.reminders_stopped ? '#BBF7D0' : '#FECACA',
+                  background: latest.reminders_stopped ? '#F0FDF4' : '#FEF2F2',
+                  color: latest.reminders_stopped ? '#15803D' : '#DC2626',
+                  cursor: togglingReminders ? 'wait' : 'pointer',
+                  opacity: togglingReminders ? 0.6 : 1,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {latest.reminders_stopped ? 'Resume Reminders' : 'Stop Reminders'}
+              </button>
+            </div>
+          )}
 
           {/* Disqualification/Flag banner */}
           {(latest.status === 'disqualified' || latest.status === 'flagged') && qualResults.length > 0 && (
