@@ -822,7 +822,7 @@ export async function executeSuggestion(
       const tableName = entityType === "client" ? "clients" : "caregivers";
       const { data: entity } = await supabase
         .from(tableName)
-        .select("phone")
+        .select("phone, employment_status")
         .eq("id", entityId)
         .single();
 
@@ -837,12 +837,47 @@ export async function executeSuggestion(
         break;
       }
 
+      // Resolve smart-default category so AI-drafted responses to inbound
+      // messages go through the right RingCentral number. Same rule as the
+      // frontend SMSComposeBar and the AI chat send_sms tool:
+      //   - Caregivers in onboarding → Onboarding route (if configured)
+      //   - Otherwise → the is_default route
+      //   - Clients always use the default (they're not part of the
+      //     caregiver onboarding pipeline)
+      //   - If <2 routes are configured → null → legacy env-var path
+      let smartCategory: string | null = null;
+      if (entityType !== "client") {
+        try {
+          const { data: routes } = await supabase
+            .from("communication_routes")
+            .select("category, is_default, sms_from_number, sms_vault_secret_name")
+            .eq("is_active", true);
+          const list = routes || [];
+          const isConfigured = (r: any) => !!(r?.sms_vault_secret_name && r?.sms_from_number);
+          const configured = list.filter(isConfigured);
+          if (configured.length >= 2) {
+            const isOnboarding = !entity.employment_status || entity.employment_status === "onboarding";
+            if (isOnboarding) {
+              const onb = list.find((r: any) => r.category === "onboarding" && isConfigured(r));
+              if (onb) smartCategory = "onboarding";
+            }
+            if (!smartCategory) {
+              const def = list.find((r: any) => r.is_default && isConfigured(r));
+              if (def) smartCategory = def.category;
+            }
+          }
+        } catch (err) {
+          console.warn("[routing] Route lookup failed, falling back to legacy:", (err as Error).message);
+        }
+      }
+
       result = await sendSMS(
         supabase,
         entityId,
         params.message || suggestion.drafted_content,
         normalized,
         executedBy,
+        smartCategory,
       );
       break;
     }

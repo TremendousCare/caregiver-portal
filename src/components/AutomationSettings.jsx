@@ -230,6 +230,24 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [fieldValue, setFieldValue] = useState(rule?.action_config?.field_value || '');
   const [docusignSendAll, setDocusignSendAll] = useState(rule?.action_config?.send_all ?? true);
 
+  // Communication route selection for send_sms / send_email automation rules.
+  // '' = inherit default (execute-automation picks legacy path or based on its
+  // own logic). A specific category = route this automation through that route
+  // when it fires. Stored under action_config.category.
+  const [smsRouteCategory, setSmsRouteCategory] = useState(rule?.action_config?.category || '');
+  const [communicationRoutes, setCommunicationRoutes] = useState([]);
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('communication_routes')
+      .select('category, label, is_default, sms_from_number, sms_vault_secret_name')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (data) setCommunicationRoutes(data);
+      });
+  }, []);
+
   const insertMergeField = (field) => {
     const tag = `{{${field}}}`;
     const textarea = templateRef.current;
@@ -286,6 +304,13 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         ...(actionType === 'complete_task' ? { task_id: actionTaskId } : {}),
         ...(actionType === 'update_field' ? { field_name: fieldName, field_value: fieldValue } : {}),
         ...(actionType === 'send_docusign_envelope' ? { send_all: docusignSendAll } : {}),
+        // Communication route for send_sms/send_email. Stored when a
+        // specific category is chosen; omitted when "Auto" is selected so
+        // downstream (execute-automation / routing) can apply its own
+        // smart default.
+        ...(['send_sms', 'send_email'].includes(actionType) && smsRouteCategory
+          ? { category: smsRouteCategory }
+          : {}),
       },
       message_template: messageTemplate.trim(),
     };
@@ -590,6 +615,32 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
                 : `Hi {{first_name}}, welcome to Tremendous Care! We're excited to have you on board.`}
           />
         </div>
+
+        {/* Communication Route (only for send_sms and send_email) */}
+        {['send_sms', 'send_email'].includes(actionType) && communicationRoutes.length >= 2 && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Send from</label>
+            <select
+              className={forms.fieldInput}
+              style={{ cursor: 'pointer' }}
+              value={smsRouteCategory}
+              onChange={(e) => setSmsRouteCategory(e.target.value)}
+            >
+              <option value="">Auto (smart default based on caregiver status)</option>
+              {communicationRoutes.map((r) => {
+                const configured = !!(r.sms_vault_secret_name && r.sms_from_number);
+                return (
+                  <option key={r.category} value={r.category} disabled={!configured}>
+                    {r.label}{r.is_default ? ' (default)' : ''}{!configured ? ' — not configured' : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Which RingCentral route this automation sends through. "Auto" lets the system pick based on the caregiver's onboarding status.
+            </div>
+          </div>
+        )}
 
         {/* Merge Field Chips */}
         <div style={{ marginBottom: 16 }}>
