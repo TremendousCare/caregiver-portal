@@ -4,6 +4,7 @@ import {
   updateShift,
   cancelShift,
   getShiftOffersForShift,
+  updateShiftOffer,
 } from './storage';
 import {
   SHIFT_CANCEL_REASONS,
@@ -13,6 +14,7 @@ import {
   shiftStatusLabel,
   validateShiftDraft,
 } from './shiftHelpers';
+import { renderConfirmationMessage } from './broadcastHelpers';
 import { ShiftForm } from './ShiftForm';
 import btn from '../../styles/buttons.module.css';
 import s from './ShiftDrawer.module.css';
@@ -32,6 +34,7 @@ export function ShiftDrawer({
   caregivers,
   carePlans,
   currentUserName,
+  currentUserEmail,
   onClose,
   onSaved,
   onCancelled,
@@ -137,6 +140,82 @@ export function ShiftDrawer({
     } catch (e) {
       console.error('Quick status update failed:', e);
       showToast?.(`Update failed: ${e.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ─── Phase 5b: Assign a caregiver from an accepted offer ───
+  // Runs when the scheduler clicks "Assign this caregiver" on a
+  // response row in the broadcast history panel. Steps:
+  //
+  //   1. Update the shift: status → assigned, assigned_caregiver_id
+  //      → the responder.
+  //   2. Mark the winning offer as 'assigned'.
+  //   3. Expire all OTHER pending offers for this shift so the
+  //      broadcast history clearly shows who "won".
+  //   4. Send a confirmation SMS to the assigned caregiver via the
+  //      existing bulk-sms function routed through the scheduling
+  //      communication route.
+  //   5. Refresh the drawer.
+  const handleAssignFromOffer = async (offer) => {
+    if (!offer || !offer.caregiverId) return;
+    const caregiver = caregivers?.find((c) => c.id === offer.caregiverId);
+    if (!caregiver) {
+      setError('Could not find caregiver record.');
+      return;
+    }
+    const client = clients?.find((c) => c.id === shift.clientId) || null;
+
+    setSaving(true);
+    setError(null);
+    try {
+      // 1. Assign the shift
+      const updated = await updateShift(shift.id, {
+        assignedCaregiverId: offer.caregiverId,
+        status: 'assigned',
+      });
+
+      // 2. Mark the winning offer as assigned
+      await updateShiftOffer(offer.id, { status: 'assigned' });
+
+      // 3. Expire all other pending offers for this shift
+      const peersToExpire = offers.filter(
+        (o) => o.id !== offer.id && (o.status === 'sent' || o.status === 'accepted'),
+      );
+      for (const peer of peersToExpire) {
+        await updateShiftOffer(peer.id, { status: 'expired' });
+      }
+
+      // 4. Send the confirmation SMS
+      if (supabase && caregiver.phone) {
+        const confirmationText = renderConfirmationMessage({
+          shift: updated || shift,
+          caregiver,
+          client,
+        });
+        try {
+          await supabase.functions.invoke('bulk-sms', {
+            body: {
+              caregiver_ids: [caregiver.id],
+              message: confirmationText,
+              current_user: currentUserEmail || currentUserName || 'system',
+              category: 'scheduling',
+            },
+          });
+        } catch (smsErr) {
+          console.warn('Confirmation SMS failed:', smsErr);
+          showToast?.('Shift assigned — confirmation SMS failed (check RingCentral)');
+          onSaved?.(updated);
+          return;
+        }
+      }
+
+      showToast?.(`Assigned to ${caregiver.firstName || 'caregiver'} · confirmation sent`);
+      onSaved?.(updated);
+    } catch (e) {
+      console.error('Assign from offer failed:', e);
+      setError(e.message || 'Failed to assign');
     } finally {
       setSaving(false);
     }
@@ -281,20 +360,43 @@ export function ShiftDrawer({
                   const name = cg
                     ? `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id
                     : offer.caregiverId;
+                  const canAssign =
+                    offer.status === 'accepted' &&
+                    !isCancelled &&
+                    shift.status !== 'assigned' &&
+                    shift.status !== 'confirmed' &&
+                    shift.status !== 'in_progress' &&
+                    shift.status !== 'completed';
                   return (
                     <li key={offer.id} className={s.offerRow}>
-                      <span className={s.offerName}>{name}</span>
-                      <span className={`${s.offerStatus} ${s[`offerStatus_${offer.status}`] || ''}`}>
-                        {offer.status}
-                      </span>
+                      <div className={s.offerRowMain}>
+                        <span className={s.offerName}>{name}</span>
+                        <span className={`${s.offerStatus} ${s[`offerStatus_${offer.status}`] || ''}`}>
+                          {offer.status}
+                        </span>
+                      </div>
+                      {offer.responseText && (
+                        <div className={s.offerResponseText}>
+                          <span className={s.offerResponseLabel}>Replied:</span>{' '}
+                          <span className={s.offerResponseBody}>"{offer.responseText}"</span>
+                        </div>
+                      )}
+                      {canAssign && (
+                        <div className={s.offerActions}>
+                          <button
+                            type="button"
+                            className={s.assignBtn}
+                            onClick={() => handleAssignFromOffer(offer)}
+                            disabled={saving}
+                          >
+                            Assign {cg?.firstName || 'this caregiver'} →
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
               </ul>
-              <div className={s.offersNote}>
-                Inbound response tracking comes in Phase 5b. For now, watch RingCentral for
-                replies and assign the caregiver manually.
-              </div>
             </div>
           )}
 

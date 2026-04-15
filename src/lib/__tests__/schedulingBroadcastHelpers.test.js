@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_BROADCAST_TEMPLATE,
   DEFAULT_REPLY_INSTRUCTION,
+  DEFAULT_CONFIRMATION_TEMPLATE,
   buildMergeFields,
   renderTemplate,
   renderDefaultBroadcastMessage,
+  renderConfirmationMessage,
   validateBroadcastDraft,
+  parseYesNoResponse,
 } from '../../features/scheduling/broadcastHelpers';
 
 // ─── Test data ─────────────────────────────────────────────────
@@ -261,5 +264,134 @@ describe('validateBroadcastDraft', () => {
   it('accepts template right at the 1600 limit', () => {
     const big = 'x'.repeat(1600);
     expect(validateBroadcastDraft({ ...goodDraft, template: big })).toBeNull();
+  });
+});
+
+// ─── parseYesNoResponse (Phase 5b) ─────────────────────────────
+
+describe('parseYesNoResponse', () => {
+  it('returns "maybe" for null / undefined / empty', () => {
+    expect(parseYesNoResponse(null)).toBe('maybe');
+    expect(parseYesNoResponse(undefined)).toBe('maybe');
+    expect(parseYesNoResponse('')).toBe('maybe');
+    expect(parseYesNoResponse('   ')).toBe('maybe');
+  });
+
+  it('recognizes plain YES variants', () => {
+    expect(parseYesNoResponse('yes')).toBe('yes');
+    expect(parseYesNoResponse('Yes')).toBe('yes');
+    expect(parseYesNoResponse('YES')).toBe('yes');
+    expect(parseYesNoResponse('y')).toBe('yes');
+    expect(parseYesNoResponse('Y')).toBe('yes');
+    expect(parseYesNoResponse('yep')).toBe('yes');
+    expect(parseYesNoResponse('yeah')).toBe('yes');
+    expect(parseYesNoResponse('yup')).toBe('yes');
+    expect(parseYesNoResponse('sure')).toBe('yes');
+    expect(parseYesNoResponse('ok')).toBe('yes');
+    expect(parseYesNoResponse('okay')).toBe('yes');
+    expect(parseYesNoResponse('accept')).toBe('yes');
+  });
+
+  it('recognizes NO variants', () => {
+    expect(parseYesNoResponse('no')).toBe('no');
+    expect(parseYesNoResponse('No')).toBe('no');
+    expect(parseYesNoResponse('NO')).toBe('no');
+    expect(parseYesNoResponse('n')).toBe('no');
+    expect(parseYesNoResponse('nope')).toBe('no');
+    expect(parseYesNoResponse('nah')).toBe('no');
+    expect(parseYesNoResponse('cant')).toBe('no');
+    expect(parseYesNoResponse("can't")).toBe('no');
+    expect(parseYesNoResponse('decline')).toBe('no');
+    expect(parseYesNoResponse('pass')).toBe('no');
+  });
+
+  it('parses the first word even with trailing punctuation', () => {
+    expect(parseYesNoResponse('Yes!')).toBe('yes');
+    expect(parseYesNoResponse('YES.')).toBe('yes');
+    expect(parseYesNoResponse('no,')).toBe('no');
+    expect(parseYesNoResponse('sure!')).toBe('yes');
+    expect(parseYesNoResponse('nope.')).toBe('no');
+  });
+
+  it('parses the first word from multi-word replies', () => {
+    expect(parseYesNoResponse('Yes please')).toBe('yes');
+    expect(parseYesNoResponse('yes I can')).toBe('yes');
+    expect(parseYesNoResponse('no sorry')).toBe('no');
+    expect(parseYesNoResponse("can't sorry")).toBe('no');
+  });
+
+  it('ignores leading whitespace', () => {
+    expect(parseYesNoResponse('   yes')).toBe('yes');
+    expect(parseYesNoResponse('\n\nyes')).toBe('yes');
+  });
+
+  it('returns "maybe" for ambiguous replies', () => {
+    expect(parseYesNoResponse('maybe')).toBe('maybe');
+    expect(parseYesNoResponse('let me check')).toBe('maybe');
+    expect(parseYesNoResponse('I need to look')).toBe('maybe');
+    expect(parseYesNoResponse('call me')).toBe('maybe');
+    expect(parseYesNoResponse('what time again?')).toBe('maybe');
+  });
+
+  it('returns "maybe" for non-string input', () => {
+    expect(parseYesNoResponse(42)).toBe('maybe');
+    expect(parseYesNoResponse({})).toBe('maybe');
+    expect(parseYesNoResponse([])).toBe('maybe');
+  });
+});
+
+// ─── renderConfirmationMessage (Phase 5b) ──────────────────────
+
+describe('renderConfirmationMessage', () => {
+  it('uses the default confirmation template', () => {
+    const text = renderConfirmationMessage({
+      shift: {
+        startTime: new Date(2026, 4, 4, 8).toISOString(),
+        endTime: new Date(2026, 4, 4, 12).toISOString(),
+        locationAddress: '123 Main St',
+      },
+      caregiver: { firstName: 'Maria' },
+      client: { firstName: 'Alice', lastName: 'Johnson' },
+    });
+    expect(text).toContain("You're confirmed");
+    expect(text).toContain('Mon');
+    expect(text).toContain('May 4');
+    expect(text).toContain('Alice Johnson');
+    expect(text).toContain('123 Main St');
+    expect(text).toContain('Maria');
+  });
+
+  it('accepts a custom template', () => {
+    const text = renderConfirmationMessage({
+      shift: {
+        startTime: new Date(2026, 4, 4, 8).toISOString(),
+        endTime: new Date(2026, 4, 4, 12).toISOString(),
+      },
+      caregiver: { firstName: 'Maria' },
+      client: { firstName: 'Alice', lastName: 'Johnson' },
+      template: 'All set, {{firstName}}! See you {{dayOfWeek}}.',
+    });
+    expect(text).toBe('All set, Maria! See you Mon.');
+  });
+
+  it('gracefully handles missing data', () => {
+    const text = renderConfirmationMessage({
+      shift: null,
+      caregiver: null,
+      client: null,
+    });
+    // Should still produce a valid string with placeholders filled with fallbacks
+    expect(typeof text).toBe('string');
+    expect(text).not.toContain('{{');
+  });
+});
+
+describe('DEFAULT_CONFIRMATION_TEMPLATE', () => {
+  it('includes the key merge fields', () => {
+    expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{firstName}}');
+    expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{dayOfWeek}}');
+    expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{timeRange}}');
+    expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{clientName}}');
+    expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{location}}');
   });
 });

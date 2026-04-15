@@ -199,18 +199,80 @@
 
 .offerRow {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 10px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   background: #fff;
   border: 1px solid #E1E7EF;
   border-radius: 6px;
   font-size: 12px;
 }
 
+.offerRowMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .offerName {
   color: #0F1724;
   font-weight: 500;
+}
+
+.offerResponseText {
+  padding: 6px 8px;
+  background: #F5F8FC;
+  border-left: 2px solid #2E4E8D;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #0F1724;
+}
+
+.offerResponseLabel {
+  color: #7A8BA0;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 9px;
+}
+
+.offerResponseBody {
+  font-style: italic;
+  color: #334155;
+}
+
+.offerActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.assignBtn {
+  padding: 6px 14px;
+  background: #16A34A;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(22, 163, 74, 0.25);
+  transition: background 0.15s, transform 0.08s;
+}
+
+.assignBtn:hover:not(:disabled) {
+  background: #15803D;
+}
+
+.assignBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.assignBtn:disabled {
+  background: #9CA3AF;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .offerStatus {

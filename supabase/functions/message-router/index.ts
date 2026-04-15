@@ -20,6 +20,7 @@ import {
 } from "../_shared/operations/routing.ts";
 import { checkDuplicateSuggestion } from "../_shared/operations/planner.ts";
 import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
+import { matchInboundShiftOfferResponse } from "../_shared/operations/shiftOfferMatching.ts";
 
 // ─── Environment ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -180,6 +181,34 @@ async function processEntry(
     results.skipped++;
     results.suggestions_created++;
     return;
+  }
+
+  // ── Phase 5b: try to match inbound SMS to a recent shift offer ──
+  // Only runs for caregiver-channeled SMS. Fire-and-forget style —
+  // a match updates shift_offers but does not short-circuit the
+  // rest of the router, so the message still gets classified and
+  // logged normally (scheduler still sees it in the caregiver's
+  // message timeline).
+  if (
+    entry.channel === "sms" &&
+    entry.matched_entity_type === "caregiver"
+  ) {
+    try {
+      const result = await matchInboundShiftOfferResponse(
+        supabase,
+        entry.matched_entity_id,
+        entry.message_text,
+        entry.received_at || entry.created_at,
+      );
+      if (result.matched) {
+        console.log(
+          `[message-router] shift-offer match: offer ${result.offerId} → ${result.newStatus} (${result.response})`,
+        );
+      }
+    } catch (err) {
+      // Never let this path crash the main router.
+      console.error("[message-router] shift-offer matching failed:", err);
+    }
   }
 
   // ── Fetch entity context ──

@@ -420,6 +420,7 @@ export function SchedulePage() {
           caregivers={rosterCaregivers}
           carePlans={allCarePlans}
           currentUserName={currentUserName}
+          currentUserEmail={currentUserEmail}
           onClose={handleDrawerClose}
           onSaved={handleDrawerSaved}
           onCancelled={handleDrawerCancelled}
