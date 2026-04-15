@@ -14,8 +14,8 @@ import {
   shiftStatusLabel,
   validateShiftDraft,
 } from './shiftHelpers';
-import { renderConfirmationMessage } from './broadcastHelpers';
 import { ShiftForm } from './ShiftForm';
+import { ConfirmAssignDialog } from './ConfirmAssignDialog';
 import btn from '../../styles/buttons.module.css';
 import s from './ShiftDrawer.module.css';
 
@@ -145,27 +145,44 @@ export function ShiftDrawer({
     }
   };
 
-  // ─── Phase 5b: Assign a caregiver from an accepted offer ───
+  // ─── Phase 5c: Open the Confirm & assign dialog ──────────────
   // Runs when the scheduler clicks "Assign this caregiver" on a
-  // response row in the broadcast history panel. Steps:
-  //
-  //   1. Update the shift: status → assigned, assigned_caregiver_id
-  //      → the responder.
-  //   2. Mark the winning offer as 'assigned'.
-  //   3. Expire all OTHER pending offers for this shift so the
-  //      broadcast history clearly shows who "won".
-  //   4. Send a confirmation SMS to the assigned caregiver via the
-  //      existing bulk-sms function routed through the scheduling
-  //      communication route.
-  //   5. Refresh the drawer.
-  const handleAssignFromOffer = async (offer) => {
+  // response row. The actual assignment happens inside
+  // performAssignment() once the dialog's onConfirm fires.
+  const [pendingAssignOffer, setPendingAssignOffer] = useState(null);
+
+  const handleAssignFromOffer = (offer) => {
     if (!offer || !offer.caregiverId) return;
     const caregiver = caregivers?.find((c) => c.id === offer.caregiverId);
     if (!caregiver) {
       setError('Could not find caregiver record.');
       return;
     }
-    const client = clients?.find((c) => c.id === shift.clientId) || null;
+    setError(null);
+    setPendingAssignOffer(offer);
+  };
+
+  // ─── Phase 5b/5c: Run the assignment + confirmation flow ────
+  // Called when ConfirmAssignDialog fires onConfirm with the final
+  // rendered confirmation message (possibly edited by the user).
+  // Steps:
+  //   1. Update the shift: status → assigned, assigned_caregiver_id
+  //      → the responder.
+  //   2. Mark the winning offer as 'assigned'.
+  //   3. Expire all OTHER pending offers for this shift so the
+  //      broadcast history clearly shows who "won".
+  //   4. Send the (possibly edited) confirmation SMS via the
+  //      existing bulk-sms function routed through the scheduling
+  //      communication route.
+  //   5. Refresh the drawer.
+  const performAssignment = async ({ renderedMessage }) => {
+    const offer = pendingAssignOffer;
+    if (!offer) return;
+    const caregiver = caregivers?.find((c) => c.id === offer.caregiverId);
+    if (!caregiver) {
+      setError('Could not find caregiver record.');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -187,31 +204,31 @@ export function ShiftDrawer({
         await updateShiftOffer(peer.id, { status: 'expired' });
       }
 
-      // 4. Send the confirmation SMS
-      if (supabase && caregiver.phone) {
-        const confirmationText = renderConfirmationMessage({
-          shift: updated || shift,
-          caregiver,
-          client,
-        });
+      // 4. Send the confirmation SMS (using the text from the dialog,
+      //    which may have been edited by the scheduler)
+      let smsFailed = false;
+      if (supabase && caregiver.phone && renderedMessage && renderedMessage.trim()) {
         try {
           await supabase.functions.invoke('bulk-sms', {
             body: {
               caregiver_ids: [caregiver.id],
-              message: confirmationText,
+              message: renderedMessage,
               current_user: currentUserEmail || currentUserName || 'system',
               category: 'scheduling',
             },
           });
         } catch (smsErr) {
           console.warn('Confirmation SMS failed:', smsErr);
-          showToast?.('Shift assigned — confirmation SMS failed (check RingCentral)');
-          onSaved?.(updated);
-          return;
+          smsFailed = true;
         }
       }
 
-      showToast?.(`Assigned to ${caregiver.firstName || 'caregiver'} · confirmation sent`);
+      if (smsFailed) {
+        showToast?.('Shift assigned — confirmation SMS failed (check RingCentral)');
+      } else {
+        showToast?.(`Assigned to ${caregiver.firstName || 'caregiver'} · confirmation sent`);
+      }
+      setPendingAssignOffer(null);
       onSaved?.(updated);
     } catch (e) {
       console.error('Assign from offer failed:', e);
@@ -471,6 +488,19 @@ export function ShiftDrawer({
           </div>
         </footer>
       </aside>
+
+      {pendingAssignOffer && (
+        <ConfirmAssignDialog
+          shift={shift}
+          caregiver={caregivers?.find((c) => c.id === pendingAssignOffer.caregiverId)}
+          client={clients?.find((c) => c.id === shift.clientId) || null}
+          sending={saving}
+          onClose={() => {
+            if (!saving) setPendingAssignOffer(null);
+          }}
+          onConfirm={performAssignment}
+        />
+      )}
     </div>
   );
 }

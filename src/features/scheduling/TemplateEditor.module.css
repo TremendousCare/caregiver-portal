@@ -1,0 +1,192 @@
+/* ─── Template editor ─── */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F1724;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.charCount {
+  font-size: 11px;
+  color: #7A8BA0;
+}
+
+.charWarn {
+  color: #D97706;
+  font-weight: 700;
+}
+
+.charOver {
+  color: #DC2626;
+  font-weight: 700;
+}
+
+/* ─── Placeholder dropdown ─── */
+
+.dropdownWrap {
+  position: relative;
+}
+
+.placeholderBtn {
+  padding: 5px 10px;
+  background: #F5F8FC;
+  color: #2E4E8D;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.placeholderBtn:hover:not(:disabled) {
+  background: #E8F1FE;
+  border-color: #2E4E8D;
+}
+
+.placeholderBtn:disabled {
+  background: #F5F5F5;
+  color: #A2B0C4;
+  cursor: not-allowed;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 280px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #C9D3E1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 36, 0.12);
+  padding: 4px;
+  z-index: 200;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.dropdownItem:hover {
+  background: #F5F8FC;
+}
+
+.dropdownItemLabel {
+  font-size: 12px;
+  color: #0F1724;
+  font-weight: 500;
+}
+
+.dropdownItemKey {
+  font-size: 11px;
+  color: #7A8BA0;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* ─── Textarea ─── */
+
+.textarea {
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+.textarea:focus {
+  border-color: #2E4E8D;
+}
+
+.textarea:disabled {
+  background: #F5F5F5;
+  color: #A2B0C4;
+}
+
+/* ─── Preview ─── */
+
+.preview {
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.previewLabel {
+  font-size: 10px;
+  color: #7A8BA0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.previewText {
+  font-size: 13px;
+  color: #0F1724;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ─── Save as default ─── */
+
+.saveAsDefaultRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #5A6B80;
+  cursor: pointer;
+  user-select: none;
+}
+
+.saveAsDefaultRow input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.saveAsDefaultRow:hover {
+  color: #0F1724;
+}

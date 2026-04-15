@@ -6,6 +6,8 @@ import {
   getAssignmentsForClient,
   createShiftOffers,
   updateShift,
+  getSchedulingTemplate,
+  setSchedulingTemplate,
 } from './storage';
 import {
   rankCaregiversForShift,
@@ -20,8 +22,11 @@ import {
   validateBroadcastDraft,
 } from './broadcastHelpers';
 import { formatShiftTimeRange } from './shiftHelpers';
+import { TemplateEditor } from './TemplateEditor';
 import btn from '../../styles/buttons.module.css';
 import s from './BroadcastModal.module.css';
+
+export const BROADCAST_TEMPLATE_KEY = 'scheduling_broadcast_template';
 
 // ═══════════════════════════════════════════════════════════════
 // BroadcastModal — Phase 5a
@@ -48,7 +53,6 @@ import s from './BroadcastModal.module.css';
 // has to manually watch RingCentral for replies.
 // ═══════════════════════════════════════════════════════════════
 
-const MESSAGE_CHAR_WARN_THRESHOLD = 160; // single-segment SMS length
 const MESSAGE_CHAR_HARD_LIMIT = 1600;
 
 export function BroadcastModal({
@@ -70,10 +74,35 @@ export function BroadcastModal({
 
   // ─── Draft state ──────────────────────────────────────────────
   const [template, setTemplate] = useState(DEFAULT_BROADCAST_TEMPLATE);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [recipientIds, setRecipientIds] = useState([]);
   const [showFiltered, setShowFiltered] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+
+  // Load the team-wide default template from app_data on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await getSchedulingTemplate(
+          BROADCAST_TEMPLATE_KEY,
+          DEFAULT_BROADCAST_TEMPLATE,
+        );
+        if (!cancelled) {
+          setTemplate(stored);
+          setTemplateLoaded(true);
+        }
+      } catch (e) {
+        console.warn('Failed to load broadcast template:', e);
+        if (!cancelled) setTemplateLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const caregiverIds = useMemo(
     () => (caregivers || []).map((c) => c.id).sort(),
@@ -217,6 +246,18 @@ export function BroadcastModal({
     setError(null);
 
     try {
+      // Phase 5c: persist the template as the new default BEFORE we
+      // start sending, so the new default is live even if the send
+      // partially fails. Best-effort — if the save fails we log it
+      // but continue with the send.
+      if (saveAsDefault) {
+        try {
+          await setSchedulingTemplate(BROADCAST_TEMPLATE_KEY, template);
+        } catch (e) {
+          console.warn('Failed to save broadcast template as default:', e);
+        }
+      }
+
       // Render per-recipient messages by expanding placeholders using
       // each recipient's merge fields. We loop through them and send
       // one bulk-sms call per recipient with the single rendered
@@ -320,9 +361,7 @@ export function BroadcastModal({
   };
 
   // ─── Render ──────────────────────────────────────────────────
-  const charCount = template.length;
-  const overSoftLimit = charCount > MESSAGE_CHAR_WARN_THRESHOLD;
-  const overHardLimit = charCount > MESSAGE_CHAR_HARD_LIMIT;
+  const overHardLimit = (template || '').length > MESSAGE_CHAR_HARD_LIMIT;
   const selectionCount = recipientIds.length;
 
   return (
@@ -339,30 +378,16 @@ export function BroadcastModal({
         <div className={s.body}>
           {/* ─── Template editor ─── */}
           <section className={s.section}>
-            <div className={s.sectionHeader}>
-              <h3 className={s.sectionTitle}>Message</h3>
-              <div className={s.charCount}>
-                <span className={overHardLimit ? s.charOver : overSoftLimit ? s.charWarn : ''}>
-                  {charCount}
-                </span>{' '}
-                chars
-              </div>
-            </div>
-            <textarea
-              className={s.templateInput}
+            <TemplateEditor
+              label="Message"
               value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              rows={3}
-              placeholder="Message template — supports {{firstName}}, {{clientName}}, {{timeRange}}, {{location}}, etc."
+              onChange={setTemplate}
+              previewText={previewText}
+              previewLabel={`Preview for ${previewRecipient?.firstName || 'first recipient'}`}
+              saveAsDefault={saveAsDefault}
+              onToggleSaveAsDefault={setSaveAsDefault}
+              disabled={sending}
             />
-            {previewText && (
-              <div className={s.preview}>
-                <div className={s.previewLabel}>
-                  Preview for {previewRecipient?.firstName || 'first recipient'}:
-                </div>
-                <div className={s.previewText}>{previewText}</div>
-              </div>
-            )}
           </section>
 
           {/* ─── Recipient picker ─── */}

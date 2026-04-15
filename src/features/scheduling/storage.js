@@ -543,3 +543,55 @@ export const updateShiftOffer = async (id, patch) => {
   if (error) throw error;
   return dbToShiftOffer(data);
 };
+
+
+// ─── scheduling templates (Phase 5c) ───────────────────────────
+// Team-wide SMS templates stored in app_data so the admin can tweak
+// the wording once and have every scheduler see the new default.
+// Falls back to the hardcoded default constants when no row exists.
+//
+// Keys:
+//   'scheduling_broadcast_template'
+//   'scheduling_confirmation_template'
+
+/**
+ * Read a template string from app_data. Returns `fallback` if
+ * Supabase isn't configured or the key isn't set yet.
+ */
+export const getSchedulingTemplate = async (key, fallback = '') => {
+  if (!isSupabaseConfigured()) return fallback;
+  try {
+    const { data, error } = await supabase
+      .from('app_data')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || data.value == null) return fallback;
+    const value = data.value;
+    // The value is stored as JSONB — could be a plain string or an object.
+    // For templates we always store a plain string.
+    if (typeof value === 'string') return value;
+    return fallback;
+  } catch (e) {
+    console.warn(`getSchedulingTemplate(${key}) failed:`, e);
+    return fallback;
+  }
+};
+
+/**
+ * Write a template string to app_data, upserting on the key.
+ */
+export const setSchedulingTemplate = async (key, value) => {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const { error } = await supabase
+      .from('app_data')
+      .upsert({ key, value }, { onConflict: 'key' });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error(`setSchedulingTemplate(${key}) failed:`, e);
+    throw e;
+  }
+};
