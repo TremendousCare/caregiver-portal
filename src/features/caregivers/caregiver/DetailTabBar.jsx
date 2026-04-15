@@ -1,8 +1,8 @@
 import styles from './messaging.module.css';
 
 /**
- * Tab bar for switching between "Activity & Tasks", "Messages", and
- * "Availability" views on the caregiver detail page.
+ * Tab bar for switching between "Activity & Tasks", "Messages",
+ * "Availability", and "Schedule" views on the caregiver detail page.
  */
 export function DetailTabBar({ activeTab, onChange, needsResponse }) {
   return (
@@ -25,6 +25,12 @@ export function DetailTabBar({ activeTab, onChange, needsResponse }) {
         onClick={() => onChange('availability')}
       >
         Availability
+      </button>
+      <button
+        className={`${styles.detailTab} ${activeTab === 'schedule' ? styles.detailTabActive : ''}`}
+        onClick={() => onChange('schedule')}
+      >
+        Schedule
       </button>
     </div>
   );

@@ -17,6 +17,7 @@ import { DetailTabBar } from './caregiver/DetailTabBar';
 import { MessagingCenter } from './caregiver/MessagingCenter';
 import { useCommsTimeline } from './caregiver/useCommsTimeline';
 import { AvailabilityEditor } from '../scheduling/AvailabilityEditor';
+import { CaregiverSchedulePanel } from '../scheduling/CaregiverSchedulePanel';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -172,6 +173,13 @@ export function CaregiverDetail({
         <AvailabilityEditor
           caregiver={caregiver}
           currentUserName={currentUser?.displayName}
+          showToast={showToast}
+        />
+      )}
+
+      {detailTab === 'schedule' && (
+        <CaregiverSchedulePanel
+          caregiver={caregiver}
           showToast={showToast}
         />
       )}
