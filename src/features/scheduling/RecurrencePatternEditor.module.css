@@ -1,0 +1,167 @@
+/* ─── Recurrence pattern editor ─── */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #0F1724;
+  font-weight: 600;
+}
+
+.toggleRow input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.toggleLabel {
+  font-weight: 600;
+}
+
+.panel {
+  padding: 14px 16px;
+  background: #F5F8FC;
+  border: 1px solid #D8E0EC;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5A6B80;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+}
+
+.hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: #A2B0C4;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ─── Day of week buttons ─── */
+
+.daysRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dayBtn {
+  width: 44px;
+  height: 36px;
+  border: 1px solid #C9D3E1;
+  border-radius: 8px;
+  background: #fff;
+  color: #5A6B80;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.dayBtn:hover:not(:disabled) {
+  background: #E8F1FE;
+  border-color: #2E4E8D;
+  color: #0F1724;
+}
+
+.dayBtnActive {
+  background: #2E4E8D;
+  color: #fff;
+  border-color: #2E4E8D;
+}
+
+.dayBtnActive:hover:not(:disabled) {
+  background: #253f73;
+  color: #fff;
+  border-color: #253f73;
+}
+
+.dayBtn:disabled {
+  background: #F5F5F5;
+  color: #A2B0C4;
+  cursor: not-allowed;
+}
+
+/* ─── Time and date rows ─── */
+
+.timeRow,
+.dateRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.timeField,
+.dateField {
+  display: flex;
+  flex-direction: column;
+}
+
+.input {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #C9D3E1;
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: #0F1724;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: #2E4E8D;
+}
+
+.input:disabled {
+  background: #F5F5F5;
+  color: #A2B0C4;
+}
+
+/* ─── Summary preview ─── */
+
+.summary {
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #0F1724;
+  line-height: 1.5;
+}
+
+.summaryLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7A8BA0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-right: 4px;
+}
+
+@media (max-width: 640px) {
+  .timeRow,
+  .dateRow {
+    grid-template-columns: 1fr;
+  }
+}

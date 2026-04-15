@@ -5,6 +5,7 @@ import {
   cancelShift,
   getShiftOffersForShift,
   updateShiftOffer,
+  getShifts,
 } from './storage';
 import {
   SHIFT_CANCEL_REASONS,
@@ -47,6 +48,10 @@ export function ShiftDrawer({
   const [error, setError] = useState(null);
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // Phase 7: "Apply to all future shifts in this series" checkboxes
+  // Default is OFF — per user decision, one-off edits are the safe default.
+  const [applyToFutureEdits, setApplyToFutureEdits] = useState(false);
+  const [applyToFutureCancel, setApplyToFutureCancel] = useState(false);
   const [offers, setOffers] = useState([]);
 
   useEffect(() => {
@@ -54,7 +59,12 @@ export function ShiftDrawer({
     setError(null);
     setShowCancelForm(false);
     setCancelReason('');
+    setApplyToFutureEdits(false);
+    setApplyToFutureCancel(false);
   }, [shift]);
+
+  // Phase 7: is this shift part of a recurring series?
+  const isRecurring = !!shift?.recurrenceGroupId;
 
   // ─── Load shift offers for this shift ───────────────────────
   const loadOffers = useCallback(async () => {
@@ -120,7 +130,43 @@ export function ShiftDrawer({
     setError(null);
     try {
       const updated = await updateShift(shift.id, patch);
-      showToast?.('Shift saved');
+
+      // Phase 7: if this shift is recurring AND the scheduler checked
+      // "apply to all future", apply the same patch to every sibling
+      // shift in the same recurrence group that starts after this one.
+      // We skip time-based fields (startTime, endTime) when propagating
+      // because those are unique per occurrence and would clobber
+      // every future shift with this one's timestamp.
+      if (isRecurring && applyToFutureEdits) {
+        const propagable = { ...patch };
+        delete propagable.startTime;
+        delete propagable.endTime;
+        // Only propagate if there's actually something non-time to apply
+        if (Object.keys(propagable).length > 0) {
+          const siblings = await getShifts({
+            startDate: shift.startTime, // strictly after (inclusive) this shift's start
+          });
+          const futureSiblings = siblings.filter(
+            (sib) =>
+              sib.id !== shift.id &&
+              sib.recurrenceGroupId === shift.recurrenceGroupId &&
+              new Date(sib.startTime).getTime() > new Date(shift.startTime).getTime(),
+          );
+          for (const sib of futureSiblings) {
+            try {
+              await updateShift(sib.id, propagable);
+            } catch (sibErr) {
+              console.warn(`Failed to update sibling shift ${sib.id}:`, sibErr);
+            }
+          }
+          showToast?.(`Shift saved · ${futureSiblings.length} future shifts updated`);
+        } else {
+          showToast?.('Shift saved (time-only changes are not applied to future shifts)');
+        }
+      } else {
+        showToast?.('Shift saved');
+      }
+
       onSaved?.(updated);
     } catch (e) {
       console.error('Save shift failed:', e);
@@ -250,7 +296,36 @@ export function ShiftDrawer({
         reason: cancelReason,
         cancelledBy: currentUserName || null,
       });
-      showToast?.('Shift cancelled');
+
+      // Phase 7: if this shift is recurring AND the scheduler checked
+      // "apply to all future", cancel every sibling shift in the same
+      // recurrence group that starts after this one.
+      if (isRecurring && applyToFutureCancel) {
+        const siblings = await getShifts({ startDate: shift.startTime });
+        const futureSiblings = siblings.filter(
+          (sib) =>
+            sib.id !== shift.id &&
+            sib.recurrenceGroupId === shift.recurrenceGroupId &&
+            new Date(sib.startTime).getTime() > new Date(shift.startTime).getTime() &&
+            sib.status !== 'cancelled',
+        );
+        for (const sib of futureSiblings) {
+          try {
+            await cancelShift(sib.id, {
+              reason: cancelReason,
+              cancelledBy: currentUserName || null,
+            });
+          } catch (sibErr) {
+            console.warn(`Failed to cancel sibling shift ${sib.id}:`, sibErr);
+          }
+        }
+        showToast?.(
+          `Shift cancelled · ${futureSiblings.length} future shifts also cancelled`,
+        );
+      } else {
+        showToast?.('Shift cancelled');
+      }
+
       onCancelled?.(updated);
     } catch (e) {
       console.error('Cancel shift failed:', e);
@@ -441,6 +516,17 @@ export function ShiftDrawer({
                   </option>
                 ))}
               </select>
+              {isRecurring && (
+                <label className={s.recurringCheckbox}>
+                  <input
+                    type="checkbox"
+                    checked={applyToFutureCancel}
+                    onChange={(e) => setApplyToFutureCancel(e.target.checked)}
+                    disabled={cancelling}
+                  />
+                  <span>Also cancel all future shifts in this recurring series</span>
+                </label>
+              )}
               <div className={s.cancelActions}>
                 <button
                   className={btn.secondaryBtn}
@@ -463,6 +549,20 @@ export function ShiftDrawer({
             </div>
           )}
         </div>
+
+        {isRecurring && isDirty && !isCancelled && (
+          <div className={s.recurringEditBar}>
+            <label className={s.recurringCheckbox}>
+              <input
+                type="checkbox"
+                checked={applyToFutureEdits}
+                onChange={(e) => setApplyToFutureEdits(e.target.checked)}
+                disabled={saving}
+              />
+              <span>Also apply to all future shifts in this recurring series</span>
+            </label>
+          </div>
+        )}
 
         <footer className={s.footer}>
           {!isCancelled && !showCancelForm && (
