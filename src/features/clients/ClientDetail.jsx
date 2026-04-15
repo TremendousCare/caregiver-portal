@@ -10,6 +10,7 @@ import { ClientSequences } from './client/ClientSequences';
 import { ClientPhaseDetail } from './client/ClientPhaseDetail';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import { CarePlansPanel } from '../scheduling/CarePlansPanel';
+import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
 import cl from './client/client.module.css';
 import cards from '../../styles/cards.module.css';
 import forms from '../../styles/forms.module.css';
@@ -180,6 +181,11 @@ export function ClientDetail({
       <CarePlansPanel
         client={client}
         currentUser={currentUser}
+        showToast={showToast}
+      />
+
+      <ClientSchedulePanel
+        client={client}
         showToast={showToast}
       />
 
