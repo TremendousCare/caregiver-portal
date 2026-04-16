@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getClientPhase, isTaskDone } from '../../features/clients/utils';
 import { CLIENT_PHASES } from '../../features/clients/constants';
 import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClient, getClientPhaseTasks, saveClientPhaseTasks, loadClientPhaseTasks } from '../../features/clients/storage';
@@ -28,6 +28,8 @@ function getAutoAdvancePhase(client, tasksObj) {
   return ADVANCEABLE_PHASES[idx + 1];
 }
 
+const RT_SUPPRESS_WINDOW = 3000;
+
 const ClientContext = createContext();
 
 export function ClientProvider({ children }) {
@@ -37,6 +39,7 @@ export function ClientProvider({ children }) {
   const [loaded, setLoaded] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [filterPhase, setFilterPhase] = useState('all');
+  const recentLocalEdits = useRef(new Map());
 
   // ─── Load data on mount (with retry) ───
   useEffect(() => {
@@ -65,21 +68,39 @@ export function ClientProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
-  // ─── Realtime subscription for automation-driven changes ───
+  // ─── Realtime subscription for multi-user sync ───
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
 
     const channel = supabase
       .channel('clients-changes')
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'clients' },
+        { event: '*', schema: 'public', table: 'clients' },
         (payload) => {
-          const updatedRow = payload.new;
-          if (!updatedRow?.id) return;
-          const mapped = dbToClient(updatedRow);
-          setClients((prev) =>
-            prev.map((cl) => cl.id === mapped.id ? { ...cl, ...mapped } : cl)
-          );
+          const eventType = payload.eventType;
+
+          if (eventType === 'INSERT') {
+            const newRow = payload.new;
+            if (!newRow?.id) return;
+            const editedAt = recentLocalEdits.current.get(newRow.id);
+            if (editedAt && Date.now() - editedAt < RT_SUPPRESS_WINDOW) return;
+            const mapped = dbToClient(newRow);
+            setClients((prev) => {
+              if (prev.some((cl) => cl.id === mapped.id)) return prev;
+              return [mapped, ...prev];
+            });
+          } else if (eventType === 'UPDATE') {
+            const updatedRow = payload.new;
+            if (!updatedRow?.id) return;
+            const mapped = dbToClient(updatedRow);
+            setClients((prev) =>
+              prev.map((cl) => cl.id === mapped.id ? { ...cl, ...mapped } : cl)
+            );
+          } else if (eventType === 'DELETE') {
+            const oldRow = payload.old;
+            if (!oldRow?.id) return;
+            setClients((prev) => prev.filter((cl) => cl.id !== oldRow.id));
+          }
         }
       )
       .subscribe();
@@ -101,6 +122,7 @@ export function ClientProvider({ children }) {
       updatedAt: Date.now(),
     };
     setClients((prev) => [newClient, ...prev]);
+    recentLocalEdits.current.set(newClient.id, Date.now());
     saveClient(newClient).catch(() => showToast('Failed to save \u2014 check your connection'));
     fireClientEventTriggers('new_client', newClient);
     fireClientSequences(newClient); // Immediately execute zero-delay sequence steps
