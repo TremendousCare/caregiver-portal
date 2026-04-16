@@ -53,35 +53,50 @@ export function CaregiverProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
-  // ─── Realtime subscription for automation-driven changes ───
+  // ─── Realtime subscription for multi-user sync ───
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
 
     const channel = supabase
       .channel('caregivers-changes')
       .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'caregivers' },
+        { event: '*', schema: 'public', table: 'caregivers' },
         (payload) => {
-          const updatedRow = payload.new;
-          if (!updatedRow?.id) return;
-          // Suppress Realtime echoes for records we just modified locally
-          const editedAt = recentLocalEdits.current.get(updatedRow.id);
-          if (editedAt && Date.now() - editedAt < RT_SUPPRESS_WINDOW) return;
-          const mapped = dbToCaregiver(updatedRow);
-          setCaregivers((prev) =>
-            prev.map((cg) => {
-              if (cg.id !== mapped.id) return cg;
-              // Protect board fields: don't let a realtime update overwrite
-              // a local board placement with a null/empty value
-              const safeMapped = { ...mapped };
-              if (!safeMapped.boardStatus && cg.boardStatus) {
-                safeMapped.boardStatus = cg.boardStatus;
-                safeMapped.boardNote = cg.boardNote;
-                safeMapped.boardMovedAt = cg.boardMovedAt;
-              }
-              return { ...cg, ...safeMapped };
-            })
-          );
+          const eventType = payload.eventType;
+
+          if (eventType === 'INSERT') {
+            const newRow = payload.new;
+            if (!newRow?.id) return;
+            const editedAt = recentLocalEdits.current.get(newRow.id);
+            if (editedAt && Date.now() - editedAt < RT_SUPPRESS_WINDOW) return;
+            const mapped = dbToCaregiver(newRow);
+            setCaregivers((prev) => {
+              if (prev.some((cg) => cg.id === mapped.id)) return prev;
+              return [mapped, ...prev];
+            });
+          } else if (eventType === 'UPDATE') {
+            const updatedRow = payload.new;
+            if (!updatedRow?.id) return;
+            const editedAt = recentLocalEdits.current.get(updatedRow.id);
+            if (editedAt && Date.now() - editedAt < RT_SUPPRESS_WINDOW) return;
+            const mapped = dbToCaregiver(updatedRow);
+            setCaregivers((prev) =>
+              prev.map((cg) => {
+                if (cg.id !== mapped.id) return cg;
+                const safeMapped = { ...mapped };
+                if (!safeMapped.boardStatus && cg.boardStatus) {
+                  safeMapped.boardStatus = cg.boardStatus;
+                  safeMapped.boardNote = cg.boardNote;
+                  safeMapped.boardMovedAt = cg.boardMovedAt;
+                }
+                return { ...cg, ...safeMapped };
+              })
+            );
+          } else if (eventType === 'DELETE') {
+            const oldRow = payload.old;
+            if (!oldRow?.id) return;
+            setCaregivers((prev) => prev.filter((cg) => cg.id !== oldRow.id));
+          }
         }
       )
       .subscribe();
@@ -100,6 +115,7 @@ export function CaregiverProvider({ children }) {
       createdAt: Date.now(),
     };
     setCaregivers((prev) => [newCg, ...prev]);
+    recentLocalEdits.current.set(newCg.id, Date.now());
     saveCaregiver(newCg).catch(() => showToast('Failed to save — check your connection'));
     fireEventTriggers('new_caregiver', newCg);
     showToast(`${data.firstName} ${data.lastName} added successfully!`);
