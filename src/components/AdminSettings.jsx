@@ -2261,32 +2261,29 @@ function ESignSettings({ showToast }) {
 }
 
 // ─── RingCentral Webhook Status ───
+// Shows per-route subscription status. Each row in `communication_routes`
+// gets its own RingCentral webhook subscription (main line, Onboarding,
+// Scheduling, …) so inbound SMS to any of our numbers is captured.
 function WebhookStatus({ showToast }) {
-  const [status, setStatus] = useState(null); // null = loading, 'active', 'inactive', 'error'
+  const [routes, setRoutes] = useState(null); // null = loading, [] = none, [{...}] = loaded
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function checkStatus() {
-      try {
-        const { data: setting } = await supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', 'ringcentral_webhook_subscription')
-          .single();
-        if (cancelled) return;
-        if (setting?.value?.subscription_id) {
-          setStatus('active');
-        } else {
-          setStatus('inactive');
-        }
-      } catch {
-        if (!cancelled) setStatus('inactive');
-      }
+  const loadRoutes = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('communication_routes')
+        .select('category, label, is_active, subscription_id, subscription_expires_at, subscription_last_error, subscription_synced_at')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      setRoutes(data || []);
+    } catch {
+      setRoutes([]);
     }
-    checkStatus();
-    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    loadRoutes();
+  }, [loadRoutes]);
 
   const handleSubscribe = async () => {
     setLoading(true);
@@ -2304,11 +2301,16 @@ function WebhookStatus({ showToast }) {
         }
       );
       const result = await resp.json();
-      if (result.success) {
-        setStatus('active');
-        showToast?.(`Webhook ${result.action === 'renewed' ? 'renewed' : 'enabled'} successfully`);
-      } else {
-        showToast?.(`Failed: ${result.error || 'Unknown error'}`);
+      await loadRoutes();
+      if (result.summary) {
+        const { subscribed, total, failed } = result.summary;
+        if (failed > 0) {
+          showToast?.(`${subscribed} of ${total} routes subscribed — ${failed} failed. Check route errors below.`);
+        } else {
+          showToast?.(`All ${subscribed} route${subscribed === 1 ? '' : 's'} subscribed successfully.`);
+        }
+      } else if (result.error) {
+        showToast?.(`Failed: ${result.error}`);
       }
     } catch (err) {
       showToast?.(`Error: ${err.message}`);
@@ -2316,6 +2318,10 @@ function WebhookStatus({ showToast }) {
       setLoading(false);
     }
   };
+
+  const subscribedCount = (routes || []).filter((r) => r.subscription_id && !r.subscription_last_error).length;
+  const totalCount = (routes || []).length;
+  const allHealthy = totalCount > 0 && subscribedCount === totalCount;
 
   return (
     <div style={{ marginTop: 20, borderTop: '1px solid #E0E4EA', paddingTop: 16 }}>
@@ -2331,11 +2337,15 @@ function WebhookStatus({ showToast }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%',
-              background: status === 'active' ? '#22C55E' : '#D5DCE6',
+              background: allHealthy ? '#22C55E' : totalCount === 0 ? '#D5DCE6' : '#F59E0B',
               display: 'inline-block',
             }} />
-            <span style={{ fontSize: 12, color: status === 'active' ? '#15803D' : '#7A8BA0', fontWeight: 500 }}>
-              {status === null ? 'Checking...' : status === 'active' ? 'Active' : 'Not configured'}
+            <span style={{ fontSize: 12, color: allHealthy ? '#15803D' : totalCount === 0 ? '#7A8BA0' : '#B45309', fontWeight: 500 }}>
+              {routes === null
+                ? 'Checking...'
+                : totalCount === 0
+                  ? 'No active routes'
+                  : `${subscribedCount} of ${totalCount} route${totalCount === 1 ? '' : 's'} subscribed`}
             </span>
           </div>
         </div>
@@ -2345,11 +2355,49 @@ function WebhookStatus({ showToast }) {
           onClick={handleSubscribe}
           disabled={loading}
         >
-          {loading ? 'Setting up...' : status === 'active' ? 'Refresh' : 'Enable Webhook'}
+          {loading ? 'Setting up...' : allHealthy ? 'Refresh' : 'Enable / Retry'}
         </button>
       </div>
-      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 6, lineHeight: 1.5 }}>
-        When enabled, inbound SMS messages from caregivers are automatically logged to their activity timeline and can trigger automation rules.
+
+      {routes && routes.length > 0 && (
+        <div style={{ marginTop: 10, border: '1px solid #E0E4EA', borderRadius: 8, overflow: 'hidden' }}>
+          {routes.map((r, idx) => {
+            const ok = r.subscription_id && !r.subscription_last_error;
+            return (
+              <div
+                key={r.category}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  borderTop: idx === 0 ? 'none' : '1px solid #E0E4EA',
+                  background: '#fff',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: ok ? '#22C55E' : r.subscription_last_error ? '#EF4444' : '#D5DCE6',
+                    flexShrink: 0,
+                  }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1F2937' }}>{r.label}</div>
+                    <div style={{ fontSize: 11, color: r.subscription_last_error ? '#B91C1C' : '#7A8BA0', marginTop: 2 }}>
+                      {r.subscription_last_error
+                        ? `Error: ${r.subscription_last_error}`
+                        : r.subscription_id
+                          ? `Subscribed${r.subscription_expires_at ? ` • expires ${new Date(r.subscription_expires_at).toLocaleString()}` : ''}`
+                          : 'Not subscribed yet'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 8, lineHeight: 1.5 }}>
+        Each active communication route needs its own webhook subscription so that inbound SMS to that number is logged and triggers automations. Renewal runs automatically every night; click Refresh to re-subscribe immediately after adding a new route or JWT.
       </div>
     </div>
   );
