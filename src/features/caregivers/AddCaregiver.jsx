@@ -36,13 +36,15 @@ export function AddCaregiver({ onAdd, onCancel }) {
     sourceDetail: '',
     applicationDate: new Date().toISOString().split('T')[0],
     availability: '',
-    hasHCA: 'yes',
-    hasDL: 'yes',
+    hasHCA: '',
+    hasDL: '',
     yearsExperience: '',
     languages: '',
     specializations: '',
     certifications: '',
     preferredShift: '',
+    allergies: '',
+    clientGenderPreference: '',
     initialNotes: '',
   });
 
@@ -159,6 +161,20 @@ export function AddCaregiver({ onAdd, onCancel }) {
           <FormField label="Languages Spoken" field="languages" placeholder="English, Spanish, Tagalog..." value={form.languages} onChange={handleFieldChange} />
           <FormField label="Specializations" field="specializations" placeholder="Dementia, Hospice, Pediatric..." value={form.specializations} onChange={handleFieldChange} />
           <FormField label="Additional Certifications" field="certifications" placeholder="CNA, CPR, First Aid..." value={form.certifications} onChange={handleFieldChange} />
+        </div>
+
+        <h3 className={forms.formSection}>Preferences & Safety</h3>
+        <div className={forms.formGrid}>
+          <FormField label="Known Allergies" field="allergies" placeholder="Pets, smoke, latex..." value={form.allergies} onChange={handleFieldChange} />
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Willing to work with</label>
+            <select className={forms.fieldInput} value={form.clientGenderPreference} onChange={(e) => setForm((f) => ({ ...f, clientGenderPreference: e.target.value }))}>
+              <option value="">Select...</option>
+              <option value="both">Male and female clients</option>
+              <option value="female">Female clients only</option>
+              <option value="male">Male clients only</option>
+            </select>
+          </div>
         </div>
 
         <h3 className={forms.formSection}>Notes</h3>
