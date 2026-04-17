@@ -4,6 +4,7 @@ import {
   buildSurveyUrlFromToken,
   isWithinSendWindow,
   resolveReminderConditions,
+  ruleAppliesToCaregiver,
   shouldRemindSurvey,
 } from "../_shared/helpers/surveyReminders.ts";
 
@@ -340,13 +341,13 @@ Deno.serve(async (req) => {
           );
           if (caregiverIds.length === 0) continue;
 
-          // Note: `phase` is not a real column on caregivers — it's derived
-          // from phase_override / phase_timestamps in the app layer. Asking
-          // for it via PostgREST used to make this SELECT fail with a 400,
-          // which silently killed every survey reminder run.
+          // `phase` is not a real column on caregivers — it's derived from
+          // phase_override / phase_timestamps via getPhase(). We pull those
+          // raw fields and compute the phase in JS so we can honour the
+          // rule's optional "Only in Phase" filter (`conditions.phase`).
           const { data: caregivers, error: cgErr } = await supabase
             .from("caregivers")
-            .select("id, first_name, last_name, phone, email, archived")
+            .select("id, first_name, last_name, phone, email, archived, phase_override, phase_timestamps")
             .in("id", caregiverIds);
 
           if (cgErr) {
@@ -357,9 +358,15 @@ Deno.serve(async (req) => {
 
           const cgMap = new Map((caregivers || []).map((c: any) => [c.id, c]));
 
+          // ruleAppliesToCaregiver() enforces the optional "Only in Phase"
+          // filter. When the rule sets conditions.phase, only caregivers
+          // whose computed phase matches get reminded. This prevents
+          // already-advanced caregivers (orientation, verification, etc.)
+          // from being hounded about a pre-screen survey they no longer need.
+
           for (const survey of dueSurveys) {
             const caregiver = cgMap.get(survey.caregiver_id);
-            if (!caregiver || caregiver.archived) {
+            if (!ruleAppliesToCaregiver(caregiver, rule.conditions)) {
               summary.survey_reminders_skipped++;
               summary.skipped++;
               continue;
