@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveSmsCategory } from "../_shared/helpers/smsRouting.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -81,8 +82,13 @@ async function getRCFromNumber(): Promise<string | null> {
 }
 
 // ─── Get RingCentral Access Token ───
-async function getRingCentralAccessToken(): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
+// Accepts an optional override JWT so route-aware sending can authenticate
+// with the extension that owns a specific route's `from` number. When no
+// JWT is passed, falls back to the global RINGCENTRAL_JWT_TOKEN env var
+// (the legacy single-extension path).
+async function getRingCentralAccessToken(overrideJwt?: string | null): Promise<string> {
+  const jwt = overrideJwt || RC_JWT_TOKEN;
+  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !jwt) {
     throw new Error("RingCentral credentials not configured");
   }
 
@@ -94,7 +100,7 @@ async function getRingCentralAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: RC_JWT_TOKEN,
+      assertion: jwt,
     }),
   });
 
@@ -105,6 +111,34 @@ async function getRingCentralAccessToken(): Promise<string> {
 
   const data = await response.json();
   return data.access_token;
+}
+
+// ─── Resolve Route for SMS ───
+// Given the rule's action_config, returns the from-number + JWT for the
+// matching row in communication_routes. Uses the SECURITY DEFINER RPC
+// `get_route_ringcentral_jwt` so the vault secret lookup stays locked down.
+// Returns null when the route doesn't exist or the RPC errors — caller
+// should then fall back to the legacy app_settings + env-var path so we
+// never regress callers that predate this routing system.
+async function resolveRoute(
+  actionConfig: Record<string, any> | null | undefined,
+): Promise<{ fromNumber: string; jwt: string } | null> {
+  const category = resolveSmsCategory(actionConfig);
+  try {
+    const { data, error } = await supabase.rpc("get_route_ringcentral_jwt", {
+      p_category: category,
+    });
+    if (error) {
+      console.error(`Route RPC error for category '${category}':`, error);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || !row.sms_from_number || !row.jwt) return null;
+    return { fromNumber: row.sms_from_number, jwt: row.jwt };
+  } catch (err) {
+    console.error(`Route RPC threw for category '${category}':`, err);
+    return null;
+  }
 }
 
 // ─── Enhanced Merge Field Substitution ───
@@ -150,16 +184,44 @@ function resolveTemplate(
 }
 
 // ─── Send SMS via RingCentral ───
-async function sendSMS(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
+// Routes outbound automation SMS through the route that matches
+// action_config.category (looked up in communication_routes + vault JWT).
+// Falls back to the legacy global `ringcentral_from_number` + env-var JWT
+// path when the route can't be resolved, so callers that haven't set a
+// category are unaffected.
+async function sendSMS(
+  phone: string,
+  message: string,
+  actionConfig?: Record<string, any> | null,
+): Promise<{ success: boolean; error?: string; routeUsed?: string }> {
   const normalized = normalizePhoneNumber(phone);
   if (!normalized) return { success: false, error: `Invalid phone number: ${phone}` };
 
-  const fromNumber = await getRCFromNumber();
-  if (!fromNumber) return { success: false, error: "RingCentral from number not configured. Set it in Settings > RingCentral." };
+  // Try the route-aware path first. Normalize the from-number so the RC API
+  // gets it in E.164 form regardless of how it's stored in the route row.
+  const route = await resolveRoute(actionConfig);
+  let fromNumber: string | null = null;
+  let overrideJwt: string | null = null;
+  let routeUsed = "legacy";
+
+  if (route) {
+    fromNumber = normalizePhoneNumber(route.fromNumber) || route.fromNumber;
+    overrideJwt = route.jwt;
+    routeUsed = resolveSmsCategory(actionConfig);
+  } else {
+    fromNumber = await getRCFromNumber();
+  }
+
+  if (!fromNumber) {
+    return {
+      success: false,
+      error: "RingCentral from number not configured. Set it in Settings > RingCentral.",
+    };
+  }
 
   let accessToken: string;
   try {
-    accessToken = await getRingCentralAccessToken();
+    accessToken = await getRingCentralAccessToken(overrideJwt);
   } catch (err) {
     return { success: false, error: `Failed to connect to SMS service: ${err.message}` };
   }
@@ -179,11 +241,11 @@ async function sendSMS(phone: string, message: string): Promise<{ success: boole
 
   if (!smsResponse.ok) {
     const errorText = await smsResponse.text();
-    if (smsResponse.status === 429) return { success: false, error: "SMS rate limit reached. Try again later." };
-    return { success: false, error: `RingCentral API error (${smsResponse.status}): ${errorText}` };
+    if (smsResponse.status === 429) return { success: false, error: "SMS rate limit reached. Try again later.", routeUsed };
+    return { success: false, error: `RingCentral API error (${smsResponse.status}): ${errorText}`, routeUsed };
   }
 
-  return { success: true };
+  return { success: true, routeUsed };
 }
 
 // ─── Send Email via Outlook Integration ───
@@ -316,7 +378,7 @@ Deno.serve(async (req) => {
           result = { success: false, error: `${entityLabel === "client" ? "Client" : "Caregiver"} has no phone number` };
           break;
         }
-        result = await sendSMS(caregiver.phone, resolvedMessage);
+        result = await sendSMS(caregiver.phone, resolvedMessage, action_config);
         break;
       }
       case "send_email": {
