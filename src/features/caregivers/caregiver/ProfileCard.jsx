@@ -20,7 +20,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       address: caregiver.address || '', city: caregiver.city || '',
       state: caregiver.state || '', zip: caregiver.zip || '',
       perId: caregiver.perId || '', hcaExpiration: caregiver.hcaExpiration || '',
-      hasHCA: caregiver.hasHCA || 'yes', hasDL: caregiver.hasDL || 'yes',
+      hasHCA: caregiver.hasHCA || '', hasDL: caregiver.hasDL || '',
       availability: caregiver.availability || '', source: caregiver.source || '',
       sourceDetail: caregiver.sourceDetail || '',
       applicationDate: caregiver.applicationDate || '',
@@ -29,8 +29,10 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       specializations: caregiver.specializations || '',
       certifications: caregiver.certifications || '',
       preferredShift: caregiver.preferredShift || '',
+      allergies: caregiver.allergies || '',
+      clientGenderPreference: caregiver.clientGenderPreference || '',
       initialNotes: caregiver.initialNotes || '',
-      employmentStatus: caregiver.employmentStatus || 'onboarding',
+      employmentStatus: caregiver.employmentStatus || '',
       availabilityType: caregiver.availabilityType || '',
       currentAssignment: caregiver.currentAssignment || '',
       cprExpiryDate: caregiver.cprExpiryDate || '',
@@ -48,14 +50,14 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'Address', value: (caregiver.address || caregiver.city) ? [caregiver.address, caregiver.city, caregiver.state, caregiver.zip].filter(Boolean).join(', ') : null },
     { label: 'HCA PER ID', value: caregiver.perId },
     { label: 'HCA Expiration Date', value: caregiver.hcaExpiration ? (() => { const exp = new Date(caregiver.hcaExpiration + 'T00:00:00'); const du = Math.ceil((exp - new Date()) / 86400000); const ds = exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); if (du < 0) return `⚠️ Expired — ${ds}`; if (du <= 30) return `⏰ ${ds} (${du} days)`; if (du <= 90) return `📅 ${ds} (${du} days)`; return `✅ ${ds}`; })() : null },
-    { label: 'HCA Status', value: caregiver.hasHCA === 'yes' ? '✅ Valid HCA ID' : caregiver.hasHCA === 'willing' ? '📝 Willing to register' : '❌ No HCA ID' },
-    { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : '❌ No' },
+    { label: 'HCA Status', value: caregiver.hasHCA === 'yes' ? '✅ Valid HCA ID' : caregiver.hasHCA === 'willing' ? '📝 Willing to register' : caregiver.hasHCA === 'no' ? '❌ No HCA ID' : null },
+    { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : caregiver.hasDL === 'no' ? '❌ No' : null },
     { label: 'Availability', value: caregiver.availability },
     { label: 'Source', value: [caregiver.source, caregiver.sourceDetail].filter(Boolean).join(' — ') || null },
     { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
     { label: 'Days Since Application', value: `${days} day${days !== 1 ? 's' : ''}` },
     { label: 'Board Status', value: caregiver.boardStatus ? caregiver.boardStatus.charAt(0).toUpperCase() + caregiver.boardStatus.slice(1) : 'Not yet on board' },
-    { label: 'Employment Status', value: (() => { const s = EMPLOYMENT_STATUSES.find((st) => st.id === caregiver.employmentStatus); return s ? s.label : 'Onboarding'; })() },
+    { label: 'Employment Status', value: (() => { const s = EMPLOYMENT_STATUSES.find((st) => st.id === caregiver.employmentStatus); return s ? s.label : null; })() },
     { label: 'Availability Type', value: (() => { const t = AVAILABILITY_TYPES.find((ty) => ty.id === caregiver.availabilityType); return t ? t.label : null; })() },
     { label: 'Current Assignment', value: caregiver.currentAssignment || null },
     { label: 'CPR Expiry Date', value: caregiver.cprExpiryDate ? (() => { const exp = new Date(caregiver.cprExpiryDate + 'T00:00:00'); const du = Math.ceil((exp - new Date()) / 86400000); const ds = exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); if (du < 0) return `Expired — ${ds}`; if (du <= 90) return `${ds} (${du} days)`; return `${ds}`; })() : null },
@@ -64,6 +66,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'Languages', value: caregiver.languages },
     { label: 'Specializations', value: caregiver.specializations },
     { label: 'Additional Certifications', value: caregiver.certifications },
+    { label: 'Known Allergies', value: caregiver.allergies },
+    { label: 'Willing to Work With', value: caregiver.clientGenderPreference === 'both' ? 'Male and female clients' : caregiver.clientGenderPreference === 'female' ? 'Female clients only' : caregiver.clientGenderPreference === 'male' ? 'Male clients only' : null },
     { label: 'Phase Override', value: caregiver.phaseOverride ? (() => { const p = PHASES.find((ph) => ph.id === caregiver.phaseOverride); return `⚙️ ${p?.icon} ${p?.label} (manual)`; })() : 'Auto (based on tasks)' },
   ];
 
@@ -124,13 +128,13 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <div className={forms.field}>
               <label className={forms.fieldLabel}>HCA Status</label>
               <select className={forms.fieldInput} value={editForm.hasHCA} onChange={(e) => editField('hasHCA', e.target.value)}>
-                <option value="yes">Valid HCA ID</option><option value="no">No HCA ID</option><option value="willing">Willing to register</option>
+                <option value="">— Not set —</option><option value="yes">Valid HCA ID</option><option value="no">No HCA ID</option><option value="willing">Willing to register</option>
               </select>
             </div>
             <div className={forms.field}>
               <label className={forms.fieldLabel}>Driver's License & Car</label>
               <select className={forms.fieldInput} value={editForm.hasDL} onChange={(e) => editField('hasDL', e.target.value)}>
-                <option value="yes">Yes</option><option value="no">No</option>
+                <option value="">— Not set —</option><option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
             <EditField label="Availability" value={editForm.availability} onChange={(v) => editField('availability', v)} />
@@ -145,6 +149,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <div className={forms.field}>
               <label className={forms.fieldLabel}>Employment Status</label>
               <select className={forms.fieldInput} value={editForm.employmentStatus} onChange={(e) => editField('employmentStatus', e.target.value)}>
+                <option value="">— Not set —</option>
                 {EMPLOYMENT_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
@@ -183,6 +188,16 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <EditField label="Languages Spoken" value={editForm.languages} onChange={(v) => editField('languages', v)} />
             <EditField label="Specializations" value={editForm.specializations} onChange={(v) => editField('specializations', v)} />
             <EditField label="Additional Certifications" value={editForm.certifications} onChange={(v) => editField('certifications', v)} />
+            <EditField label="Known Allergies" value={editForm.allergies} onChange={(v) => editField('allergies', v)} />
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Willing to Work With</label>
+              <select className={forms.fieldInput} value={editForm.clientGenderPreference} onChange={(e) => editField('clientGenderPreference', e.target.value)}>
+                <option value="">— Not set —</option>
+                <option value="both">Male and female clients</option>
+                <option value="female">Female clients only</option>
+                <option value="male">Male clients only</option>
+              </select>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <label className={forms.fieldLabel}>Initial Notes</label>
