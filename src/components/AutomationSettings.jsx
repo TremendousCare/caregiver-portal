@@ -1193,21 +1193,33 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
         updated_by: currentUserEmail,
       };
 
+      // We .select() after both insert and update so any RLS / CHECK /
+      // constraint failures surface as thrown errors (without .select()
+      // some write failures come back as { error: null } and the UI
+      // silently "succeeds").
       if (ruleData.id) {
         // Update
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('automation_rules')
           .update(payload)
-          .eq('id', ruleData.id);
+          .eq('id', ruleData.id)
+          .select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error('Update returned no rows — likely blocked by permissions.');
+        }
         showToast?.(`${ruleData.name} updated`);
       } else {
         // Create
         payload.created_by = currentUserEmail;
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('automation_rules')
-          .insert(payload);
+          .insert(payload)
+          .select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error('Insert returned no rows — likely blocked by permissions or a silent constraint.');
+        }
         showToast?.(`${ruleData.name} created`);
       }
 
@@ -1215,8 +1227,17 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       setEditingRule(null);
       await loadRules();
     } catch (err) {
-      console.error('Failed to save rule:', err);
-      showToast?.('Failed to save rule. Please try again.');
+      // Log the full Supabase error shape (code/message/details/hint) so
+      // the browser console reveals the actual cause.
+      console.error('Failed to save rule:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        raw: err,
+      });
+      const detail = err?.message || err?.details || 'unknown error';
+      showToast?.(`Failed to save rule: ${detail}`);
     } finally {
       setSaving(false);
     }

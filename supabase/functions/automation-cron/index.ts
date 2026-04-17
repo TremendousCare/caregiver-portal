@@ -163,6 +163,10 @@ Deno.serve(async (req) => {
     out_of_order_skips: 0,
     survey_reminders_sent: 0,
     survey_reminders_skipped: 0,
+    // Captures the last few survey-reminder failures (HTTP status + body
+    // snippet + error message) so the cron's JSON response exposes *why*
+    // `errors` is non-zero without needing edge-function logs.
+    survey_reminder_errors: [] as Array<Record<string, any>>,
   };
 
   try {
@@ -363,6 +367,46 @@ Deno.serve(async (req) => {
 
             const surveyLink = buildSurveyUrlFromToken(survey.token, appBaseUrl);
 
+            // Build once so we can reference it in error diagnostics.
+            const reminderPayload = {
+              rule_id: rule.id,
+              caregiver_id: caregiver.id,
+              action_type: rule.action_type,
+              message_template: rule.message_template,
+              action_config: rule.action_config || {},
+              rule_name: rule.name,
+              caregiver: {
+                id: caregiver.id,
+                first_name: caregiver.first_name,
+                last_name: caregiver.last_name,
+                phone: caregiver.phone,
+                email: caregiver.email,
+                phase: caregiver.phase,
+              },
+              trigger_context: {
+                survey_link: surveyLink,
+                survey_response_id: survey.id,
+                reminder_number: (survey.reminders_sent || 0) + 1,
+                max_reminders: resolved.max_reminders,
+              },
+            };
+
+            const recordError = (detail: Record<string, any>) => {
+              summary.errors++;
+              const entry = {
+                rule_id: rule.id,
+                rule_name: rule.name,
+                survey_id: survey.id,
+                caregiver_id: caregiver.id,
+                ...detail,
+              };
+              console.error("Survey reminder error:", entry);
+              // Keep only the most recent 5 so the response doesn't balloon.
+              if (summary.survey_reminder_errors.length < 5) {
+                summary.survey_reminder_errors.push(entry);
+              }
+            };
+
             try {
               const response = await fetch(
                 `${SUPABASE_URL}/functions/v1/execute-automation`,
@@ -372,34 +416,37 @@ Deno.serve(async (req) => {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
                   },
-                  body: JSON.stringify({
-                    rule_id: rule.id,
-                    caregiver_id: caregiver.id,
-                    action_type: rule.action_type,
-                    message_template: rule.message_template,
-                    action_config: rule.action_config,
-                    rule_name: rule.name,
-                    caregiver: {
-                      id: caregiver.id,
-                      first_name: caregiver.first_name,
-                      last_name: caregiver.last_name,
-                      phone: caregiver.phone,
-                      email: caregiver.email,
-                      phase: caregiver.phase,
-                    },
-                    trigger_context: {
-                      survey_link: surveyLink,
-                      survey_response_id: survey.id,
-                      reminder_number: (survey.reminders_sent || 0) + 1,
-                      max_reminders: resolved.max_reminders,
-                    },
-                  }),
+                  body: JSON.stringify(reminderPayload),
                 }
               );
 
-              const result = await response.json();
+              // Read as text first so non-JSON responses (HTML error pages,
+              // truncated payloads, 5xx from the gateway) are captured verbatim
+              // instead of throwing inside response.json() and losing context.
+              const rawBody = await response.text();
+              let result: any = null;
+              try {
+                result = rawBody ? JSON.parse(rawBody) : null;
+              } catch (_parseErr) {
+                recordError({
+                  stage: "parse_response",
+                  http_status: response.status,
+                  body_snippet: rawBody.slice(0, 500),
+                });
+                continue;
+              }
 
-              if (result.success) {
+              if (!response.ok) {
+                recordError({
+                  stage: "http_error",
+                  http_status: response.status,
+                  error: result?.error,
+                  body_snippet: rawBody.slice(0, 500),
+                });
+                continue;
+              }
+
+              if (result?.success) {
                 summary.executions++;
                 summary.survey_reminders_sent++;
                 // Atomically bump the counter + last-sent timestamp. We use
@@ -413,22 +460,22 @@ Deno.serve(async (req) => {
                     last_reminder_sent_at: now.toISOString(),
                   })
                   .eq("id", survey.id);
-              } else if (result.skipped) {
+              } else if (result?.skipped) {
                 summary.skipped++;
                 summary.survey_reminders_skipped++;
               } else {
-                summary.errors++;
-                console.error(
-                  `Survey reminder failed for rule ${rule.name}, survey ${survey.id}:`,
-                  result.error
-                );
+                recordError({
+                  stage: "execute_automation_failed",
+                  http_status: response.status,
+                  error: result?.error,
+                  result,
+                });
               }
             } catch (err) {
-              summary.errors++;
-              console.error(
-                `Failed to call execute-automation for survey reminder ${survey.id}:`,
-                err
-              );
+              recordError({
+                stage: "fetch_threw",
+                error: (err as Error).message,
+              });
             }
           }
         }
