@@ -52,6 +52,14 @@ function formatDate(d) {
 
 /**
  * Build an ISO timestamp for a given date + clock time (treated as UTC).
+/**
+ * Build an ISO timestamp for a given date + clock time.
+ *
+ * Uses LOCAL time (not UTC) because the clock times in recurrence
+ * patterns represent the user's local wall-clock intent: "08:00"
+ * means 8 AM in the scheduler's timezone, not 8 AM UTC. Same fix
+ * applied to availabilityMatching.js in Phase 4c for the same
+ * reason — all scheduling times are local-time-first.
  */
 function buildIsoTimestamp(date, clock) {
   // clock is "HH:MM" or "HH:MM:SS"
@@ -59,14 +67,17 @@ function buildIsoTimestamp(date, clock) {
   const h = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10);
   const s = parts.length > 2 ? parseInt(parts[2], 10) : 0;
-  const stamp = new Date(Date.UTC(
+  // Use the UTC calendar date from the cursor (which iterates day-by-day
+  // in UTC space) but build the timestamp in LOCAL time so the resulting
+  // ISO string represents the correct local-clock moment.
+  const stamp = new Date(
     date.getUTCFullYear(),
     date.getUTCMonth(),
     date.getUTCDate(),
     h,
     m,
     s,
-  ));
+  );
   return stamp.toISOString();
 }
 
