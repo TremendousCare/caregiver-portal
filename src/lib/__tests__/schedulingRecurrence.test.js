@@ -90,11 +90,17 @@ describe('expandRecurrence — weekly single day', () => {
     ]);
   });
 
-  it('builds ISO timestamps at the specified clock time', () => {
+  it('builds ISO timestamps at the specified LOCAL clock time', () => {
     const result = expandRecurrence(pattern, '2026-05-04', '2026-05-04');
     expect(result).toHaveLength(1);
-    expect(result[0].start_time).toBe('2026-05-04T08:00:00.000Z');
-    expect(result[0].end_time).toBe('2026-05-04T12:00:00.000Z');
+    // Verify the result represents 8am and 12pm in the local timezone
+    // (not hardcoded UTC, since the fix in Phase 7 builds in local time)
+    const start = new Date(result[0].start_time);
+    expect(start.getHours()).toBe(8);
+    expect(start.getMinutes()).toBe(0);
+    const end = new Date(result[0].end_time);
+    expect(end.getHours()).toBe(12);
+    expect(end.getMinutes()).toBe(0);
   });
 
   it('returns empty if the window contains no matching days', () => {
@@ -241,7 +247,7 @@ describe('expandRecurrence — edge cases', () => {
     expect(result[0].date).toBe('2026-05-04');
   });
 
-  it('preserves the clock time across months', () => {
+  it('preserves the LOCAL clock time across months', () => {
     const pattern = {
       frequency: 'weekly',
       days_of_week: [1],
@@ -251,8 +257,12 @@ describe('expandRecurrence — edge cases', () => {
     const result = expandRecurrence(pattern, '2026-05-01', '2026-06-30');
     expect(result.length).toBeGreaterThan(0);
     for (const r of result) {
-      expect(r.start_time.endsWith('T14:30:00.000Z')).toBe(true);
-      expect(r.end_time.endsWith('T18:45:00.000Z')).toBe(true);
+      const start = new Date(r.start_time);
+      expect(start.getHours()).toBe(14);
+      expect(start.getMinutes()).toBe(30);
+      const end = new Date(r.end_time);
+      expect(end.getHours()).toBe(18);
+      expect(end.getMinutes()).toBe(45);
     }
   });
 

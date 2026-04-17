@@ -389,6 +389,53 @@
   font-family: inherit;
 }
 
+/* ─── Phase 7: recurring edit / cancel controls ─── */
+
+.recurringEditBar {
+  padding: 10px 22px;
+  background: #EFF6FF;
+  border-top: 1px solid #BFDBFE;
+  border-bottom: 1px solid #BFDBFE;
+}
+
+.recurringCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #1E40AF;
+  cursor: pointer;
+  user-select: none;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 6px;
+}
+
+.recurringCheckbox input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.recurringCheckbox:hover {
+  background: #DBEAFE;
+}
+
+/* Reset the margin for the inline recurringEditBar variant */
+.recurringEditBar .recurringCheckbox {
+  margin-top: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.recurringEditBar .recurringCheckbox:hover {
+  background: transparent;
+}
+
 .dangerLink:hover:not(:disabled) {
   text-decoration: underline;
 }

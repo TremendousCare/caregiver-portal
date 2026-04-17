@@ -1,0 +1,253 @@
+/* ─── Generate shifts dialog ─── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 36, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px 16px;
+  z-index: 110;
+  overflow-y: auto;
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dialog {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #E1E7EF;
+  gap: 12px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #5A6B80;
+  line-height: 1.5;
+}
+
+.closeBtn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #7A8BA0;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeBtn:hover:not(:disabled) {
+  background: #F5F8FC;
+  color: #0F1724;
+}
+
+.closeBtn:disabled {
+  color: #D4D4D4;
+  cursor: not-allowed;
+}
+
+.body {
+  padding: 18px 22px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ─── Weeks selector ─── */
+
+.controlRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controlLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5A6B80;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.weeksToggle {
+  display: inline-flex;
+  border: 1px solid #C9D3E1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.weeksBtn {
+  padding: 8px 16px;
+  border: none;
+  background: #fff;
+  color: #5A6B80;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.weeksBtn + .weeksBtn {
+  border-left: 1px solid #C9D3E1;
+}
+
+.weeksBtn:hover:not(:disabled) {
+  background: #F5F8FC;
+  color: #0F1724;
+}
+
+.weeksBtnActive {
+  background: #2E4E8D;
+  color: #fff;
+}
+
+.weeksBtnActive:hover:not(:disabled) {
+  background: #253f73;
+}
+
+.weeksBtn:disabled {
+  background: #F5F5F5;
+  color: #A2B0C4;
+  cursor: not-allowed;
+}
+
+/* ─── Preview ─── */
+
+.previewBox {
+  padding: 14px 16px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+}
+
+.loading {
+  color: #A2B0C4;
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.previewSummary {
+  font-size: 13px;
+  color: #0F1724;
+  margin-bottom: 10px;
+}
+
+.skippedNote {
+  color: #7A8BA0;
+  font-size: 12px;
+}
+
+.previewList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.previewItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.previewDate {
+  color: #0F1724;
+  font-weight: 500;
+}
+
+.previewTime {
+  color: #5A6B80;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.previewMore {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #7A8BA0;
+  font-style: italic;
+  text-align: center;
+}
+
+.note {
+  padding: 10px 12px;
+  background: #EFF6FF;
+  border-left: 2px solid #60A5FA;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.error {
+  padding: 10px 12px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  color: #7F1D1D;
+  font-size: 12px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 22px;
+  border-top: 1px solid #E1E7EF;
+  background: #F8FAFC;
+  border-radius: 0 0 14px 14px;
+}

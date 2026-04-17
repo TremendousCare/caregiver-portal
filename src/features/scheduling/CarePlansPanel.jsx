@@ -12,6 +12,13 @@ import {
   sortCarePlans,
   validateCarePlanDraft,
 } from './carePlanHelpers';
+import {
+  describeRecurrencePattern,
+  hasRecurrencePattern,
+  validateRecurrencePattern,
+} from './recurrenceHelpers';
+import { RecurrencePatternEditor } from './RecurrencePatternEditor';
+import { GenerateShiftsDialog } from './GenerateShiftsDialog';
 import btn from '../../styles/buttons.module.css';
 import s from './CarePlansPanel.module.css';
 
@@ -35,6 +42,7 @@ const EMPTY_DRAFT = {
   endDate: '',
   status: 'draft',
   notes: '',
+  recurrencePattern: null,
 };
 
 export function CarePlansPanel({ client, currentUser, showToast }) {
@@ -49,6 +57,9 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+
+  // Phase 7: plan currently open in the "Generate shifts" dialog
+  const [generatingPlan, setGeneratingPlan] = useState(null);
 
   // ─── Load on mount ───────────────────────────────────────────
   const loadPlans = useCallback(async () => {
@@ -107,6 +118,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
       endDate: plan.endDate || '',
       status: plan.status || 'draft',
       notes: plan.notes || '',
+      recurrencePattern: plan.recurrencePattern || null,
     });
     setEditing(plan.id);
     setErrorMessage(null);
@@ -125,6 +137,14 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
       setErrorMessage(error);
       return;
     }
+    // Phase 7: also validate recurrence pattern if one was set
+    if (draft.recurrencePattern) {
+      const recurrenceError = validateRecurrencePattern(draft.recurrencePattern);
+      if (recurrenceError) {
+        setErrorMessage(`Recurrence pattern: ${recurrenceError}`);
+        return;
+      }
+    }
     setSaving(true);
     setErrorMessage(null);
     try {
@@ -137,6 +157,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
         endDate: draft.endDate || null,
         status: draft.status || 'draft',
         notes: draft.notes?.trim() || null,
+        recurrencePattern: draft.recurrencePattern || null,
         createdBy: currentUser?.displayName || currentUser?.email || null,
       };
       if (editing === 'new') {
@@ -227,19 +248,35 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
                 plan={plan}
                 onEdit={() => handleStartEdit(plan)}
                 onStatusChange={(next) => handleStatusShortcut(plan, next)}
+                onGenerate={(p) => setGeneratingPlan(p)}
               />
             )}
           </li>
         ))}
       </ul>
+
+      {generatingPlan && (
+        <GenerateShiftsDialog
+          plan={generatingPlan}
+          client={client}
+          currentUserName={currentUser?.displayName || currentUser?.email}
+          onClose={() => setGeneratingPlan(null)}
+          onGenerated={(count) => {
+            setGeneratingPlan(null);
+            showToast?.(`Generated ${count} shift${count === 1 ? '' : 's'}`);
+          }}
+          showToast={showToast}
+        />
+      )}
     </section>
   );
 }
 
 // ─── CarePlanCard (read-only row) ──────────────────────────────
 
-function CarePlanCard({ plan, onEdit, onStatusChange }) {
+function CarePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
   const colors = statusColors(plan.status);
+  const canGenerate = hasRecurrencePattern(plan.recurrencePattern) && plan.status === 'active';
   return (
     <div className={s.card}>
       <div className={s.cardMain}>
@@ -274,10 +311,25 @@ function CarePlanCard({ plan, onEdit, onStatusChange }) {
           <div className={s.cardServiceType}>{plan.serviceType}</div>
         )}
 
+        {hasRecurrencePattern(plan.recurrencePattern) && (
+          <div className={s.cardRecurrence}>
+            <span className={s.cardRecurrenceLabel}>Pattern:</span>{' '}
+            {describeRecurrencePattern(plan.recurrencePattern)}
+          </div>
+        )}
+
         {plan.notes && <div className={s.cardNotes}>{plan.notes}</div>}
 
         <div className={s.cardFooter}>
           <StatusShortcuts current={plan.status} onChange={onStatusChange} />
+          {canGenerate && (
+            <button
+              className={s.generateBtn}
+              onClick={() => onGenerate?.(plan)}
+            >
+              Generate shifts →
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -406,6 +458,13 @@ function CarePlanForm({ draft, onChange, onSave, onCancel, saving, errorMessage,
             onChange={(e) => set('notes', e.target.value)}
           />
         </label>
+
+        {/* Phase 7: Recurrence pattern editor (full-width, inside the grid) */}
+        <RecurrencePatternEditor
+          value={draft.recurrencePattern}
+          onChange={(next) => set('recurrencePattern', next)}
+          disabled={saving}
+        />
       </div>
 
       {errorMessage && <div className={s.formError}>{errorMessage}</div>}
