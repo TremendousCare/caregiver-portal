@@ -25,8 +25,9 @@ This app is **live in production** and used by a real team. The owner is non-tec
 
 - `main` branch auto-deploys to production via Vercel — treat it as sacred
 - Vercel preview deploys are created for every PR — use them to test before merging
-- Edge Functions deploy via CLI: `npx supabase functions deploy <name> --no-verify-jwt`
-- If a deploy breaks production, Vercel dashboard allows instant rollback to previous deployment
+- Edge Functions **auto-deploy on merge to `main`** via GitHub Actions (`.github/workflows/deploy-edge-functions.yml`). Workflow deploys every function under `supabase/functions/` (except `_shared/`) using the `SUPABASE_ACCESS_TOKEN` GitHub secret. No manual CLI deploys needed for committed functions — just merge and the workflow runs.
+- Manual deploy is still available for urgent hotfixes: `npx supabase functions deploy <name> --no-verify-jwt`. If you must do this, `git pull origin main` first to avoid drift, then commit the code before you go home.
+- If a deploy breaks production, Vercel dashboard allows instant rollback to previous deployment (frontend). For edge functions, re-run the Deploy Edge Functions workflow on an earlier commit via the GitHub Actions UI.
 
 ### Testing
 
