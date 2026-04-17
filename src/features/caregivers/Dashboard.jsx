@@ -143,6 +143,15 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
             ⚠️ Flagged
           </span>
         )}
+        {surveyStatus === 'qualified' && phase === 'intake' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #F0FDF4, #DCFCE7)', color: '#15803D',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #BBF7D0',
+          }}>
+            ✅ Passed Screening
+          </span>
+        )}
       </div>
 
       <div className={cards.cgPhaseRow}>
@@ -217,13 +226,14 @@ export function Dashboard({
     supabase
       .from('survey_responses')
       .select('caregiver_id, status')
-      .in('status', ['flagged', 'disqualified'])
+      .in('status', ['flagged', 'disqualified', 'qualified'])
       .then(({ data }) => {
         if (!data) return;
+        const PRIORITY = { disqualified: 3, flagged: 2, qualified: 1 };
         const map = {};
         for (const r of data) {
-          // Keep the worst status per caregiver (disqualified > flagged)
-          if (!map[r.caregiver_id] || r.status === 'disqualified') {
+          const existing = map[r.caregiver_id];
+          if (!existing || PRIORITY[r.status] > PRIORITY[existing]) {
             map[r.caregiver_id] = r.status;
           }
         }
