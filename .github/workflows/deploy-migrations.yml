@@ -41,7 +41,7 @@ jobs:
         if: ${{ inputs.dry_run == false }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: npx supabase db push --db-url "$SUPABASE_DB_URL"
+        run: npx supabase db push --include-all --db-url "$SUPABASE_DB_URL"
 
       - name: Dry run summary
         if: ${{ inputs.dry_run == true }}
