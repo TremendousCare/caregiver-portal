@@ -34,7 +34,7 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Framework**: Vitest (config in `vitest.config.js`)
 - **Test location**: `src/lib/__tests__/`
 - **Commands**: `npm test` (CI), `npm run test:watch` (dev), `npm run test:ui` (browser UI)
-- **Current coverage**: 181 tests across utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking
+- **Current coverage**: 1,293+ tests across 43 test files (utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking, scheduling conflict detection, availability matching, recurrence expansion, eligibility ranking, broadcast helpers, care plan helpers, shift helpers, schedule view helpers, and more)
 - **Rule**: New utility/business logic functions MUST have tests before merging
 
 ### CI Pipeline
@@ -56,8 +56,8 @@ If any step fails, the PR is blocked.
 
 - **Notes format**: Array of objects `{text, type, timestamp, author, outcome, direction}` — never strings
 - **Tasks format**: Flat `{taskId: {completed, completedAt, completedBy}}` — never nested
-- **AI chat deploys via CLI**, not MCP tool: `npx supabase functions deploy ai-chat --no-verify-jwt`
-- **Edge Functions not in git** (except ai-chat and outcome-analyzer): outlook-integration, docusign-integration, execute-automation, automation-cron, sharepoint-docs, get-communications
+- **AI chat** edge function is in `supabase/functions/ai-chat/` and auto-deploys via GitHub Actions like all other functions. No manual CLI deploys needed.
+- **All Edge Functions are in git** under `supabase/functions/` and auto-deploy on merge to `main`. The `_shared/` directory contains shared helpers imported by multiple functions.
 - **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2)
 
 ---
