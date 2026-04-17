@@ -1,12 +1,9 @@
--- ── Proactive Planner Infrastructure ──
-
 -- 1. Expand autonomy_config context CHECK to include 'proactive'
 ALTER TABLE autonomy_config DROP CONSTRAINT IF EXISTS autonomy_config_context_check;
 ALTER TABLE autonomy_config ADD CONSTRAINT autonomy_config_context_check
   CHECK (context IN ('inbound_routing', 'ai_chat', 'automation', 'proactive'));
 
 -- 2. Seed proactive autonomy config rows (conservative defaults)
--- All start at L1 (suggest only) so the team reviews every suggestion initially
 INSERT INTO autonomy_config (action_type, entity_type, context, autonomy_level, max_autonomy_level, auto_promote_threshold)
 VALUES
   ('send_sms', 'caregiver', 'proactive', 'L1', 'L3', 10),
