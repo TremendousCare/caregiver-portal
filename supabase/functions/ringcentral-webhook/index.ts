@@ -1,4 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  RouteResult,
+  RouteRow,
+  summarizeRouteResults,
+} from "./subscribe-helpers.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -34,9 +39,12 @@ function phoneDigits(phone: string): string {
 }
 
 // ─── Get RingCentral Access Token ───
-async function getRingCentralAccessToken(): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
-    throw new Error("RingCentral credentials not configured");
+async function getRingCentralAccessTokenWithJwt(jwt: string): Promise<string> {
+  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
+    throw new Error("RingCentral client credentials not configured");
+  }
+  if (!jwt) {
+    throw new Error("RingCentral JWT not provided");
   }
   const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
     method: "POST",
@@ -46,7 +54,7 @@ async function getRingCentralAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: RC_JWT_TOKEN,
+      assertion: jwt,
     }),
   });
   if (!response.ok) {
@@ -55,6 +63,24 @@ async function getRingCentralAccessToken(): Promise<string> {
   }
   const data = await response.json();
   return data.access_token;
+}
+
+// Resolve the JWT to use for subscribing a given route.
+// Per-route vault secret wins; otherwise fall back to the global env JWT
+// so the historical main-line behavior keeps working with zero config.
+async function getJwtForRoute(category: string): Promise<string> {
+  const { data, error } = await supabase.rpc("get_route_ringcentral_jwt", {
+    p_category: category,
+  });
+  if (!error && Array.isArray(data) && data.length > 0 && data[0]?.jwt) {
+    return data[0].jwt as string;
+  }
+  if (!RC_JWT_TOKEN) {
+    throw new Error(
+      `No per-route JWT for "${category}" and RINGCENTRAL_JWT_TOKEN env var is missing`,
+    );
+  }
+  return RC_JWT_TOKEN;
 }
 
 // ─── Caregiver Phase Helper ───
@@ -224,57 +250,57 @@ async function fireInboundSmsAutomations(
 }
 
 // ─── Handle Webhook Subscription (admin action) ───
-async function handleSubscribe(): Promise<Response> {
+//
+// Iterates over every active row in `communication_routes` and ensures
+// each one has a live RingCentral webhook subscription. Renews existing
+// subscriptions where possible; creates new ones where renewal fails
+// (404 / expired) or the route has never been subscribed.
+//
+// Each route uses its own JWT (per-route vault secret → fall back to
+// RINGCENTRAL_JWT_TOKEN env var). The resulting subscription is scoped
+// to that JWT's extension, which is what gives us per-number inbound
+// SMS coverage without any handler-level changes.
+
+async function subscribeOneRoute(
+  route: RouteRow,
+  webhookUrl: string,
+): Promise<RouteResult> {
   try {
-    const accessToken = await getRingCentralAccessToken();
-    const webhookUrl = `${SUPABASE_URL}/functions/v1/ringcentral-webhook`;
+    const jwt = await getJwtForRoute(route.category);
+    const accessToken = await getRingCentralAccessTokenWithJwt(jwt);
 
-    // Check for existing subscription first
-    const { data: existingSetting } = await supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "ringcentral_webhook_subscription")
-      .single();
-
-    const existingSubId = existingSetting?.value?.subscription_id;
-
-    // If we have an existing subscription, try to renew it
-    if (existingSubId) {
-      try {
-        const renewResp = await fetch(
-          `${RC_API_URL}/restapi/v1.0/subscription/${existingSubId}/renew`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }
-        );
-        if (renewResp.ok) {
-          const renewData = await renewResp.json();
-          await supabase.from("app_settings").upsert(
-            {
-              key: "ringcentral_webhook_subscription",
-              value: {
-                subscription_id: renewData.id,
-                status: renewData.status,
-                created_at: renewData.creationTime,
-                expires_at: renewData.expirationTime,
-              },
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "key" }
-          );
-          return new Response(
-            JSON.stringify({ success: true, action: "renewed", subscription_id: renewData.id }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        // If renewal fails (404, expired), fall through to create new
-      } catch {
-        // Fall through to create new subscription
+    // ── Try to renew an existing subscription ──
+    if (route.subscription_id) {
+      const renewResp = await fetch(
+        `${RC_API_URL}/restapi/v1.0/subscription/${route.subscription_id}/renew`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      if (renewResp.ok) {
+        const renewData = await renewResp.json();
+        await supabase
+          .from("communication_routes")
+          .update({
+            subscription_id: renewData.id,
+            subscription_expires_at: renewData.expirationTime,
+            subscription_last_error: null,
+            subscription_synced_at: new Date().toISOString(),
+          })
+          .eq("category", route.category);
+        return {
+          category: route.category,
+          label: route.label,
+          action: "renewed",
+          subscription_id: renewData.id,
+          expires_at: renewData.expirationTime,
+        };
       }
+      // Fall through to create-new on any renew failure (404 / expired / etc.)
     }
 
-    // Create new subscription
+    // ── Create a new subscription ──
     const subResp = await fetch(`${RC_API_URL}/restapi/v1.0/subscription`, {
       method: "POST",
       headers: {
@@ -289,43 +315,113 @@ async function handleSubscribe(): Promise<Response> {
           transportType: "WebHook",
           address: webhookUrl,
         },
-        expiresIn: 630720000, // ~20 years (RC will cap to its max)
+        expiresIn: 630720000, // RC will cap this at its max (~7 days)
       }),
     });
 
     if (!subResp.ok) {
       const errText = await subResp.text();
-      return new Response(
-        JSON.stringify({ success: false, error: `RingCentral subscription failed: ${errText}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error(`RC subscription create failed (${subResp.status}): ${errText}`);
     }
 
     const subData = await subResp.json();
+    await supabase
+      .from("communication_routes")
+      .update({
+        subscription_id: subData.id,
+        subscription_expires_at: subData.expirationTime,
+        subscription_last_error: null,
+        subscription_synced_at: new Date().toISOString(),
+      })
+      .eq("category", route.category);
 
-    // Store subscription info in app_settings
+    return {
+      category: route.category,
+      label: route.label,
+      action: "created",
+      subscription_id: subData.id,
+      expires_at: subData.expirationTime,
+    };
+  } catch (err) {
+    const message = (err as Error).message || String(err);
+    await supabase
+      .from("communication_routes")
+      .update({
+        subscription_last_error: message,
+        subscription_synced_at: new Date().toISOString(),
+      })
+      .eq("category", route.category);
+    return {
+      category: route.category,
+      label: route.label,
+      action: "failed",
+      error: message,
+    };
+  }
+}
+
+async function handleSubscribe(): Promise<Response> {
+  try {
+    const webhookUrl = `${SUPABASE_URL}/functions/v1/ringcentral-webhook`;
+
+    const { data: routes, error: routesErr } = await supabase
+      .from("communication_routes")
+      .select("category, label, subscription_id")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+
+    if (routesErr) {
+      throw new Error(`Failed to load communication_routes: ${routesErr.message}`);
+    }
+
+    if (!routes || routes.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "No active communication_routes found. Add at least one active route before subscribing.",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Subscribe routes serially: keeps error attribution clear and avoids
+    // any RC rate-limit surprises on accounts with many extensions.
+    const results: RouteResult[] = [];
+    for (const route of routes as RouteRow[]) {
+      results.push(await subscribeOneRoute(route, webhookUrl));
+    }
+
+    // Write aggregate summary so the legacy Admin UI can read a single row.
+    const summary = summarizeRouteResults(results);
     await supabase.from("app_settings").upsert(
       {
         key: "ringcentral_webhook_subscription",
-        value: {
-          subscription_id: subData.id,
-          status: subData.status,
-          created_at: subData.creationTime,
-          expires_at: subData.expirationTime,
-        },
+        value: summary,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "key" }
+      { onConflict: "key" },
     );
 
+    const anyFailed = results.some((r) => r.action === "failed");
     return new Response(
-      JSON.stringify({ success: true, action: "created", subscription_id: subData.id }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        success: !anyFailed,
+        routes: results,
+        summary: {
+          total: results.length,
+          subscribed: results.filter((r) => r.action !== "failed").length,
+          failed: results.filter((r) => r.action === "failed").length,
+        },
+      }),
+      {
+        status: anyFailed ? 207 : 200, // 207 Multi-Status when some routes failed
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   } catch (err) {
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: false, error: (err as Error).message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 }
