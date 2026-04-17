@@ -340,9 +340,13 @@ Deno.serve(async (req) => {
           );
           if (caregiverIds.length === 0) continue;
 
+          // Note: `phase` is not a real column on caregivers — it's derived
+          // from phase_override / phase_timestamps in the app layer. Asking
+          // for it via PostgREST used to make this SELECT fail with a 400,
+          // which silently killed every survey reminder run.
           const { data: caregivers, error: cgErr } = await supabase
             .from("caregivers")
-            .select("id, first_name, last_name, phone, email, phase, archived")
+            .select("id, first_name, last_name, phone, email, archived")
             .in("id", caregiverIds);
 
           if (cgErr) {
@@ -385,7 +389,6 @@ Deno.serve(async (req) => {
                       last_name: caregiver.last_name,
                       phone: caregiver.phone,
                       email: caregiver.email,
-                      phase: caregiver.phase,
                     },
                     trigger_context: {
                       survey_link: surveyLink,
