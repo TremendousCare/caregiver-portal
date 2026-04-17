@@ -18,7 +18,7 @@ ALTER TABLE survey_responses
 -- Partial index to make the reminder cron's lookup fast without scanning
 -- the full survey_responses table. Only indexes the rows the cron cares
 -- about (pending + not stopped). now() is intentionally NOT used in the
--- predicate because it is not IMMUTABLE (see CLAUDE.md).
+-- predicate because it is not IMMUTABLE.
 CREATE INDEX IF NOT EXISTS idx_survey_responses_pending_reminders
   ON survey_responses (last_reminder_sent_at, reminders_sent)
   WHERE status = 'pending' AND reminders_stopped = false;

@@ -1,6 +1,3 @@
--- Add board_labels column to caregivers table
--- Stores array of label IDs assigned to each caregiver for the Kanban board
--- Nullable, defaults to empty array, purely additive (no existing data affected)
 ALTER TABLE caregivers
   ADD COLUMN IF NOT EXISTS board_labels JSONB DEFAULT '[]'::jsonb;
 

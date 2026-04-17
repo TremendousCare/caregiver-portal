@@ -6,7 +6,7 @@ ALTER TABLE automation_rules ADD CONSTRAINT automation_rules_action_type_check
     'add_note', 'update_field', 'send_docusign_envelope', 'send_esign_envelope'
   ]));
 
--- Also add survey_completed to trigger_type
+-- Also add survey_completed to trigger_type if not already there
 ALTER TABLE automation_rules DROP CONSTRAINT automation_rules_trigger_type_check;
 ALTER TABLE automation_rules ADD CONSTRAINT automation_rules_trigger_type_check
   CHECK (trigger_type = ANY (ARRAY[

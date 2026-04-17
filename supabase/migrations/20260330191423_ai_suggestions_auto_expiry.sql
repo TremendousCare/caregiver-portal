@@ -1,8 +1,3 @@
--- ═══════════════════════════════════════════════════════════════
--- AI Suggestions — Auto-Expiry & Staleness Prevention
--- 1. pg_cron job: expire suggestions past their expires_at
--- 2. Trigger: expire suggestions when caregiver leaves pipeline
--- ═══════════════════════════════════════════════════════════════
 
 -- ── 1. pg_cron job: expire stale suggestions every 30 minutes ──
 SELECT cron.schedule(
@@ -16,13 +11,12 @@ SELECT cron.schedule(
   $$
 );
 
--- ── 2. Trigger: when a caregiver's board_status or employmentStatus changes
+-- ── 2. Trigger: when a caregiver's board_status or employment_status changes
 --    to a non-pipeline status, expire their pending suggestions ──
 
 CREATE OR REPLACE FUNCTION expire_suggestions_on_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Fire when caregiver moves to active roster or gets archived
   IF (
     NEW.board_status IN ('deployed', 'active', 'reserve') OR
     NEW.archived = true OR
