@@ -9,6 +9,7 @@ import {
   isReminderDue,
   shouldRemindSurvey,
   buildSurveyUrlFromToken,
+  ruleAppliesToCaregiver,
 } from '../../../supabase/functions/_shared/helpers/surveyReminders.ts';
 
 describe('surveyReminders', () => {
@@ -232,6 +233,61 @@ describe('surveyReminders', () => {
       expect(buildSurveyUrlFromToken('sv_xyz', 'https://example.com///')).toBe(
         'https://example.com/survey/sv_xyz'
       );
+    });
+  });
+
+  describe('ruleAppliesToCaregiver', () => {
+    const intakeCg = { phase_timestamps: { intake: 1 } };
+    const orientationCgViaOverride = { phase_override: 'orientation', phase_timestamps: { intake: 1 } };
+    const orientationCgViaTimestamps = { phase_timestamps: { orientation: 1 } };
+    const archivedCg = { archived: true, phase_timestamps: { intake: 1 } };
+
+    it('returns true when no phase filter is set (intake caregiver)', () => {
+      expect(ruleAppliesToCaregiver(intakeCg, { hours: 24 })).toBe(true);
+    });
+
+    it('returns true when no phase filter is set (past-intake caregiver)', () => {
+      expect(ruleAppliesToCaregiver(orientationCgViaOverride, { hours: 24 })).toBe(true);
+    });
+
+    it('returns true when phase filter matches computed phase', () => {
+      expect(ruleAppliesToCaregiver(intakeCg, { phase: 'intake' })).toBe(true);
+    });
+
+    it('returns false when phase filter does not match computed phase (via override)', () => {
+      expect(ruleAppliesToCaregiver(orientationCgViaOverride, { phase: 'intake' })).toBe(false);
+    });
+
+    it('returns false when phase filter does not match computed phase (via timestamps)', () => {
+      expect(ruleAppliesToCaregiver(orientationCgViaTimestamps, { phase: 'intake' })).toBe(false);
+    });
+
+    it('returns false for archived caregivers regardless of phase filter', () => {
+      expect(ruleAppliesToCaregiver(archivedCg, { phase: 'intake' })).toBe(false);
+      expect(ruleAppliesToCaregiver(archivedCg, {})).toBe(false);
+    });
+
+    it('returns false when caregiver is null or undefined', () => {
+      expect(ruleAppliesToCaregiver(null, { phase: 'intake' })).toBe(false);
+      expect(ruleAppliesToCaregiver(undefined, {})).toBe(false);
+    });
+
+    it('treats empty-string phase filter as "no filter"', () => {
+      // Defensive: the UI omits `phase` from conditions when "Any phase" is
+      // picked, but historical rules might have `phase: ""` stored. Treat
+      // that as "no filter" so old rules behave the same.
+      expect(ruleAppliesToCaregiver(orientationCgViaOverride, { phase: '' })).toBe(true);
+    });
+
+    it('matches non-intake phase filter correctly', () => {
+      expect(ruleAppliesToCaregiver(orientationCgViaOverride, { phase: 'orientation' })).toBe(true);
+      expect(ruleAppliesToCaregiver(orientationCgViaOverride, { phase: 'verification' })).toBe(false);
+    });
+
+    it('handles caregiver with no phase signals (defaults to intake)', () => {
+      // detectPhase returns 'intake' when phase_timestamps is empty.
+      expect(ruleAppliesToCaregiver({}, { phase: 'intake' })).toBe(true);
+      expect(ruleAppliesToCaregiver({}, { phase: 'orientation' })).toBe(false);
     });
   });
 });

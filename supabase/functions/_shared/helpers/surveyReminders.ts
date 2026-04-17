@@ -4,12 +4,17 @@
 //
 // Used by supabase/functions/automation-cron/index.ts (Section 1.5).
 
+import { getPhase } from "./caregiver.ts";
+
 export interface SurveyReminderConditions {
   hours?: number;          // Interval between reminders. Default: 24
   max_reminders?: number;  // Max reminders before giving up. Default: 5
   tz?: string;             // IANA tz for the send window. Default: America/New_York
   start_hour?: number;     // Local hour the send window opens (0-23). Default: 9
   end_hour?: number;       // Local hour the send window closes (0-23, exclusive). Default: 18
+  phase?: string;          // Optional "Only in Phase" filter (phase id, e.g. "intake").
+                           // When set, reminders are only sent to caregivers whose
+                           // computed phase matches. Unset = send regardless of phase.
 }
 
 export const DEFAULT_REMINDER_HOURS = 24;
@@ -137,4 +142,31 @@ export function shouldRemindSurvey(
 export function buildSurveyUrlFromToken(token: string, baseUrl: string): string {
   const base = (baseUrl || "").replace(/\/+$/, "");
   return `${base}/survey/${token}`;
+}
+
+/**
+ * Decide whether a survey_pending reminder rule applies to a given caregiver.
+ * Used by the cron to enforce the "Only in Phase" filter on the rule.
+ *
+ * Rules:
+ *  - Archived caregivers never get reminders.
+ *  - No phase filter on the rule → all non-archived caregivers match.
+ *  - Phase filter set → caregiver's computed phase must equal the filter.
+ */
+export function ruleAppliesToCaregiver(
+  caregiver: {
+    archived?: boolean | null;
+    phase_override?: string | null;
+    phase_timestamps?: Record<string, number> | null;
+  } | null | undefined,
+  conditions: SurveyReminderConditions | null | undefined,
+): boolean {
+  if (!caregiver) return false;
+  if (caregiver.archived) return false;
+  const phaseFilter =
+    typeof conditions?.phase === "string" && conditions.phase
+      ? conditions.phase
+      : null;
+  if (!phaseFilter) return true;
+  return getPhase(caregiver) === phaseFilter;
 }
