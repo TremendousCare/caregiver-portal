@@ -2,7 +2,7 @@ import layout from '../../../styles/layout.module.css';
 import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
 
-export function CaregiverHeader({ caregiver, greenLight, onBack, onToggleGreenLight, onShowArchive, onUnarchive, onShowDelete }) {
+export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onToggleGreenLight, onShowArchive, onUnarchive, onShowDelete }) {
   return (
     <div className={layout.detailHeader}>
       <button className={btn.backBtn} onClick={onBack}>← Back</button>
@@ -26,6 +26,16 @@ export function CaregiverHeader({ caregiver, greenLight, onBack, onToggleGreenLi
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {greenLight && <span className={progress.greenLightBadgeLg}>🟢 Green Light</span>}
+        {surveyStatus === 'qualified' && phase === 'intake' && (
+          <span style={{
+            padding: '6px 14px', borderRadius: 8,
+            background: 'linear-gradient(135deg, #F0FDF4, #DCFCE7)',
+            color: '#15803D', fontWeight: 700, fontSize: 13,
+            border: '1px solid #BBF7D0', whiteSpace: 'nowrap',
+          }}>
+            ✅ Passed Screening
+          </span>
+        )}
         {caregiver.archived && <span style={{ padding: '6px 14px', borderRadius: 8, background: '#FEF2F0', color: '#DC3545', fontWeight: 600, fontSize: 13 }}>Archived</span>}
         <button className={btn.greenLightBtn} onClick={onToggleGreenLight}>🛡️ Green Light Check</button>
         {!caregiver.archived ? (

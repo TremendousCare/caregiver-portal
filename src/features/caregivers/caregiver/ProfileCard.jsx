@@ -54,7 +54,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : caregiver.hasDL === 'no' ? '❌ No' : null },
     { label: 'Availability', value: caregiver.availability },
     { label: 'Source', value: [caregiver.source, caregiver.sourceDetail].filter(Boolean).join(' — ') || null },
-    { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
+    { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
     { label: 'Days Since Application', value: `${days} day${days !== 1 ? 's' : ''}` },
     { label: 'Board Status', value: caregiver.boardStatus ? caregiver.boardStatus.charAt(0).toUpperCase() + caregiver.boardStatus.slice(1) : 'Not yet on board' },
     { label: 'Employment Status', value: (() => { const s = EMPLOYMENT_STATUSES.find((st) => st.id === caregiver.employmentStatus); return s ? s.label : null; })() },

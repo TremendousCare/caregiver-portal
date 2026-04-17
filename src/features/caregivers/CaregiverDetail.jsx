@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
 import { getCurrentPhase, isGreenLight, getOverallProgress } from '../../lib/utils';
 
 import { CaregiverHeader } from './caregiver/CaregiverHeader';
@@ -28,18 +29,33 @@ export function CaregiverDetail({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [detailTab, setDetailTab] = useState('tasks');
+  const [surveyStatus, setSurveyStatus] = useState(null);
 
   const { smsMessages, emailMessages, callEntries, rcLoading, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
 
   const greenLight = isGreenLight(caregiver);
+  const currentPhase = getCurrentPhase(caregiver);
   const onboardingComplete = getOverallProgress(caregiver) === 100;
   const showRosterNudge = onboardingComplete && (!caregiver.employmentStatus || caregiver.employmentStatus === 'onboarding') && !caregiver.archived;
+
+  useEffect(() => {
+    if (!supabase || !caregiver.id) return;
+    supabase
+      .from('survey_responses')
+      .select('status')
+      .eq('caregiver_id', caregiver.id)
+      .order('submitted_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .then(({ data }) => setSurveyStatus(data?.[0]?.status ?? null));
+  }, [caregiver.id]);
 
   return (
     <div>
       <CaregiverHeader
         caregiver={caregiver}
         greenLight={greenLight}
+        phase={currentPhase}
+        surveyStatus={surveyStatus}
         onBack={onBack}
         onToggleGreenLight={() => setShowGreenLight(!showGreenLight)}
         onShowArchive={() => setShowArchiveDialog(true)}
