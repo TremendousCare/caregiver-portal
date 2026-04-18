@@ -39,6 +39,7 @@ export function AddCaregiver({ onAdd, onCancel, caregivers = [] }) {
     availability: '',
     hasHCA: '',
     hasDL: '',
+    hasVehicle: '',
     yearsExperience: '',
     languages: '',
     specializations: '',
@@ -137,11 +138,22 @@ export function AddCaregiver({ onAdd, onCancel, caregivers = [] }) {
             </div>
           </div>
           <div className={forms.field}>
-            <label className={forms.fieldLabel}>Has valid DL & Car?</label>
+            <label className={forms.fieldLabel}>Has valid driver's license?</label>
             <div className={forms.radioRow}>
               {['yes', 'no'].map((v) => (
                 <label key={v} className={forms.radioLabel}>
                   <input type="radio" name="hasDL" checked={form.hasDL === v} onChange={() => setForm((f) => ({ ...f, hasDL: v }))} className={forms.radio} />
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className={forms.field}>
+            <label className={forms.fieldLabel}>Has own vehicle?</label>
+            <div className={forms.radioRow}>
+              {['yes', 'no'].map((v) => (
+                <label key={v} className={forms.radioLabel}>
+                  <input type="radio" name="hasVehicle" checked={form.hasVehicle === v} onChange={() => setForm((f) => ({ ...f, hasVehicle: v }))} className={forms.radio} />
                   {v.charAt(0).toUpperCase() + v.slice(1)}
                 </label>
               ))}

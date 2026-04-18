@@ -64,7 +64,8 @@ export const PROFILE_FIELD_OPTIONS = [
   { value: 'state', label: 'State' },
   { value: 'zip', label: 'Zip Code' },
   { value: 'has_hca', label: 'HCA Status' },
-  { value: 'has_dl', label: 'Driver\'s License & Car' },
+  { value: 'has_dl', label: 'Driver\'s License' },
+  { value: 'has_vehicle', label: 'Has Vehicle' },
   { value: 'years_experience', label: 'Years of Experience' },
   { value: 'availability', label: 'Availability' },
   { value: 'preferred_shift', label: 'Preferred Shift' },
@@ -243,7 +244,7 @@ export function getQualificationSummary(results) {
  * @returns {Object} Map of profile field → value to update
  */
 // Fields that store lowercase 'yes'/'no' values in the caregiver record
-const LOWERCASE_YES_NO_FIELDS = ['has_hca', 'has_dl'];
+const LOWERCASE_YES_NO_FIELDS = ['has_hca', 'has_dl', 'has_vehicle'];
 
 export function extractProfileFieldUpdates(questions, answers) {
   const updates = {};
