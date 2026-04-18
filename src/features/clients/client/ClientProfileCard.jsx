@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CLIENT_PHASES, CLIENT_SOURCES, CLIENT_PRIORITIES } from '../constants';
 import { getClientPhase, getDaysSinceCreated } from '../utils';
+import { supabase } from '../../../lib/supabase';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -17,6 +18,37 @@ function EditField({ label, value, onChange, type = 'text' }) {
 export function ClientProfileCard({ client, onUpdateClient }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeMessage, setGeocodeMessage] = useState(null);
+
+  const hasAddress = !!(client.address || client.city || client.zip);
+  const isGeocoded = client.latitude != null && client.longitude != null;
+
+  const handleGeocode = async () => {
+    if (!supabase) {
+      setGeocodeMessage({ kind: 'error', text: 'Supabase not configured.' });
+      return;
+    }
+    setGeocoding(true);
+    setGeocodeMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('geocode-client', {
+        body: { client_id: client.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      onUpdateClient(client.id, {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        geocodedAt: new Date().toISOString(),
+      });
+      setGeocodeMessage({ kind: 'success', text: 'Address geocoded.' });
+    } catch (e) {
+      setGeocodeMessage({ kind: 'error', text: e?.message || 'Geocoding failed.' });
+    } finally {
+      setGeocoding(false);
+    }
+  };
 
   const days = getDaysSinceCreated(client);
   const phase = getClientPhase(client);
@@ -94,14 +126,38 @@ export function ClientProfileCard({ client, onUpdateClient }) {
       </div>
 
       {!editing ? (
-        <div className={cards.profileGrid}>
-          {profileFields.map((item) => (
-            <div key={item.label} className={cards.profileItem}>
-              <div className={cards.profileLabel}>{item.label}</div>
-              <div className={cards.profileValue}>{item.value || '—'}</div>
+        <>
+          <div className={cards.profileGrid}>
+            {profileFields.map((item) => (
+              <div key={item.label} className={cards.profileItem}>
+                <div className={cards.profileLabel}>{item.label}</div>
+                <div className={cards.profileValue}>{item.value || '—'}</div>
+              </div>
+            ))}
+          </div>
+          {hasAddress && (
+            <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderTop: '1px solid #F0F2F6' }}>
+              <div style={{ fontSize: 13, color: '#6B7B8F' }}>
+                {isGeocoded
+                  ? `Geofence coordinates saved${client.geocodedAt ? ` on ${new Date(client.geocodedAt).toLocaleDateString()}` : ''}.`
+                  : 'No geofence coordinates yet — caregivers can\u2019t clock in without this.'}
+              </div>
+              <button
+                className={btn.secondaryBtn}
+                onClick={handleGeocode}
+                disabled={geocoding}
+                style={{ marginLeft: 'auto' }}
+              >
+                {geocoding ? 'Geocoding…' : isGeocoded ? 'Re-geocode address' : 'Geocode address'}
+              </button>
+              {geocodeMessage && (
+                <div style={{ width: '100%', fontSize: 13, color: geocodeMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
+                  {geocodeMessage.text}
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       ) : (
         <div style={{ padding: '16px 20px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F', marginBottom: 8 }}>Contact Information</div>

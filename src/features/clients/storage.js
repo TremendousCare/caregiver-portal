@@ -213,6 +213,11 @@ export const dbToClient = (row) => ({
   archivedAt: row.archived_at,
   archiveReason: row.archive_reason,
   archiveDetail: row.archive_detail,
+  // Geocoding for caregiver-portal geofencing
+  latitude: row.latitude != null ? Number(row.latitude) : null,
+  longitude: row.longitude != null ? Number(row.longitude) : null,
+  geofenceRadiusM: row.geofence_radius_m ?? null,
+  geocodedAt: row.geocoded_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -251,6 +256,10 @@ const clientToDb = (cl) => ({
   archived_at: cl.archivedAt || null,
   archive_reason: cl.archiveReason || null,
   archive_detail: cl.archiveDetail || null,
+  latitude: cl.latitude ?? null,
+  longitude: cl.longitude ?? null,
+  geofence_radius_m: cl.geofenceRadiusM ?? null,
+  geocoded_at: cl.geocodedAt || null,
   created_at: cl.createdAt || Date.now(),
   updated_at: cl.updatedAt || Date.now(),
 });
