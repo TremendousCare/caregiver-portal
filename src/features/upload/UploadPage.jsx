@@ -95,12 +95,24 @@ export function UploadPage() {
         reader.readAsDataURL(state.file);
       });
 
+      // Mobile cameras (iOS / Android) hand back generic filenames
+      // like "image.jpg" for every capture. If a caregiver uploads two
+      // fresh photos in a row against different document types, the
+      // SharePoint backend overwrites the first because both requests
+      // arrive with the same storage key. Rewriting the name here with
+      // doc type + timestamp guarantees uniqueness.
+      const originalName = state.file.name || 'upload';
+      const lastDot = originalName.lastIndexOf('.');
+      const ext = lastDot > 0 ? originalName.slice(lastDot).toLowerCase() : '';
+      const safeDocType = String(typeId).replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase() || 'document';
+      const uniqueFileName = `${safeDocType}_${Date.now()}${ext}`;
+
       const { data, error: fnErr } = await supabase.functions.invoke('caregiver-doc-upload', {
         body: {
           action: 'upload',
           token,
           document_type: typeId,
-          file_name: state.file.name,
+          file_name: uniqueFileName,
           file_content_base64: base64,
         },
       });
