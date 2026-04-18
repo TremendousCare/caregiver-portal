@@ -157,3 +157,36 @@ export function extractAvailabilityAnswer(questions, answers) {
   if (!hasAvailabilitySlots(raw)) return null;
   return raw;
 }
+
+// ─── Display formatting ────────────────────────────────────────
+
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatClockTime(hhmm) {
+  if (typeof hhmm !== 'string' || !HHMM_RE.test(hhmm)) return hhmm || '';
+  const [hStr, mStr] = hhmm.split(':');
+  const h24 = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  const suffix = h24 < 12 ? 'a' : 'p';
+  const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  return m === 0 ? `${h12}${suffix}` : `${h12}:${String(m).padStart(2, '0')}${suffix}`;
+}
+
+/**
+ * Render a structured availability answer as a readable string.
+ * Used by the survey results view on the caregiver profile.
+ * Example output: "Mon 9a–5p, Wed 9a–5p, Fri 9a–1p"
+ */
+export function formatAvailabilityAnswer(answer) {
+  if (!hasAvailabilitySlots(answer)) return '—';
+  const parts = [];
+  const sorted = [...answer.slots].sort((a, b) => {
+    if (a.day !== b.day) return a.day - b.day;
+    return String(a.startTime).localeCompare(String(b.startTime));
+  });
+  for (const slot of sorted) {
+    const day = DAY_SHORT[slot.day] ?? `Day ${slot.day}`;
+    parts.push(`${day} ${formatClockTime(slot.startTime)}–${formatClockTime(slot.endTime)}`);
+  }
+  return parts.join(', ');
+}

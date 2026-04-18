@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { formatAvailabilityAnswer } from '../../../lib/scheduling/prescreenAvailability';
 import cards from '../../../styles/cards.module.css';
+
+function renderAnswer(question, answer) {
+  if (answer === undefined || answer === null) return '—';
+  if (question?.type === 'availability_schedule') {
+    return formatAvailabilityAnswer(answer);
+  }
+  if (Array.isArray(answer)) return answer.join(', ');
+  if (typeof answer === 'object') {
+    try { return JSON.stringify(answer); } catch { return '—'; }
+  }
+  return String(answer);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Survey Results Section — shows on caregiver profile
@@ -209,9 +222,7 @@ export function SurveyResults({ caregiver }) {
                         fontSize: 13, fontWeight: 600,
                         color: hasIssue ? (isDisqualify ? '#DC2626' : '#A16207') : '#0F1724',
                       }}>
-                        {answer !== undefined && answer !== null
-                          ? (Array.isArray(answer) ? answer.join(', ') : String(answer))
-                          : '—'}
+                        {renderAnswer(q, answer)}
                       </span>
                       {hasIssue && (
                         <span style={{

@@ -3,6 +3,7 @@ import {
   convertAvailabilityAnswerToRows,
   hasAvailabilitySlots,
   extractAvailabilityAnswer,
+  formatAvailabilityAnswer,
 } from '../scheduling/prescreenAvailability';
 
 describe('convertAvailabilityAnswerToRows', () => {
@@ -260,5 +261,43 @@ describe('extractAvailabilityAnswer', () => {
   it('is resilient to missing/invalid inputs', () => {
     expect(extractAvailabilityAnswer(null, {})).toBeNull();
     expect(extractAvailabilityAnswer([], null)).toBeNull();
+  });
+});
+
+describe('formatAvailabilityAnswer', () => {
+  it('returns an em-dash placeholder for empty answers', () => {
+    expect(formatAvailabilityAnswer(null)).toBe('—');
+    expect(formatAvailabilityAnswer({ slots: [] })).toBe('—');
+  });
+
+  it('formats a single slot with 12-hour clock labels', () => {
+    expect(
+      formatAvailabilityAnswer({
+        slots: [{ day: 1, startTime: '09:00', endTime: '17:00' }],
+      }),
+    ).toBe('Mon 9a–5p');
+  });
+
+  it('joins multiple slots, sorted by day then start', () => {
+    expect(
+      formatAvailabilityAnswer({
+        slots: [
+          { day: 5, startTime: '09:00', endTime: '13:00' },
+          { day: 1, startTime: '09:00', endTime: '17:00' },
+          { day: 3, startTime: '09:00', endTime: '17:00' },
+        ],
+      }),
+    ).toBe('Mon 9a–5p, Wed 9a–5p, Fri 9a–1p');
+  });
+
+  it('shows non-zero minutes and midnight/noon correctly', () => {
+    expect(
+      formatAvailabilityAnswer({
+        slots: [
+          { day: 0, startTime: '00:00', endTime: '12:00' },
+          { day: 2, startTime: '13:30', endTime: '18:45' },
+        ],
+      }),
+    ).toBe('Sun 12a–12p, Tue 1:30p–6:45p');
   });
 });
