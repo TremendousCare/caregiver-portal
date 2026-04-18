@@ -95,17 +95,17 @@ describe('isAvailable — recurring weekly', () => {
     expect(isAvailable(shift, rows).available).toBe(true);
   });
 
-  it('does not cross-combine rows: a shift that spans two availability windows on the same day is NOT covered by either alone', () => {
-    // Rule: for Phase 2 we require a single availability row to cover
-    // the full window. If your team's 8-12 and 12-16 blocks need to
-    // chain for an 8-16 shift, we'll add multi-row chaining in a later
-    // phase. This test pins the current behavior.
+  it('chains two back-to-back rows so an 8-16 shift is covered by 8-12 + 12-16', () => {
+    // The matcher unions all applicable available intervals before
+    // checking coverage, so adjacent rows (end === next.start) count
+    // as continuous availability. This fixes the silent-reject bug
+    // where split-block availability looked unavailable.
     const shift = { start_time: t(MON, 8), end_time: t(MON, 16) };
     const rows = [
       { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
       { type: 'available', day_of_week: 1, start_time: '12:00', end_time: '16:00' },
     ];
-    expect(isAvailable(shift, rows).available).toBe(false);
+    expect(isAvailable(shift, rows).available).toBe(true);
   });
 
   it('respects effective_from (availability not yet active)', () => {
@@ -341,6 +341,86 @@ describe('isAvailable — edge cases', () => {
       {}, // missing everything
       { type: 'available' }, // no day_of_week or dates
       { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+    ];
+    expect(isAvailable(shift, rows).available).toBe(true);
+  });
+});
+
+// ─── Adjacent / overlapping row coverage ──────────────────────
+// The matcher unions all applicable available intervals and checks
+// whether the shift window is contained in the merged coverage. This
+// documents the full behavior so a future refactor can't quietly
+// regress the split-block case.
+
+describe('isAvailable — adjacent and overlapping row coverage', () => {
+  it('three back-to-back rows chain to cover a single long shift', () => {
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 14) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '10:00' },
+      { type: 'available', day_of_week: 1, start_time: '10:00', end_time: '12:00' },
+      { type: 'available', day_of_week: 1, start_time: '12:00', end_time: '14:00' },
+    ];
+    expect(isAvailable(shift, rows).available).toBe(true);
+  });
+
+  it('overlapping rows cover a shift that spans both', () => {
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 16) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '14:00' },
+      { type: 'available', day_of_week: 1, start_time: '12:00', end_time: '16:00' },
+    ];
+    expect(isAvailable(shift, rows).available).toBe(true);
+  });
+
+  it('rows out of chronological order still merge correctly', () => {
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 16) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '12:00', end_time: '16:00' },
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+    ];
+    expect(isAvailable(shift, rows).available).toBe(true);
+  });
+
+  it('a gap between non-adjacent rows is NOT covered', () => {
+    // 8-10 + 11-14 leaves a 10-11 gap; an 8-14 shift falls outside.
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 14) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '10:00' },
+      { type: 'available', day_of_week: 1, start_time: '11:00', end_time: '14:00' },
+    ];
+    expect(isAvailable(shift, rows)).toEqual({
+      available: false,
+      reason: 'outside_availability',
+    });
+  });
+
+  it('an unavailable row still wins even when adjacent available rows would cover', () => {
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 16) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+      { type: 'available', day_of_week: 1, start_time: '12:00', end_time: '16:00' },
+      { type: 'unavailable', day_of_week: 1, start_time: '13:00', end_time: '14:00' },
+    ];
+    expect(isAvailable(shift, rows)).toEqual({
+      available: false,
+      reason: 'unavailable_block',
+    });
+  });
+
+  it('recurring + one-off combine to cover a shift', () => {
+    // Recurring Mon 8-12 + one-off 2026-05-04 12:00-16:00 covers 8-16.
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 16) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+      { type: 'available', start_date: MON, start_time: '12:00', end_time: '16:00' },
+    ];
+    expect(isAvailable(shift, rows).available).toBe(true);
+  });
+
+  it('a single row covering the whole shift still works (no regression)', () => {
+    const shift = { start_time: t(MON, 8), end_time: t(MON, 12) };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '16:00' },
     ];
     expect(isAvailable(shift, rows).available).toBe(true);
   });
