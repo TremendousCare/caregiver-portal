@@ -7,7 +7,7 @@ import { useApp } from '../../shared/context/AppContext';
 import { useClients } from '../../shared/context/ClientContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import { supabase } from '../../lib/supabase';
-import { getShifts, updateShift, getCarePlansForClient } from './storage';
+import { getShifts, updateShift, getServicePlansForClient } from './storage';
 import {
   SHIFT_STATUSES,
   computeDefaultShiftEnd,
@@ -38,7 +38,7 @@ import s from './SchedulePage.module.css';
 
 const EMPTY_DRAFT_BASE = {
   clientId: '',
-  carePlanId: null,
+  servicePlanId: null,
   assignedCaregiverId: null,
   startTime: null,
   endTime: null,
@@ -69,9 +69,9 @@ export function SchedulePage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
-  // Care plans cached per client as users interact. Avoids pulling
+  // Service plans cached per client as users interact. Avoids pulling
   // every plan up front.
-  const [carePlansByClient, setCarePlansByClient] = useState({});
+  const [servicePlansByClient, setServicePlansByClient] = useState({});
 
   // Modal / drawer state
   const [createDraft, setCreateDraft] = useState(null); // null = closed
@@ -101,15 +101,15 @@ export function SchedulePage() {
     return map;
   }, [schedulableCaregivers]);
 
-  // All care plans, flattened, used by the form to list plans for
+  // All service plans, flattened, used by the form to list plans for
   // the currently selected client.
-  const allCarePlans = useMemo(() => {
+  const allServicePlans = useMemo(() => {
     const list = [];
-    for (const plans of Object.values(carePlansByClient)) {
+    for (const plans of Object.values(servicePlansByClient)) {
       for (const p of plans) list.push(p);
     }
     return list;
-  }, [carePlansByClient]);
+  }, [servicePlansByClient]);
 
   // ─── Load shifts for the visible range + filters ────────────
   const loadShifts = useCallback(async () => {
@@ -155,19 +155,19 @@ export function SchedulePage() {
     };
   }, [loadShifts]);
 
-  // ─── Load care plans for a client (lazy) ─────────────────────
-  const ensureCarePlansForClient = useCallback(
+  // ─── Load service plans for a client (lazy) ─────────────────────
+  const ensureServicePlansForClient = useCallback(
     async (clientId) => {
       if (!clientId) return;
-      if (carePlansByClient[clientId]) return;
+      if (servicePlansByClient[clientId]) return;
       try {
-        const plans = await getCarePlansForClient(clientId);
-        setCarePlansByClient((prev) => ({ ...prev, [clientId]: plans }));
+        const plans = await getServicePlansForClient(clientId);
+        setServicePlansByClient((prev) => ({ ...prev, [clientId]: plans }));
       } catch (e) {
-        console.error('Failed to load care plans for client:', e);
+        console.error('Failed to load service plans for client:', e);
       }
     },
-    [carePlansByClient],
+    [servicePlansByClient],
   );
 
   // ─── FullCalendar events ─────────────────────────────────────
@@ -217,7 +217,7 @@ export function SchedulePage() {
     const shift = info.event.extendedProps?.shift;
     if (!shift) return;
     setSelectedShift(shift);
-    ensureCarePlansForClient(shift.clientId);
+    ensureServicePlansForClient(shift.clientId);
   };
 
   const handleEventDrop = async (info) => {
@@ -288,10 +288,10 @@ export function SchedulePage() {
     loadShifts();
   };
 
-  // When the selected client in the create modal changes, preload its care plans
+  // When the selected client in the create modal changes, preload its service plans
   useEffect(() => {
-    if (createDraft?.clientId) ensureCarePlansForClient(createDraft.clientId);
-  }, [createDraft?.clientId, ensureCarePlansForClient]);
+    if (createDraft?.clientId) ensureServicePlansForClient(createDraft.clientId);
+  }, [createDraft?.clientId, ensureServicePlansForClient]);
 
   // ─── Render ──────────────────────────────────────────────────
   return (
@@ -415,7 +415,7 @@ export function SchedulePage() {
           initialDraft={createDraft}
           clients={activeClients}
           caregivers={schedulableCaregivers}
-          carePlans={allCarePlans}
+          servicePlans={allServicePlans}
           currentUserName={currentUserName}
           onClose={handleCreateClosed}
           onCreated={handleCreated}
@@ -428,7 +428,7 @@ export function SchedulePage() {
           shift={selectedShift}
           clients={activeClients}
           caregivers={schedulableCaregivers}
-          carePlans={allCarePlans}
+          servicePlans={allServicePlans}
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           onClose={handleDrawerClose}

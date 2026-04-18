@@ -18,7 +18,7 @@ export function ShiftCreateModal({
   initialDraft,
   clients,
   caregivers,
-  carePlans,
+  servicePlans,
   currentUserName,
   onClose,
   onCreated,
@@ -45,7 +45,7 @@ export function ShiftCreateModal({
     try {
       const payload = {
         clientId: draft.clientId,
-        carePlanId: draft.carePlanId || null,
+        servicePlanId: draft.servicePlanId || null,
         assignedCaregiverId: draft.assignedCaregiverId || null,
         startTime: draft.startTime,
         endTime: draft.endTime,
@@ -98,7 +98,7 @@ export function ShiftCreateModal({
             onChange={setDraft}
             clients={clients}
             caregivers={caregivers}
-            carePlans={carePlans}
+            servicePlans={servicePlans}
             errorMessage={error}
           />
         </div>

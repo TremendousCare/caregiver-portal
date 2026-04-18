@@ -14,14 +14,14 @@ import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 // and src/lib/storage.js.
 //
 // Tables:
-//   care_plans, shifts, caregiver_availability,
+//   service_plans, shifts, caregiver_availability,
 //   caregiver_assignments, shift_offers
 // ═══════════════════════════════════════════════════════════════
 
 
-// ─── care_plans ────────────────────────────────────────────────
+// ─── service_plans ────────────────────────────────────────────────
 
-export const dbToCarePlan = (row) => ({
+export const dbToServicePlan = (row) => ({
   id: row.id,
   clientId: row.client_id,
   title: row.title,
@@ -38,7 +38,7 @@ export const dbToCarePlan = (row) => ({
   updatedAt: row.updated_at,
 });
 
-export const carePlanToDb = (plan) => ({
+export const servicePlanToDb = (plan) => ({
   id: plan.id,
   client_id: plan.clientId,
   title: plan.title ?? null,
@@ -54,29 +54,29 @@ export const carePlanToDb = (plan) => ({
   updated_at: new Date().toISOString(),
 });
 
-export const createCarePlan = async (plan) => {
+export const createServicePlan = async (plan) => {
   if (!isSupabaseConfigured()) return null;
-  const row = carePlanToDb(plan);
+  const row = servicePlanToDb(plan);
   delete row.id; // let Postgres generate
   const { data, error } = await supabase
-    .from('care_plans')
+    .from('service_plans')
     .insert(row)
     .select()
     .single();
   if (error) throw error;
-  return dbToCarePlan(data);
+  return dbToServicePlan(data);
 };
 
 /**
- * Build a partial-update row for care_plans that only includes the
+ * Build a partial-update row for service_plans that only includes the
  * fields present in `patch`. Prevents accidental column wipes when
  * callers pass a small patch like `{ status: 'paused' }` — which
  * would otherwise clobber title, notes, dates, etc. via the full
- * carePlanToDb mapper.
+ * servicePlanToDb mapper.
  *
  * Exported for unit testing.
  */
-export const buildCarePlanPatchRow = (patch) => {
+export const buildServicePlanPatchRow = (patch) => {
   const row = {};
   if (!patch || typeof patch !== 'object') return row;
   if ('clientId' in patch) row.client_id = patch.clientId;
@@ -94,28 +94,28 @@ export const buildCarePlanPatchRow = (patch) => {
   return row;
 };
 
-export const updateCarePlan = async (id, patch) => {
+export const updateServicePlan = async (id, patch) => {
   if (!isSupabaseConfigured()) return null;
-  const row = buildCarePlanPatchRow(patch);
+  const row = buildServicePlanPatchRow(patch);
   const { data, error } = await supabase
-    .from('care_plans')
+    .from('service_plans')
     .update(row)
     .eq('id', id)
     .select()
     .single();
   if (error) throw error;
-  return dbToCarePlan(data);
+  return dbToServicePlan(data);
 };
 
-export const getCarePlansForClient = async (clientId) => {
+export const getServicePlansForClient = async (clientId) => {
   if (!isSupabaseConfigured()) return [];
   const { data, error } = await supabase
-    .from('care_plans')
+    .from('service_plans')
     .select('*')
     .eq('client_id', clientId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(dbToCarePlan);
+  return (data || []).map(dbToServicePlan);
 };
 
 
@@ -123,7 +123,7 @@ export const getCarePlansForClient = async (clientId) => {
 
 export const dbToShift = (row) => ({
   id: row.id,
-  carePlanId: row.care_plan_id,
+  servicePlanId: row.service_plan_id,
   clientId: row.client_id,
   assignedCaregiverId: row.assigned_caregiver_id,
   startTime: row.start_time,
@@ -148,7 +148,7 @@ export const dbToShift = (row) => ({
 
 export const shiftToDb = (shift) => ({
   id: shift.id,
-  care_plan_id: shift.carePlanId ?? null,
+  service_plan_id: shift.servicePlanId ?? null,
   client_id: shift.clientId,
   assigned_caregiver_id: shift.assignedCaregiverId ?? null,
   start_time: shift.startTime,
@@ -187,7 +187,7 @@ export const updateShift = async (id, patch) => {
   if (!isSupabaseConfigured()) return null;
   // Only map fields present in the patch so we don't clobber columns
   const row = {};
-  if ('carePlanId' in patch) row.care_plan_id = patch.carePlanId;
+  if ('servicePlanId' in patch) row.service_plan_id = patch.servicePlanId;
   if ('clientId' in patch) row.client_id = patch.clientId;
   if ('assignedCaregiverId' in patch) row.assigned_caregiver_id = patch.assignedCaregiverId;
   if ('startTime' in patch) row.start_time = patch.startTime;
@@ -259,7 +259,7 @@ export const getShifts = async (filters = {}) => {
       query = query.eq('status', filters.status);
     }
   }
-  if (filters.carePlanId) query = query.eq('care_plan_id', filters.carePlanId);
+  if (filters.servicePlanId) query = query.eq('service_plan_id', filters.servicePlanId);
 
   query = query.order('start_time', { ascending: true });
 
@@ -417,7 +417,7 @@ export const dbToAssignment = (row) => ({
   id: row.id,
   caregiverId: row.caregiver_id,
   clientId: row.client_id,
-  carePlanId: row.care_plan_id,
+  servicePlanId: row.service_plan_id,
   role: row.role || 'primary',
   status: row.status || 'active',
   startedAt: row.started_at,
@@ -433,7 +433,7 @@ export const assignmentToDb = (assignment) => ({
   id: assignment.id,
   caregiver_id: assignment.caregiverId,
   client_id: assignment.clientId,
-  care_plan_id: assignment.carePlanId ?? null,
+  service_plan_id: assignment.servicePlanId ?? null,
   role: assignment.role ?? 'primary',
   status: assignment.status ?? 'active',
   started_at: assignment.startedAt ?? new Date().toISOString(),
@@ -574,7 +574,7 @@ export const getShiftOffersForShift = async (shiftId) => {
 
 /**
  * Partial update for a shift_offer row. Follows the same pattern as
- * buildCarePlanPatchRow / updateShift — only fields explicitly
+ * buildServicePlanPatchRow / updateShift — only fields explicitly
  * present in the patch are written, so status-only updates don't
  * clobber response_text or sent_at.
  */

@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase';
 import {
   getShifts,
   getAvailability,
-  getCarePlansForClient,
+  getServicePlansForClient,
 } from './storage';
 import {
   computeDefaultShiftEnd,
@@ -44,7 +44,7 @@ import s from './CaregiverSchedulePanel.module.css';
 
 const EMPTY_DRAFT_BASE = {
   clientId: '',
-  carePlanId: null,
+  servicePlanId: null,
   assignedCaregiverId: null,
   startTime: null,
   endTime: null,
@@ -71,7 +71,7 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
-  const [carePlansByClient, setCarePlansByClient] = useState({});
+  const [servicePlansByClient, setServicePlansByClient] = useState({});
   const [createDraft, setCreateDraft] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
 
@@ -88,13 +88,13 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
     return map;
   }, [rosterCaregivers]);
 
-  const allCarePlans = useMemo(() => {
+  const allServicePlans = useMemo(() => {
     const list = [];
-    for (const plans of Object.values(carePlansByClient)) {
+    for (const plans of Object.values(servicePlansByClient)) {
       for (const p of plans) list.push(p);
     }
     return list;
-  }, [carePlansByClient]);
+  }, [servicePlansByClient]);
 
   // ─── Load this caregiver's shifts for the visible range ────
   const loadShifts = useCallback(async () => {
@@ -170,19 +170,19 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
     };
   }, [caregiver.id, loadShifts]);
 
-  // ─── Care plans for the shift form (lazy per client) ────────
-  const ensureCarePlansForClient = useCallback(
+  // ─── Service plans for the shift form (lazy per client) ────────
+  const ensureServicePlansForClient = useCallback(
     async (clientId) => {
       if (!clientId) return;
-      if (carePlansByClient[clientId]) return;
+      if (servicePlansByClient[clientId]) return;
       try {
-        const plans = await getCarePlansForClient(clientId);
-        setCarePlansByClient((prev) => ({ ...prev, [clientId]: plans }));
+        const plans = await getServicePlansForClient(clientId);
+        setServicePlansByClient((prev) => ({ ...prev, [clientId]: plans }));
       } catch (e) {
-        console.error('Failed to load care plans:', e);
+        console.error('Failed to load service plans:', e);
       }
     },
-    [carePlansByClient],
+    [servicePlansByClient],
   );
 
   // ─── Build calendar events: shifts + availability background ─
@@ -237,7 +237,7 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
     const shift = info.event.extendedProps?.shift;
     if (!shift) return;
     setSelectedShift(shift);
-    ensureCarePlansForClient(shift.clientId);
+    ensureServicePlansForClient(shift.clientId);
   };
 
   const openCreateWithSlot = (start, end) => {
@@ -293,10 +293,10 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
     loadShifts();
   };
 
-  // When the create modal client changes, preload its care plans
+  // When the create modal client changes, preload its service plans
   useEffect(() => {
-    if (createDraft?.clientId) ensureCarePlansForClient(createDraft.clientId);
-  }, [createDraft?.clientId, ensureCarePlansForClient]);
+    if (createDraft?.clientId) ensureServicePlansForClient(createDraft.clientId);
+  }, [createDraft?.clientId, ensureServicePlansForClient]);
 
   const caregiverFirstName = caregiver?.firstName || 'caregiver';
 
@@ -375,7 +375,7 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
           initialDraft={createDraft}
           clients={activeClients}
           caregivers={rosterCaregivers}
-          carePlans={allCarePlans}
+          servicePlans={allServicePlans}
           currentUserName={currentUserName}
           onClose={handleCreateClosed}
           onCreated={handleCreated}
@@ -388,7 +388,7 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
           shift={selectedShift}
           clients={activeClients}
           caregivers={rosterCaregivers}
-          carePlans={allCarePlans}
+          servicePlans={allServicePlans}
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           onClose={handleDrawerClose}

@@ -3,10 +3,10 @@ import {
   formatStatusLabel,
   statusColors,
   formatDateShort,
-  summarizeCarePlan,
-  sortCarePlans,
-  validateCarePlanDraft,
-} from '../../features/scheduling/carePlanHelpers';
+  summarizeServicePlan,
+  sortServicePlans,
+  validateServicePlanDraft,
+} from '../../features/scheduling/servicePlanHelpers';
 
 // ─── formatStatusLabel ─────────────────────────────────────────
 
@@ -73,11 +73,11 @@ describe('formatDateShort', () => {
   });
 });
 
-// ─── summarizeCarePlan ─────────────────────────────────────────
+// ─── summarizeServicePlan ─────────────────────────────────────────
 
-describe('summarizeCarePlan', () => {
+describe('summarizeServicePlan', () => {
   it('includes start date, "ongoing" end, and hours', () => {
-    const s = summarizeCarePlan({
+    const s = summarizeServicePlan({
       startDate: '2026-05-01',
       endDate: null,
       hoursPerWeek: 20,
@@ -87,7 +87,7 @@ describe('summarizeCarePlan', () => {
   });
 
   it('includes both dates when end date is set', () => {
-    const s = summarizeCarePlan({
+    const s = summarizeServicePlan({
       startDate: '2026-05-01',
       endDate: '2026-12-31',
       hoursPerWeek: 40,
@@ -98,7 +98,7 @@ describe('summarizeCarePlan', () => {
   });
 
   it('omits the hours section when hoursPerWeek is missing', () => {
-    const s = summarizeCarePlan({
+    const s = summarizeServicePlan({
       startDate: '2026-05-01',
       endDate: null,
     });
@@ -106,7 +106,7 @@ describe('summarizeCarePlan', () => {
   });
 
   it('handles zero hours', () => {
-    const s = summarizeCarePlan({
+    const s = summarizeServicePlan({
       startDate: '2026-05-01',
       hoursPerWeek: 0,
     });
@@ -114,12 +114,12 @@ describe('summarizeCarePlan', () => {
   });
 });
 
-// ─── sortCarePlans ─────────────────────────────────────────────
+// ─── sortServicePlans ─────────────────────────────────────────────
 
-describe('sortCarePlans', () => {
+describe('sortServicePlans', () => {
   it('returns an empty array for null input', () => {
-    expect(sortCarePlans(null)).toEqual([]);
-    expect(sortCarePlans(undefined)).toEqual([]);
+    expect(sortServicePlans(null)).toEqual([]);
+    expect(sortServicePlans(undefined)).toEqual([]);
   });
 
   it('puts active plans before draft, paused, and ended', () => {
@@ -129,7 +129,7 @@ describe('sortCarePlans', () => {
       { id: 'p', status: 'paused', createdAt: '2026-05-01' },
       { id: 'a', status: 'active', createdAt: '2026-05-01' },
     ];
-    const sorted = sortCarePlans(plans);
+    const sorted = sortServicePlans(plans);
     expect(sorted.map((p) => p.id)).toEqual(['a', 'd', 'p', 'e']);
   });
 
@@ -139,7 +139,7 @@ describe('sortCarePlans', () => {
       { id: 'a2', status: 'active', createdAt: '2026-06-01T00:00:00Z' },
       { id: 'a3', status: 'active', createdAt: '2026-04-01T00:00:00Z' },
     ];
-    const sorted = sortCarePlans(plans);
+    const sorted = sortServicePlans(plans);
     expect(sorted.map((p) => p.id)).toEqual(['a2', 'a1', 'a3']);
   });
 
@@ -149,31 +149,31 @@ describe('sortCarePlans', () => {
       { id: 'a', status: 'active', createdAt: '2026-05-01' },
     ];
     const original = [...plans];
-    sortCarePlans(plans);
+    sortServicePlans(plans);
     expect(plans).toEqual(original);
   });
 });
 
-// ─── validateCarePlanDraft ─────────────────────────────────────
+// ─── validateServicePlanDraft ─────────────────────────────────────
 
-describe('validateCarePlanDraft', () => {
+describe('validateServicePlanDraft', () => {
   it('rejects missing data', () => {
-    expect(validateCarePlanDraft(null)).toBeTruthy();
-    expect(validateCarePlanDraft(undefined)).toBeTruthy();
+    expect(validateServicePlanDraft(null)).toBeTruthy();
+    expect(validateServicePlanDraft(undefined)).toBeTruthy();
   });
 
   it('requires a title', () => {
-    expect(validateCarePlanDraft({ title: '' })).toMatch(/title/i);
-    expect(validateCarePlanDraft({ title: '   ' })).toMatch(/title/i);
-    expect(validateCarePlanDraft({})).toMatch(/title/i);
+    expect(validateServicePlanDraft({ title: '' })).toMatch(/title/i);
+    expect(validateServicePlanDraft({ title: '   ' })).toMatch(/title/i);
+    expect(validateServicePlanDraft({})).toMatch(/title/i);
   });
 
   it('accepts a draft with just a title', () => {
-    expect(validateCarePlanDraft({ title: 'Weekly companion' })).toBeNull();
+    expect(validateServicePlanDraft({ title: 'Weekly companion' })).toBeNull();
   });
 
   it('rejects end date before start date', () => {
-    const err = validateCarePlanDraft({
+    const err = validateServicePlanDraft({
       title: 'X',
       startDate: '2026-05-01',
       endDate: '2026-04-01',
@@ -183,7 +183,7 @@ describe('validateCarePlanDraft', () => {
 
   it('accepts equal start and end dates', () => {
     expect(
-      validateCarePlanDraft({
+      validateServicePlanDraft({
         title: 'X',
         startDate: '2026-05-01',
         endDate: '2026-05-01',
@@ -192,22 +192,22 @@ describe('validateCarePlanDraft', () => {
   });
 
   it('rejects non-numeric hours per week', () => {
-    const err = validateCarePlanDraft({ title: 'X', hoursPerWeek: 'lots' });
+    const err = validateServicePlanDraft({ title: 'X', hoursPerWeek: 'lots' });
     expect(err).toMatch(/hours/i);
   });
 
   it('rejects zero or negative hours per week', () => {
-    expect(validateCarePlanDraft({ title: 'X', hoursPerWeek: 0 })).toMatch(/hours/i);
-    expect(validateCarePlanDraft({ title: 'X', hoursPerWeek: -5 })).toMatch(/hours/i);
+    expect(validateServicePlanDraft({ title: 'X', hoursPerWeek: 0 })).toMatch(/hours/i);
+    expect(validateServicePlanDraft({ title: 'X', hoursPerWeek: -5 })).toMatch(/hours/i);
   });
 
   it('rejects hours per week over 168', () => {
-    expect(validateCarePlanDraft({ title: 'X', hoursPerWeek: 200 })).toMatch(/168/);
+    expect(validateServicePlanDraft({ title: 'X', hoursPerWeek: 200 })).toMatch(/168/);
   });
 
   it('accepts a valid draft with all fields', () => {
     expect(
-      validateCarePlanDraft({
+      validateServicePlanDraft({
         title: 'Weekly companion',
         serviceType: 'companion + light housekeeping',
         hoursPerWeek: 20,
@@ -220,6 +220,6 @@ describe('validateCarePlanDraft', () => {
   });
 
   it('treats empty-string hoursPerWeek as not set (valid)', () => {
-    expect(validateCarePlanDraft({ title: 'X', hoursPerWeek: '' })).toBeNull();
+    expect(validateServicePlanDraft({ title: 'X', hoursPerWeek: '' })).toBeNull();
   });
 });

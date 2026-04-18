@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  dbToCarePlan,
-  carePlanToDb,
-  buildCarePlanPatchRow,
+  dbToServicePlan,
+  servicePlanToDb,
+  buildServicePlanPatchRow,
   dbToShift,
   shiftToDb,
   dbToAvailability,
@@ -28,10 +28,10 @@ const makeQuerySpy = () => {
   return { query: proxy, calls };
 };
 
-// ─── care_plans ────────────────────────────────────────────────
+// ─── service_plans ────────────────────────────────────────────────
 
-describe('care plan mappers', () => {
-  it('dbToCarePlan converts snake_case row to camelCase object', () => {
+describe('service plan mappers', () => {
+  it('dbToServicePlan converts snake_case row to camelCase object', () => {
     const row = {
       id: 'plan-1',
       client_id: 'client-A',
@@ -48,7 +48,7 @@ describe('care plan mappers', () => {
       created_at: '2026-04-13T22:00:00.000Z',
       updated_at: '2026-04-13T22:00:00.000Z',
     };
-    const plan = dbToCarePlan(row);
+    const plan = dbToServicePlan(row);
     expect(plan).toEqual({
       id: 'plan-1',
       clientId: 'client-A',
@@ -67,17 +67,17 @@ describe('care plan mappers', () => {
     });
   });
 
-  it('dbToCarePlan defaults status to draft when null', () => {
-    const plan = dbToCarePlan({ id: 'x', client_id: 'c', status: null });
+  it('dbToServicePlan defaults status to draft when null', () => {
+    const plan = dbToServicePlan({ id: 'x', client_id: 'c', status: null });
     expect(plan.status).toBe('draft');
   });
 
-  it('dbToCarePlan returns null hoursPerWeek when not set', () => {
-    const plan = dbToCarePlan({ id: 'x', client_id: 'c' });
+  it('dbToServicePlan returns null hoursPerWeek when not set', () => {
+    const plan = dbToServicePlan({ id: 'x', client_id: 'c' });
     expect(plan.hoursPerWeek).toBeNull();
   });
 
-  it('carePlanToDb converts camelCase back to snake_case', () => {
+  it('servicePlanToDb converts camelCase back to snake_case', () => {
     const plan = {
       id: 'plan-1',
       clientId: 'client-A',
@@ -91,7 +91,7 @@ describe('care plan mappers', () => {
       notes: 'VIP client',
       createdBy: 'jessica',
     };
-    const row = carePlanToDb(plan);
+    const row = servicePlanToDb(plan);
     expect(row.client_id).toBe('client-A');
     expect(row.service_type).toBe('companion');
     expect(row.hours_per_week).toBe(20);
@@ -100,31 +100,31 @@ describe('care plan mappers', () => {
     expect(row.updated_at).toBeTruthy();
   });
 
-  it('carePlanToDb provides default status = draft for new plans', () => {
-    const row = carePlanToDb({ clientId: 'c' });
+  it('servicePlanToDb provides default status = draft for new plans', () => {
+    const row = servicePlanToDb({ clientId: 'c' });
     expect(row.status).toBe('draft');
   });
 });
 
-// ─── buildCarePlanPatchRow ─────────────────────────────────────
+// ─── buildServicePlanPatchRow ─────────────────────────────────────
 // Regression tests for the bug where a status-only update would
 // also wipe title, notes, dates, hours, etc. This helper must only
 // emit fields that are present in the patch.
 
-describe('buildCarePlanPatchRow', () => {
+describe('buildServicePlanPatchRow', () => {
   it('returns an empty-ish row (just updated_at) for an empty patch', () => {
-    const row = buildCarePlanPatchRow({});
+    const row = buildServicePlanPatchRow({});
     expect(row.updated_at).toBeTruthy();
     expect(Object.keys(row)).toEqual(['updated_at']);
   });
 
   it('handles null or non-object patches without crashing', () => {
-    expect(() => buildCarePlanPatchRow(null)).not.toThrow();
-    expect(() => buildCarePlanPatchRow(undefined)).not.toThrow();
+    expect(() => buildServicePlanPatchRow(null)).not.toThrow();
+    expect(() => buildServicePlanPatchRow(undefined)).not.toThrow();
   });
 
   it('only emits the status field when patch is {status: "paused"}', () => {
-    const row = buildCarePlanPatchRow({ status: 'paused' });
+    const row = buildServicePlanPatchRow({ status: 'paused' });
     expect(row.status).toBe('paused');
     expect(row.title).toBeUndefined();
     expect(row.notes).toBeUndefined();
@@ -136,7 +136,7 @@ describe('buildCarePlanPatchRow', () => {
   });
 
   it('emits multiple fields when multiple are present', () => {
-    const row = buildCarePlanPatchRow({
+    const row = buildServicePlanPatchRow({
       title: 'Renamed',
       status: 'active',
       hoursPerWeek: 30,
@@ -149,14 +149,14 @@ describe('buildCarePlanPatchRow', () => {
   });
 
   it('preserves explicit null values in the patch', () => {
-    const row = buildCarePlanPatchRow({ endDate: null });
+    const row = buildServicePlanPatchRow({ endDate: null });
     expect(row.end_date).toBeNull();
     // Only end_date and updated_at should be set
     expect(Object.keys(row).sort()).toEqual(['end_date', 'updated_at']);
   });
 
   it('always stamps updated_at', () => {
-    const row = buildCarePlanPatchRow({ status: 'ended' });
+    const row = buildServicePlanPatchRow({ status: 'ended' });
     const stamp = new Date(row.updated_at);
     expect(Number.isNaN(stamp.getTime())).toBe(false);
   });
@@ -167,7 +167,7 @@ describe('buildCarePlanPatchRow', () => {
 describe('shift mappers', () => {
   const fullRow = {
     id: 'shift-1',
-    care_plan_id: 'plan-1',
+    service_plan_id: 'plan-1',
     client_id: 'client-A',
     assigned_caregiver_id: 'cg-maria',
     start_time: '2026-05-04T08:00:00.000Z',
@@ -193,7 +193,7 @@ describe('shift mappers', () => {
   it('dbToShift maps all fields and coerces rates to numbers', () => {
     const shift = dbToShift(fullRow);
     expect(shift.id).toBe('shift-1');
-    expect(shift.carePlanId).toBe('plan-1');
+    expect(shift.servicePlanId).toBe('plan-1');
     expect(shift.assignedCaregiverId).toBe('cg-maria');
     expect(shift.hourlyRate).toBe(24.5);
     expect(shift.billableRate).toBe(35);
@@ -235,7 +235,7 @@ describe('shift mappers', () => {
     expect(row.client_id).toBe('client-A');
     expect(row.hourly_rate).toBe(24.5);
     expect(row.assigned_caregiver_id).toBeNull();
-    expect(row.care_plan_id).toBeNull();
+    expect(row.service_plan_id).toBeNull();
     expect(row.status).toBe('open');
     expect(row.required_skills).toEqual([]);
   });
@@ -296,7 +296,7 @@ describe('assignment mappers', () => {
       id: 'a-1',
       caregiver_id: 'cg-maria',
       client_id: 'client-A',
-      care_plan_id: 'plan-1',
+      service_plan_id: 'plan-1',
       role: 'primary',
       status: 'active',
       started_at: '2026-05-01T00:00:00.000Z',

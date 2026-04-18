@@ -22,7 +22,7 @@ import s from './ShiftForm.module.css';
 // (modal vs. drawer) without duplicating field logic.
 // ═══════════════════════════════════════════════════════════════
 
-export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, errorMessage }) {
+export function ShiftForm({ draft, onChange, clients, caregivers, servicePlans, errorMessage }) {
   const [skillsInput, setSkillsInput] = useState(formatSkillsInput(draft.requiredSkills || []));
 
   // Keep the skills input in sync when the parent resets the draft
@@ -40,9 +40,9 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
   const endDateInput = isoToDateInput(draft.endTime, DEFAULT_APP_TIMEZONE);
   const endTimeInput = isoToTimeInput(draft.endTime, DEFAULT_APP_TIMEZONE);
 
-  const carePlansForClient = useMemo(
-    () => (carePlans || []).filter((p) => p.clientId === draft.clientId),
-    [carePlans, draft.clientId],
+  const servicePlansForClient = useMemo(
+    () => (servicePlans || []).filter((p) => p.clientId === draft.clientId),
+    [servicePlans, draft.clientId],
   );
 
   const setField = (field, value) => onChange({ ...draft, [field]: value });
@@ -50,7 +50,7 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
   const handleClientChange = (e) => {
     const clientId = e.target.value;
     const client = clients?.find((c) => c.id === clientId);
-    const patch = { clientId, carePlanId: null };
+    const patch = { clientId, servicePlanId: null };
     // Auto-fill location with the client's home address (only if the
     // current location field is blank — don't overwrite user edits)
     if (client && !draft.locationAddress) {
@@ -60,10 +60,10 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
     onChange({ ...draft, ...patch });
   };
 
-  const handleCarePlanChange = (e) => {
-    const carePlanId = e.target.value || null;
-    const plan = carePlans?.find((p) => p.id === carePlanId);
-    const patch = { carePlanId };
+  const handleServicePlanChange = (e) => {
+    const servicePlanId = e.target.value || null;
+    const plan = servicePlans?.find((p) => p.id === servicePlanId);
+    const patch = { servicePlanId };
     if (plan && !draft.notes && plan.notes) patch.notes = plan.notes;
     onChange({ ...draft, ...patch });
   };
@@ -112,7 +112,7 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
 
   return (
     <div className={s.form}>
-      {/* ── Client + care plan ── */}
+      {/* ── Client + service plan ── */}
       <div className={s.row}>
         <label className={s.field}>
           Client <span className={s.required}>*</span>
@@ -131,21 +131,21 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
         </label>
 
         <label className={s.field}>
-          Care plan <span className={s.hint}>(optional)</span>
+          Service plan <span className={s.hint}>(optional)</span>
           <select
             className={s.input}
-            value={draft.carePlanId || ''}
-            onChange={handleCarePlanChange}
-            disabled={!draft.clientId || carePlansForClient.length === 0}
+            value={draft.servicePlanId || ''}
+            onChange={handleServicePlanChange}
+            disabled={!draft.clientId || servicePlansForClient.length === 0}
           >
             <option value="">
               {draft.clientId
-                ? carePlansForClient.length === 0
+                ? servicePlansForClient.length === 0
                   ? 'No plans for this client'
                   : 'Ad-hoc (no plan)'
                 : 'Pick a client first'}
             </option>
-            {carePlansForClient.map((p) => (
+            {servicePlansForClient.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title || 'Untitled plan'} ({p.status})
               </option>

@@ -9,7 +9,7 @@ import { ClientProgressOverview } from './client/ClientProgressOverview';
 import { ClientSequences } from './client/ClientSequences';
 import { ClientPhaseDetail } from './client/ClientPhaseDetail';
 import { ClientActivityLog } from './client/ClientActivityLog';
-import { CarePlansPanel } from '../scheduling/CarePlansPanel';
+import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
 import cl from './client/client.module.css';
 import cards from '../../styles/cards.module.css';
@@ -178,7 +178,7 @@ export function ClientDetail({
         showToast={showToast}
       />
 
-      <CarePlansPanel
+      <ServicePlansPanel
         client={client}
         currentUser={currentUser}
         showToast={showToast}

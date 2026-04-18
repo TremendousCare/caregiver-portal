@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
-  createCarePlan,
-  updateCarePlan,
-  getCarePlansForClient,
+  createServicePlan,
+  updateServicePlan,
+  getServicePlansForClient,
 } from './storage';
 import {
   formatStatusLabel,
   statusColors,
-  summarizeCarePlan,
-  sortCarePlans,
-  validateCarePlanDraft,
-} from './carePlanHelpers';
+  summarizeServicePlan,
+  sortServicePlans,
+  validateServicePlanDraft,
+} from './servicePlanHelpers';
 import {
   describeRecurrencePattern,
   hasRecurrencePattern,
@@ -20,13 +20,13 @@ import {
 import { RecurrencePatternEditor } from './RecurrencePatternEditor';
 import { GenerateShiftsDialog } from './GenerateShiftsDialog';
 import btn from '../../styles/buttons.module.css';
-import s from './CarePlansPanel.module.css';
+import s from './ServicePlansPanel.module.css';
 
 // ═══════════════════════════════════════════════════════════════
-// CarePlansPanel — Phase 4a
+// ServicePlansPanel — Phase 4a
 //
 // Section on the client detail page that lists, creates, and edits
-// care plans for a client. Care plans define what care the client
+// service plans for a client. Service plans define what care the client
 // needs: title, freeform service description, hours/week, start
 // and end dates, status, and notes.
 //
@@ -45,7 +45,7 @@ const EMPTY_DRAFT = {
   recurrencePattern: null,
 };
 
-export function CarePlansPanel({ client, currentUser, showToast }) {
+export function ServicePlansPanel({ client, currentUser, showToast }) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -64,12 +64,12 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
   // ─── Load on mount ───────────────────────────────────────────
   const loadPlans = useCallback(async () => {
     try {
-      const rows = await getCarePlansForClient(client.id);
-      setPlans(sortCarePlans(rows));
+      const rows = await getServicePlansForClient(client.id);
+      setPlans(sortServicePlans(rows));
       setLoadError(null);
     } catch (e) {
-      console.error('CarePlansPanel load error:', e);
-      setLoadError(e.message || 'Failed to load care plans');
+      console.error('ServicePlansPanel load error:', e);
+      setLoadError(e.message || 'Failed to load service plans');
     } finally {
       setLoading(false);
     }
@@ -83,13 +83,13 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
   useEffect(() => {
     if (!supabase || !client.id) return undefined;
     const channel = supabase
-      .channel(`care-plans-${client.id}`)
+      .channel(`service-plans-${client.id}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'care_plans',
+          table: 'service_plans',
           filter: `client_id=eq.${client.id}`,
         },
         () => {
@@ -132,7 +132,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
 
   // ─── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
-    const error = validateCarePlanDraft(draft);
+    const error = validateServicePlanDraft(draft);
     if (error) {
       setErrorMessage(error);
       return;
@@ -161,11 +161,11 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
         createdBy: currentUser?.displayName || currentUser?.email || null,
       };
       if (editing === 'new') {
-        await createCarePlan(payload);
-        showToast?.('Care plan created');
+        await createServicePlan(payload);
+        showToast?.('Service plan created');
       } else {
-        await updateCarePlan(editing, payload);
-        showToast?.('Care plan saved');
+        await updateServicePlan(editing, payload);
+        showToast?.('Service plan saved');
       }
       setEditing(null);
       setDraft(EMPTY_DRAFT);
@@ -180,7 +180,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
 
   const handleStatusShortcut = async (plan, nextStatus) => {
     try {
-      await updateCarePlan(plan.id, { status: nextStatus });
+      await updateServicePlan(plan.id, { status: nextStatus });
       showToast?.(`Status updated to ${formatStatusLabel(nextStatus)}`);
       await loadPlans();
     } catch (e) {
@@ -194,7 +194,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
     <section className={s.panel}>
       <header className={s.header}>
         <div>
-          <h3 className={s.title}>Care Plans</h3>
+          <h3 className={s.title}>Service Plans</h3>
           <p className={s.subtitle}>
             Document what care this client needs. Plans can be linked to shifts in the
             scheduling calendar.
@@ -202,18 +202,18 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
         </div>
         {editing !== 'new' && (
           <button className={btn.primaryBtn} onClick={handleStartCreate}>
-            + New Care Plan
+            + New Service Plan
           </button>
         )}
       </header>
 
-      {loading && <div className={s.loading}>Loading care plans…</div>}
+      {loading && <div className={s.loading}>Loading service plans…</div>}
       {loadError && (
-        <div className={s.errorBanner}>Could not load care plans: {loadError}</div>
+        <div className={s.errorBanner}>Could not load service plans: {loadError}</div>
       )}
 
       {editing === 'new' && (
-        <CarePlanForm
+        <ServicePlanForm
           draft={draft}
           onChange={setDraft}
           onSave={handleSave}
@@ -226,7 +226,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
 
       {!loading && plans.length === 0 && editing !== 'new' && (
         <div className={s.empty}>
-          No care plans yet. Click "+ New Care Plan" to create one.
+          No service plans yet. Click "+ New Service Plan" to create one.
         </div>
       )}
 
@@ -234,7 +234,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
         {plans.map((plan) => (
           <li key={plan.id} className={s.listItem}>
             {editing === plan.id ? (
-              <CarePlanForm
+              <ServicePlanForm
                 draft={draft}
                 onChange={setDraft}
                 onSave={handleSave}
@@ -244,7 +244,7 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
                 mode="edit"
               />
             ) : (
-              <CarePlanCard
+              <ServicePlanCard
                 plan={plan}
                 onEdit={() => handleStartEdit(plan)}
                 onStatusChange={(next) => handleStatusShortcut(plan, next)}
@@ -272,9 +272,9 @@ export function CarePlansPanel({ client, currentUser, showToast }) {
   );
 }
 
-// ─── CarePlanCard (read-only row) ──────────────────────────────
+// ─── ServicePlanCard (read-only row) ──────────────────────────────
 
-function CarePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
+function ServicePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
   const colors = statusColors(plan.status);
   const canGenerate = hasRecurrencePattern(plan.recurrencePattern) && plan.status === 'active';
   return (
@@ -305,7 +305,7 @@ function CarePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
           </div>
         </div>
 
-        <div className={s.cardMeta}>{summarizeCarePlan(plan)}</div>
+        <div className={s.cardMeta}>{summarizeServicePlan(plan)}</div>
 
         {plan.serviceType && (
           <div className={s.cardServiceType}>{plan.serviceType}</div>
@@ -364,16 +364,16 @@ function StatusShortcuts({ current, onChange }) {
   );
 }
 
-// ─── CarePlanForm (create + edit) ──────────────────────────────
+// ─── ServicePlanForm (create + edit) ──────────────────────────────
 
-function CarePlanForm({ draft, onChange, onSave, onCancel, saving, errorMessage, mode }) {
+function ServicePlanForm({ draft, onChange, onSave, onCancel, saving, errorMessage, mode }) {
   const set = (field, value) => onChange({ ...draft, [field]: value });
 
   return (
     <div className={s.form}>
       <div className={s.formHeader}>
         <h4 className={s.formTitle}>
-          {mode === 'create' ? 'New care plan' : 'Edit care plan'}
+          {mode === 'create' ? 'New service plan' : 'Edit service plan'}
         </h4>
       </div>
 
