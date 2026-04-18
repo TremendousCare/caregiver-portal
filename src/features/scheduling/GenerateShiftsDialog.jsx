@@ -10,6 +10,9 @@ import {
   hasRecurrencePattern,
 } from './recurrenceHelpers';
 import { formatLocalTimeShort } from './shiftHelpers';
+// DEFAULT_APP_TIMEZONE is imported above for expandRecurrence; re-used
+// here so the preview time labels render in the same zone as the ISO
+// strings produced by recurrence expansion.
 import btn from '../../styles/buttons.module.css';
 import s from './GenerateShiftsDialog.module.css';
 
@@ -211,8 +214,8 @@ export function GenerateShiftsDialog({
                           {formatPreviewDate(inst.start_time)}
                         </span>
                         <span className={s.previewTime}>
-                          {formatLocalTimeShort(new Date(inst.start_time))} –{' '}
-                          {formatLocalTimeShort(new Date(inst.end_time))}
+                          {formatLocalTimeShort(new Date(inst.start_time), DEFAULT_APP_TIMEZONE)} –{' '}
+                          {formatLocalTimeShort(new Date(inst.end_time), DEFAULT_APP_TIMEZONE)}
                         </span>
                       </li>
                     ))}

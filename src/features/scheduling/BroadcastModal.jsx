@@ -211,6 +211,7 @@ export function BroadcastModal({
       shift,
       caregiver: previewRecipient,
       client,
+      timezone: DEFAULT_APP_TIMEZONE,
     });
     return renderTemplate(template, fields);
   }, [template, shift, client, previewRecipient]);
@@ -276,7 +277,12 @@ export function BroadcastModal({
         if (!recipient) continue;
         const personalizedMessage = renderTemplate(
           template,
-          buildMergeFields({ shift, caregiver: recipient, client }),
+          buildMergeFields({
+            shift,
+            caregiver: recipient,
+            client,
+            timezone: DEFAULT_APP_TIMEZONE,
+          }),
         );
 
         const { data, error: smsError } = await supabase.functions.invoke('bulk-sms', {
@@ -372,7 +378,7 @@ export function BroadcastModal({
         <header className={s.header}>
           <div>
             <h2 id="broadcast-title" className={s.title}>Broadcast shift</h2>
-            <div className={s.subtitle}>{formatShiftTimeRange(shift)}</div>
+            <div className={s.subtitle}>{formatShiftTimeRange(shift, DEFAULT_APP_TIMEZONE)}</div>
           </div>
           <button className={s.closeBtn} onClick={onClose} aria-label="Close">×</button>
         </header>
