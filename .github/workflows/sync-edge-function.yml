@@ -60,6 +60,12 @@ jobs:
           set -e
           npx supabase functions download "${{ inputs.function_name }}" \
             --project-ref zocrnurvazyxdpyqimgj
+          # The Supabase CLI invokes Docker under the hood to render the
+          # download. Files written from inside that container are owned
+          # by root, which breaks subsequent git operations on the runner
+          # (e.g. `git checkout` fails with "Permission denied" on unlink).
+          # Take ownership back so git can clean these up as needed.
+          sudo chown -R "$(id -u):$(id -g)" supabase/
 
       - name: Create pull request with synced source
         uses: peter-evans/create-pull-request@v6
