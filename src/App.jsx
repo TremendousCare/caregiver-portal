@@ -578,7 +578,9 @@ export default function App() {
     );
   }
   // Caregiver PWA — separate auth/shell from the admin portal.
-  if (location.pathname.startsWith('/care')) {
+  // Match only `/care` exactly or `/care/<subpath>`, NOT `/caregiver/:id`
+  // or other `/care`-prefixed admin routes.
+  if (location.pathname === '/care' || location.pathname.startsWith('/care/')) {
     return <CaregiverApp />;
   }
 

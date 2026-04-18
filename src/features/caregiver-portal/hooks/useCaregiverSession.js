@@ -40,7 +40,17 @@ export function useCaregiverSession() {
       const { data, error } = await supabase.functions.invoke('caregiver-invite', {
         body: { action: 'link' },
       });
-      if (error) throw error;
+      if (error) {
+        // supabase-js surfaces a generic "Edge Function returned a non-2xx
+        // status code" message. The actual error payload lives on
+        // error.context — unwrap it so the user sees the real reason.
+        let msg = error.message;
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch (_) { /* fall through to generic */ }
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
       const { data: cg2 } = await supabase
         .from('caregivers')
