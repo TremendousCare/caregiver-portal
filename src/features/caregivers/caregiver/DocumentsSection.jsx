@@ -268,12 +268,24 @@ Tremendous Care`;
         reader.readAsDataURL(file);
       });
 
+      // Mobile cameras (iOS / Android) hand back generic filenames like
+      // "image.jpg" for every capture. If two documents for the same
+      // caregiver arrive with identical names the SharePoint backend
+      // overwrites the first, leaving both DB rows pointing at one file.
+      // Rewriting the name client-side with doc type + timestamp
+      // guarantees uniqueness and gives SharePoint a human-readable key.
+      const originalName = file.name || 'upload';
+      const lastDot = originalName.lastIndexOf('.');
+      const ext = lastDot > 0 ? originalName.slice(lastDot).toLowerCase() : '';
+      const safeDocType = String(docType).replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase() || 'document';
+      const uniqueFileName = `${safeDocType}_${Date.now()}${ext}`;
+
       const { data, error } = await supabase.functions.invoke('sharepoint-docs', {
         body: {
           action: 'upload_file',
           caregiver_id: caregiver.id,
           document_type: docType,
-          file_name: file.name,
+          file_name: uniqueFileName,
           file_content_base64: base64,
           uploaded_by: currentUser?.email || '',
         },
