@@ -8,30 +8,31 @@ import {
 } from './sections';
 import {
   createCarePlan,
+  createNewDraftVersion,
   getCarePlanForClient,
   getTasksForVersion,
   listVersions,
 } from './storage';
+import { SectionEditor } from './SectionEditor';
+import { PublishModal } from './PublishModal';
+import { regenerateSnapshot, SNAPSHOT_FEATURE_FLAG } from './snapshotClient';
 import btn from '../../styles/buttons.module.css';
 import s from './CarePlanPanel.module.css';
 
 // ═══════════════════════════════════════════════════════════════
-// CarePlanPanel — Phase 2a (read-only preview)
+// CarePlanPanel — Phase 2b (interactive)
 //
 // Drop-in section on the client detail page. Shows the clinical
-// care plan structure and any data that has been entered. Editing
-// arrives in Phase 2b — this PR ships the schema, storage layer,
-// and read-only shell so the foundation is solid before we layer
-// on forms.
-//
-// States:
-//   - loading            spinner while fetching
-//   - empty              "Create care plan" CTA
-//   - created / active   16 section cards, version header, history
+// care plan structure, each section's saved content, and the
+// version history. Phase 2b adds:
+//   - Edit button per section → opens SectionEditor drawer
+//   - Publish button in header → opens PublishModal
+//   - Editing a published version prompts the user to start a
+//     new draft (createNewDraftVersion) before allowing edits
+//   - Regenerate snapshot button (behind VITE_FEATURE_CARE_PLAN_SNAPSHOT_AI)
 //
 // Realtime: subscribes to `care_plan_versions` for this plan so a
-// publish in another tab (or by the AI in a later phase) appears
-// here without a refresh.
+// publish in another tab (or by the AI) appears here without refresh.
 // ═══════════════════════════════════════════════════════════════
 
 export function CarePlanPanel({ client, currentUser, showToast }) {
@@ -42,6 +43,11 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [creating, setCreating] = useState(false);
+  // Phase 2b interactivity state
+  const [editingSection, setEditingSection] = useState(null); // section object
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [startingNewDraft, setStartingNewDraft] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   // ─── Load ────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -125,6 +131,81 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
     }
   };
 
+  // ─── Edit handlers ────────────────────────────────────────────
+  // Request to edit a section. If the current version is published,
+  // prompt to start a new draft first (createNewDraftVersion).
+  // Otherwise, open the drawer directly.
+  const handleEditSection = useCallback(async (section) => {
+    if (!currentVersion || !plan) return;
+    if (currentVersion.status === 'draft') {
+      setEditingSection(section);
+      return;
+    }
+    // Published — ask to start a new draft.
+    const ok = window.confirm(
+      `Editing will start a new draft (v${(currentVersion.versionNumber || 0) + 1}). Continue?`,
+    );
+    if (!ok) return;
+    setStartingNewDraft(true);
+    try {
+      const newDraft = await createNewDraftVersion(plan.id, {
+        fromVersionId: currentVersion.id,
+        reason: 'edits-in-progress',
+        userId: currentUser?.displayName || currentUser?.email || null,
+      });
+      if (newDraft) {
+        setCurrentVersion(newDraft);
+        // Reload version history + tasks
+        const [allVersions, currentTasks] = await Promise.all([
+          listVersions(plan.id),
+          getTasksForVersion(newDraft.id),
+        ]);
+        setVersions(allVersions);
+        setTasks(currentTasks);
+        setEditingSection(section);
+        showToast?.(`Draft v${newDraft.versionNumber} started`);
+      }
+    } catch (e) {
+      console.error('[CarePlanPanel] new draft failed:', e);
+      showToast?.(`Couldn't start new draft: ${e.message}`);
+    } finally {
+      setStartingNewDraft(false);
+    }
+  }, [currentVersion, plan, currentUser, showToast]);
+
+  const handleDrawerClose = useCallback(() => {
+    setEditingSection(null);
+    load(); // refresh after any edits
+  }, [load]);
+
+  const handleDrawerSaved = useCallback((updatedVersion) => {
+    if (updatedVersion) {
+      setCurrentVersion((prev) => (prev?.id === updatedVersion.id ? updatedVersion : prev));
+    }
+  }, []);
+
+  const handlePublished = useCallback((updatedVersion) => {
+    setCurrentVersion(updatedVersion);
+    load();
+  }, [load]);
+
+  const handleRegenerateSnapshot = useCallback(async () => {
+    if (!currentVersion || regenerating) return;
+    setRegenerating(true);
+    try {
+      const result = await regenerateSnapshot(currentVersion.id, { regenerate: true });
+      if (result?.narrative) {
+        showToast?.('Snapshot regenerated');
+        load();
+      }
+    } catch (e) {
+      console.error('[CarePlanPanel] regenerate failed:', e);
+      showToast?.(`Snapshot failed: ${e.message}`);
+    } finally {
+      setRegenerating(false);
+    }
+  }, [currentVersion, regenerating, showToast, load]);
+
   // ─── Group tasks by section for the section cards ────────────
   const tasksBySection = tasks.reduce((acc, task) => {
     const sectionId = sectionIdForCategory(task.category);
@@ -133,6 +214,10 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
     acc[sectionId].push(task);
     return acc;
   }, {});
+
+  const isDraft = currentVersion?.status === 'draft';
+  const hasAnyContent = currentVersion
+    && (Object.keys(currentVersion.data || {}).length > 0 || tasks.length > 0);
 
   // ─── Render ──────────────────────────────────────────────────
   return (
@@ -145,9 +230,26 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
             {client?.firstName || 'this client'} over time.
           </p>
         </div>
-        <span className={s.previewBadge} title="Editing ships in the next release">
-          Read-only preview
-        </span>
+        <div className={s.headerActions}>
+          {SNAPSHOT_FEATURE_FLAG && plan && hasAnyContent && (
+            <button
+              className={btn.secondaryBtn}
+              onClick={handleRegenerateSnapshot}
+              disabled={regenerating}
+              title="Regenerate AI snapshot from current data"
+            >
+              {regenerating ? 'Regenerating…' : '✨ Regenerate snapshot'}
+            </button>
+          )}
+          {plan && isDraft && hasAnyContent && (
+            <button
+              className={btn.primaryBtn}
+              onClick={() => setPublishOpen(true)}
+            >
+              Publish v{currentVersion.versionNumber}
+            </button>
+          )}
+        </div>
       </header>
 
       {loading && <div className={s.loading}>Loading care plan…</div>}
@@ -183,6 +285,8 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
                 section={section}
                 data={currentVersion?.data?.[section.id]}
                 tasks={sectionUsesTasks(section) ? tasksBySection[section.id] : null}
+                onEdit={() => handleEditSection(section)}
+                editDisabled={startingNewDraft}
               />
             ))}
           </ul>
@@ -214,6 +318,29 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
             </details>
           )}
         </>
+      )}
+
+      {/* Phase 2b: section editor drawer */}
+      {editingSection && currentVersion && (
+        <SectionEditor
+          section={editingSection}
+          version={currentVersion}
+          currentUser={currentUser}
+          onClose={handleDrawerClose}
+          onSaved={handleDrawerSaved}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Phase 2b: publish modal */}
+      {publishOpen && currentVersion && (
+        <PublishModal
+          version={currentVersion}
+          currentUser={currentUser}
+          onClose={() => setPublishOpen(false)}
+          onPublished={handlePublished}
+          showToast={showToast}
+        />
       )}
     </section>
   );
@@ -249,11 +376,13 @@ function VersionHeader({ version }) {
 
 // ─── SectionCard ──────────────────────────────────────────────
 
-function SectionCard({ section, data, tasks }) {
+function SectionCard({ section, data, tasks, onEdit, editDisabled }) {
   const usesTasks = sectionUsesTasks(section);
   const hasData = usesTasks
     ? Array.isArray(tasks) && tasks.length > 0
     : data && hasMeaningfulContent(data);
+
+  const canEdit = !section.isAutoGenerated && typeof onEdit === 'function';
 
   return (
     <li className={s.sectionCard}>
@@ -269,6 +398,16 @@ function SectionCard({ section, data, tasks }) {
           </h4>
           <p className={s.sectionDescription}>{section.description}</p>
         </div>
+        {canEdit && (
+          <button
+            className={s.editBtn}
+            onClick={onEdit}
+            disabled={editDisabled}
+            aria-label={`Edit ${section.label}`}
+          >
+            {hasData ? 'Edit' : 'Add'}
+          </button>
+        )}
       </div>
 
       <div className={s.sectionBody}>
