@@ -5,7 +5,22 @@
 // detail drawer. Keeping these separate from the React components
 // lets us unit-test the tricky logic (event adapting, validation,
 // skill parsing, default duration math) without mounting anything.
+//
+// Timezone handling: the date/time helpers below convert between
+// "YYYY-MM-DD" + "HH:MM" form inputs and UTC ISO strings, and format
+// ISOs for display. Historically they implicitly used the JS
+// runtime's local zone. Production callers should now pass an
+// explicit `timezone` (DEFAULT_APP_TIMEZONE from ../../lib/scheduling/
+// timezone) so a shift created on a non-PT laptop lines up with
+// availability rows and recurrence instances that are already
+// interpreted in PT. Omitting `timezone` keeps the legacy local-zone
+// behavior so the pre-existing unit tests pass unchanged.
 // ═══════════════════════════════════════════════════════════════
+
+import {
+  wallClockToUtcMs,
+  utcMsToWallClockParts,
+} from '../../lib/scheduling/timezone';
 
 // Default shift duration for click-to-create on an empty slot.
 export const DEFAULT_SHIFT_DURATION_HOURS = 4;
@@ -100,61 +115,92 @@ export function computeDefaultShiftEnd(start, hours = DEFAULT_SHIFT_DURATION_HOU
 }
 
 /**
- * Format an ISO timestamp as "HH:MM" in local time for a form input.
+ * Format an ISO timestamp as "HH:MM" for a form input, in the given
+ * timezone. Omit `timezone` to use the JS runtime's local zone.
  * Returns '' for missing input.
  */
-export function isoToTimeInput(iso) {
+export function isoToTimeInput(iso, timezone) {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  if (timezone) {
+    const parts = utcMsToWallClockParts(date, timezone);
+    return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
+  }
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
   return `${h}:${m}`;
 }
 
 /**
- * Format an ISO timestamp as "YYYY-MM-DD" in local time for a form input.
+ * Format an ISO timestamp as "YYYY-MM-DD" for a form input, in the
+ * given timezone. Omit `timezone` to use the JS runtime's local zone.
  */
-export function isoToDateInput(iso) {
+export function isoToDateInput(iso, timezone) {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  if (timezone) {
+    return utcMsToWallClockParts(date, timezone).dateOnly;
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
 /**
  * Combine a "YYYY-MM-DD" date input and a "HH:MM" time input into an
- * ISO timestamp in the local timezone. Returns null for invalid input.
+ * ISO timestamp, interpreting the clock time in the given timezone.
+ * Omit `timezone` to use the JS runtime's local zone (legacy). Returns
+ * null for invalid input.
+ *
+ * Production callers should pass DEFAULT_APP_TIMEZONE so a shift
+ * created on a non-PT laptop still represents the intended PT
+ * wall-clock moment, matching how availability rows and recurrence
+ * patterns are interpreted.
  */
-export function combineDateAndTimeToIso(dateStr, timeStr) {
+export function combineDateAndTimeToIso(dateStr, timeStr, timezone) {
   if (!dateStr || !timeStr) return null;
   const [y, mo, d] = dateStr.split('-').map(Number);
   const [h, mi] = timeStr.split(':').map(Number);
   if ([y, mo, d, h, mi].some((n) => Number.isNaN(n))) return null;
+  if (timezone) {
+    const ms = wallClockToUtcMs(
+      { year: y, month: mo, day: d, hour: h, minute: mi, second: 0 },
+      timezone,
+    );
+    return new Date(ms).toISOString();
+  }
   const local = new Date(y, mo - 1, d, h, mi, 0, 0);
   if (Number.isNaN(local.getTime())) return null;
   return local.toISOString();
 }
 
 /**
- * Format a shift's time range for display.
- * Example: "Mon May 4 · 8:00a – 12:00p (4h)"
+ * Format a shift's time range for display, in the given timezone.
+ * Example: "Mon May 4 · 8:00a – 12:00p (4h)". Omit `timezone` to use
+ * the JS runtime's local zone (legacy).
  */
-export function formatShiftTimeRange(shift) {
+export function formatShiftTimeRange(shift, timezone) {
   if (!shift || !shift.startTime || !shift.endTime) return '';
   const start = new Date(shift.startTime);
   const end = new Date(shift.endTime);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
-  const dayLabel = start.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-  const startLabel = formatLocalTimeShort(start);
-  const endLabel = formatLocalTimeShort(end);
+  const dayLabel = timezone
+    ? start.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: timezone,
+      })
+    : start.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+  const startLabel = formatLocalTimeShort(start, timezone);
+  const endLabel = formatLocalTimeShort(end, timezone);
   const hours = (end.getTime() - start.getTime()) / (60 * 60 * 1000);
   const durationLabel =
     hours >= 1 ? `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h` : `${Math.round(hours * 60)}m`;
@@ -162,16 +208,17 @@ export function formatShiftTimeRange(shift) {
 }
 
 /**
- * Format a Date as a short time label in local time.
+ * Format a Date as a short time label, in the given timezone.
+ * Omit `timezone` to use the JS runtime's local zone.
  *   08:00 → "8:00a"
  *   13:30 → "1:30p"
  *   12:00 → "12:00p"
  *   00:30 → "12:30a"
  */
-export function formatLocalTimeShort(d) {
+export function formatLocalTimeShort(d, timezone) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-  const h = d.getHours();
-  const m = d.getMinutes();
+  const h = timezone ? utcMsToWallClockParts(d, timezone).hour : d.getHours();
+  const m = timezone ? utcMsToWallClockParts(d, timezone).minute : d.getMinutes();
   const suffix = h < 12 ? 'a' : 'p';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return m === 0 ? `${h12}:00${suffix}` : `${h12}:${String(m).padStart(2, '0')}${suffix}`;

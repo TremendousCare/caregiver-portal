@@ -8,6 +8,7 @@ import {
   buildMergeFields,
   renderTemplate,
 } from './broadcastHelpers';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import { TemplateEditor } from './TemplateEditor';
 import btn from '../../styles/buttons.module.css';
 import s from './ConfirmAssignDialog.module.css';
@@ -69,7 +70,12 @@ export function ConfirmAssignDialog({
   // Live preview rendered for this specific caregiver
   const previewText = useMemo(() => {
     if (!template) return '';
-    const fields = buildMergeFields({ shift, caregiver, client });
+    const fields = buildMergeFields({
+      shift,
+      caregiver,
+      client,
+      timezone: DEFAULT_APP_TIMEZONE,
+    });
     return renderTemplate(template, fields);
   }, [template, shift, caregiver, client]);
 

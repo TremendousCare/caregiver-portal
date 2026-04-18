@@ -240,6 +240,68 @@ describe('formatLocalTimeShort', () => {
   });
 });
 
+// ─── Explicit timezone round-trip ──────────────────────────────
+// When production callers pass a timezone, the helpers produce the
+// same output regardless of the JS runtime's local zone — this is
+// what keeps a shift created on an EST laptop consistent with
+// availability matching and recurrence expansion (both pinned to PT
+// in production).
+
+describe('shiftHelpers — explicit timezone', () => {
+  const tz = 'America/Los_Angeles';
+
+  it('combineDateAndTimeToIso interprets 08:00 as 15:00 UTC in May (PDT)', () => {
+    const iso = combineDateAndTimeToIso('2026-05-04', '08:00', tz);
+    expect(iso).toBe('2026-05-04T15:00:00.000Z');
+  });
+
+  it('combineDateAndTimeToIso interprets 08:00 as 16:00 UTC in January (PST)', () => {
+    const iso = combineDateAndTimeToIso('2026-01-05', '08:00', tz);
+    expect(iso).toBe('2026-01-05T16:00:00.000Z');
+  });
+
+  it('isoToDateInput round-trips "2026-05-04" in PT', () => {
+    // 06:00 UTC on 2026-05-04 is 23:00 PDT on 2026-05-03, so the
+    // date depends on the zone.
+    expect(isoToDateInput('2026-05-04T15:00:00.000Z', tz)).toBe('2026-05-04');
+    expect(isoToDateInput('2026-05-04T06:00:00.000Z', tz)).toBe('2026-05-03');
+  });
+
+  it('isoToTimeInput round-trips "08:00" in PT across seasons', () => {
+    expect(isoToTimeInput('2026-05-04T15:00:00.000Z', tz)).toBe('08:00');
+    expect(isoToTimeInput('2026-01-05T16:00:00.000Z', tz)).toBe('08:00');
+  });
+
+  it('combineDateAndTimeToIso → isoToTimeInput round-trips across DST', () => {
+    // Monday before spring-forward (PST) and Monday after (PDT).
+    for (const d of ['2026-03-02', '2026-03-09', '2026-10-26', '2026-11-02']) {
+      const iso = combineDateAndTimeToIso(d, '08:00', tz);
+      expect(isoToDateInput(iso, tz)).toBe(d);
+      expect(isoToTimeInput(iso, tz)).toBe('08:00');
+    }
+  });
+
+  it('formatLocalTimeShort respects the explicit timezone', () => {
+    const pdt8am = new Date('2026-05-04T15:00:00.000Z');
+    expect(formatLocalTimeShort(pdt8am, tz)).toBe('8:00a');
+    const pst8am = new Date('2026-01-05T16:00:00.000Z');
+    expect(formatLocalTimeShort(pst8am, tz)).toBe('8:00a');
+  });
+
+  it('formatShiftTimeRange produces stable output in PT', () => {
+    const shift = {
+      startTime: '2026-05-04T15:00:00.000Z',
+      endTime: '2026-05-04T19:00:00.000Z',
+    };
+    const label = formatShiftTimeRange(shift, tz);
+    expect(label).toContain('8:00a');
+    expect(label).toContain('12:00p');
+    expect(label).toContain('4h');
+    expect(label).toContain('Mon');
+    expect(label).toContain('May');
+  });
+});
+
 // ─── parseSkillsInput / formatSkillsInput ──────────────────────
 
 describe('parseSkillsInput', () => {

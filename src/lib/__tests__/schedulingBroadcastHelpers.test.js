@@ -395,3 +395,50 @@ describe('DEFAULT_CONFIRMATION_TEMPLATE', () => {
     expect(DEFAULT_CONFIRMATION_TEMPLATE).toContain('{{location}}');
   });
 });
+
+// ─── Explicit timezone for outbound SMS ─────────────────────────
+// When a scheduler on a non-PT laptop previews or sends a broadcast,
+// the time labels should render in PT — same zone as availability
+// matching and recurrence expansion — not in the scheduler's local
+// zone. Passing `timezone` to buildMergeFields produces stable output.
+
+describe('buildMergeFields — explicit timezone', () => {
+  const tz = 'America/Los_Angeles';
+
+  it('08:00 PDT (15:00 UTC) renders as 8:00a in PT', () => {
+    const shift = {
+      startTime: '2026-05-04T15:00:00.000Z',
+      endTime: '2026-05-04T19:00:00.000Z',
+    };
+    const fields = buildMergeFields({ shift, timezone: tz });
+    expect(fields.dayOfWeek).toBe('Mon');
+    expect(fields.dateLabel).toBe('May 4');
+    expect(fields.startTime).toBe('8:00a');
+    expect(fields.endTime).toBe('12:00p');
+    expect(fields.timeRange).toBe('8:00a-12:00p');
+    expect(fields.duration).toBe('4h');
+  });
+
+  it('08:00 PST (16:00 UTC) also renders as 8:00a in PT (stable across DST)', () => {
+    const shift = {
+      startTime: '2026-01-05T16:00:00.000Z',
+      endTime: '2026-01-05T20:00:00.000Z',
+    };
+    const fields = buildMergeFields({ shift, timezone: tz });
+    expect(fields.startTime).toBe('8:00a');
+    expect(fields.endTime).toBe('12:00p');
+  });
+
+  it('the same UTC instant renders different wall-clocks in different zones', () => {
+    const shift = {
+      startTime: '2026-05-04T06:00:00.000Z', // Sun 23:00 PDT = Mon 15:00 JST
+      endTime: '2026-05-04T07:00:00.000Z',
+    };
+    const pt = buildMergeFields({ shift, timezone: 'America/Los_Angeles' });
+    const jst = buildMergeFields({ shift, timezone: 'Asia/Tokyo' });
+    expect(pt.startTime).toBe('11:00p');
+    expect(jst.startTime).toBe('3:00p');
+    expect(pt.dayOfWeek).toBe('Sun');
+    expect(jst.dayOfWeek).toBe('Mon');
+  });
+});

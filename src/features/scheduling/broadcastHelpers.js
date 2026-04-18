@@ -9,7 +9,16 @@
 //     preview what a broadcast would look like before sending
 //   - Tweaking the wording is a one-file change that lights up
 //     every caller at once
+//
+// Timezone handling: `buildMergeFields` and the two render helpers
+// below accept an optional `timezone` so outbound SMS renders shift
+// times in a predictable zone regardless of where the scheduler
+// happens to be. Production callers should pass DEFAULT_APP_TIMEZONE
+// (see ../../lib/scheduling/timezone). Omitting it keeps the legacy
+// runtime-local formatting so pre-existing tests pass unchanged.
 // ═══════════════════════════════════════════════════════════════
+
+import { utcMsToWallClockParts } from '../../lib/scheduling/timezone';
 
 /**
  * Default SMS template used for shift offer broadcasts. Uses
@@ -35,30 +44,38 @@ export const DEFAULT_BROADCAST_TEMPLATE =
 export const DEFAULT_REPLY_INSTRUCTION = 'Reply YES to accept.';
 
 /**
- * Format a Date as a short local day label: "Mon", "Tue", ...
+ * Format a Date as a short day label ("Mon", "Tue", ...) in the given
+ * timezone. Omit `timezone` to use the JS runtime's local zone.
  */
-function formatDayOfWeek(d) {
+function formatDayOfWeek(d, timezone) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { weekday: 'short' });
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    ...(timezone ? { timeZone: timezone } : {}),
+  });
 }
 
 /**
- * Format a Date as a compact local date label: "May 4".
+ * Format a Date as a compact date label ("May 4") in the given
+ * timezone. Omit `timezone` to use the JS runtime's local zone.
  */
-function formatDateLabel(d) {
+function formatDateLabel(d, timezone) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(timezone ? { timeZone: timezone } : {}),
+  });
 }
 
 /**
- * Format a Date as a short 12-hour local time: "8:00a", "12:30p".
- * (Duplicates the logic from shiftHelpers on purpose — keeping broadcast
- * helpers standalone so they're easy to reuse from the AI layer later.)
+ * Format a Date as a short 12-hour time ("8:00a", "12:30p") in the
+ * given timezone. Omit `timezone` to use the JS runtime's local zone.
  */
-function formatTimeLabel(d) {
+function formatTimeLabel(d, timezone) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-  const h = d.getHours();
-  const m = d.getMinutes();
+  const h = timezone ? utcMsToWallClockParts(d, timezone).hour : d.getHours();
+  const m = timezone ? utcMsToWallClockParts(d, timezone).minute : d.getMinutes();
   const suffix = h < 12 ? 'a' : 'p';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return m === 0 ? `${h12}:00${suffix}` : `${h12}:${String(m).padStart(2, '0')}${suffix}`;
@@ -78,9 +95,11 @@ function formatDuration(start, end) {
 
 /**
  * Build the merge-field values for a given shift + caregiver + client.
- * Returns a plain object you can pass to renderTemplate().
+ * Returns a plain object you can pass to renderTemplate(). Pass
+ * `timezone` (e.g. DEFAULT_APP_TIMEZONE) to pin date/time labels to a
+ * specific IANA zone; otherwise uses the JS runtime's local zone.
  */
-export function buildMergeFields({ shift, caregiver, client }) {
+export function buildMergeFields({ shift, caregiver, client, timezone }) {
   const fields = {
     firstName: '',
     lastName: '',
@@ -114,10 +133,10 @@ export function buildMergeFields({ shift, caregiver, client }) {
     const start = new Date(shift.startTime);
     const end = new Date(shift.endTime);
     if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
-      fields.dayOfWeek = formatDayOfWeek(start);
-      fields.dateLabel = formatDateLabel(start);
-      fields.startTime = formatTimeLabel(start);
-      fields.endTime = formatTimeLabel(end);
+      fields.dayOfWeek = formatDayOfWeek(start, timezone);
+      fields.dateLabel = formatDateLabel(start, timezone);
+      fields.startTime = formatTimeLabel(start, timezone);
+      fields.endTime = formatTimeLabel(end, timezone);
       fields.timeRange = `${fields.startTime}-${fields.endTime}`;
       fields.duration = formatDuration(start, end);
     }
@@ -156,8 +175,14 @@ export function renderTemplate(template, fields) {
 /**
  * Convenience: render the default template for a shift + caregiver + client.
  */
-export function renderDefaultBroadcastMessage({ shift, caregiver, client, template = DEFAULT_BROADCAST_TEMPLATE }) {
-  const fields = buildMergeFields({ shift, caregiver, client });
+export function renderDefaultBroadcastMessage({
+  shift,
+  caregiver,
+  client,
+  template = DEFAULT_BROADCAST_TEMPLATE,
+  timezone,
+}) {
+  const fields = buildMergeFields({ shift, caregiver, client, timezone });
   return renderTemplate(template, fields);
 }
 
@@ -198,7 +223,13 @@ export const DEFAULT_CONFIRMATION_TEMPLATE =
  * fields as the broadcast template — by design, so the confirmation
  * reads like a natural follow-up to the original broadcast.
  */
-export function renderConfirmationMessage({ shift, caregiver, client, template = DEFAULT_CONFIRMATION_TEMPLATE }) {
-  const fields = buildMergeFields({ shift, caregiver, client });
+export function renderConfirmationMessage({
+  shift,
+  caregiver,
+  client,
+  template = DEFAULT_CONFIRMATION_TEMPLATE,
+  timezone,
+}) {
+  const fields = buildMergeFields({ shift, caregiver, client, timezone });
   return renderTemplate(template, fields);
 }

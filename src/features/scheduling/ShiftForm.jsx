@@ -7,6 +7,7 @@ import {
   parseSkillsInput,
 } from './shiftHelpers';
 import { CaregiverPicker } from './CaregiverPicker';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import s from './ShiftForm.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -30,11 +31,14 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
 
-  // Derive date/time inputs from the ISO timestamps on the draft
-  const startDateInput = isoToDateInput(draft.startTime);
-  const startTimeInput = isoToTimeInput(draft.startTime);
-  const endDateInput = isoToDateInput(draft.endTime);
-  const endTimeInput = isoToTimeInput(draft.endTime);
+  // Derive date/time inputs from the ISO timestamps on the draft. We
+  // pin the timezone to DEFAULT_APP_TIMEZONE so a shift created on an
+  // EST laptop round-trips to PT wall-clock times in the form — the
+  // same interpretation availability matching and recurrence use.
+  const startDateInput = isoToDateInput(draft.startTime, DEFAULT_APP_TIMEZONE);
+  const startTimeInput = isoToTimeInput(draft.startTime, DEFAULT_APP_TIMEZONE);
+  const endDateInput = isoToDateInput(draft.endTime, DEFAULT_APP_TIMEZONE);
+  const endTimeInput = isoToTimeInput(draft.endTime, DEFAULT_APP_TIMEZONE);
 
   const carePlansForClient = useMemo(
     () => (carePlans || []).filter((p) => p.clientId === draft.clientId),
@@ -65,22 +69,38 @@ export function ShiftForm({ draft, onChange, clients, caregivers, carePlans, err
   };
 
   const handleStartDateChange = (e) => {
-    const next = combineDateAndTimeToIso(e.target.value, startTimeInput || '08:00');
+    const next = combineDateAndTimeToIso(
+      e.target.value,
+      startTimeInput || '08:00',
+      DEFAULT_APP_TIMEZONE,
+    );
     if (next) setField('startTime', next);
   };
 
   const handleStartTimeChange = (e) => {
-    const next = combineDateAndTimeToIso(startDateInput, e.target.value);
+    const next = combineDateAndTimeToIso(
+      startDateInput,
+      e.target.value,
+      DEFAULT_APP_TIMEZONE,
+    );
     if (next) setField('startTime', next);
   };
 
   const handleEndDateChange = (e) => {
-    const next = combineDateAndTimeToIso(e.target.value, endTimeInput || '12:00');
+    const next = combineDateAndTimeToIso(
+      e.target.value,
+      endTimeInput || '12:00',
+      DEFAULT_APP_TIMEZONE,
+    );
     if (next) setField('endTime', next);
   };
 
   const handleEndTimeChange = (e) => {
-    const next = combineDateAndTimeToIso(endDateInput, e.target.value);
+    const next = combineDateAndTimeToIso(
+      endDateInput,
+      e.target.value,
+      DEFAULT_APP_TIMEZONE,
+    );
     if (next) setField('endTime', next);
   };
 
