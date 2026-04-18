@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
+import { supabase } from '../../../lib/supabase';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -10,6 +11,28 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState(null);
+
+  const isLinked = !!caregiver.userId;
+
+  const handleInvite = async () => {
+    if (!supabase || !caregiver.email) return;
+    setInviting(true);
+    setInviteMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('caregiver-invite', {
+        body: { action: 'send', caregiver_id: caregiver.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setInviteMessage({ kind: 'success', text: `Magic-link invite sent to ${data.email}.` });
+    } catch (e) {
+      setInviteMessage({ kind: 'error', text: e?.message || 'Failed to send invite.' });
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const days = getDaysSinceApplication(caregiver);
 
@@ -110,6 +133,28 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <div style={{ padding: '0 20px 16px' }}>
               <div className={cards.profileLabel}>Initial Notes</div>
               <div className={cards.profileValue} style={{ marginTop: 4 }}>{caregiver.initialNotes}</div>
+            </div>
+          )}
+          {caregiver.email && (
+            <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderTop: '1px solid #F0F2F6' }}>
+              <div style={{ fontSize: 13, color: '#6B7B8F' }}>
+                {isLinked
+                  ? 'Caregiver app access is active for this account.'
+                  : 'Send a magic-link invite so this caregiver can log into the mobile app.'}
+              </div>
+              <button
+                className={btn.secondaryBtn}
+                onClick={handleInvite}
+                disabled={inviting}
+                style={{ marginLeft: 'auto' }}
+              >
+                {inviting ? 'Sending…' : isLinked ? 'Resend sign-in link' : 'Invite to caregiver app'}
+              </button>
+              {inviteMessage && (
+                <div style={{ width: '100%', fontSize: 13, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
+                  {inviteMessage.text}
+                </div>
+              )}
             </div>
           )}
         </>

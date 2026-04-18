@@ -1,0 +1,19 @@
+{
+  "name": "Tremendous Care",
+  "short_name": "Tremendous Care",
+  "description": "Caregiver shifts and clock in/out for the Tremendous Care team.",
+  "start_url": "/care",
+  "scope": "/care",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F8FB",
+  "theme_color": "#2E4E8D",
+  "icons": [
+    {
+      "src": "/tc-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

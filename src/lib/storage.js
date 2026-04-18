@@ -567,6 +567,7 @@ export const dbToCaregiver = (row) => ({
   availabilityType: row.availability_type || '',
   currentAssignment: row.current_assignment || '',
   cprExpiryDate: row.cpr_expiry_date,
+  userId: row.user_id || null,
   createdAt: row.created_at,
 });
 
@@ -620,6 +621,7 @@ const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
+  user_id: cg.userId || null,
   created_at: cg.createdAt || Date.now(),
 });
 
