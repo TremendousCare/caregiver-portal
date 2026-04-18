@@ -22,37 +22,20 @@
 // message still gets logged and suggested-as-normal.
 // ═══════════════════════════════════════════════════════════════
 
+import {
+  parseYesNoResponse,
+  type YesNoResponse,
+} from "../helpers/yesNoKeywords.ts";
+
 // How far back to look for a matching shift_offer. Per user decision:
 // 6 hours is the default. A caregiver replying outside this window
 // won't be auto-matched — the scheduler handles it manually.
 export const OFFER_MATCH_WINDOW_HOURS = 6;
 
-// Keywords duplicated from src/features/scheduling/broadcastHelpers.js
-// because Deno edge functions can't import from the React codebase
-// directly. If you change one list, change the other.
-const YES_KEYWORDS = new Set([
-  "yes", "y", "yep", "yeah", "yup", "sure", "ok", "okay", "accept", "accepted",
-  "yeahh", "ya", "affirmative", "absolutely", "yesyes",
-]);
-
-const NO_KEYWORDS = new Set([
-  "no", "n", "nope", "nah", "cant", "can't", "cannot", "decline", "declined",
-  "pass", "unable", "busy",
-]);
-
-export type YesNoResponse = "yes" | "no" | "maybe";
-
-export function parseYesNoResponse(text: string | null | undefined): YesNoResponse {
-  if (!text || typeof text !== "string") return "maybe";
-  const trimmed = text.trim();
-  if (!trimmed) return "maybe";
-  const match = trimmed.match(/^[a-zA-Z']+/);
-  if (!match) return "maybe";
-  const firstWord = match[0].toLowerCase();
-  if (YES_KEYWORDS.has(firstWord)) return "yes";
-  if (NO_KEYWORDS.has(firstWord)) return "no";
-  return "maybe";
-}
+// Re-exported so existing callers (e.g. message-router) keep working
+// without having to chase the import to the helpers layer.
+export { parseYesNoResponse };
+export type { YesNoResponse };
 
 /**
  * Attempt to match an inbound SMS to a recent shift_offer. Returns

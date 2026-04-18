@@ -180,47 +180,13 @@ export function validateBroadcastDraft(draft) {
 }
 
 // ─── YES/NO response parsing (Phase 5b) ────────────────────────
-//
-// When a caregiver replies to a broadcast SMS with "YES", "no", "sure",
-// etc., we need to classify it to update the shift_offer. The rules
-// are intentionally simple and predictable:
-//
-//   YES   — first word matches any of the accept keywords
-//   NO    — first word matches any of the decline keywords
-//   MAYBE — anything else (scheduler reviews manually)
-//
-// Case-insensitive, strips basic punctuation from the first word
-// so "Yes!" and "YES." still match.
+// Re-exports the single source of truth for keyword classification,
+// living in the _shared Deno helpers so the edge function and the
+// browser both use the exact same keyword sets. Prior to 2026-04,
+// each side kept its own private copy with a "if you change one,
+// change the other" comment — real drift risk.
 
-const YES_KEYWORDS = new Set([
-  'yes', 'y', 'yep', 'yeah', 'yup', 'sure', 'ok', 'okay', 'accept', 'accepted',
-  'yeahh', 'ya', 'affirmative', 'absolutely', 'yesyes',
-]);
-
-const NO_KEYWORDS = new Set([
-  'no', 'n', 'nope', 'nah', 'cant', "can't", 'cannot', 'decline', 'declined',
-  'pass', 'unable', 'busy',
-]);
-
-/**
- * Parse a caregiver's SMS reply into 'yes' | 'no' | 'maybe'.
- *
- * Returns 'maybe' for empty / null / ambiguous input, so the scheduler
- * can review manually without auto-mismatching.
- */
-export function parseYesNoResponse(text) {
-  if (!text || typeof text !== 'string') return 'maybe';
-  const trimmed = text.trim();
-  if (!trimmed) return 'maybe';
-  // First "word" is everything up to the first whitespace or punctuation
-  // other than apostrophes (to keep "can't" intact).
-  const firstWordMatch = trimmed.match(/^[a-zA-Z']+/);
-  if (!firstWordMatch) return 'maybe';
-  const firstWord = firstWordMatch[0].toLowerCase();
-  if (YES_KEYWORDS.has(firstWord)) return 'yes';
-  if (NO_KEYWORDS.has(firstWord)) return 'no';
-  return 'maybe';
-}
+export { parseYesNoResponse } from '../../../supabase/functions/_shared/helpers/yesNoKeywords.ts';
 
 // ─── Confirmation template (sent when scheduler accepts a response) ─
 
