@@ -1,0 +1,422 @@
+/* ─── Care Plan panel (client detail section) ─── */
+
+.panel {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 22px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  margin-bottom: 20px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #7A8BA0;
+  margin: 0;
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.previewBadge {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #FCD34D;
+  border-radius: 12px;
+}
+
+.loading {
+  padding: 12px 0;
+  color: #7A8BA0;
+  font-size: 13px;
+}
+
+.errorBanner {
+  padding: 12px 16px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #7F1D1D;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  background: #F5F8FC;
+  border: 1px dashed #D8E0EC;
+  border-radius: 10px;
+}
+
+.emptyText {
+  margin: 0 0 12px;
+  color: #5A6B80;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ─── Version header ─── */
+
+.versionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.versionPill {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.versionPill_draft {
+  background: #F5F8FC;
+  color: #5A6B80;
+  border-color: #E1E7EF;
+}
+
+.versionPill_published {
+  background: #DCFCE7;
+  color: #166534;
+  border-color: #86EFAC;
+}
+
+.versionPill_archived {
+  background: #F5F5F5;
+  color: #737373;
+  border-color: #D4D4D4;
+}
+
+.versionMeta {
+  font-size: 12px;
+  color: #5A6B80;
+}
+
+/* ─── Section list ─── */
+
+.sectionList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionCard {
+  padding: 0;
+  background: #FAFBFC;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sectionHeader {
+  padding: 12px 16px;
+  background: #F8FAFC;
+  border-bottom: 1px solid #E1E7EF;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0 0 2px;
+}
+
+.sectionDescription {
+  font-size: 11px;
+  color: #7A8BA0;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.autoTag {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #6D28D9;
+  background: #F5F3FF;
+  border: 1px solid #DDD6FE;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.sectionBody {
+  padding: 12px 16px;
+}
+
+.empty {
+  color: #A2B0C4;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.narrative {
+  margin: 0 0 8px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ─── Field list ─── */
+
+.fieldList {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid #EDF0F4;
+}
+
+.fieldRow:first-child {
+  border-top: none;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  color: #7A8BA0;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0;
+}
+
+.fieldValue {
+  font-size: 13px;
+  color: #0F1724;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* ─── Tasks ─── */
+
+.taskGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.taskGroup {
+  padding: 8px 0;
+  border-top: 1px solid #EDF0F4;
+}
+
+.taskGroup:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.taskGroupLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2E4E8D;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+}
+
+.taskList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.taskRow {
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #EDF0F4;
+  border-radius: 6px;
+}
+
+.taskName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F1724;
+  margin-bottom: 2px;
+}
+
+.criticalTag {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #991B1B;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.taskDescription {
+  font-size: 12px;
+  color: #5A6B80;
+  line-height: 1.5;
+}
+
+.taskSafety {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #FEF3C7;
+  border-left: 2px solid #FBBF24;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #92400E;
+  line-height: 1.5;
+}
+
+/* ─── Version history ─── */
+
+.history {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+}
+
+.historySummary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2E4E8D;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  list-style: none;
+  padding: 2px 0;
+}
+
+.historySummary::-webkit-details-marker {
+  display: none;
+}
+
+.historySummary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s;
+}
+
+.history[open] .historySummary::before {
+  transform: rotate(90deg);
+}
+
+.historyList {
+  list-style: none;
+  padding: 10px 0 2px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.historyRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #5A6B80;
+}
+
+.historyVersion {
+  font-weight: 700;
+  color: #0F1724;
+  min-width: 40px;
+}
+
+.historyStatus {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 8px;
+  border: 1px solid;
+}
+
+.historyStatus_draft {
+  background: #F5F8FC;
+  color: #5A6B80;
+  border-color: #E1E7EF;
+}
+
+.historyStatus_published {
+  background: #DCFCE7;
+  color: #166534;
+  border-color: #86EFAC;
+}
+
+.historyStatus_archived {
+  background: #F5F5F5;
+  color: #737373;
+  border-color: #D4D4D4;
+}
+
+.historyMeta {
+  color: #7A8BA0;
+}
+
+@media (max-width: 640px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
