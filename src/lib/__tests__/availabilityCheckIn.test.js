@@ -6,7 +6,11 @@ import {
   isDueForAvailabilityCheck,
   isValidAvailabilityTemplate,
   isWithinSendWindow,
-} from '../scheduling/availabilityCheckIn';
+  resolveAvailabilityCheckInConditions,
+  DEFAULT_INTERVAL_DAYS,
+  DEFAULT_START_HOUR,
+  DEFAULT_END_HOUR,
+} from '../../../supabase/functions/_shared/helpers/availabilityCheckIn.ts';
 
 describe('isActiveForAvailabilityCheckIn', () => {
   it('treats a vanilla caregiver as active', () => {
@@ -140,16 +144,27 @@ describe('isDueForAvailabilityCheck', () => {
     expect(isDueForAvailabilityCheck(lastFired, 14, now)).toBe(false);
   });
 
-  it('is NOT due when fired slightly under the interval', () => {
-    const slightlyUnder = new Date(
-      now.getTime() - (14 * 24 * 60 * 60 * 1000 - 60 * 1000),
+  it('is NOT due when fired well under the interval', () => {
+    // 10 minutes short of the 14-day mark — definitively under even with
+    // the 2-minute cron-jitter tolerance built into the helper.
+    const wellUnder = new Date(
+      now.getTime() - (14 * 24 * 60 * 60 * 1000 - 10 * 60 * 1000),
     );
-    expect(isDueForAvailabilityCheck(slightlyUnder, 14, now)).toBe(false);
+    expect(isDueForAvailabilityCheck(wellUnder, 14, now)).toBe(false);
   });
 
-  it('is due at exactly the interval boundary', () => {
+  it('is due at exactly the interval boundary (tolerance applied)', () => {
     const exactlyAt = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     expect(isDueForAvailabilityCheck(exactlyAt, 14, now)).toBe(true);
+  });
+
+  it('is due within the 2-minute tolerance window', () => {
+    // 1 minute short of 14 days — within the cron-jitter tolerance, so
+    // the rule fires instead of drifting to 14.5 days each cycle.
+    const withinTolerance = new Date(
+      now.getTime() - (14 * 24 * 60 * 60 * 1000 - 60 * 1000),
+    );
+    expect(isDueForAvailabilityCheck(withinTolerance, 14, now)).toBe(true);
   });
 
   it('is due when long overdue', () => {
@@ -204,28 +219,76 @@ describe('isValidAvailabilityTemplate', () => {
 });
 
 describe('isWithinSendWindow', () => {
-  const at = (hour) => new Date(`2026-04-18T${String(hour).padStart(2, '0')}:30:00`);
+  // Build a Date at a specific UTC hour. Tests use tz='UTC' so the local
+  // hour the helper computes equals the UTC hour we supply.
+  const atUtc = (hour) =>
+    new Date(`2026-04-18T${String(hour).padStart(2, '0')}:30:00Z`);
 
   it('accepts times inside a standard 9–17 window', () => {
-    expect(isWithinSendWindow(at(9), 9, 17)).toBe(true);
-    expect(isWithinSendWindow(at(12), 9, 17)).toBe(true);
-    expect(isWithinSendWindow(at(16), 9, 17)).toBe(true);
+    expect(isWithinSendWindow(atUtc(9), 'UTC', 9, 17)).toBe(true);
+    expect(isWithinSendWindow(atUtc(12), 'UTC', 9, 17)).toBe(true);
+    expect(isWithinSendWindow(atUtc(16), 'UTC', 9, 17)).toBe(true);
   });
 
   it('rejects times outside a standard 9–17 window', () => {
-    expect(isWithinSendWindow(at(8), 9, 17)).toBe(false);
-    expect(isWithinSendWindow(at(17), 9, 17)).toBe(false);
-    expect(isWithinSendWindow(at(23), 9, 17)).toBe(false);
+    expect(isWithinSendWindow(atUtc(8), 'UTC', 9, 17)).toBe(false);
+    expect(isWithinSendWindow(atUtc(17), 'UTC', 9, 17)).toBe(false);
+    expect(isWithinSendWindow(atUtc(23), 'UTC', 9, 17)).toBe(false);
   });
 
   it('supports an overnight window (22–6)', () => {
-    expect(isWithinSendWindow(at(23), 22, 6)).toBe(true);
-    expect(isWithinSendWindow(at(2), 22, 6)).toBe(true);
-    expect(isWithinSendWindow(at(10), 22, 6)).toBe(false);
+    expect(isWithinSendWindow(atUtc(23), 'UTC', 22, 6)).toBe(true);
+    expect(isWithinSendWindow(atUtc(2), 'UTC', 22, 6)).toBe(true);
+    expect(isWithinSendWindow(atUtc(10), 'UTC', 22, 6)).toBe(false);
   });
 
   it('returns false for a non-Date input', () => {
-    expect(isWithinSendWindow('12:00', 9, 17)).toBe(false);
-    expect(isWithinSendWindow(null, 9, 17)).toBe(false);
+    expect(isWithinSendWindow('12:00', 'UTC', 9, 17)).toBe(false);
+    expect(isWithinSendWindow(null, 'UTC', 9, 17)).toBe(false);
+  });
+
+  it('falls back gracefully on an invalid timezone', () => {
+    // Invalid tz should still compute a boolean, not throw.
+    const result = isWithinSendWindow(atUtc(12), 'Not/AValidZone', 9, 17);
+    expect(typeof result).toBe('boolean');
+  });
+});
+
+describe('resolveAvailabilityCheckInConditions', () => {
+  it('applies defaults for a null/empty conditions object', () => {
+    const out = resolveAvailabilityCheckInConditions(null);
+    expect(out.interval_days).toBe(DEFAULT_INTERVAL_DAYS);
+    expect(out.start_hour).toBe(DEFAULT_START_HOUR);
+    expect(out.end_hour).toBe(DEFAULT_END_HOUR);
+    expect(out.phase).toBeNull();
+    expect(out.survey_template_id).toBeNull();
+  });
+
+  it('honors valid explicit values', () => {
+    const out = resolveAvailabilityCheckInConditions({
+      interval_days: 7,
+      start_hour: 10,
+      end_hour: 18,
+      survey_template_id: 'tpl-123',
+      phase: ['orientation'],
+    });
+    expect(out.interval_days).toBe(7);
+    expect(out.start_hour).toBe(10);
+    expect(out.end_hour).toBe(18);
+    expect(out.survey_template_id).toBe('tpl-123');
+    expect(out.phase).toEqual(['orientation']);
+  });
+
+  it('rejects invalid interval_days and falls back to default', () => {
+    expect(
+      resolveAvailabilityCheckInConditions({ interval_days: 0 }).interval_days,
+    ).toBe(DEFAULT_INTERVAL_DAYS);
+    expect(
+      resolveAvailabilityCheckInConditions({ interval_days: -1 }).interval_days,
+    ).toBe(DEFAULT_INTERVAL_DAYS);
+    expect(
+      resolveAvailabilityCheckInConditions({ interval_days: '14' })
+        .interval_days,
+    ).toBe(DEFAULT_INTERVAL_DAYS);
   });
 });
