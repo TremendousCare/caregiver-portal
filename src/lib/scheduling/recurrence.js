@@ -2,7 +2,7 @@
 // Scheduling — Recurrence Expansion
 //
 // Expands a recurring shift pattern into individual shift instances.
-// Used by Phase 7 (recurring shift generation from care plans) and
+// Used by Phase 7 (recurring shift generation from service plans) and
 // anywhere a pattern needs to be projected into a date range.
 //
 // Supported pattern shape (simple weekly):
@@ -118,7 +118,7 @@ function validatePattern(pattern) {
  *     date:       '2026-05-04',
  *   }
  *
- * The caller is responsible for attaching client_id, care_plan_id,
+ * The caller is responsible for attaching client_id, service_plan_id,
  * recurrence_group_id, etc. before inserting into the shifts table.
  *
  * @param {object}  pattern

@@ -321,7 +321,7 @@ export function buildShiftUpdatePatch(original, draft) {
   const patch = {};
   if (!original || !draft) return patch;
   const map = {
-    carePlanId: 'carePlanId',
+    servicePlanId: 'servicePlanId',
     clientId: 'clientId',
     startTime: 'startTime',
     endTime: 'endTime',

@@ -474,7 +474,7 @@ describe('validateShiftDraft', () => {
 describe('buildShiftUpdatePatch', () => {
   const original = {
     clientId: 'c1',
-    carePlanId: 'plan-1',
+    servicePlanId: 'plan-1',
     startTime: '2026-05-04T08:00:00.000Z',
     endTime: '2026-05-04T12:00:00.000Z',
     status: 'assigned',

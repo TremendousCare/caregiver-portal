@@ -11,7 +11,7 @@ import s from './RecurrencePatternEditor.module.css';
 // ═══════════════════════════════════════════════════════════════
 // RecurrencePatternEditor — Phase 7
 //
-// Embedded editor section inside the care plan form. Controlled
+// Embedded editor section inside the service plan form. Controlled
 // component: parent owns the pattern state (which lives on
 // draft.recurrencePattern) and passes it in as `value`.
 //

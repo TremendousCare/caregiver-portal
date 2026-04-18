@@ -12,7 +12,7 @@
 //     hours-this-week counters (caregiver view: "28 hrs scheduled";
 //     client view: "18 of 20 planned").
 //
-//   - Compute gap detection: for a care plan with a target hours
+//   - Compute gap detection: for a service plan with a target hours
 //     per week, how far are we from meeting it this week.
 //
 // All timestamps are handled in local time to match the rest of
@@ -268,12 +268,12 @@ export function countShiftsByStatus(shifts) {
 
 /**
  * Compute the total weekly target hours across a client's active
- * care plans. Used by the client schedule view's gap counter.
+ * service plans. Used by the client schedule view's gap counter.
  */
-export function sumActivePlanHours(carePlans) {
-  if (!Array.isArray(carePlans)) return 0;
+export function sumActivePlanHours(servicePlans) {
+  if (!Array.isArray(servicePlans)) return 0;
   let total = 0;
-  for (const plan of carePlans) {
+  for (const plan of servicePlans) {
     if (!plan || plan.status !== 'active') continue;
     if (typeof plan.hoursPerWeek === 'number' && plan.hoursPerWeek > 0) {
       total += plan.hoursPerWeek;

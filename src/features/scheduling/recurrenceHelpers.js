@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
 // Scheduling — Recurrence Pattern Helpers (Phase 7)
 //
-// Pure helpers for working with care plan recurrence patterns.
-// Stored shape (on care_plans.recurrence_pattern JSONB):
+// Pure helpers for working with service plan recurrence patterns.
+// Stored shape (on service_plans.recurrence_pattern JSONB):
 //
 //   {
 //     frequency: 'weekly',
@@ -34,7 +34,7 @@ export const GENERATE_WEEKS_DEFAULT = 4;
 
 /**
  * Create an empty pattern draft. Used when the user first toggles
- * "Use a recurring weekly pattern" on a care plan that doesn't have
+ * "Use a recurring weekly pattern" on a service plan that doesn't have
  * one yet.
  */
 export function emptyRecurrencePattern() {
@@ -178,7 +178,7 @@ export function toggleDayInPattern(daysOfWeek, dow) {
 /**
  * Given a list of existing shifts and a proposed list of expanded
  * recurrence instances, return only the instances that don't already
- * have a matching shift (same start_time, same care_plan_id).
+ * have a matching shift (same start_time, same service_plan_id).
  *
  * Used to make "Generate" idempotent — clicking it twice shouldn't
  * create duplicates.

@@ -9,7 +9,7 @@ import { useCaregivers } from '../../shared/context/CaregiverContext';
 import { supabase } from '../../lib/supabase';
 import {
   getShifts,
-  getCarePlansForClient,
+  getServicePlansForClient,
 } from './storage';
 import {
   computeDefaultShiftEnd,
@@ -31,7 +31,7 @@ import s from './CaregiverSchedulePanel.module.css';
 //
 // The "Schedule" section on a client's detail page. Mirrors the
 // caregiver side but filtered to this client's shifts, with
-// gap detection against their active care plan target hours.
+// gap detection against their active service plan target hours.
 //
 // No availability shading (that's caregiver-specific). Shift
 // blocks show the assigned caregiver's name, and the header
@@ -40,7 +40,7 @@ import s from './CaregiverSchedulePanel.module.css';
 
 const EMPTY_DRAFT_BASE = {
   clientId: '',
-  carePlanId: null,
+  servicePlanId: null,
   assignedCaregiverId: null,
   startTime: null,
   endTime: null,
@@ -63,7 +63,7 @@ export function ClientSchedulePanel({ client, showToast }) {
   const [visibleRange, setVisibleRange] = useState(null);
 
   const [shifts, setShifts] = useState([]);
-  const [carePlans, setCarePlans] = useState([]);
+  const [servicePlans, setServicePlans] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
@@ -107,22 +107,22 @@ export function ClientSchedulePanel({ client, showToast }) {
     loadShifts();
   }, [loadShifts]);
 
-  // ─── Load care plans for this client (for gap detection) ───
-  const loadCarePlans = useCallback(async () => {
+  // ─── Load service plans for this client (for gap detection) ───
+  const loadServicePlans = useCallback(async () => {
     if (!client?.id) return;
     try {
-      const plans = await getCarePlansForClient(client.id);
-      setCarePlans(plans);
+      const plans = await getServicePlansForClient(client.id);
+      setServicePlans(plans);
     } catch (e) {
-      console.error('Load care plans failed:', e);
+      console.error('Load service plans failed:', e);
     }
   }, [client?.id]);
 
   useEffect(() => {
-    loadCarePlans();
-  }, [loadCarePlans]);
+    loadServicePlans();
+  }, [loadServicePlans]);
 
-  // ─── Realtime: watch shifts and care plans for this client ─
+  // ─── Realtime: watch shifts and service plans for this client ─
   useEffect(() => {
     if (!supabase || !client?.id) return undefined;
     const channel = supabase
@@ -142,16 +142,16 @@ export function ClientSchedulePanel({ client, showToast }) {
         {
           event: '*',
           schema: 'public',
-          table: 'care_plans',
+          table: 'service_plans',
           filter: `client_id=eq.${client.id}`,
         },
-        () => loadCarePlans(),
+        () => loadServicePlans(),
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [client?.id, loadShifts, loadCarePlans]);
+  }, [client?.id, loadShifts, loadServicePlans]);
 
   // ─── Calendar events ────────────────────────────────────────
   const calendarEvents = useMemo(() => {
@@ -168,7 +168,7 @@ export function ClientSchedulePanel({ client, showToast }) {
     const bounds = weekBoundsContainingLocal(visibleRange.start) ||
       { start: visibleRange.start, end: visibleRange.end };
     const scheduled = sumShiftHoursInWindow(shifts, bounds.start, bounds.end);
-    const planned = sumActivePlanHours(carePlans);
+    const planned = sumActivePlanHours(servicePlans);
     const counts = countShiftsByStatus(
       shifts.filter((sh) => {
         if (!sh.startTime) return false;
@@ -177,7 +177,7 @@ export function ClientSchedulePanel({ client, showToast }) {
       }),
     );
     return { scheduled, planned, counts };
-  }, [shifts, carePlans, visibleRange]);
+  }, [shifts, servicePlans, visibleRange]);
 
   const statusSummary = useMemo(() => {
     const parts = [];
@@ -331,7 +331,7 @@ export function ClientSchedulePanel({ client, showToast }) {
           initialDraft={createDraft}
           clients={activeClients}
           caregivers={rosterCaregivers}
-          carePlans={carePlans}
+          servicePlans={servicePlans}
           currentUserName={currentUserName}
           onClose={handleCreateClosed}
           onCreated={handleCreated}
@@ -344,7 +344,7 @@ export function ClientSchedulePanel({ client, showToast }) {
           shift={selectedShift}
           clients={activeClients}
           caregivers={rosterCaregivers}
-          carePlans={carePlans}
+          servicePlans={servicePlans}
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           onClose={handleDrawerClose}

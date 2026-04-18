@@ -34,7 +34,7 @@ export function ShiftDrawer({
   shift,
   clients,
   caregivers,
-  carePlans,
+  servicePlans,
   currentUserName,
   currentUserEmail,
   onClose,
@@ -498,7 +498,7 @@ export function ShiftDrawer({
             onChange={setDraft}
             clients={clients}
             caregivers={caregivers}
-            carePlans={carePlans}
+            servicePlans={servicePlans}
             errorMessage={error}
           />
 

@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-// Care Plans — display helpers
+// Service Plans — display helpers
 //
-// Small pure functions used by CarePlansPanel. Extracted so they
+// Small pure functions used by ServicePlansPanel. Extracted so they
 // can be unit-tested without rendering React components.
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Human-readable label for a care plan status value.
+ * Human-readable label for a service plan status value.
  */
 export function formatStatusLabel(status) {
   switch (status) {
@@ -24,7 +24,7 @@ export function formatStatusLabel(status) {
 }
 
 /**
- * Color scheme for a care plan status pill.
+ * Color scheme for a service plan status pill.
  */
 export function statusColors(status) {
   switch (status) {
@@ -57,10 +57,10 @@ export function formatDateShort(date) {
 }
 
 /**
- * Summary line for a care plan card: dates and hours.
+ * Summary line for a service plan card: dates and hours.
  * Example: "May 1, 2026 – ongoing · 20 hrs/week"
  */
-export function summarizeCarePlan(plan) {
+export function summarizeServicePlan(plan) {
   const parts = [];
   const startLabel = plan.startDate ? formatDateShort(plan.startDate) : '—';
   const endLabel = plan.endDate ? formatDateShort(plan.endDate) : 'ongoing';
@@ -72,10 +72,10 @@ export function summarizeCarePlan(plan) {
 }
 
 /**
- * Sort care plans so active plans come first, then draft/paused,
+ * Sort service plans so active plans come first, then draft/paused,
  * then ended, with newest creation date first within each group.
  */
-export function sortCarePlans(plans) {
+export function sortServicePlans(plans) {
   if (!Array.isArray(plans)) return [];
   const order = { active: 0, draft: 1, paused: 2, ended: 3 };
   return [...plans].sort((a, b) => {
@@ -88,7 +88,7 @@ export function sortCarePlans(plans) {
 }
 
 /**
- * Validate a care plan draft. Returns an error string (first problem
+ * Validate a service plan draft. Returns an error string (first problem
  * found) or null if the draft is valid enough to save.
  *
  * Rules:
@@ -96,8 +96,8 @@ export function sortCarePlans(plans) {
  *   - if both dates are set, end_date must not be before start_date
  *   - hours_per_week, if set, must be a positive number
  */
-export function validateCarePlanDraft(draft) {
-  if (!draft) return 'Missing care plan data.';
+export function validateServicePlanDraft(draft) {
+  if (!draft) return 'Missing service plan data.';
   if (!draft.title || !String(draft.title).trim()) {
     return 'Title is required.';
   }

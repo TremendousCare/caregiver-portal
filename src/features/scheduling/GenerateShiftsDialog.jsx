@@ -20,14 +20,14 @@ import s from './GenerateShiftsDialog.module.css';
 // GenerateShiftsDialog — Phase 7
 //
 // Opens when the scheduler clicks "Generate shifts →" on an active
-// care plan card that has a recurrence pattern. Shows:
+// service plan card that has a recurrence pattern. Shows:
 //
 //   - A weeks selector (2 / 4 / 8 / 12, default 4)
 //   - A preview of the generated shifts (date list, count)
 //   - A "Skipping N existing shifts" indicator so generating
 //     twice doesn't produce duplicates
 //   - Confirm → creates shifts in the database, all tagged with
-//     recurrence_group_id = this care plan's id so future edits
+//     recurrence_group_id = this service plan's id so future edits
 //     can reason about the series.
 //
 // Generated shifts start as 'open' — the scheduler still handles
@@ -59,7 +59,7 @@ export function GenerateShiftsDialog({
     return { start, end };
   }, [weeksAhead]);
 
-  // Fetch any existing shifts for this care plan in the window so
+  // Fetch any existing shifts for this service plan in the window so
   // we can skip duplicates in the preview and the insert.
   useEffect(() => {
     let cancelled = false;
@@ -68,7 +68,7 @@ export function GenerateShiftsDialog({
       setLoadError(null);
       try {
         const rows = await getShifts({
-          carePlanId: plan.id,
+          servicePlanId: plan.id,
           startDate: window.start.toISOString(),
           endDate: window.end.toISOString(),
         });
@@ -119,7 +119,7 @@ export function GenerateShiftsDialog({
       let created = 0;
       for (const instance of newInstances) {
         await createShift({
-          carePlanId: plan.id,
+          servicePlanId: plan.id,
           clientId: plan.clientId,
           startTime: instance.start_time,
           endTime: instance.end_time,
