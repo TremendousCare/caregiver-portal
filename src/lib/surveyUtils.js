@@ -14,7 +14,18 @@ export const QUESTION_TYPES = [
   { value: 'multi_select', label: 'Multiple Select (checkboxes)' },
   { value: 'free_text', label: 'Free Text' },
   { value: 'number', label: 'Number' },
+  { value: 'availability_schedule', label: 'Weekly Availability' },
 ];
+
+/**
+ * Question types whose answers are treated as structured data and do
+ * NOT participate in profile_field mapping or qualification rules.
+ */
+export const STRUCTURED_QUESTION_TYPES = ['availability_schedule'];
+
+export function isStructuredQuestion(type) {
+  return STRUCTURED_QUESTION_TYPES.includes(type);
+}
 
 /**
  * Qualification actions that can be assigned to answers.
@@ -84,6 +95,7 @@ export function getDefaultOptions(type) {
     case 'multi_select': return ['Option 1', 'Option 2'];
     case 'free_text': return [];
     case 'number': return [];
+    case 'availability_schedule': return [];
     default: return [];
   }
 }
@@ -115,6 +127,7 @@ export function evaluateSurveyAnswers(questions, answers) {
   const results = [];
 
   for (const question of questions) {
+    if (isStructuredQuestion(question.type)) continue;
     const answer = answers[question.id];
     if (answer === undefined || answer === null || answer === '') continue;
 
@@ -207,6 +220,10 @@ export function validateRequiredAnswers(questions, answers) {
     const answer = answers[q.id];
     if (answer === undefined || answer === null) {
       missing.push(q.id);
+    } else if (q.type === 'availability_schedule') {
+      // Structured answer — require at least one slot
+      const slots = Array.isArray(answer?.slots) ? answer.slots : [];
+      if (slots.length === 0) missing.push(q.id);
     } else if (Array.isArray(answer)) {
       if (answer.length === 0) missing.push(q.id);
     } else if (String(answer).trim() === '') {
@@ -250,6 +267,9 @@ export function extractProfileFieldUpdates(questions, answers) {
   const updates = {};
   for (const q of questions) {
     if (!q.profile_field) continue;
+    // Structured answers (e.g. availability_schedule) are synced via
+    // dedicated action types, not through scalar profile_field mapping.
+    if (isStructuredQuestion(q.type)) continue;
     const answer = answers[q.id];
     if (answer === undefined || answer === null) continue;
 

@@ -47,6 +47,87 @@ const ALLOWED_PROFILE_FIELDS = [
   "languages", "specializations", "certifications", "per_id",
 ];
 
+// ─── Availability Schedule Conversion ───
+// Mirrors src/lib/scheduling/prescreenAvailability.js (duplicated here
+// because edge functions can't import from the frontend source tree).
+// Keep the two in sync.
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+function fromMinutes(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+function mergeIntervals(intervals: { start: number; end: number }[]) {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = merged[merged.length - 1];
+    const cur = sorted[i];
+    if (cur.start <= prev.end) prev.end = Math.max(prev.end, cur.end);
+    else merged.push({ ...cur });
+  }
+  return merged;
+}
+
+/**
+ * Convert a validated availability_schedule answer into insert-ready
+ * rows for caregiver_availability. Throws on malformed input so the
+ * caller can log a failure instead of silently producing garbage.
+ */
+function convertAvailabilityAnswerToInsertRows(
+  answer: { slots?: Array<{ day: number; startTime: string; endTime: string }> },
+  caregiverId: string,
+  sourceResponseId: string | null,
+): Array<Record<string, any>> {
+  const slots = Array.isArray(answer?.slots) ? answer.slots : [];
+  if (slots.length === 0) return [];
+
+  const byDay = new Map<number, { start: number; end: number }[]>();
+  for (const slot of slots) {
+    const day = Number(slot?.day);
+    if (!Number.isInteger(day) || day < 0 || day > 6) {
+      throw new Error(`Invalid day "${slot?.day}"`);
+    }
+    if (typeof slot?.startTime !== "string" || !HHMM_RE.test(slot.startTime)) {
+      throw new Error(`Invalid startTime "${slot?.startTime}"`);
+    }
+    if (typeof slot?.endTime !== "string" || !HHMM_RE.test(slot.endTime)) {
+      throw new Error(`Invalid endTime "${slot?.endTime}"`);
+    }
+    const start = toMinutes(slot.startTime);
+    const end = toMinutes(slot.endTime);
+    if (start >= end) {
+      throw new Error(`start must be before end on day ${day}`);
+    }
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day)!.push({ start, end });
+  }
+
+  const rows: Array<Record<string, any>> = [];
+  for (const [day, intervals] of byDay) {
+    for (const { start, end } of mergeIntervals(intervals)) {
+      rows.push({
+        caregiver_id: caregiverId,
+        type: "available",
+        day_of_week: day,
+        start_time: fromMinutes(start),
+        end_time: fromMinutes(end),
+        source: "survey",
+        pinned: false,
+        source_response_id: sourceResponseId,
+        created_by: "Survey Import",
+      });
+    }
+  }
+  return rows;
+}
+
 // ─── Phone Number Normalization ───
 function normalizePhoneNumber(phone: string): string | null {
   if (!phone) return null;
@@ -280,6 +361,11 @@ Deno.serve(async (req) => {
     if (trigger_context?.reminder_number) {
       dedupQuery = dedupQuery.contains("trigger_context", { reminder_number: trigger_context.reminder_number });
     }
+    // Survey-keyed actions (e.g. sync_availability_from_survey) dedup per
+    // survey response so each submission is treated as a distinct event.
+    if (trigger_context?.response_id) {
+      dedupQuery = dedupQuery.contains("trigger_context", { response_id: trigger_context.response_id });
+    }
 
     const { data: existingLog } = await dedupQuery.limit(1);
 
@@ -438,6 +524,62 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // ─── Sync Availability From Survey ───
+      // Deletes all non-pinned caregiver_availability rows for the
+      // caregiver and inserts fresh rows derived from the survey
+      // answer. Pinned rows are left untouched.
+      // Empty submissions (no slots) are a no-op — we never wipe
+      // availability down to nothing from a survey.
+      case "sync_availability_from_survey": {
+        if (entity_type === "client") {
+          result = { success: false, error: "Availability sync is caregiver-only" };
+          break;
+        }
+        const availabilityAnswer = action_config?.availability_answer;
+        const responseId = action_config?.response_id ?? trigger_context?.response_id ?? null;
+
+        let insertRows: Array<Record<string, any>>;
+        try {
+          insertRows = convertAvailabilityAnswerToInsertRows(
+            availabilityAnswer || {},
+            caregiver_id,
+            responseId,
+          );
+        } catch (err) {
+          result = { success: false, error: `Availability conversion failed: ${err.message}` };
+          break;
+        }
+
+        if (insertRows.length === 0) {
+          // Empty answer — skip import entirely (never wipe to zero)
+          result = { success: true };
+          break;
+        }
+
+        // 1) Delete every non-pinned row for this caregiver
+        const { error: delErr } = await supabase
+          .from("caregiver_availability")
+          .delete()
+          .eq("caregiver_id", caregiver_id)
+          .eq("pinned", false);
+        if (delErr) {
+          result = { success: false, error: `Delete failed: ${delErr.message}` };
+          break;
+        }
+
+        // 2) Insert fresh rows from the survey answer
+        const { error: insErr } = await supabase
+          .from("caregiver_availability")
+          .insert(insertRows);
+        if (insErr) {
+          result = { success: false, error: `Insert failed: ${insErr.message}` };
+          break;
+        }
+
+        result = { success: true };
+        break;
+      }
+
       case "send_docusign_envelope": {
         if (entity_type === "client") {
           result = { success: false, error: "DocuSign envelopes are only supported for caregivers" };
@@ -516,7 +658,7 @@ Deno.serve(async (req) => {
     await supabase.from("automation_log").insert(logEntry);
 
     // ─── Auto-Note on Entity Record (on success, skip for silent actions) ───
-    if (result.success && !["add_note", "update_profile_fields"].includes(action_type)) {
+    if (result.success && !["add_note", "update_profile_fields", "sync_availability_from_survey"].includes(action_type)) {
       const { data: cgData } = await supabase
         .from(tableName)
         .select("notes")
@@ -573,6 +715,7 @@ Deno.serve(async (req) => {
       add_note: "Note added",
       update_field: `Field \"${action_config?.field_name || "unknown"}\" updated`,
       update_profile_fields: "Profile fields updated from survey",
+      sync_availability_from_survey: "Availability synced from survey",
       send_docusign_envelope: "DocuSign envelope sent",
     };
 

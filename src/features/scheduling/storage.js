@@ -284,6 +284,9 @@ export const dbToAvailability = (row) => ({
   effectiveUntil: row.effective_until,
   reason: row.reason,
   notes: row.notes,
+  source: row.source ?? null,
+  pinned: row.pinned === true,
+  sourceResponseId: row.source_response_id ?? null,
   createdBy: row.created_by,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -302,6 +305,9 @@ export const availabilityToDb = (row) => ({
   effective_until: row.effectiveUntil ?? null,
   reason: row.reason ?? null,
   notes: row.notes ?? null,
+  source: row.source ?? null,
+  pinned: row.pinned === true,
+  source_response_id: row.sourceResponseId ?? null,
   created_by: row.createdBy ?? null,
   updated_at: new Date().toISOString(),
 });
@@ -313,6 +319,36 @@ export const addAvailability = async (row) => {
   const { data, error } = await supabase
     .from('caregiver_availability')
     .insert(dbRow)
+    .select()
+    .single();
+  if (error) throw error;
+  return dbToAvailability(data);
+};
+
+/**
+ * Partial update for a caregiver_availability row. Only writes fields
+ * present in the patch so a single-field toggle (e.g. `{ pinned: true }`)
+ * doesn't clobber start_time / day_of_week / etc.
+ */
+export const updateAvailability = async (id, patch) => {
+  if (!isSupabaseConfigured()) return null;
+  const row = {};
+  if ('type' in patch) row.type = patch.type;
+  if ('dayOfWeek' in patch) row.day_of_week = patch.dayOfWeek;
+  if ('startTime' in patch) row.start_time = patch.startTime;
+  if ('endTime' in patch) row.end_time = patch.endTime;
+  if ('startDate' in patch) row.start_date = patch.startDate;
+  if ('endDate' in patch) row.end_date = patch.endDate;
+  if ('reason' in patch) row.reason = patch.reason;
+  if ('notes' in patch) row.notes = patch.notes;
+  if ('source' in patch) row.source = patch.source;
+  if ('pinned' in patch) row.pinned = patch.pinned === true;
+  if ('sourceResponseId' in patch) row.source_response_id = patch.sourceResponseId;
+  row.updated_at = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('caregiver_availability')
+    .update(row)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
