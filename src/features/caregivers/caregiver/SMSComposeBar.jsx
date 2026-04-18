@@ -40,8 +40,10 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
   const routePickerRef = useRef(null);
 
   const hasPhone = !!caregiver.phone;
+  const smsOptedOut = caregiver.smsOptedOut === true || caregiver.sms_opted_out === true;
   const charCount = message.length;
-  const canSend = message.trim().length > 0 && charCount <= MAX_CHARS && !sending && hasPhone;
+  const canSend =
+    message.trim().length > 0 && charCount <= MAX_CHARS && !sending && hasPhone && !smsOptedOut;
 
   // Cleanup speech recognition on unmount
   useEffect(() => {
@@ -224,6 +226,17 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
     return (
       <div className={styles.composeDisabledMsg}>
         No phone number on file — add one in the profile to send texts
+      </div>
+    );
+  }
+
+  if (smsOptedOut) {
+    return (
+      <div className={styles.composeDisabledMsg} style={{
+        background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA',
+      }}>
+        🚫 This caregiver has opted out of SMS. Outbound texts are blocked for compliance.
+        Re-subscribe from the Profile Information card if they request it.
       </div>
     );
   }

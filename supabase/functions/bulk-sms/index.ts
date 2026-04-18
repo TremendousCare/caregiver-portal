@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
     // Fetch caregivers in one query
     const { data: caregivers, error: fetchErr } = await supabase
       .from("caregivers")
-      .select("id, first_name, last_name, phone, email, phase_override, notes")
+      .select("id, first_name, last_name, phone, email, phase_override, notes, sms_opted_out")
       .in("id", caregiver_ids);
 
     if (fetchErr) {
@@ -226,6 +226,14 @@ Deno.serve(async (req: Request) => {
       // Skip: no valid phone
       if (!cg.phone || !normalizedPhone) {
         results.push({ id: cg.id, name: fullName(cg), status: "skipped", reason: "no valid phone number" });
+        continue;
+      }
+
+      // Skip: caregiver has opted out of SMS (TCPA compliance).
+      // Every outbound SMS path must honor the opt-out flag; manual
+      // sends are no exception.
+      if (cg.sms_opted_out === true) {
+        results.push({ id: cg.id, name: fullName(cg), status: "skipped", reason: "caregiver has opted out of SMS" });
         continue;
       }
 

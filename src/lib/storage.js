@@ -140,6 +140,38 @@ export const saveCaregiver = async (caregiver) => {
   }
 };
 
+/**
+ * Toggle the SMS opt-out flag on a caregiver. Direct targeted update
+ * — does NOT round-trip the full record, so it's safe to call from
+ * any admin UI without risking accidental overwrites of other fields.
+ *
+ * @param {string} caregiverId
+ * @param {boolean} optedOut     true = block outbound SMS, false = resubscribe
+ * @param {string}  source       'admin' | 'manual' | 'keyword'
+ */
+export const setCaregiverSmsOptOut = async (caregiverId, optedOut, source = 'admin') => {
+  if (!isSupabaseConfigured()) return null;
+  const patch = optedOut
+    ? {
+        sms_opted_out: true,
+        sms_opted_out_at: new Date().toISOString(),
+        sms_opted_out_source: source,
+      }
+    : {
+        sms_opted_out: false,
+        sms_opted_out_at: null,
+        sms_opted_out_source: null,
+      };
+  const { data, error } = await supabase
+    .from('caregivers')
+    .update(patch)
+    .eq('id', caregiverId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 // ─── Bulk save for multi-select operations ──────────────────
 export const saveCaregiversBulk = async (caregivers) => {
   try {
@@ -567,6 +599,9 @@ export const dbToCaregiver = (row) => ({
   availabilityType: row.availability_type || '',
   currentAssignment: row.current_assignment || '',
   cprExpiryDate: row.cpr_expiry_date,
+  smsOptedOut: row.sms_opted_out === true,
+  smsOptedOutAt: row.sms_opted_out_at || null,
+  smsOptedOutSource: row.sms_opted_out_source || null,
   createdAt: row.created_at,
 });
 

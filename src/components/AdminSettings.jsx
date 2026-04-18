@@ -7,6 +7,7 @@ import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
+import { SmsOptOutList } from './SmsOptOutList';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
@@ -2589,6 +2590,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Automation Engine */}
       <div style={{ marginBottom: 20 }}>
         <AutomationSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* SMS Opt-Out Compliance */}
+      <div style={{ marginBottom: 20 }}>
+        <SmsOptOutList showToast={showToast} />
       </div>
 
       {/* Action Item Rules */}
