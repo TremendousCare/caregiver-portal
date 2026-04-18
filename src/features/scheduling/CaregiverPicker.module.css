@@ -126,6 +126,13 @@
   min-width: 0;
 }
 
+.rowNameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rowName {
   font-size: 13px;
   font-weight: 600;
@@ -133,6 +140,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.onboardingBadge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #E0F2FE;
+  color: #075985;
+  border: 1px solid #BAE6FD;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
 }
 
 .rowReason {

@@ -11,6 +11,7 @@ import {
   weekBoundsContaining,
 } from './eligibilityRanking';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
+import { isOnboardingCaregiver } from '../../lib/rosterUtils';
 import s from './CaregiverPicker.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -190,7 +191,7 @@ export function CaregiverPicker({
       {loadError && <div className={s.error}>{loadError}</div>}
 
       {!loading && eligible.length === 0 && filtered.length === 0 && (
-        <div className={s.empty}>No caregivers on the active roster.</div>
+        <div className={s.empty}>No caregivers available to assign.</div>
       )}
 
       {!loading && eligible.length === 0 && filtered.length > 0 && (
@@ -250,6 +251,7 @@ function PickerRow({ entry, selected, onPick, filtered }) {
   const displayName =
     `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim() || caregiver.id;
   const reason = filtered ? filterDetail : formatEligibleReason(entry);
+  const isOnboarding = isOnboardingCaregiver(caregiver);
 
   return (
     <li className={`${s.row} ${selected ? s.rowSelected : ''} ${filtered ? s.rowFiltered : ''}`}>
@@ -258,7 +260,17 @@ function PickerRow({ entry, selected, onPick, filtered }) {
           {selected ? '●' : '○'}
         </span>
         <span className={s.rowText}>
-          <span className={s.rowName}>{displayName}</span>
+          <span className={s.rowNameLine}>
+            <span className={s.rowName}>{displayName}</span>
+            {isOnboarding && (
+              <span
+                className={s.onboardingBadge}
+                title="Still in onboarding — not yet on active roster"
+              >
+                Onboarding
+              </span>
+            )}
+          </span>
           <span className={s.rowReason}>{reason}</span>
         </span>
         {filtered && (

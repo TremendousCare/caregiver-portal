@@ -55,7 +55,7 @@ export function SchedulePage() {
   const calendarRef = useRef(null);
   const { showToast, currentUserName, currentUserEmail } = useApp();
   const { activeClients } = useClients();
-  const { rosterCaregivers } = useCaregivers();
+  const { rosterCaregivers, onboardingCaregivers } = useCaregivers();
 
   const [currentView, setCurrentView] = useState('timeGridWeek');
   const [visibleRange, setVisibleRange] = useState(null);
@@ -85,11 +85,21 @@ export function SchedulePage() {
     return map;
   }, [activeClients]);
 
+  // Caregivers that can be assigned to a shift: full active roster plus
+  // applicants still in onboarding. Onboarding caregivers are flagged
+  // visually in the picker so schedulers know they're not fully cleared,
+  // but they can still be assigned so we can fill shifts we're actively
+  // hiring for.
+  const schedulableCaregivers = useMemo(
+    () => [...(rosterCaregivers || []), ...(onboardingCaregivers || [])],
+    [rosterCaregivers, onboardingCaregivers],
+  );
+
   const caregiversById = useMemo(() => {
     const map = {};
-    for (const c of rosterCaregivers || []) map[c.id] = c;
+    for (const c of schedulableCaregivers) map[c.id] = c;
     return map;
-  }, [rosterCaregivers]);
+  }, [schedulableCaregivers]);
 
   // All care plans, flattened, used by the form to list plans for
   // the currently selected client.
@@ -404,7 +414,7 @@ export function SchedulePage() {
         <ShiftCreateModal
           initialDraft={createDraft}
           clients={activeClients}
-          caregivers={rosterCaregivers}
+          caregivers={schedulableCaregivers}
           carePlans={allCarePlans}
           currentUserName={currentUserName}
           onClose={handleCreateClosed}
@@ -417,7 +427,7 @@ export function SchedulePage() {
         <ShiftDrawer
           shift={selectedShift}
           clients={activeClients}
-          caregivers={rosterCaregivers}
+          caregivers={schedulableCaregivers}
           carePlans={allCarePlans}
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}

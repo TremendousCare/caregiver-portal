@@ -32,3 +32,28 @@ export const getOnboardingCaregivers = (caregivers) => {
     (cg) => !cg.archived && (!cg.employmentStatus || cg.employmentStatus === 'onboarding')
   );
 };
+
+/**
+ * Caregivers eligible to appear in the shift-assignment picker:
+ * active roster plus applicants still in onboarding. Archived
+ * caregivers are excluded. Roster caregivers come first so the
+ * default ordering surfaces fully-cleared caregivers ahead of
+ * applicants.
+ */
+export const getSchedulableCaregivers = (caregivers) => {
+  return [
+    ...getRosterCaregivers(caregivers),
+    ...getOnboardingCaregivers(caregivers),
+  ];
+};
+
+/**
+ * True when a caregiver is still working through onboarding and has not
+ * been cleared for the active roster. Mirrors getOnboardingCaregivers so
+ * picker-row badges stay consistent with the underlying filter.
+ */
+export const isOnboardingCaregiver = (caregiver) => {
+  if (!caregiver) return false;
+  if (caregiver.archived) return false;
+  return !caregiver.employmentStatus || caregiver.employmentStatus === 'onboarding';
+};
