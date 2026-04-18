@@ -172,6 +172,45 @@ export const setCaregiverSmsOptOut = async (caregiverId, optedOut, source = 'adm
   return data;
 };
 
+/**
+ * Toggle the per-caregiver "pause availability check-ins" flag.
+ * Separate from the global SMS opt-out (sms_opted_out): pausing
+ * availability check-ins does NOT block other outbound SMS — only
+ * the recurring availability reminder.
+ *
+ * @param {string}  caregiverId
+ * @param {boolean} paused
+ * @param {string}  reason  optional free-text reason surfaced in the
+ *                          admin list view (e.g. "stable availability,
+ *                          requested no reminders")
+ */
+export const setCaregiverAvailabilityCheckPaused = async (
+  caregiverId,
+  paused,
+  reason = null,
+) => {
+  if (!isSupabaseConfigured()) return null;
+  const patch = paused
+    ? {
+        availability_check_paused: true,
+        availability_check_paused_at: new Date().toISOString(),
+        availability_check_paused_reason: reason || null,
+      }
+    : {
+        availability_check_paused: false,
+        availability_check_paused_at: null,
+        availability_check_paused_reason: null,
+      };
+  const { data, error } = await supabase
+    .from('caregivers')
+    .update(patch)
+    .eq('id', caregiverId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 // ─── Bulk save for multi-select operations ──────────────────
 export const saveCaregiversBulk = async (caregivers) => {
   try {
@@ -602,6 +641,9 @@ export const dbToCaregiver = (row) => ({
   smsOptedOut: row.sms_opted_out === true,
   smsOptedOutAt: row.sms_opted_out_at || null,
   smsOptedOutSource: row.sms_opted_out_source || null,
+  availabilityCheckPaused: row.availability_check_paused === true,
+  availabilityCheckPausedAt: row.availability_check_paused_at || null,
+  availabilityCheckPausedReason: row.availability_check_paused_reason || null,
   createdAt: row.created_at,
 });
 

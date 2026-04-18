@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
-import { setCaregiverSmsOptOut } from '../../../lib/storage';
+import {
+  setCaregiverSmsOptOut,
+  setCaregiverAvailabilityCheckPaused,
+} from '../../../lib/storage';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -12,6 +15,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editForm, setEditForm] = useState({});
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
   const [togglingOptOut, setTogglingOptOut] = useState(false);
+  const [togglingAvailPaused, setTogglingAvailPaused] = useState(false);
 
   const days = getDaysSinceApplication(caregiver);
 
@@ -36,6 +40,41 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       window.alert('Failed to update SMS opt-out. Please try again.');
     } finally {
       setTogglingOptOut(false);
+    }
+  };
+
+  const handleToggleAvailPaused = async () => {
+    if (togglingAvailPaused) return;
+    const next = !caregiver.availabilityCheckPaused;
+    const confirmMsg = next
+      ? `Pause availability check-ins for ${caregiver.firstName}? They will stop receiving recurring "update your availability" texts. Other SMS (shift offers, etc.) will continue.`
+      : `Resume availability check-ins for ${caregiver.firstName}? They will start receiving the recurring "update your availability" texts again.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    let reason = null;
+    if (next) {
+      const input = window.prompt(
+        'Optional reason (shown only to admins in the Paused Check-Ins list):',
+        '',
+      );
+      // prompt returns null on cancel — only proceed if they didn't cancel
+      if (input === null) return;
+      reason = input.trim() || null;
+    }
+
+    setTogglingAvailPaused(true);
+    try {
+      await setCaregiverAvailabilityCheckPaused(caregiver.id, next, reason);
+      onUpdateCaregiver(caregiver.id, {
+        availabilityCheckPaused: next,
+        availabilityCheckPausedAt: next ? new Date().toISOString() : null,
+        availabilityCheckPausedReason: next ? reason : null,
+      });
+    } catch (err) {
+      console.error('Failed to toggle availability check-in pause:', err);
+      window.alert('Failed to update. Please try again.');
+    } finally {
+      setTogglingAvailPaused(false);
     }
   };
 
@@ -185,6 +224,58 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
                 : caregiver.smsOptedOut
                   ? 'Re-subscribe'
                   : 'Pause SMS'}
+            </button>
+          </div>
+          <div style={{
+            padding: '12px 20px 16px',
+            borderTop: '1px solid #F0F3F7',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+              }}>
+                Availability Check-Ins
+              </div>
+              {caregiver.availabilityCheckPaused ? (
+                <div style={{ fontSize: 13, color: '#A16207', fontWeight: 600 }}>
+                  ⏸ Paused
+                  {caregiver.availabilityCheckPausedAt && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      on {new Date(caregiver.availabilityCheckPausedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                  {caregiver.availabilityCheckPausedReason && (
+                    <div style={{ fontWeight: 400, color: '#7A8BA0', fontSize: 12, marginTop: 2 }}>
+                      "{caregiver.availabilityCheckPausedReason}"
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                  ✓ Receiving recurring availability updates
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Pausing only stops the "update your availability" recurring texts.
+                Other SMS (shift offers, confirmations) continue either way.
+              </div>
+            </div>
+            <button
+              className={btn.secondaryBtn}
+              onClick={handleToggleAvailPaused}
+              disabled={togglingAvailPaused}
+              style={{ fontSize: 12 }}
+            >
+              {togglingAvailPaused
+                ? 'Updating…'
+                : caregiver.availabilityCheckPaused
+                  ? 'Resume'
+                  : 'Pause check-ins'}
             </button>
           </div>
         </>

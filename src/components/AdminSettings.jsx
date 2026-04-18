@@ -8,6 +8,7 @@ import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
 import { SmsOptOutList } from './SmsOptOutList';
+import { PausedCheckInsList } from './PausedCheckInsList';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
@@ -2595,6 +2596,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* SMS Opt-Out Compliance */}
       <div style={{ marginBottom: 20 }}>
         <SmsOptOutList showToast={showToast} />
+      </div>
+
+      {/* Paused Availability Check-Ins */}
+      <div style={{ marginBottom: 20 }}>
+        <PausedCheckInsList showToast={showToast} />
       </div>
 
       {/* Action Item Rules */}
