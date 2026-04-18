@@ -394,12 +394,32 @@ Deno.serve(async (req) => {
       : "";
 
     // ─── Execute Action ───
-    let result: { success: boolean; error?: string };
+    let result: { success: boolean; error?: string; skipped?: boolean };
 
     switch (action_type) {
       case "send_sms": {
         if (!caregiver.phone) {
           result = { success: false, error: `${entityLabel === "client" ? "Client" : "Caregiver"} has no phone number` };
+          break;
+        }
+        // ─── TCPA Opt-Out Gate ───
+        // Block every outbound SMS to a recipient who has opted out
+        // (via STOP keyword or admin toggle). This is the single gate
+        // that protects every SMS path — keyword-based automations,
+        // days_inactive rules, survey_pending reminders, recurring
+        // availability check-ins, and ad-hoc sends all funnel through
+        // this switch case.
+        const { data: optOutRow } = await supabase
+          .from(tableName)
+          .select("sms_opted_out")
+          .eq("id", caregiver_id)
+          .single();
+        if (optOutRow?.sms_opted_out === true) {
+          result = {
+            success: false,
+            skipped: true,
+            error: `${entityLabel === "client" ? "Client" : "Caregiver"} has opted out of SMS — send blocked`,
+          };
           break;
         }
         result = await sendSMS(caregiver.phone, resolvedMessage);
@@ -649,7 +669,7 @@ Deno.serve(async (req) => {
       rule_id,
       caregiver_id,
       action_type,
-      status: result.success ? "success" : "failed",
+      status: result.success ? "success" : (result.skipped ? "skipped" : "failed"),
       message_sent: resolvedMessage || `${action_type}: ${JSON.stringify(action_config || {})}`,
       error_detail: result.error || null,
       trigger_context: trigger_context || {},

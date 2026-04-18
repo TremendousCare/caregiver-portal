@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
+import { setCaregiverSmsOptOut } from '../../../lib/storage';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -10,8 +11,33 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
+  const [togglingOptOut, setTogglingOptOut] = useState(false);
 
   const days = getDaysSinceApplication(caregiver);
+
+  const handleToggleSmsOptOut = async () => {
+    if (togglingOptOut) return;
+    const next = !caregiver.smsOptedOut;
+    const confirmMsg = next
+      ? `Pause all SMS to ${caregiver.firstName}? Automations and manual texts will be blocked until you re-enable.`
+      : `Re-subscribe ${caregiver.firstName} to SMS? They will receive automations and manual texts again.`;
+    if (!window.confirm(confirmMsg)) return;
+    setTogglingOptOut(true);
+    try {
+      await setCaregiverSmsOptOut(caregiver.id, next, 'admin');
+      // Optimistic local update via the parent's updater
+      onUpdateCaregiver(caregiver.id, {
+        smsOptedOut: next,
+        smsOptedOutAt: next ? new Date().toISOString() : null,
+        smsOptedOutSource: next ? 'admin' : null,
+      });
+    } catch (err) {
+      console.error('Failed to toggle SMS opt-out:', err);
+      window.alert('Failed to update SMS opt-out. Please try again.');
+    } finally {
+      setTogglingOptOut(false);
+    }
+  };
 
   const startEditing = () => {
     setEditForm({
@@ -112,7 +138,57 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
               <div className={cards.profileValue} style={{ marginTop: 4 }}>{caregiver.initialNotes}</div>
             </div>
           )}
+          <div style={{
+            padding: '12px 20px 16px',
+            borderTop: '1px solid #F0F3F7',
+            marginTop: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+              }}>
+                SMS Status
+              </div>
+              {caregiver.smsOptedOut ? (
+                <div style={{ fontSize: 13, color: '#991B1B', fontWeight: 600 }}>
+                  🚫 Opted out
+                  {caregiver.smsOptedOutSource && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      ({caregiver.smsOptedOutSource === 'keyword' ? 'replied STOP' : 'paused by admin'})
+                    </span>
+                  )}
+                  {caregiver.smsOptedOutAt && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      on {new Date(caregiver.smsOptedOutAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                  ✓ Active — receiving texts
+                </div>
+              )}
+            </div>
+            <button
+              className={btn.secondaryBtn}
+              onClick={handleToggleSmsOptOut}
+              disabled={togglingOptOut}
+              style={{ fontSize: 12 }}
+            >
+              {togglingOptOut
+                ? 'Updating…'
+                : caregiver.smsOptedOut
+                  ? 'Re-subscribe'
+                  : 'Pause SMS'}
+            </button>
+          </div>
         </>
+
       ) : expanded ? (
         <div style={{ padding: '16px 20px' }}>
           <div className={forms.formGrid}>
