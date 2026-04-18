@@ -20,7 +20,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       address: caregiver.address || '', city: caregiver.city || '',
       state: caregiver.state || '', zip: caregiver.zip || '',
       perId: caregiver.perId || '', hcaExpiration: caregiver.hcaExpiration || '',
-      hasHCA: caregiver.hasHCA || '', hasDL: caregiver.hasDL || '',
+      hasHCA: caregiver.hasHCA || '', hasDL: caregiver.hasDL || '', hasVehicle: caregiver.hasVehicle || '',
       availability: caregiver.availability || '', source: caregiver.source || '',
       sourceDetail: caregiver.sourceDetail || '',
       applicationDate: caregiver.applicationDate || '',
@@ -51,7 +51,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'HCA PER ID', value: caregiver.perId },
     { label: 'HCA Expiration Date', value: caregiver.hcaExpiration ? (() => { const exp = new Date(caregiver.hcaExpiration + 'T00:00:00'); const du = Math.ceil((exp - new Date()) / 86400000); const ds = exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); if (du < 0) return `⚠️ Expired — ${ds}`; if (du <= 30) return `⏰ ${ds} (${du} days)`; if (du <= 90) return `📅 ${ds} (${du} days)`; return `✅ ${ds}`; })() : null },
     { label: 'HCA Status', value: caregiver.hasHCA === 'yes' ? '✅ Valid HCA ID' : caregiver.hasHCA === 'willing' ? '📝 Willing to register' : caregiver.hasHCA === 'no' ? '❌ No HCA ID' : null },
-    { label: "Driver's License & Car", value: caregiver.hasDL === 'yes' ? '✅ Yes' : caregiver.hasDL === 'no' ? '❌ No' : null },
+    { label: "Driver's License", value: caregiver.hasDL === 'yes' ? '✅ Yes' : caregiver.hasDL === 'no' ? '❌ No' : null },
+    { label: 'Vehicle', value: caregiver.hasVehicle === 'yes' ? '✅ Yes' : caregiver.hasVehicle === 'no' ? '❌ No' : null },
     { label: 'Availability', value: caregiver.availability },
     { label: 'Source', value: [caregiver.source, caregiver.sourceDetail].filter(Boolean).join(' — ') || null },
     { label: 'Application Date', value: caregiver.applicationDate ? new Date(caregiver.applicationDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null },
@@ -132,8 +133,14 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
               </select>
             </div>
             <div className={forms.field}>
-              <label className={forms.fieldLabel}>Driver's License & Car</label>
+              <label className={forms.fieldLabel}>Driver's License</label>
               <select className={forms.fieldInput} value={editForm.hasDL} onChange={(e) => editField('hasDL', e.target.value)}>
+                <option value="">— Not set —</option><option value="yes">Yes</option><option value="no">No</option>
+              </select>
+            </div>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Vehicle</label>
+              <select className={forms.fieldInput} value={editForm.hasVehicle} onChange={(e) => editField('hasVehicle', e.target.value)}>
                 <option value="">— Not set —</option><option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
