@@ -15,6 +15,7 @@ import {
   formatEligibleReason,
   weekBoundsContaining,
 } from './eligibilityRanking';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import {
   DEFAULT_BROADCAST_TEMPLATE,
   buildMergeFields,
@@ -182,6 +183,7 @@ export function BroadcastModal({
       assignmentsByCaregiverId,
       weekStart: weekBounds.start,
       weekEnd: weekBounds.end,
+      timezone: DEFAULT_APP_TIMEZONE,
     });
   }, [shift, caregivers, availabilityByCaregiverId, shiftsByCaregiverId, assignmentsByCaregiverId]);
 

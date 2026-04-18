@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createShift, getShifts } from './storage';
 import { expandRecurrence } from '../../lib/scheduling/recurrence';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import {
   GENERATE_WEEKS_DEFAULT,
   GENERATE_WEEKS_OPTIONS,
@@ -85,7 +86,9 @@ export function GenerateShiftsDialog({
   // Expand the recurrence pattern into candidate instances
   const allInstances = useMemo(() => {
     if (!hasRecurrencePattern(plan.recurrencePattern)) return [];
-    return expandRecurrence(plan.recurrencePattern, window.start, window.end);
+    return expandRecurrence(plan.recurrencePattern, window.start, window.end, {
+      timezone: DEFAULT_APP_TIMEZONE,
+    });
   }, [plan.recurrencePattern, window.start, window.end]);
 
   // Filter out instances that already have a matching shift

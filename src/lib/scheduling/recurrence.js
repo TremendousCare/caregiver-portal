@@ -20,7 +20,15 @@
 // straight to RFC 5545 rrule) means Phase 7 can drop in rrule later
 // without breaking anything — the returned shape (array of instances)
 // stays identical.
+//
+// Timezone handling: wall-clock times in the pattern are resolved via
+// the `timezone` option (see src/lib/scheduling/timezone.js). Passing
+// DEFAULT_APP_TIMEZONE makes the output stable across runtimes and
+// DST-correct; omitting it falls back to the JS runtime's local zone
+// to preserve behavior for legacy callers.
 // ═══════════════════════════════════════════════════════════════
+
+import { wallClockToUtcMs } from './timezone';
 
 /**
  * Parse an ISO date string (YYYY-MM-DD) or Date into a UTC midnight Date.
@@ -51,34 +59,31 @@ function formatDate(d) {
 }
 
 /**
- * Build an ISO timestamp for a given date + clock time (treated as UTC).
-/**
- * Build an ISO timestamp for a given date + clock time.
+ * Build an ISO timestamp for a given date + clock time in `timezone`.
  *
- * Uses LOCAL time (not UTC) because the clock times in recurrence
- * patterns represent the user's local wall-clock intent: "08:00"
- * means 8 AM in the scheduler's timezone, not 8 AM UTC. Same fix
- * applied to availabilityMatching.js in Phase 4c for the same
- * reason — all scheduling times are local-time-first.
+ * Clock times in recurrence patterns represent the user's local wall-
+ * clock intent: "08:00" means 8 AM in the scheduler's timezone, not
+ * 8 AM UTC. Resolving against an explicit IANA timezone keeps the
+ * output stable across runtimes and DST-correct.
  */
-function buildIsoTimestamp(date, clock) {
+function buildIsoTimestamp(date, clock, timezone) {
   // clock is "HH:MM" or "HH:MM:SS"
   const parts = clock.split(':');
   const h = parseInt(parts[0], 10);
   const m = parseInt(parts[1], 10);
   const s = parts.length > 2 ? parseInt(parts[2], 10) : 0;
-  // Use the UTC calendar date from the cursor (which iterates day-by-day
-  // in UTC space) but build the timestamp in LOCAL time so the resulting
-  // ISO string represents the correct local-clock moment.
-  const stamp = new Date(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    h,
-    m,
-    s,
+  const utcMs = wallClockToUtcMs(
+    {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate(),
+      hour: h,
+      minute: m,
+      second: s,
+    },
+    timezone,
   );
-  return stamp.toISOString();
+  return new Date(utcMs).toISOString();
 }
 
 /**
@@ -119,11 +124,17 @@ function validatePattern(pattern) {
  * @param {object}  pattern
  * @param {string|Date} windowStart  Earliest allowed date (inclusive)
  * @param {string|Date} windowEnd    Latest allowed date (inclusive)
+ * @param {{ timezone?: string }} [options]
+ *   `timezone` is an IANA zone (e.g. 'America/Los_Angeles'). Production
+ *   callers should pass DEFAULT_APP_TIMEZONE from `./timezone`. Omit to
+ *   use the JS runtime's local zone (legacy behavior).
  * @returns {object[]}  instances (empty array if nothing qualifies)
  */
-export function expandRecurrence(pattern, windowStart, windowEnd) {
+export function expandRecurrence(pattern, windowStart, windowEnd, options = {}) {
   const error = validatePattern(pattern);
   if (error) return [];
+
+  const timezone = options.timezone;
 
   const winStart = toUTCDate(windowStart);
   const winEnd = toUTCDate(windowEnd);
@@ -151,8 +162,8 @@ export function expandRecurrence(pattern, windowStart, windowEnd) {
       if (!exceptions.has(dateStr)) {
         results.push({
           date: dateStr,
-          start_time: buildIsoTimestamp(cursor, pattern.start_time),
-          end_time: buildIsoTimestamp(cursor, pattern.end_time),
+          start_time: buildIsoTimestamp(cursor, pattern.start_time, timezone),
+          end_time: buildIsoTimestamp(cursor, pattern.end_time, timezone),
         });
       }
     }

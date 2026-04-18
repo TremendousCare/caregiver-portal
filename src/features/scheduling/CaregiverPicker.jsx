@@ -10,6 +10,7 @@ import {
   formatEligibleReason,
   weekBoundsContaining,
 } from './eligibilityRanking';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import s from './CaregiverPicker.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -140,6 +141,7 @@ export function CaregiverPicker({
       assignmentsByCaregiverId,
       weekStart: weekBounds.start,
       weekEnd: weekBounds.end,
+      timezone: DEFAULT_APP_TIMEZONE,
     });
   }, [
     clientId,

@@ -284,3 +284,118 @@ describe('expandRecurrence — edge cases', () => {
     ]);
   });
 });
+
+// ─── Explicit timezone — stable across runtimes ───────────────
+// When a caller passes { timezone }, the output must be deterministic
+// regardless of the JS runtime's local zone — this is the whole point
+// of the timezone option. Without it, the same pattern produces
+// different ISO strings on a dev laptop vs. Vercel.
+
+describe('expandRecurrence — explicit timezone', () => {
+  it('08:00 PT on a Monday in May resolves to 15:00 UTC (PDT)', () => {
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1],
+      start_time: '08:00',
+      end_time: '12:00',
+    };
+    const result = expandRecurrence(pattern, '2026-05-04', '2026-05-04', {
+      timezone: 'America/Los_Angeles',
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].start_time).toBe('2026-05-04T15:00:00.000Z');
+    expect(result[0].end_time).toBe('2026-05-04T19:00:00.000Z');
+  });
+
+  it('08:00 PT on a Monday in January resolves to 16:00 UTC (PST)', () => {
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1],
+      start_time: '08:00',
+      end_time: '12:00',
+    };
+    // 2026-01-05 is a Monday
+    const result = expandRecurrence(pattern, '2026-01-05', '2026-01-05', {
+      timezone: 'America/Los_Angeles',
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].start_time).toBe('2026-01-05T16:00:00.000Z');
+    expect(result[0].end_time).toBe('2026-01-05T20:00:00.000Z');
+  });
+
+  it('produces the same UTC ISO regardless of machine TZ when timezone is explicit', () => {
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1],
+      start_time: '08:00',
+      end_time: '12:00',
+    };
+    // Re-running the same call multiple times is a weak test of
+    // determinism, but combined with the absolute ISO assertions
+    // above it pins down that no local-TZ dependency remains in the
+    // DST-agnostic path.
+    const a = expandRecurrence(pattern, '2026-05-04', '2026-05-04', {
+      timezone: 'America/Los_Angeles',
+    });
+    const b = expandRecurrence(pattern, '2026-05-04', '2026-05-04', {
+      timezone: 'America/Los_Angeles',
+    });
+    expect(a).toEqual(b);
+  });
+});
+
+// ─── DST transitions (America/Los_Angeles) ────────────────────
+// A caregiver with a weekly Mon 08:00-12:00 recurring shift should
+// see the shift fire at 08:00 PACIFIC every Monday, even across DST
+// boundaries. That means the UTC ISO moves by one hour across the
+// transition, but the wall-clock intent stays stable.
+
+describe('expandRecurrence — DST transitions', () => {
+  const tz = 'America/Los_Angeles';
+  const pattern = {
+    frequency: 'weekly',
+    days_of_week: [1],
+    start_time: '08:00',
+    end_time: '12:00',
+  };
+
+  it('spring-forward: Monday before (Mar 2) = PST, Monday after (Mar 9) = PDT', () => {
+    // DST-start is Sunday 2026-03-08. Monday Mar 2 is PST, Monday Mar 9 is PDT.
+    const result = expandRecurrence(pattern, '2026-03-02', '2026-03-09', {
+      timezone: tz,
+    });
+    expect(result).toHaveLength(2);
+    // Mar 2 08:00 PST = 16:00 UTC
+    expect(result[0].start_time).toBe('2026-03-02T16:00:00.000Z');
+    // Mar 9 08:00 PDT = 15:00 UTC
+    expect(result[1].start_time).toBe('2026-03-09T15:00:00.000Z');
+  });
+
+  it('fall-back: Monday before (Oct 26) = PDT, Monday after (Nov 2) = PST', () => {
+    // DST-end is Sunday 2026-11-01.
+    const result = expandRecurrence(pattern, '2026-10-26', '2026-11-02', {
+      timezone: tz,
+    });
+    expect(result).toHaveLength(2);
+    // Oct 26 08:00 PDT = 15:00 UTC
+    expect(result[0].start_time).toBe('2026-10-26T15:00:00.000Z');
+    // Nov 2 08:00 PST = 16:00 UTC
+    expect(result[1].start_time).toBe('2026-11-02T16:00:00.000Z');
+  });
+
+  it('a recurring shift that happens to land on DST-start Sunday still fires at 08:00 local', () => {
+    // Sunday pattern; 2026-03-08 is DST-start Sunday.
+    const sundayPattern = {
+      frequency: 'weekly',
+      days_of_week: [0],
+      start_time: '08:00',
+      end_time: '12:00',
+    };
+    const result = expandRecurrence(sundayPattern, '2026-03-08', '2026-03-08', {
+      timezone: tz,
+    });
+    expect(result).toHaveLength(1);
+    // 08:00 on DST-start morning is PDT — 15:00 UTC.
+    expect(result[0].start_time).toBe('2026-03-08T15:00:00.000Z');
+  });
+});
