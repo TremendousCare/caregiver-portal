@@ -638,6 +638,7 @@ export const dbToCaregiver = (row) => ({
   availabilityType: row.availability_type || '',
   currentAssignment: row.current_assignment || '',
   cprExpiryDate: row.cpr_expiry_date,
+  userId: row.user_id || null,
   smsOptedOut: row.sms_opted_out === true,
   smsOptedOutAt: row.sms_opted_out_at || null,
   smsOptedOutSource: row.sms_opted_out_source || null,
@@ -697,6 +698,10 @@ const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
+  // user_id, sms_opted_out*, availability_check_paused* are set via
+  // targeted .update() calls (edge functions + setCaregiverSmsOptOut
+  // + setCaregiverAvailabilityCheckPaused). Not round-tripped here
+  // so admin edits don't clobber them.
   created_at: cg.createdAt || Date.now(),
 });
 

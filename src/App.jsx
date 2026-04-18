@@ -26,6 +26,7 @@ import { ApplyPage } from './features/apply/ApplyPage';
 import { UploadPage } from './features/upload/UploadPage';
 import { SigningPage } from './features/sign/SigningPage';
 import { SurveyPage } from './features/survey/SurveyPage';
+import { CaregiverApp } from './features/caregiver-portal/CaregiverApp';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { getCurrentPhase, getOverallProgress } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
@@ -575,6 +576,12 @@ export default function App() {
         <Route path="/survey/:token" element={<SurveyPage />} />
       </Routes>
     );
+  }
+  // Caregiver PWA — separate auth/shell from the admin portal.
+  // Match only `/care` exactly or `/care/<subpath>`, NOT `/caregiver/:id`
+  // or other `/care`-prefixed admin routes.
+  if (location.pathname === '/care' || location.pathname.startsWith('/care/')) {
+    return <CaregiverApp />;
   }
 
   return (

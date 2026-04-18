@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
+import { supabase } from '../../../lib/supabase';
 import {
   setCaregiverSmsOptOut,
   setCaregiverAvailabilityCheckPaused,
@@ -16,6 +17,41 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
   const [togglingOptOut, setTogglingOptOut] = useState(false);
   const [togglingAvailPaused, setTogglingAvailPaused] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState(null);
+
+  const isLinked = !!caregiver.userId;
+
+  const handleInvite = async () => {
+    if (!supabase || !caregiver.email) return;
+    setInviting(true);
+    setInviteMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('caregiver-invite', {
+        body: { action: 'send', caregiver_id: caregiver.id },
+      });
+      if (error) {
+        let msg = error.message;
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch (_) { /* fall through */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      const text = data?.message
+        || (data?.already_linked
+          ? `This caregiver is already linked. Ask them to sign in at /care.`
+          : data?.already_registered
+            ? `Already has a login — ask them to sign in at /care.`
+            : `Invite email sent to ${data.email}. Check their inbox (and spam).`);
+      setInviteMessage({ kind: 'success', text });
+    } catch (e) {
+      setInviteMessage({ kind: 'error', text: e?.message || 'Failed to send invite.' });
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const days = getDaysSinceApplication(caregiver);
 
@@ -278,6 +314,43 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
                   : 'Pause check-ins'}
             </button>
           </div>
+          {caregiver.email && (
+            <div style={{
+              padding: '12px 20px 16px',
+              borderTop: '1px solid #F0F3F7',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                  textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+                }}>
+                  Caregiver App Access
+                </div>
+                <div style={{ fontSize: 13, color: isLinked ? '#15803D' : '#7A8BA0', fontWeight: isLinked ? 600 : 400 }}>
+                  {isLinked
+                    ? '✓ Linked — can sign in to the mobile app'
+                    : 'Not linked yet'}
+                </div>
+                {inviteMessage && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
+                    {inviteMessage.text}
+                  </div>
+                )}
+              </div>
+              <button
+                className={btn.secondaryBtn}
+                onClick={handleInvite}
+                disabled={inviting}
+                style={{ fontSize: 12 }}
+              >
+                {inviting ? 'Sending…' : isLinked ? 'Resend link' : 'Invite to app'}
+              </button>
+            </div>
+          )}
         </>
 
       ) : expanded ? (
