@@ -162,6 +162,10 @@ function toHelperShiftRow(shift) {
  * @param {Date}   params.weekStart      start of "this week" window
  * @param {Date}   params.weekEnd        end of "this week" window
  * @param {number} [params.travelBufferMinutes=30]
+ * @param {string} [params.timezone]     IANA zone used to interpret
+ *   availability rows against shift ISO timestamps. Production callers
+ *   should pass DEFAULT_APP_TIMEZONE from `../../lib/scheduling/timezone`;
+ *   omitting it uses the JS runtime's local zone (legacy behavior).
  *
  * @returns {object[]} ranked array. Each entry has:
  *   {
@@ -185,6 +189,7 @@ export function rankCaregiversForShift(params) {
     weekStart,
     weekEnd,
     travelBufferMinutes = 30,
+    timezone,
   } = params || {};
 
   if (!proposed || !proposed.clientId || !proposed.startTime || !proposed.endTime) return [];
@@ -214,6 +219,7 @@ export function rankCaregiversForShift(params) {
     const availabilityResult = isAvailable(
       { start_time: proposed.startTime, end_time: proposed.endTime },
       myAvailabilityRows,
+      { timezone },
     );
 
     // Conflict check (only against this caregiver's other shifts)

@@ -345,3 +345,102 @@ describe('isAvailable — edge cases', () => {
     expect(isAvailable(shift, rows).available).toBe(true);
   });
 });
+
+// ─── Explicit timezone — stable across runtimes ───────────────
+// When a caller passes { timezone }, the matcher decomposes the
+// shift's UTC ISO in that zone — so the same UTC instant produces
+// different (dayOfWeek, hour) in different zones, and availability
+// rows stored as PT wall-clock match correctly regardless of where
+// the code runs.
+
+describe('isAvailable — explicit timezone', () => {
+  it('15:00 UTC = 08:00 PT (PDT) matches a Mon 08:00-12:00 PT availability', () => {
+    const shift = {
+      start_time: '2026-05-04T15:00:00.000Z', // 08:00 PDT Mon
+      end_time: '2026-05-04T19:00:00.000Z',   // 12:00 PDT Mon
+    };
+    const rows = [
+      { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+    ];
+    const result = isAvailable(shift, rows, { timezone: 'America/Los_Angeles' });
+    expect(result).toEqual({ available: true, reason: null });
+  });
+
+  it('the same UTC instant reports different weekday in PT vs Tokyo', () => {
+    // 2026-05-04T06:00Z = Mon 15:00 JST = Sun 23:00 PDT. Shift is a
+    // 30-minute window that stays inside Sunday in PT (and inside
+    // Monday in Tokyo), so recurring rows on different weekdays can
+    // match the same UTC moment depending on which zone we decompose
+    // in.
+    const shift = {
+      start_time: '2026-05-04T06:00:00.000Z',
+      end_time: '2026-05-04T06:30:00.000Z',
+    };
+    const sundayEveningPT = [
+      { type: 'available', day_of_week: 0, start_time: '23:00', end_time: '23:59' },
+    ];
+    const mondayAfternoonJST = [
+      { type: 'available', day_of_week: 1, start_time: '15:00', end_time: '16:00' },
+    ];
+
+    expect(
+      isAvailable(shift, sundayEveningPT, { timezone: 'America/Los_Angeles' }).available,
+    ).toBe(true);
+    expect(
+      isAvailable(shift, mondayAfternoonJST, { timezone: 'Asia/Tokyo' }).available,
+    ).toBe(true);
+
+    // And sanity-check the negative cases: PT rules don't match from Tokyo's POV, and vice versa.
+    expect(
+      isAvailable(shift, sundayEveningPT, { timezone: 'Asia/Tokyo' }).available,
+    ).toBe(false);
+    expect(
+      isAvailable(shift, mondayAfternoonJST, { timezone: 'America/Los_Angeles' }).available,
+    ).toBe(false);
+  });
+});
+
+// ─── DST correctness ──────────────────────────────────────────
+// A caregiver's Monday 08:00-12:00 PT availability should continue to
+// match a shift whose UTC ISO is "08:00 PT" regardless of whether the
+// zone is currently in PST or PDT — the UTC moves by one hour across
+// DST but the wall-clock intent is stable.
+
+describe('isAvailable — DST transitions (America/Los_Angeles)', () => {
+  const tz = 'America/Los_Angeles';
+  const rows = [
+    { type: 'available', day_of_week: 1, start_time: '08:00', end_time: '12:00' },
+  ];
+
+  it('matches the first Monday after spring-forward (PDT, 15:00-19:00 UTC)', () => {
+    const shift = {
+      start_time: '2026-03-09T15:00:00.000Z', // 08:00 PDT Mon
+      end_time: '2026-03-09T19:00:00.000Z',   // 12:00 PDT Mon
+    };
+    expect(isAvailable(shift, rows, { timezone: tz }).available).toBe(true);
+  });
+
+  it('matches the last Monday before spring-forward (PST, 16:00-20:00 UTC)', () => {
+    const shift = {
+      start_time: '2026-03-02T16:00:00.000Z', // 08:00 PST Mon
+      end_time: '2026-03-02T20:00:00.000Z',   // 12:00 PST Mon
+    };
+    expect(isAvailable(shift, rows, { timezone: tz }).available).toBe(true);
+  });
+
+  it('matches the first Monday after fall-back (PST, 16:00-20:00 UTC)', () => {
+    const shift = {
+      start_time: '2026-11-02T16:00:00.000Z', // 08:00 PST Mon
+      end_time: '2026-11-02T20:00:00.000Z',   // 12:00 PST Mon
+    };
+    expect(isAvailable(shift, rows, { timezone: tz }).available).toBe(true);
+  });
+
+  it('matches the last Monday before fall-back (PDT, 15:00-19:00 UTC)', () => {
+    const shift = {
+      start_time: '2026-10-26T15:00:00.000Z', // 08:00 PDT Mon
+      end_time: '2026-10-26T19:00:00.000Z',   // 12:00 PDT Mon
+    };
+    expect(isAvailable(shift, rows, { timezone: tz }).available).toBe(true);
+  });
+});

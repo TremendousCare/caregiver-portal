@@ -25,9 +25,13 @@
 //
 // All times are handled in UTC milliseconds for comparison, and clock
 // times (start_time / end_time) are interpreted against the proposed
-// shift's local calendar day. This keeps the function timezone-neutral
-// as long as callers use ISO strings consistently.
+// shift's calendar day in the `timezone` option (see ./timezone.js).
+// Production callers should pass DEFAULT_APP_TIMEZONE explicitly;
+// omitting it falls back to the JS runtime's local zone for legacy
+// compatibility.
 // ═══════════════════════════════════════════════════════════════
+
+import { utcMsToWallClockParts } from './timezone';
 
 /**
  * Parse a "HH:MM" or "HH:MM:SS" clock string into minutes-from-midnight.
@@ -44,28 +48,26 @@ function clockToMinutes(str) {
 }
 
 /**
- * Parse an ISO date string or Date into components in LOCAL time.
- * Returns { dayOfWeek, minutesOfDay, dateOnly } for matching.
- *   - dayOfWeek: 0 (Sun) .. 6 (Sat) in the browser's local timezone
- *   - minutesOfDay: 0 .. 1439 (local clock)
- *   - dateOnly: 'YYYY-MM-DD' string in local time
+ * Parse an ISO date string or Date into wall-clock components as seen
+ * in the caller-provided `timezone` (falling back to the runtime's
+ * local zone). Returns { dayOfWeek, minutesOfDay, dateOnly, ms } for
+ * matching against availability rows.
  *
- * Why local time: the availability editor stores clock times like
- * '08:00' that the user painted on a visual grid representing their
- * local week. Shifts are created with combineDateAndTimeToIso(),
- * which builds a local Date and serializes to a UTC ISO string —
- * so the ISO string represents a specific local moment. To match
- * a stored "Mon 08:00" availability row against a stored UTC
- * shift, we have to interpret the shift back in local time.
+ * Why a specific timezone: the availability editor stores clock times
+ * like '08:00' that the user painted on a visual grid representing a
+ * specific week in a specific zone. To match "Mon 08:00 PT" against a
+ * UTC ISO shift timestamp, we must decompose the ISO in that same
+ * zone. Using the JS runtime's local zone (the legacy default) makes
+ * the check runtime-dependent and DST-fragile.
  */
-function parseMoment(value) {
-  const d = value instanceof Date ? value : new Date(value);
-  const dayOfWeek = d.getDay();
-  const minutesOfDay = d.getHours() * 60 + d.getMinutes();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return { dayOfWeek, minutesOfDay, dateOnly: `${yyyy}-${mm}-${dd}`, ms: d.getTime() };
+function parseMoment(value, timezone) {
+  const parts = utcMsToWallClockParts(value, timezone);
+  return {
+    dayOfWeek: parts.dayOfWeek,
+    minutesOfDay: parts.minutesOfDay,
+    dateOnly: parts.dateOnly,
+    ms: parts.ms,
+  };
 }
 
 /**
@@ -171,6 +173,10 @@ function oneOffRowIntersects(row, startMoment, endMoment) {
  *
  * @param {object}   proposed               { start_time, end_time } ISO strings or Dates
  * @param {object[]} availabilityRows       Rows from caregiver_availability
+ * @param {{ timezone?: string }} [options]
+ *   `timezone` is an IANA zone (e.g. 'America/Los_Angeles'). Production
+ *   callers should pass DEFAULT_APP_TIMEZONE from `./timezone`. Omit
+ *   to use the JS runtime's local zone (legacy behavior).
  * @returns {{ available: boolean, reason: string|null }}
  *
  * Reasons:
@@ -179,7 +185,7 @@ function oneOffRowIntersects(row, startMoment, endMoment) {
  *   - 'outside_availability'  → proposed window falls outside all available rows
  *   - null                    → available
  */
-export function isAvailable(proposed, availabilityRows) {
+export function isAvailable(proposed, availabilityRows, options = {}) {
   if (!proposed || !proposed.start_time || !proposed.end_time) {
     return { available: false, reason: 'no_data' };
   }
@@ -187,8 +193,9 @@ export function isAvailable(proposed, availabilityRows) {
     return { available: false, reason: 'no_data' };
   }
 
-  const startMoment = parseMoment(proposed.start_time);
-  const endMoment = parseMoment(proposed.end_time);
+  const { timezone } = options;
+  const startMoment = parseMoment(proposed.start_time, timezone);
+  const endMoment = parseMoment(proposed.end_time, timezone);
   if (endMoment.ms <= startMoment.ms) {
     return { available: false, reason: 'no_data' };
   }
@@ -224,13 +231,19 @@ export function isAvailable(proposed, availabilityRows) {
  * @param {object}   proposed                  { start_time, end_time }
  * @param {object[]} caregivers                Each must have an `id`
  * @param {object}   availabilityByCaregiverId Map: caregiverId → rows[]
+ * @param {{ timezone?: string }} [options]    Forwarded to `isAvailable`.
  * @returns {object[]} caregivers who are available
  */
-export function filterAvailableCaregivers(proposed, caregivers, availabilityByCaregiverId) {
+export function filterAvailableCaregivers(
+  proposed,
+  caregivers,
+  availabilityByCaregiverId,
+  options = {},
+) {
   if (!Array.isArray(caregivers)) return [];
   const map = availabilityByCaregiverId || {};
   return caregivers.filter((cg) => {
     const rows = map[cg.id] || [];
-    return isAvailable(proposed, rows).available;
+    return isAvailable(proposed, rows, options).available;
   });
 }
