@@ -1,5 +1,6 @@
 import { PHASES } from './constants';
 import { getPhaseTasks } from './storage';
+import { normalizePhone } from './intakeProcessing';
 
 // ─── Task Value Helpers ─────────────────────────────────────
 // Tasks can be stored as:
@@ -61,6 +62,29 @@ export const getDaysSinceApplication = (caregiver) => {
 export const isGreenLight = (caregiver) => {
   const required = ['offer_signed', 'i9_form', 'w4_form', 'hca_cleared', 'tb_test', 'training_assigned'];
   return required.every((t) => isTaskDone(caregiver.tasks?.[t]));
+};
+
+// ─── Duplicate Detection ─────────────────────────────────────
+
+const normalizeName = (s) => (s || '').trim().toLowerCase();
+
+// Returns the first non-archived caregiver whose first name, last
+// name, and phone number all match the given input. Matching is
+// case-insensitive on names and digit-only on phones (country-code
+// "1" is stripped). Returns null when any identifier is missing or
+// no match is found. Used to warn operators of likely duplicates
+// before a new caregiver is saved.
+export const findDuplicateCaregiver = ({ firstName, lastName, phone }, caregivers) => {
+  const fn = normalizeName(firstName);
+  const ln = normalizeName(lastName);
+  const ph = normalizePhone(phone || '');
+  if (!fn || !ln || !ph) return null;
+  return caregivers.find((cg) =>
+    !cg.archived &&
+    normalizeName(cg.firstName) === fn &&
+    normalizeName(cg.lastName) === ln &&
+    normalizePhone(cg.phone || '') === ph
+  ) || null;
 };
 
 // ─── Formatting ──────────────────────────────────────────────

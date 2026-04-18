@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
 import layout from '../../styles/layout.module.css';
+import { findDuplicateCaregiver } from '../../lib/utils';
 
 function FormField({ label, field, type = 'text', required, placeholder, value, onChange }) {
   return (
@@ -20,7 +21,7 @@ function FormField({ label, field, type = 'text', required, placeholder, value, 
   );
 }
 
-export function AddCaregiver({ onAdd, onCancel }) {
+export function AddCaregiver({ onAdd, onCancel, caregivers = [] }) {
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -48,13 +49,28 @@ export function AddCaregiver({ onAdd, onCancel }) {
     initialNotes: '',
   });
 
+  const [overrideDuplicate, setOverrideDuplicate] = useState(false);
+
+  const duplicate = useMemo(
+    () => findDuplicateCaregiver(
+      { firstName: form.firstName, lastName: form.lastName, phone: form.phone },
+      caregivers
+    ),
+    [form.firstName, form.lastName, form.phone, caregivers]
+  );
+
   const handleSubmit = () => {
     if (!form.firstName || !form.lastName) return;
+    if (duplicate && !overrideDuplicate) {
+      setOverrideDuplicate(true);
+      return;
+    }
     onAdd(form);
   };
 
   const handleFieldChange = useCallback((field, value) => {
     setForm((f) => ({ ...f, [field]: value }));
+    setOverrideDuplicate(false);
   }, []);
 
   return (
@@ -186,9 +202,37 @@ export function AddCaregiver({ onAdd, onCancel }) {
           onChange={(e) => setForm((f) => ({ ...f, initialNotes: e.target.value }))}
         />
 
+        {duplicate && (
+          <div style={{
+            marginTop: 16,
+            padding: '14px 18px',
+            background: 'linear-gradient(135deg, #FFFBEB, #FEF3C7)',
+            border: '1px solid #FDE68A',
+            borderRadius: 10,
+            color: '#92400E',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+              ⚠️ Possible duplicate found
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              A caregiver named <strong>{duplicate.firstName} {duplicate.lastName}</strong>
+              {duplicate.phone ? ` with phone ${duplicate.phone}` : ''} is already in the pipeline
+              {duplicate.applicationDate ? ` (applied ${new Date(duplicate.applicationDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })})` : ''}.
+              Check before adding again.
+            </div>
+            {overrideDuplicate && (
+              <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600 }}>
+                Click "Add Anyway" again to confirm you want to add this as a new record.
+              </div>
+            )}
+          </div>
+        )}
+
         <div className={forms.formActions}>
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={onCancel}>Cancel</button>
-          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleSubmit}>Add to Pipeline</button>
+          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleSubmit}>
+            {duplicate ? (overrideDuplicate ? 'Add Anyway' : 'Review Duplicate') : 'Add to Pipeline'}
+          </button>
         </div>
       </div>
     </div>
