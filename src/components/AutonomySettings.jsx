@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import cards from '../styles/cards.module.css';
 import btn from '../styles/buttons.module.css';
+import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 const LEVEL_OPTIONS = [
   { value: 'L1', label: 'L1 — Suggest', description: 'Shows in notification center only' },
@@ -109,12 +110,9 @@ export function AutonomySettings({ showToast }) {
 
   if (loading) {
     return (
-      <div className={cards.profileCard}>
-        <div className={cards.profileCardHeader}>
-          <h3 className={cards.profileCardTitle}>AI Autonomy Levels</h3>
-        </div>
+      <CollapsibleCard title="AI Autonomy Levels" description="Inbound Message Routing">
         <div style={{ padding: 24, color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
-      </div>
+      </CollapsibleCard>
     );
   }
 
@@ -128,14 +126,7 @@ export function AutonomySettings({ showToast }) {
   }
 
   return (
-    <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <h3 className={cards.profileCardTitle}>AI Autonomy Levels</h3>
-        <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>
-          Inbound Message Routing
-        </span>
-      </div>
-
+    <CollapsibleCard title="AI Autonomy Levels" description="Inbound Message Routing">
       <div style={{ padding: '16px 24px 8px' }}>
         <div style={{
           padding: '10px 14px',
@@ -178,7 +169,7 @@ export function AutonomySettings({ showToast }) {
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 

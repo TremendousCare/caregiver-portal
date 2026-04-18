@@ -8,6 +8,7 @@ import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import s from './AutomationSettings.module.css';
+import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ─── Entity Types ───
 const ENTITY_TYPES = [
@@ -91,20 +92,11 @@ function getTasksByPhase(entityType) {
 // ─── Settings Section Card (reused from AdminSettings pattern) ───
 function SettingsCard({ title, description, headerRight, children }) {
   return (
-    <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <div>
-          <h3 className={cards.profileCardTitle}>{title}</h3>
-          {description && (
-            <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>{description}</span>
-          )}
-        </div>
-        {headerRight}
-      </div>
+    <CollapsibleCard title={title} description={description} headerRight={headerRight}>
       <div style={{ padding: '20px 24px' }}>
         {children}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 

@@ -8,6 +8,7 @@ import { loadActionItemRules } from '../lib/actionItemEngine';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
+import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ─── Entity Types ───
 const ENTITY_TYPES = [
@@ -250,16 +251,20 @@ export default function ActionItemRuleSettings({ showToast, currentUserEmail }) 
   // ═════════════════════════════════════════════════════════════
 
   return (
-    <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <h3 className={cards.profileCardTitle}>Action Item Rules</h3>
-        <button className={btn.primaryBtn} onClick={handleAdd} style={{ fontSize: 13, padding: '6px 14px' }}>
+    <CollapsibleCard
+      title="Action Item Rules"
+      headerRight={
+        <button
+          className={btn.primaryBtn}
+          onClick={(e) => { e.stopPropagation(); handleAdd(); }}
+          style={{ fontSize: 13, padding: '6px 14px' }}
+        >
           + Add Rule
         </button>
-      </div>
-
+      }
+    >
       {/* Entity Type Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, padding: '0 20px' }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, padding: '16px 20px 0' }}>
         {ENTITY_TYPES.map((et) => {
           const count = rules.filter((r) => r.entity_type === et.value).length;
           return (
@@ -581,7 +586,7 @@ export default function ActionItemRuleSettings({ showToast, currentUserEmail }) 
           </div>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
 

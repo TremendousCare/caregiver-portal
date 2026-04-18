@@ -12,21 +12,16 @@ import { AutonomySettings } from './AutonomySettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
+import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
   return (
-    <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <h3 className={cards.profileCardTitle}>{title}</h3>
-        {description && (
-          <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>{description}</span>
-        )}
-      </div>
+    <CollapsibleCard title={title} description={description}>
       <div style={{ padding: '20px 24px' }}>
         {children}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -2558,9 +2553,12 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       </div>
 
       {/* Agent Performance */}
-      <div className="settings-section" style={{ marginBottom: 24 }}>
-        <h2>Agent Performance</h2>
-        <AgentPerformance />
+      <div style={{ marginBottom: 20 }}>
+        <CollapsibleCard title="Agent Performance" description="AI Activity & Success Metrics">
+          <div style={{ padding: '20px 24px' }}>
+            <AgentPerformance />
+          </div>
+        </CollapsibleCard>
       </div>
 
       {/* User Access & Roles (login permissions) */}

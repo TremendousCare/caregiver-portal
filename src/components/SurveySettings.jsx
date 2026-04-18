@@ -7,6 +7,7 @@ import {
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
+import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ═══════════════════════════════════════════════════════════════
 // Survey Settings — Survey Builder UI
@@ -694,24 +695,20 @@ export function SurveySettings({ showToast }) {
 
   if (loading) {
     return (
-      <div className={cards.profileCard}>
-        <div className={cards.profileCardHeader}>
-          <h3 className={cards.profileCardTitle}>Pre-Screening Surveys</h3>
-        </div>
+      <CollapsibleCard title="Pre-Screening Surveys">
         <div style={{ padding: '20px 24px', color: '#7A8BA0', fontSize: 13 }}>Loading...</div>
-      </div>
+      </CollapsibleCard>
     );
   }
 
   // ── Edit / Create View ──
   if (editing) {
     return (
-      <div className={cards.profileCard}>
-        <div className={cards.profileCardHeader}>
-          <h3 className={cards.profileCardTitle}>
-            {editing === 'new' ? 'Create Survey' : 'Edit Survey'}
-          </h3>
-        </div>
+      <CollapsibleCard
+        title={editing === 'new' ? 'Create Survey' : 'Edit Survey'}
+        storageKey="tc_collapsible_card:Pre-Screening Surveys"
+        defaultOpen
+      >
         <div style={{ padding: '20px 24px' }}>
           <SurveyForm
             template={editing === 'new' ? null : editing}
@@ -720,7 +717,7 @@ export function SurveySettings({ showToast }) {
             saving={saving}
           />
         </div>
-      </div>
+      </CollapsibleCard>
     );
   }
 
@@ -731,22 +728,19 @@ export function SurveySettings({ showToast }) {
   }
 
   return (
-    <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <div>
-          <h3 className={cards.profileCardTitle}>Pre-Screening Surveys</h3>
-          <span style={{ fontSize: 12, color: '#7A8BA0', fontWeight: 500 }}>
-            Automatically sent to new applicants
-          </span>
-        </div>
+    <CollapsibleCard
+      title="Pre-Screening Surveys"
+      description="Automatically sent to new applicants"
+      headerRight={
         <button
           className={btn.primaryBtn}
           style={{ padding: '8px 16px', fontSize: 12 }}
-          onClick={() => setEditing('new')}
+          onClick={(e) => { e.stopPropagation(); setEditing('new'); }}
         >
           + Create Survey
         </button>
-      </div>
+      }
+    >
       <div style={{ padding: '20px 24px' }}>
         {templates.length === 0 ? (
           <div style={{
@@ -873,7 +867,7 @@ export function SurveySettings({ showToast }) {
           </>
         )}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }
 
