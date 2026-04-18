@@ -11,6 +11,16 @@ import {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Small pause between survey-reminder sends to avoid hammering RingCentral.
+// RC has per-second SMS rate limits; bursting the whole batch back-to-back
+// has historically triggered throttling / transient failures. At 400ms, even
+// 500 reminders stays under the cron's 5-minute timeout.
+const SURVEY_REMINDER_SEND_DELAY_MS = 400;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -440,6 +450,8 @@ Deno.serve(async (req) => {
                 err
               );
             }
+
+            await sleep(SURVEY_REMINDER_SEND_DELAY_MS);
           }
         }
       }
