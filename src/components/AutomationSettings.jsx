@@ -398,6 +398,559 @@ function SendTestNowBlock({
   );
 }
 
+// ─── Send to Multiple Now (Ad-Hoc Bulk Send) ───
+// Lets an admin manually fan out the rule's availability check-in to a
+// hand-picked set of caregivers outside the recurring schedule — useful
+// when a batch of new shifts comes in and you want fresh availability
+// from a targeted group today.
+//
+// Reuses the rule's template + message. Each selected caregiver gets a
+// fresh survey_responses row and an invoke to execute-automation; the
+// SMS still passes through the sms_opted_out gate at send time. Ineligible
+// caregivers (archived, opted out, paused, or no phone) are automatically
+// excluded from the picker list.
+//
+// "Count as scheduled send" toggle (default ON) controls whether the
+// automation_log entries are written under the real rule_id (and thus
+// reset the next cron-scheduled send to +interval_days from now) or
+// under a one-off bulk marker (cron schedule unchanged). Lets the admin
+// decide whether today's send should count as "their" send this cycle.
+function SendBulkNowBlock({
+  ruleId,
+  ruleName,
+  templateId,
+  actionType,
+  messageTemplate,
+  actionConfig,
+  defaultPhaseFilter,
+}) {
+  const [loadingCaregivers, setLoadingCaregivers] = useState(false);
+  const [eligible, setEligible] = useState([]);
+  const [search, setSearch] = useState('');
+  const [phaseFilter, setPhaseFilter] = useState(defaultPhaseFilter || '');
+  const [selected, setSelected] = useState(new Set());
+  const [countAsScheduled, setCountAsScheduled] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState(null); // { done, total, sent, skipped, errors }
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // Load once — eligible = not archived, not sms_opted_out, not paused,
+  // and has a phone (or email, for email action). Server-side opt-out
+  // gate still runs per-send, but the picker hides obviously ineligible
+  // caregivers so the admin isn't picking names that can't actually
+  // receive the message.
+  useEffect(() => {
+    if (!supabase) return;
+    setLoadingCaregivers(true);
+    supabase
+      .from('caregivers')
+      .select(
+        'id, first_name, last_name, phone, email, archived, phase_override, phase_timestamps, sms_opted_out, availability_check_paused',
+      )
+      .eq('archived', false)
+      .order('first_name', { ascending: true })
+      .limit(2000)
+      .then(({ data }) => {
+        const filtered = (data || []).filter((c) => {
+          if (c.sms_opted_out) return false;
+          if (c.availability_check_paused) return false;
+          if (actionType === 'send_email') return !!c.email;
+          return !!c.phone;
+        });
+        setEligible(filtered);
+      })
+      .then(() => setLoadingCaregivers(false));
+  }, [actionType]);
+
+  // Derive the phase list from caregivers' overrides/timestamps. We use
+  // the same logic the cron uses — pull phase_override first, fall back
+  // to computed latest phase from phase_timestamps. For the filter UI
+  // we just need a stable string per caregiver.
+  const caregiversWithPhase = useMemo(() => {
+    return eligible.map((c) => {
+      const phase = c.phase_override || derivePhaseFromTimestamps(c.phase_timestamps);
+      return { ...c, phase };
+    });
+  }, [eligible]);
+
+  const visibleCaregivers = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return caregiversWithPhase.filter((c) => {
+      if (phaseFilter && c.phase !== phaseFilter) return false;
+      if (!term) return true;
+      const name = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
+      return name.includes(term) || (c.phone || '').includes(term);
+    });
+  }, [caregiversWithPhase, search, phaseFilter]);
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const c of visibleCaregivers) next.add(c.id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const selectedCaregivers = useMemo(
+    () => caregiversWithPhase.filter((c) => selected.has(c.id)),
+    [caregiversWithPhase, selected],
+  );
+
+  const runSend = async () => {
+    if (selectedCaregivers.length === 0) return;
+    if (!templateId) {
+      window.alert('Save the rule with a template selected before sending.');
+      return;
+    }
+    setSending(true);
+    setShowConfirm(false);
+    setProgress({
+      done: 0,
+      total: selectedCaregivers.length,
+      sent: 0,
+      skipped: 0,
+      errors: 0,
+    });
+
+    // Identical bulk marker across the whole batch so the admin can
+    // locate all sends from this single action in automation_log.
+    const bulkMarker = `bulk:${Date.now()}`;
+    // rule_id used for the execute-automation call. Using the real rule
+    // id means the cron treats these as "last fired" and resets each
+    // caregiver's next scheduled send; using a one-off prefix keeps
+    // the schedule untouched.
+    const effectiveRuleId = countAsScheduled ? ruleId : `${ruleId}:${bulkMarker}`;
+
+    const { data: tpl } = await supabase
+      .from('survey_templates')
+      .select('expires_hours')
+      .eq('id', templateId)
+      .single();
+    const expiresHours = tpl?.expires_hours || 72;
+
+    for (const cg of selectedCaregivers) {
+      try {
+        const token = 'sv_' + crypto.randomUUID().replace(/-/g, '');
+        const expiresAt = new Date(
+          Date.now() + expiresHours * 60 * 60 * 1000,
+        ).toISOString();
+
+        const { data: inserted, error: insErr } = await supabase
+          .from('survey_responses')
+          .insert({
+            survey_template_id: templateId,
+            caregiver_id: cg.id,
+            token,
+            status: 'pending',
+            sent_via: actionType === 'send_email' ? 'email' : 'sms',
+            expires_at: expiresAt,
+          })
+          .select('id')
+          .single();
+        if (insErr || !inserted) throw insErr || new Error('Insert failed');
+
+        const surveyLink = `${window.location.origin}/survey/${token}`;
+
+        const { data: result, error: invokeErr } =
+          await supabase.functions.invoke('execute-automation', {
+            body: {
+              rule_id: effectiveRuleId,
+              caregiver_id: cg.id,
+              action_type: actionType || 'send_sms',
+              message_template: messageTemplate,
+              action_config: actionConfig,
+              rule_name: countAsScheduled
+                ? ruleName
+                : `${ruleName} (BULK)`,
+              caregiver: {
+                id: cg.id,
+                first_name: cg.first_name,
+                last_name: cg.last_name,
+                phone: cg.phone,
+                email: cg.email,
+              },
+              trigger_context: {
+                survey_link: surveyLink,
+                survey_response_id: inserted.id,
+                bulk_send: true,
+                bulk_marker: bulkMarker,
+                count_as_scheduled: countAsScheduled,
+              },
+            },
+          });
+        if (invokeErr) throw invokeErr;
+        setProgress((p) => ({
+          ...p,
+          done: p.done + 1,
+          sent: result?.success !== false ? p.sent + 1 : p.sent,
+          skipped:
+            result?.skipped === true ? p.skipped + 1 : p.skipped,
+          errors:
+            result?.success === false && !result?.skipped
+              ? p.errors + 1
+              : p.errors,
+        }));
+      } catch (err) {
+        console.error(
+          '[SendBulkNow] Failed for caregiver',
+          cg.id,
+          err,
+        );
+        setProgress((p) => ({
+          ...p,
+          done: p.done + 1,
+          errors: p.errors + 1,
+        }));
+      }
+      // Rate limit between sends — matches the cron.
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    setSending(false);
+    setSelected(new Set());
+  };
+
+  const phases = PHASES;
+  const selectedCount = selected.size;
+  const optedOutCount = eligible.filter((c) => c.sms_opted_out).length;
+  const pausedCount = eligible.filter((c) => c.availability_check_paused).length;
+
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: 12,
+        border: '1px dashed #FDBA74',
+        borderRadius: 8,
+        background: '#FFF7ED',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: '#9A3412',
+          marginBottom: 4,
+          textTransform: 'uppercase',
+          letterSpacing: 0.6,
+        }}
+      >
+        Send to Multiple Now
+      </div>
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginBottom: 10 }}>
+        Picks caregivers and sends this rule's availability survey to all of them
+        right now — separate from the recurring schedule. Opted-out and paused
+        caregivers never appear in the list.
+      </div>
+
+      {/* Filter controls */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <input
+          type="text"
+          className={forms.fieldInput}
+          placeholder="Search by name or phone"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          disabled={sending}
+        />
+        <select
+          className={forms.fieldInput}
+          value={phaseFilter}
+          onChange={(e) => setPhaseFilter(e.target.value)}
+          disabled={sending}
+        >
+          <option value="">All phases</option>
+          {phases.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.icon ? `${p.icon} ` : ''}{p.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Counts + quick actions */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: 11,
+          color: '#7A8BA0',
+          marginBottom: 6,
+        }}
+      >
+        <span>
+          {loadingCaregivers
+            ? 'Loading…'
+            : `${visibleCaregivers.length} eligible match${visibleCaregivers.length === 1 ? '' : 'es'} · ${selectedCount} selected`}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            onClick={selectAllVisible}
+            disabled={sending || visibleCaregivers.length === 0}
+            style={quickBtnStyle}
+          >
+            Select all matching
+          </button>
+          <button
+            type="button"
+            onClick={clearSelection}
+            disabled={sending || selectedCount === 0}
+            style={quickBtnStyle}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Caregiver checkbox list */}
+      <div
+        style={{
+          maxHeight: 240,
+          overflowY: 'auto',
+          border: '1px solid #FED7AA',
+          borderRadius: 6,
+          background: '#fff',
+          marginBottom: 10,
+        }}
+      >
+        {visibleCaregivers.length === 0 ? (
+          <div
+            style={{
+              padding: '16px 12px',
+              fontSize: 12,
+              color: '#7A8BA0',
+              textAlign: 'center',
+            }}
+          >
+            {loadingCaregivers ? 'Loading…' : 'No eligible caregivers match the current filter.'}
+          </div>
+        ) : (
+          visibleCaregivers.map((cg) => {
+            const isSelected = selected.has(cg.id);
+            return (
+              <label
+                key={cg.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 12px',
+                  borderBottom: '1px solid #FEF3C7',
+                  cursor: sending ? 'not-allowed' : 'pointer',
+                  background: isSelected ? '#FEF3C7' : '#fff',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleSelect(cg.id)}
+                  disabled={sending}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0F1724' }}>
+                    {cg.first_name} {cg.last_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#7A8BA0' }}>
+                    {actionType === 'send_email' ? cg.email : cg.phone}
+                    {cg.phase ? ` · ${cg.phase}` : ''}
+                  </div>
+                </div>
+              </label>
+            );
+          })
+        )}
+      </div>
+
+      {/* "Count as scheduled send" toggle */}
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          marginBottom: 10,
+          fontSize: 12,
+          color: '#4B5563',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={countAsScheduled}
+          onChange={(e) => setCountAsScheduled(e.target.checked)}
+          disabled={sending}
+          style={{ marginTop: 3 }}
+        />
+        <span>
+          Count as a scheduled send — resets each caregiver's next recurring
+          reminder to <code style={{ fontSize: 11, color: '#7A8BA0' }}>interval_days</code> from today.{' '}
+          <span style={{ color: '#7A8BA0', fontStyle: 'italic' }}>
+            Uncheck for a one-off send that doesn't affect the schedule.
+          </span>
+        </span>
+      </label>
+
+      {/* Send button */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          className={btn.primaryBtn}
+          onClick={() => setShowConfirm(true)}
+          disabled={sending || selectedCount === 0}
+          style={{ fontSize: 12 }}
+        >
+          {sending
+            ? `Sending… ${progress?.done || 0} / ${progress?.total || 0}`
+            : `Send to ${selectedCount} caregiver${selectedCount === 1 ? '' : 's'}`}
+        </button>
+        {(optedOutCount > 0 || pausedCount > 0) && (
+          <span style={{ fontSize: 11, color: '#7A8BA0' }}>
+            ({optedOutCount} opted out, {pausedCount} paused — hidden from list)
+          </span>
+        )}
+      </div>
+
+      {/* Confirmation modal */}
+      {showConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 36, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowConfirm(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 10,
+              padding: 20,
+              maxWidth: 460,
+              width: '90%',
+              border: '1px solid #E0E4EA',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: '#991B1B' }}>
+              Confirm Bulk Send
+            </div>
+            <div style={{ fontSize: 13, color: '#4B5563', marginBottom: 10, lineHeight: 1.5 }}>
+              This will send a real {actionType === 'send_email' ? 'email' : 'SMS'} to{' '}
+              <strong>{selectedCount} caregiver{selectedCount === 1 ? '' : 's'}</strong>{' '}
+              using the rule's current template.
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: countAsScheduled ? '#1E40AF' : '#7A8BA0',
+                background: countAsScheduled ? '#EFF6FF' : '#F8F9FB',
+                border: `1px solid ${countAsScheduled ? '#BFDBFE' : '#E0E4EA'}`,
+                borderRadius: 6,
+                padding: '8px 10px',
+                marginBottom: 14,
+              }}
+            >
+              {countAsScheduled
+                ? 'Will reset the recurring schedule for these caregivers — their next scheduled reminder will be in interval_days from today.'
+                : 'Will NOT affect the recurring schedule. Caregivers will still receive their next scheduled reminder on its original cadence.'}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className={btn.secondaryBtn}
+                onClick={() => setShowConfirm(false)}
+                style={{ fontSize: 12 }}
+              >
+                Cancel
+              </button>
+              <button
+                className={btn.primaryBtn}
+                onClick={runSend}
+                style={{ fontSize: 12, background: '#DC4A3A', borderColor: '#DC4A3A' }}
+              >
+                Send Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress / results */}
+      {progress && !sending && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: '8px 10px',
+            borderRadius: 6,
+            fontSize: 12,
+            background: progress.errors > 0 ? '#FEF2F2' : '#F0FDF4',
+            color: progress.errors > 0 ? '#991B1B' : '#15803D',
+            border: `1px solid ${progress.errors > 0 ? '#FECACA' : '#BBF7D0'}`,
+          }}
+        >
+          Sent {progress.sent} / {progress.total}. {progress.skipped > 0 && (
+            <>
+              Skipped {progress.skipped} (opt-outs caught at send time).
+              {' '}
+            </>
+          )}
+          {progress.errors > 0 && `Errors: ${progress.errors}.`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Derive a caregiver's current phase from phase_timestamps (most recent
+// entry) so the phase filter in the bulk picker matches what admins see
+// elsewhere in the app. Mirrors the getCaregiverPhase helper in the
+// ringcentral-webhook edge function.
+function derivePhaseFromTimestamps(timestamps) {
+  const ts = timestamps || {};
+  const order = ['intake', 'interview', 'onboarding', 'verification', 'orientation'];
+  let latest = 'intake';
+  let latestTime = 0;
+  for (const p of order) {
+    if (ts[p] && ts[p] > latestTime) {
+      latest = p;
+      latestTime = ts[p];
+    }
+  }
+  return latest;
+}
+
+const quickBtnStyle = {
+  background: 'none',
+  border: '1px solid #FED7AA',
+  color: '#9A3412',
+  borderRadius: 6,
+  padding: '3px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
 // ─── Rule Form Modal ───
 function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [name, setName] = useState(rule?.name || '');
@@ -968,6 +1521,21 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
                 actionConfig={{
                   ...(actionType === 'send_email' ? { subject: emailSubject.trim() } : {}),
                 }}
+              />
+            )}
+
+            {/* Send to Multiple — bulk ad-hoc send, only on saved rules */}
+            {rule?.id && (
+              <SendBulkNowBlock
+                ruleId={rule.id}
+                ruleName={rule.name || 'Availability Check-In'}
+                templateId={availabilitySurveyTemplateId}
+                actionType={actionType}
+                messageTemplate={messageTemplate}
+                actionConfig={{
+                  ...(actionType === 'send_email' ? { subject: emailSubject.trim() } : {}),
+                }}
+                defaultPhaseFilter={phaseFilter}
               />
             )}
 
