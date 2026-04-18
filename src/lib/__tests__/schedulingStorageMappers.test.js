@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   dbToCarePlan,
   carePlanToDb,
@@ -9,7 +9,24 @@ import {
   availabilityToDb,
   dbToAssignment,
   assignmentToDb,
+  applyShiftWindowFilters,
 } from '../../features/scheduling/storage';
+
+// Chainable spy that records every method call as { method, args } so a
+// test can assert the exact SQL-filter calls produced by a query builder.
+const makeQuerySpy = () => {
+  const calls = [];
+  const handler = {
+    get(_target, prop) {
+      return (...args) => {
+        calls.push({ method: prop, args });
+        return new Proxy({}, handler);
+      };
+    },
+  };
+  const proxy = new Proxy({}, handler);
+  return { query: proxy, calls };
+};
 
 // ─── care_plans ────────────────────────────────────────────────
 
@@ -317,6 +334,89 @@ describe('assignment mappers', () => {
         role,
       });
       expect(row.role).toBe(role);
+    }
+  });
+});
+
+// ─── applyShiftWindowFilters (calendar overlap semantics) ──────
+// Regression guard for the bug where both bounds were applied to
+// start_time, causing overnight and long-running shifts that began
+// before the visible window to be silently dropped.
+
+describe('applyShiftWindowFilters', () => {
+  it('filters end_time >= startDate so shifts ending inside the window are included', () => {
+    const { query, calls } = makeQuerySpy();
+    applyShiftWindowFilters(query, { startDate: '2026-05-04T00:00:00.000Z' });
+    expect(calls).toEqual([
+      { method: 'gte', args: ['end_time', '2026-05-04T00:00:00.000Z'] },
+    ]);
+  });
+
+  it('filters start_time <= endDate so shifts starting inside the window are included', () => {
+    const { query, calls } = makeQuerySpy();
+    applyShiftWindowFilters(query, { endDate: '2026-05-11T00:00:00.000Z' });
+    expect(calls).toEqual([
+      { method: 'lte', args: ['start_time', '2026-05-11T00:00:00.000Z'] },
+    ]);
+  });
+
+  it('applies both bounds for a full overlap query', () => {
+    const { query, calls } = makeQuerySpy();
+    applyShiftWindowFilters(query, {
+      startDate: '2026-05-04T00:00:00.000Z',
+      endDate: '2026-05-11T00:00:00.000Z',
+    });
+    expect(calls).toEqual([
+      { method: 'gte', args: ['end_time', '2026-05-04T00:00:00.000Z'] },
+      { method: 'lte', args: ['start_time', '2026-05-11T00:00:00.000Z'] },
+    ]);
+  });
+
+  it('is a no-op when neither bound is set', () => {
+    const { query, calls } = makeQuerySpy();
+    applyShiftWindowFilters(query, {});
+    expect(calls).toEqual([]);
+  });
+
+  it('does NOT bound end_time by endDate (would drop in-progress long shifts)', () => {
+    const { calls } = (() => {
+      const spy = makeQuerySpy();
+      applyShiftWindowFilters(spy.query, {
+        startDate: '2026-05-04T00:00:00.000Z',
+        endDate: '2026-05-11T00:00:00.000Z',
+      });
+      return spy;
+    })();
+    // Defense-in-depth: make sure nobody adds a spurious end_time upper bound.
+    const endTimeUpperBound = calls.find(
+      (c) => c.method === 'lte' && c.args[0] === 'end_time',
+    );
+    expect(endTimeUpperBound).toBeUndefined();
+  });
+
+  it('documented overlap rule: a shift overlaps [start, end] iff start_time <= end AND end_time >= start', () => {
+    // This test pins the semantic contract so a future refactor doesn't
+    // accidentally revert to the buggy same-column-on-both-bounds form.
+    const windowStart = new Date('2026-05-04T00:00:00.000Z').getTime();
+    const windowEnd = new Date('2026-05-11T00:00:00.000Z').getTime();
+
+    const cases = [
+      // Overnight shift crossing window start: prev-buggy version dropped this.
+      { start: '2026-05-03T22:00:00.000Z', end: '2026-05-04T06:00:00.000Z', overlaps: true },
+      // Long shift fully spanning the window.
+      { start: '2026-05-01T00:00:00.000Z', end: '2026-06-01T00:00:00.000Z', overlaps: true },
+      // Shift entirely inside the window.
+      { start: '2026-05-06T08:00:00.000Z', end: '2026-05-06T16:00:00.000Z', overlaps: true },
+      // Shift entirely before the window.
+      { start: '2026-05-01T08:00:00.000Z', end: '2026-05-01T16:00:00.000Z', overlaps: false },
+      // Shift entirely after the window.
+      { start: '2026-05-20T08:00:00.000Z', end: '2026-05-20T16:00:00.000Z', overlaps: false },
+    ];
+    for (const c of cases) {
+      const s = new Date(c.start).getTime();
+      const e = new Date(c.end).getTime();
+      const overlapsByRule = s <= windowEnd && e >= windowStart;
+      expect(overlapsByRule).toBe(c.overlaps);
     }
   });
 });

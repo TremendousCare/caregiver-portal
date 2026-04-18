@@ -224,12 +224,30 @@ export const cancelShift = async (id, { reason, cancelledBy }) => {
   });
 };
 
+/**
+ * Apply calendar-window filters to a shifts query so the result contains
+ * every shift that OVERLAPS the window, not just those that start inside it.
+ *
+ * A shift overlaps [startDate, endDate] when:
+ *   shift.start_time <= endDate  AND  shift.end_time >= startDate
+ *
+ * The previous version filtered both bounds against start_time, which
+ * silently dropped overnight shifts that began before startDate but ended
+ * inside the window. Exported for unit testing; callers should prefer
+ * getShifts().
+ */
+export const applyShiftWindowFilters = (query, filters = {}) => {
+  let q = query;
+  if (filters.startDate) q = q.gte('end_time', filters.startDate);
+  if (filters.endDate) q = q.lte('start_time', filters.endDate);
+  return q;
+};
+
 export const getShifts = async (filters = {}) => {
   if (!isSupabaseConfigured()) return [];
   let query = supabase.from('shifts').select('*');
 
-  if (filters.startDate) query = query.gte('start_time', filters.startDate);
-  if (filters.endDate) query = query.lte('start_time', filters.endDate);
+  query = applyShiftWindowFilters(query, filters);
   if (filters.clientId) query = query.eq('client_id', filters.clientId);
   if (filters.caregiverId) {
     query = query.eq('assigned_caregiver_id', filters.caregiverId);
