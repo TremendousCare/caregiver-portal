@@ -3,6 +3,7 @@ import {
   getAvailability,
   addAvailability,
   removeAvailability,
+  updateAvailability,
 } from './storage';
 import {
   emptyGrid,
@@ -197,6 +198,23 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
     setOneOffRows((prev) => prev.filter((r, i) => i !== index));
   };
 
+  // Toggle the pin flag on an existing time-off row. Only applies to
+  // saved rows (rows with an id). Pinned rows are protected from being
+  // overwritten when the caregiver submits a new availability survey.
+  const handleTogglePin = async (row) => {
+    if (!row.id) return;
+    const nextPinned = !row.pinned;
+    try {
+      const updated = await updateAvailability(row.id, { pinned: nextPinned });
+      setOriginalRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...updated } : r)));
+      setOneOffRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...updated } : r)));
+      showToast?.(nextPinned ? 'Pinned — will not be overwritten by surveys' : 'Unpinned');
+    } catch (e) {
+      console.error('Failed to toggle pin:', e);
+      showToast?.(`Failed to update pin: ${e.message || e}`);
+    }
+  };
+
   // ─── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
@@ -231,6 +249,11 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
           dayOfWeek: row.day_of_week,
           startTime: row.start_time,
           endTime: row.end_time === '24:00' ? '23:59:59' : row.end_time,
+          // Manual edits in the UI are tagged 'manual' so they're
+          // distinguishable from survey-imported rows. Pinning remains
+          // an explicit per-row action — manual edits do NOT auto-pin.
+          source: 'manual',
+          pinned: false,
           createdBy: currentUserName || null,
         });
       }
@@ -242,6 +265,8 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
           startDate: row.startDate,
           endDate: row.endDate,
           reason: row.reason,
+          source: 'manual',
+          pinned: false,
           createdBy: currentUserName || null,
         });
       }
@@ -279,8 +304,20 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
   const summary = summarizeWeeklyAvailability(grid);
   const hourRows = HOUR_ROWS_FOR_DISPLAY; // slot pairs for hourly rows
 
+  const hasSurveyRows = originalRows.some((r) => r.source === 'survey');
+
   return (
     <div className={s.editor}>
+      {hasSurveyRows && (
+        <div style={{
+          background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#1E40AF',
+        }}>
+          Some rows below were imported from the caregiver's availability survey.
+          Future survey submissions will replace all unpinned rows. Use the pin
+          icon to keep a row across submissions.
+        </div>
+      )}
       <div className={s.toolbar}>
         <div className={s.toolbarInfo}>
           <h3 className={s.sectionTitle}>Weekly availability</h3>
@@ -413,16 +450,40 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
               <div className={s.oneOffText}>
                 <strong>{formatOneOffLabel(row)}</strong>
                 {row.reason && <span className={s.oneOffReason}> — {row.reason}</span>}
+                {row.source === 'survey' && (
+                  <span
+                    title="Self-reported by the caregiver in their availability survey — unverified"
+                    style={badgeStyle}
+                  >
+                    Self-reported
+                  </span>
+                )}
                 {!row.id && <span className={s.oneOffPending}> (unsaved)</span>}
               </div>
-              <button
-                className={s.oneOffRemove}
-                onClick={() => handleRemoveTimeOff(row, index)}
-                aria-label="Remove time off"
-                title="Remove"
-              >
-                ×
-              </button>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {row.id && (
+                  <button
+                    onClick={() => handleTogglePin(row)}
+                    aria-label={row.pinned ? 'Unpin' : 'Pin'}
+                    title={
+                      row.pinned
+                        ? 'Pinned — survey submissions will not overwrite this row. Click to unpin.'
+                        : 'Click to pin — will be preserved on future availability surveys.'
+                    }
+                    style={row.pinned ? pinActiveStyle : pinStyle}
+                  >
+                    {row.pinned ? '📌' : '📍'}
+                  </button>
+                )}
+                <button
+                  className={s.oneOffRemove}
+                  onClick={() => handleRemoveTimeOff(row, index)}
+                  aria-label="Remove time off"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -445,6 +506,42 @@ export function AvailabilityEditor({ caregiver, currentUserName, showToast }) {
     </div>
   );
 }
+
+// ─── Inline badge / pin styles ─────────────────────────────────
+
+const badgeStyle = {
+  display: 'inline-block',
+  marginLeft: 8,
+  padding: '2px 8px',
+  borderRadius: 10,
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+  background: '#FFFBEB',
+  color: '#A16207',
+  border: '1px solid #FDE68A',
+  verticalAlign: 'middle',
+};
+
+const pinBaseStyle = {
+  background: 'none',
+  border: '1px solid #E0E4EA',
+  borderRadius: 6,
+  cursor: 'pointer',
+  padding: '4px 6px',
+  fontSize: 13,
+  lineHeight: 1,
+  fontFamily: 'inherit',
+};
+
+const pinStyle = { ...pinBaseStyle, opacity: 0.5 };
+const pinActiveStyle = {
+  ...pinBaseStyle,
+  background: '#FEF3C7',
+  borderColor: '#FDE68A',
+  opacity: 1,
+};
 
 // ─── Helpers private to this file ──────────────────────────────
 
@@ -472,6 +569,9 @@ function appRowToHelperRow(row) {
     effective_from: row.effectiveFrom,
     effective_until: row.effectiveUntil,
     reason: row.reason,
+    source: row.source ?? null,
+    pinned: row.pinned === true,
+    source_response_id: row.sourceResponseId ?? null,
   };
 }
 

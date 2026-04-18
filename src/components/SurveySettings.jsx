@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   QUESTION_TYPES, QUALIFICATION_ACTIONS, PROFILE_FIELD_OPTIONS, createBlankQuestion,
-  generateQuestionId, getDefaultOptions, hasOptions, buildSurveyUrl,
+  generateQuestionId, getDefaultOptions, hasOptions, isStructuredQuestion, buildSurveyUrl,
 } from '../lib/surveyUtils';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
@@ -86,6 +86,7 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
   };
 
   const showOptions = hasOptions(question.type);
+  const structured = isStructuredQuestion(question.type);
   const rules = question.qualification_rules || [];
 
   return (
@@ -162,22 +163,38 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
         </div>
       </div>
 
-      {/* Map to profile field */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Map to Profile Field (optional)</label>
-        <select
-          className={forms.fieldInput}
-          value={question.profile_field || ''}
-          onChange={(e) => updateField('profile_field', e.target.value || '')}
-        >
-          {PROFILE_FIELD_OPTIONS.map((f) => (
-            <option key={f.value} value={f.value}>{f.label}</option>
-          ))}
-        </select>
-        <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
-          When set, the caregiver's answer will auto-populate this field on their profile.
+      {/* Map to profile field — hidden for structured question types, which
+          sync via dedicated action paths instead of scalar mapping. */}
+      {!structured && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Map to Profile Field (optional)</label>
+          <select
+            className={forms.fieldInput}
+            value={question.profile_field || ''}
+            onChange={(e) => updateField('profile_field', e.target.value || '')}
+          >
+            {PROFILE_FIELD_OPTIONS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 10, color: '#7A8BA0', marginTop: 4 }}>
+            When set, the caregiver's answer will auto-populate this field on their profile.
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Info callout for availability_schedule — explains auto-sync behavior */}
+      {question.type === 'availability_schedule' && (
+        <div style={{
+          background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#1E40AF',
+        }}>
+          The applicant will pick weekdays and time ranges from a structured
+          picker. On submit, their answer syncs directly to the caregiver's
+          Availability tab (replacing any unpinned rows). Qualification rules
+          and profile-field mapping don't apply to this type.
+        </div>
+      )}
 
       {/* Answer options (for yes/no, multiple choice, and multi-select) */}
       {showOptions && (
@@ -211,7 +228,8 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
         </div>
       )}
 
-      {/* Qualification rules */}
+      {/* Qualification rules — hidden for structured types which don't use them */}
+      {!structured && (
       <div style={{
         borderTop: '1px solid #E8ECF1', paddingTop: 14, marginTop: 4,
       }}>
@@ -289,6 +307,7 @@ function QuestionEditor({ question, index, onChange, onRemove, onMoveUp, onMoveD
           + Add qualification rule
         </button>
       </div>
+      )}
     </div>
   );
 }

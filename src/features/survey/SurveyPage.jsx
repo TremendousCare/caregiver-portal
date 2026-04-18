@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { evaluateSurveyAnswers, validateRequiredAnswers, extractProfileFieldUpdates } from '../../lib/surveyUtils';
+import { extractAvailabilityAnswer, hasAvailabilitySlots } from '../../lib/scheduling/prescreenAvailability';
+import { AvailabilityScheduleField } from './AvailabilityScheduleField';
 import s from './SurveyPage.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -150,6 +152,27 @@ export function SurveyPage() {
         }).catch(() => {});
       }
 
+      // Fire-and-forget: sync structured weekly availability into
+      // caregiver_availability (replaces all unpinned rows). Empty
+      // submissions are a no-op on the server.
+      const availabilityAnswer = extractAvailabilityAnswer(questions, answers);
+      if (hasAvailabilitySlots(availabilityAnswer)) {
+        supabase.functions.invoke('execute-automation', {
+          body: {
+            rule_id: 'survey_availability_sync',
+            caregiver_id: response.caregiver_id,
+            action_type: 'sync_availability_from_survey',
+            action_config: {
+              availability_answer: availabilityAnswer,
+              response_id: response.id,
+            },
+            rule_name: 'Survey Availability Sync',
+            caregiver: { first_name: '', last_name: '', phone: '', email: '', phase: 'intake' },
+            trigger_context: { response_id: response.id },
+          },
+        }).catch(() => {});
+      }
+
       setSubmitted(true);
     } catch (err) {
       console.error('Failed to submit survey:', err);
@@ -228,6 +251,9 @@ export function SurveyPage() {
   const answeredCount = questions.filter((q) => {
     const a = answers[q.id];
     if (a === undefined || a === null) return false;
+    if (q.type === 'availability_schedule') {
+      return Array.isArray(a?.slots) && a.slots.length > 0;
+    }
     if (Array.isArray(a)) return a.length > 0;
     return String(a).trim() !== '';
   }).length;
@@ -396,7 +422,18 @@ function QuestionField({ question, index, value, error, onChange }) {
         />
       )}
 
-      {error && <div className={s.fieldError}>{error}</div>}
+      {/* Weekly Availability (structured) */}
+      {type === 'availability_schedule' && (
+        <AvailabilityScheduleField
+          value={value}
+          onChange={onChange}
+          error={error}
+        />
+      )}
+
+      {error && type !== 'availability_schedule' && (
+        <div className={s.fieldError}>{error}</div>
+      )}
     </div>
   );
 }
