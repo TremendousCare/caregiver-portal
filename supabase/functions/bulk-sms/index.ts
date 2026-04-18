@@ -165,11 +165,30 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Fetch caregivers in one query
-    const { data: caregivers, error: fetchErr } = await supabase
+    // Fetch caregivers in one query. If the `sms_opted_out` column
+    // does not exist yet (migration hasn't been applied but the edge
+    // function auto-deployed on merge), retry without it. In that
+    // window the opt-out gate becomes a no-op — behavior matches
+    // pre-migration exactly — and bulk-sms stays functional.
+    const fullCols =
+      "id, first_name, last_name, phone, email, phase_override, notes, sms_opted_out";
+    const fallbackCols =
+      "id, first_name, last_name, phone, email, phase_override, notes";
+    let caregivers: any[] | null = null;
+    let fetchErr: { message?: string } | null = null;
+    ({ data: caregivers, error: fetchErr } = await supabase
       .from("caregivers")
-      .select("id, first_name, last_name, phone, email, phase_override, notes, sms_opted_out")
-      .in("id", caregiver_ids);
+      .select(fullCols)
+      .in("id", caregiver_ids));
+    if (
+      fetchErr &&
+      String(fetchErr.message || "").includes("sms_opted_out")
+    ) {
+      ({ data: caregivers, error: fetchErr } = await supabase
+        .from("caregivers")
+        .select(fallbackCols)
+        .in("id", caregiver_ids));
+    }
 
     if (fetchErr) {
       return new Response(
