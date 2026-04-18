@@ -250,3 +250,487 @@ export const createCarePlan = async (clientId, { createdBy } = {}) => {
     currentVersion: dbToCarePlanVersion(versionRow),
   };
 };
+
+
+// ─── Event logging (fire-and-forget) ───────────────────────────
+// Mutations below emit rows into the `events` table so the AI context
+// layer can ask "what changed this week for Kevin?" without another
+// data pipeline. Intentionally fire-and-forget: event-log failures
+// never block the main write or propagate to the user. We `await` only
+// the main write; events are scheduled on the microtask queue via
+// `.then()`.
+
+const logEvent = (eventType, entityType, entityId, actor, payload) => {
+  if (!isSupabaseConfigured()) return;
+  supabase
+    .from('events')
+    .insert({
+      event_type: eventType,
+      entity_type: entityType,
+      entity_id: entityId,
+      actor: actor || null,
+      payload: payload || {},
+    })
+    .then(({ error }) => {
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[care-plans] event log failed:', eventType, error.message);
+      }
+    });
+};
+
+const actorFor = (userId) => (userId ? `user:${userId}` : 'user:unknown');
+
+
+// ─── saveDraft ─────────────────────────────────────────────────
+/**
+ * Merge `fieldPatch` into `data[sectionId]` on a draft version and
+ * emit one `care_plan_field_changed` event per changed field.
+ *
+ * `fieldPatch` shape: `{ [fieldId]: value, ... }`. Only supplied keys
+ * are modified — other fields on the section are preserved. Values
+ * that match the existing stored value are treated as no-ops (no
+ * write, no event).
+ *
+ * Rejects if the target version is not a draft. Callers should route
+ * "edit a published version" through `createNewDraftVersion` first.
+ */
+export const saveDraft = async (versionId, sectionId, fieldPatch, { userId } = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!versionId) throw new Error('versionId is required');
+  if (!sectionId) throw new Error('sectionId is required');
+  if (!fieldPatch || typeof fieldPatch !== 'object') {
+    throw new Error('fieldPatch must be an object');
+  }
+
+  // Load current version (need status + data to compute the patch)
+  const { data: current, error: readErr } = await supabase
+    .from('care_plan_versions')
+    .select('id, care_plan_id, status, data')
+    .eq('id', versionId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!current) throw new Error('version not found');
+  if (current.status !== 'draft') {
+    throw new Error('cannot edit a published or archived version — start a new draft first');
+  }
+
+  const existingSection = (current.data && current.data[sectionId]) || {};
+  const merged = { ...existingSection };
+  const changes = []; // [{field, oldValue, newValue}]
+
+  for (const [fieldId, newValue] of Object.entries(fieldPatch)) {
+    const oldValue = existingSection[fieldId];
+    if (sameValue(oldValue, newValue)) continue;
+    merged[fieldId] = newValue;
+    changes.push({ field: fieldId, oldValue, newValue });
+  }
+
+  if (changes.length === 0) {
+    // No-op write — return current row unchanged.
+    return dbToCarePlanVersion(current);
+  }
+
+  const newData = { ...(current.data || {}), [sectionId]: merged };
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('care_plan_versions')
+    .update({ data: newData })
+    .eq('id', versionId)
+    .select()
+    .single();
+  if (updateErr) throw updateErr;
+
+  // Emit one event per changed field.
+  for (const change of changes) {
+    logEvent(
+      'care_plan_field_changed',
+      'care_plan',
+      current.care_plan_id,
+      actorFor(userId),
+      {
+        versionId,
+        section: sectionId,
+        field: change.field,
+        oldValue: change.oldValue,
+        newValue: change.newValue,
+      },
+    );
+  }
+
+  return dbToCarePlanVersion(updated);
+};
+
+
+// ─── publishVersion ────────────────────────────────────────────
+/**
+ * Publish a draft version: stamp status, signatures, timestamps.
+ * Once published, `saveDraft` on this version will be rejected.
+ */
+export const publishVersion = async (versionId, options = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!versionId) throw new Error('versionId is required');
+
+  const {
+    reason,
+    agencySignedName,
+    clientSignedName,
+    clientSignedMethod,
+    userId,
+  } = options;
+
+  if (!agencySignedName) {
+    throw new Error('agencySignedName is required');
+  }
+
+  // Read to confirm it's a draft.
+  const { data: current, error: readErr } = await supabase
+    .from('care_plan_versions')
+    .select('id, care_plan_id, status, version_number')
+    .eq('id', versionId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!current) throw new Error('version not found');
+  if (current.status !== 'draft') {
+    throw new Error(`cannot publish: version is already ${current.status}`);
+  }
+
+  const now = new Date().toISOString();
+  const patch = {
+    status: 'published',
+    published_at: now,
+    published_by: userId ?? null,
+    version_reason: reason ?? null,
+    agency_signed_name: agencySignedName,
+    agency_signed_at: now,
+    client_signed_name: clientSignedName || null,
+    client_signed_at: clientSignedName ? now : null,
+  };
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('care_plan_versions')
+    .update(patch)
+    .eq('id', versionId)
+    .select()
+    .single();
+  if (updateErr) throw updateErr;
+
+  logEvent(
+    'care_plan_version_published',
+    'care_plan',
+    current.care_plan_id,
+    actorFor(userId),
+    {
+      versionId,
+      versionNumber: current.version_number,
+      reason: reason ?? null,
+      agencySignedName,
+      clientSignedName: clientSignedName || null,
+      clientSignedMethod: clientSignedMethod || null,
+    },
+  );
+
+  return dbToCarePlanVersion(updated);
+};
+
+
+// ─── createNewDraftVersion ─────────────────────────────────────
+/**
+ * Clone a published version into a new draft (next version number)
+ * and repoint `care_plans.current_version_id` to it. Tasks are cloned
+ * forward too so editors have a starting point rather than an empty
+ * task list.
+ */
+export const createNewDraftVersion = async (carePlanId, options = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!carePlanId) throw new Error('carePlanId is required');
+  const { fromVersionId, reason, userId } = options;
+  if (!fromVersionId) throw new Error('fromVersionId is required');
+
+  // 1. Read the source version (must be published; creating a draft
+  // from a draft is meaningless — just edit the existing draft).
+  const { data: source, error: srcErr } = await supabase
+    .from('care_plan_versions')
+    .select('*')
+    .eq('id', fromVersionId)
+    .maybeSingle();
+  if (srcErr) throw srcErr;
+  if (!source) throw new Error('source version not found');
+  if (source.care_plan_id !== carePlanId) {
+    throw new Error('source version belongs to a different care plan');
+  }
+
+  // 2. Compute next version_number (max + 1).
+  const { data: versions, error: listErr } = await supabase
+    .from('care_plan_versions')
+    .select('version_number')
+    .eq('care_plan_id', carePlanId)
+    .order('version_number', { ascending: false })
+    .limit(1);
+  if (listErr) throw listErr;
+  const nextNumber = (versions?.[0]?.version_number || 0) + 1;
+
+  // 3. Insert the new draft with cloned data + freshly-minted row id.
+  const { data: draft, error: insertErr } = await supabase
+    .from('care_plan_versions')
+    .insert({
+      care_plan_id: carePlanId,
+      version_number: nextNumber,
+      status: 'draft',
+      version_reason: reason ?? null,
+      created_by: userId ?? null,
+      data: source.data ?? {},
+    })
+    .select()
+    .single();
+  if (insertErr) throw insertErr;
+
+  // 4. Clone tasks from the source version to the new draft.
+  const { data: sourceTasks, error: tasksErr } = await supabase
+    .from('care_plan_tasks')
+    .select('*')
+    .eq('version_id', fromVersionId);
+  if (tasksErr) throw tasksErr;
+
+  if (sourceTasks && sourceTasks.length > 0) {
+    const toInsert = sourceTasks.map((t) => ({
+      version_id: draft.id,
+      category: t.category,
+      task_name: t.task_name,
+      description: t.description,
+      shifts: t.shifts,
+      days_of_week: t.days_of_week,
+      priority: t.priority,
+      safety_notes: t.safety_notes,
+      sort_order: t.sort_order,
+    }));
+    const { error: cloneErr } = await supabase
+      .from('care_plan_tasks')
+      .insert(toInsert);
+    if (cloneErr) throw cloneErr;
+  }
+
+  // 5. Point the care plan at the new draft.
+  const { error: pointErr } = await supabase
+    .from('care_plans')
+    .update({ current_version_id: draft.id })
+    .eq('id', carePlanId);
+  if (pointErr) throw pointErr;
+
+  logEvent(
+    'care_plan_version_created',
+    'care_plan',
+    carePlanId,
+    actorFor(userId),
+    {
+      versionId: draft.id,
+      versionNumber: nextNumber,
+      fromVersionId,
+      reason: reason ?? null,
+    },
+  );
+
+  return dbToCarePlanVersion(draft);
+};
+
+
+// ─── Task CRUD ─────────────────────────────────────────────────
+/**
+ * Insert a new task on a draft version. Rejects if the version is
+ * published or archived.
+ */
+export const createTask = async (versionId, task, { userId } = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!versionId) throw new Error('versionId is required');
+  if (!task?.category) throw new Error('task.category is required');
+  if (!task?.taskName) throw new Error('task.taskName is required');
+
+  await assertVersionIsDraft(versionId);
+
+  const { data: inserted, error } = await supabase
+    .from('care_plan_tasks')
+    .insert(carePlanTaskToDb({ ...task, versionId }))
+    .select()
+    .single();
+  if (error) throw error;
+
+  const { data: versionRow } = await supabase
+    .from('care_plan_versions')
+    .select('care_plan_id')
+    .eq('id', versionId)
+    .maybeSingle();
+
+  logEvent(
+    'care_plan_task_created',
+    'care_plan',
+    versionRow?.care_plan_id ?? null,
+    actorFor(userId),
+    { versionId, taskId: inserted.id, category: task.category, taskName: task.taskName },
+  );
+
+  return dbToCarePlanTask(inserted);
+};
+
+
+/**
+ * Partial update on a task. Only the keys present in `patch` are
+ * written — everything else is preserved. Rejects if the task belongs
+ * to a non-draft version.
+ */
+export const updateTask = async (taskId, patch, { userId } = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!taskId) throw new Error('taskId is required');
+  if (!patch || typeof patch !== 'object') throw new Error('patch must be an object');
+
+  // Fetch for guard + event payload.
+  const { data: task, error: readErr } = await supabase
+    .from('care_plan_tasks')
+    .select('id, version_id, category, task_name')
+    .eq('id', taskId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!task) throw new Error('task not found');
+
+  await assertVersionIsDraft(task.version_id);
+
+  // Build a snake_case patch from the camelCase input, emitting only
+  // supplied keys — mirrors the buildServicePlanPatchRow pattern.
+  const dbPatch = {};
+  if ('category' in patch)    dbPatch.category     = patch.category;
+  if ('taskName' in patch)    dbPatch.task_name    = patch.taskName;
+  if ('description' in patch) dbPatch.description  = patch.description;
+  if ('shifts' in patch) {
+    dbPatch.shifts = Array.isArray(patch.shifts) && patch.shifts.length > 0
+      ? patch.shifts
+      : ['all'];
+  }
+  if ('daysOfWeek' in patch) {
+    dbPatch.days_of_week = Array.isArray(patch.daysOfWeek) ? patch.daysOfWeek : [];
+  }
+  if ('priority' in patch)    dbPatch.priority     = patch.priority;
+  if ('safetyNotes' in patch) dbPatch.safety_notes = patch.safetyNotes;
+  if ('sortOrder' in patch)   dbPatch.sort_order   = patch.sortOrder;
+
+  if (Object.keys(dbPatch).length === 0) {
+    // No-op patch. Return current row.
+    return dbToCarePlanTask({ ...task });
+  }
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('care_plan_tasks')
+    .update(dbPatch)
+    .eq('id', taskId)
+    .select()
+    .single();
+  if (updateErr) throw updateErr;
+
+  const { data: versionRow } = await supabase
+    .from('care_plan_versions')
+    .select('care_plan_id')
+    .eq('id', task.version_id)
+    .maybeSingle();
+
+  logEvent(
+    'care_plan_task_updated',
+    'care_plan',
+    versionRow?.care_plan_id ?? null,
+    actorFor(userId),
+    { versionId: task.version_id, taskId, changedKeys: Object.keys(dbPatch) },
+  );
+
+  return dbToCarePlanTask(updated);
+};
+
+
+/**
+ * Delete a task from a draft version. Rejects if the task's version
+ * is published or archived — historical versions must stay intact.
+ */
+export const deleteTask = async (taskId, { userId } = {}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!taskId) throw new Error('taskId is required');
+
+  const { data: task, error: readErr } = await supabase
+    .from('care_plan_tasks')
+    .select('id, version_id, category, task_name')
+    .eq('id', taskId)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!task) throw new Error('task not found');
+
+  await assertVersionIsDraft(task.version_id);
+
+  const { error: deleteErr } = await supabase
+    .from('care_plan_tasks')
+    .delete()
+    .eq('id', taskId);
+  if (deleteErr) throw deleteErr;
+
+  const { data: versionRow } = await supabase
+    .from('care_plan_versions')
+    .select('care_plan_id')
+    .eq('id', task.version_id)
+    .maybeSingle();
+
+  logEvent(
+    'care_plan_task_deleted',
+    'care_plan',
+    versionRow?.care_plan_id ?? null,
+    actorFor(userId),
+    { versionId: task.version_id, taskId, category: task.category, taskName: task.task_name },
+  );
+
+  return true;
+};
+
+
+// ─── Internal helpers ──────────────────────────────────────────
+
+/**
+ * Throws if the given version is not a draft. Used to guard
+ * mutations that shouldn't touch published or archived versions.
+ */
+async function assertVersionIsDraft(versionId) {
+  const { data, error } = await supabase
+    .from('care_plan_versions')
+    .select('id, status')
+    .eq('id', versionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('version not found');
+  if (data.status !== 'draft') {
+    throw new Error(`cannot modify tasks on a ${data.status} version`);
+  }
+}
+
+
+/**
+ * Deep-equal-ish comparison for primitives, arrays, and plain objects.
+ * Good enough for our field-patch change detection (we don't store
+ * Dates, functions, or class instances in section data).
+ */
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!sameValue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const ak = Object.keys(a);
+    const bk = Object.keys(b);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) {
+      if (!sameValue(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+// Exported for testing.
+export const __testables__ = { sameValue };

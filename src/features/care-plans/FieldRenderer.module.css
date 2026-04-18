@@ -1,0 +1,276 @@
+/* ═══════════════════════════════════════════════════════════════
+   Care Plan — FieldRenderer styles
+   ═══════════════════════════════════════════════════════════════ */
+
+.field {
+  margin-bottom: 18px;
+}
+
+.requiredMark {
+  color: #d93025;
+  margin-left: 4px;
+}
+
+.cms485Badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #1b365d;
+  background: #e3edf9;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.helpText {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Multiselect chips ──────────────────────────────────────── */
+.chipGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--tc-cyan);
+  color: var(--tc-text-primary);
+}
+
+.chipSelected {
+  color: #fff;
+  background: var(--tc-cyan);
+  border-color: var(--tc-cyan);
+}
+
+.chipSelected:hover:not(:disabled) {
+  color: #fff;
+  background: #1fa8d4;
+}
+
+/* ── Boolean toggle ─────────────────────────────────────────── */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.toggleLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tc-text-primary);
+}
+
+/* ── YN radio + note ────────────────────────────────────────── */
+.ynWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radioRow {
+  display: flex;
+  gap: 18px;
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.radio input {
+  cursor: pointer;
+}
+
+.ynNote {
+  margin-top: 4px;
+}
+
+/* ── List ───────────────────────────────────────────────────── */
+.listWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listEmpty {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.listRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+}
+
+.listRowFields {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.listSubfield {
+  display: flex;
+  flex-direction: column;
+}
+
+.listSubLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  margin-bottom: 4px;
+}
+
+.listRemove {
+  align-self: flex-start;
+  padding: 6px 10px;
+  font-size: 14px;
+  color: #d93025;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.listRemove:hover:not(:disabled) {
+  background: rgba(217, 48, 37, 0.08);
+}
+
+.listAdd {
+  align-self: flex-start;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tc-cyan);
+  background: transparent;
+  border: 1px dashed var(--tc-cyan);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.listAdd:hover:not(:disabled) {
+  background: rgba(41, 190, 228, 0.08);
+}
+
+/* ── PRN flags ──────────────────────────────────────────────── */
+.prnWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.prnFlags {
+  display: flex;
+  gap: 4px;
+}
+
+.prnFlag {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--tc-text-secondary);
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.prnP.prnFlagActive { color: #fff; background: #f9a825; border-color: #f9a825; }
+.prnR.prnFlagActive { color: #fff; background: #d93025; border-color: #d93025; }
+.prnN.prnFlagActive { color: #fff; background: #5f6368; border-color: #5f6368; }
+
+.prnOption {
+  flex: 1;
+  min-width: 160px;
+}
+
+/* ── LevelPick segmented control ────────────────────────────── */
+.levelPick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--tc-bg-hover);
+  border-radius: 10px;
+}
+
+.level {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.level:hover:not(:disabled) {
+  color: var(--tc-text-primary);
+}
+
+.levelActive {
+  color: #fff;
+  background: var(--tc-cyan);
+}
+
+.levelActive:hover:not(:disabled) {
+  color: #fff;
+  background: #1fa8d4;
+}
+
+/* ── Unknown (fallback) ─────────────────────────────────────── */
+.unknown {
+  padding: 10px;
+  font-size: 13px;
+  color: #b00020;
+  background: rgba(176, 0, 32, 0.06);
+  border-radius: 8px;
+}
+
+.unknown code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}

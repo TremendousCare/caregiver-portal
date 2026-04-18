@@ -33,18 +33,34 @@
   max-width: 560px;
 }
 
-.previewBadge {
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
-  display: inline-block;
-  padding: 3px 10px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: #92400E;
-  background: #FEF3C7;
-  border: 1px solid #FCD34D;
-  border-radius: 12px;
+}
+
+.editBtn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tc-cyan);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.editBtn:hover:not(:disabled) {
+  background: rgba(41, 190, 228, 0.08);
+  border-color: rgba(41, 190, 228, 0.2);
+}
+
+.editBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .loading {
@@ -146,6 +162,10 @@
 }
 
 .sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 16px;
   background: #F8FAFC;
   border-bottom: 1px solid #E1E7EF;

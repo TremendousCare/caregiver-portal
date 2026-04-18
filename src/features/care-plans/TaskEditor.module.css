@@ -1,0 +1,283 @@
+/* ═══════════════════════════════════════════════════════════════
+   TaskEditor — ADL / IADL task list management
+   ═══════════════════════════════════════════════════════════════ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.loading {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  font-style: italic;
+}
+
+.error {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #b00020;
+  background: #ffecef;
+  border-radius: 8px;
+}
+
+/* ── Category blocks ────────────────────────────────────────── */
+
+.categoryBlock {
+  padding: 12px 14px;
+  background: var(--tc-bg-hover);
+  border-radius: 12px;
+}
+
+.categoryHeader {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin-bottom: 10px;
+}
+
+.empty {
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  font-style: italic;
+  padding: 4px 0 10px;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Task row ───────────────────────────────────────────────── */
+
+.row {
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nameInput {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-hover);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  outline: none;
+}
+
+.nameInput:focus {
+  border-color: var(--tc-cyan);
+  background: #fff;
+}
+
+.descInput,
+.safetyInput {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-hover);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+}
+
+.descInput:focus,
+.safetyInput:focus {
+  border-color: var(--tc-cyan);
+  background: #fff;
+}
+
+.safetyInput {
+  color: #875a00;
+}
+
+.rowControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+/* ── Chip groups ────────────────────────────────────────────── */
+
+.chipGroup,
+.priorityGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chipGroupLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--tc-text-secondary);
+  text-transform: uppercase;
+}
+
+.chipGroupHelp {
+  font-size: 11px;
+  color: var(--tc-text-secondary);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  background: #f1f4f7;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--tc-text-primary);
+}
+
+.chipActive {
+  color: #fff;
+  background: var(--tc-cyan);
+  border-color: var(--tc-cyan);
+}
+
+/* ── Priority chips ─────────────────────────────────────────── */
+
+.priorityChip {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #f1f4f7;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.priority_standard { color: var(--tc-text-secondary); }
+.priority_critical { color: #b00020; }
+.priority_optional { color: #5f6368; }
+
+.priorityActive.priority_standard { color: #fff; background: #5f6368; border-color: #5f6368; }
+.priorityActive.priority_critical { color: #fff; background: #d93025; border-color: #d93025; }
+.priorityActive.priority_optional { color: #fff; background: #8ab4f8; border-color: #8ab4f8; }
+
+/* ── Delete button ──────────────────────────────────────────── */
+
+.deleteBtn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  color: #d93025;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.deleteBtn:hover {
+  background: rgba(217, 48, 37, 0.08);
+}
+
+/* ── Add row + new task form ────────────────────────────────── */
+
+.addRow {
+  padding-top: 4px;
+}
+
+.newForm {
+  padding: 14px;
+  background: #fff;
+  border: 2px dashed var(--tc-cyan);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.newFormRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.newFormSelect {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  outline: none;
+}
+
+.newFormInput {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  outline: none;
+}
+
+.newFormTextarea {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tc-text-primary);
+  background: var(--tc-bg-hover);
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+}
+
+.newFormInput:focus,
+.newFormSelect:focus,
+.newFormTextarea:focus {
+  border-color: var(--tc-cyan);
+  background: #fff;
+}
+
+.newFormActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
