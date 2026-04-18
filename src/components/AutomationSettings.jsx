@@ -27,6 +27,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'inbound_sms', label: 'Inbound SMS Received', description: 'Fires when an SMS is received from a caregiver via RingCentral' },
   { value: 'survey_completed', label: 'Survey Completed', description: 'Fires when a caregiver completes a pre-screening survey' },
   { value: 'survey_pending', label: 'Survey Pending Reminder', description: 'Re-sends the pre-screening survey daily (or at a custom interval) until the caregiver completes it' },
+  { value: 'recurring_availability_check', label: 'Recurring Availability Check-In', description: 'Periodically texts caregivers to refresh their weekly availability. Ships OFF — enable explicitly.' },
   { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
 ];
 
@@ -116,6 +117,7 @@ function TriggerBadge({ type }) {
     inbound_sms: { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
     survey_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     survey_pending: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
+    recurring_availability_check: { bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -131,6 +133,7 @@ function TriggerBadge({ type }) {
     inbound_sms: 'Inbound SMS',
     survey_completed: 'Survey Done',
     survey_pending: 'Survey Reminder',
+    recurring_availability_check: 'Availability Check-In',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -184,6 +187,217 @@ function StatusBadge({ status }) {
   );
 }
 
+// ─── Send Test Now Block ───
+// Ships ONE availability check-in to a single caregiver without affecting
+// the cron's dedup timestamps. Creates a fresh survey_responses row, fires
+// execute-automation with a one-off rule_id that doesn't match the real
+// rule, so the send is logged separately and does not push back the
+// caregiver's next scheduled check-in.
+function SendTestNowBlock({
+  ruleId,
+  ruleName,
+  templateId,
+  actionType,
+  messageTemplate,
+  actionConfig,
+}) {
+  const [caregivers, setCaregivers] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('caregivers')
+      .select(
+        'id, first_name, last_name, phone, email, archived, sms_opted_out, availability_check_paused',
+      )
+      .eq('archived', false)
+      .order('first_name', { ascending: true })
+      .limit(500)
+      .then(({ data }) => {
+        if (!data) return;
+        const eligible = data.filter(
+          (c) =>
+            !c.sms_opted_out && !c.availability_check_paused && c.phone,
+        );
+        setCaregivers(eligible);
+      });
+  }, []);
+
+  const send = async () => {
+    if (!selectedId) {
+      setLastResult({
+        success: false,
+        message: 'Pick a caregiver to receive the test send.',
+      });
+      return;
+    }
+    if (!templateId) {
+      setLastResult({
+        success: false,
+        message: 'Save the rule with a template selected before sending a test.',
+      });
+      return;
+    }
+    const cg = caregivers.find((c) => c.id === selectedId);
+    if (!cg) return;
+
+    const proceed = window.confirm(
+      `Send a live test availability check-in to ${cg.first_name} ${cg.last_name} (${cg.phone}) right now?\n\nThis will deliver a real SMS and create a real survey response. It does NOT update the rule's schedule for this caregiver.`,
+    );
+    if (!proceed) return;
+
+    setLoading(true);
+    setLastResult(null);
+    try {
+      // 1) Create a fresh survey_responses row so the caregiver has a
+      //    unique token and can actually submit the survey.
+      const token = 'sv_' + crypto.randomUUID().replace(/-/g, '');
+      const { data: tpl } = await supabase
+        .from('survey_templates')
+        .select('expires_hours')
+        .eq('id', templateId)
+        .single();
+      const expiresAt = new Date(
+        Date.now() + (tpl?.expires_hours || 72) * 60 * 60 * 1000,
+      ).toISOString();
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('survey_responses')
+        .insert({
+          survey_template_id: templateId,
+          caregiver_id: cg.id,
+          token,
+          status: 'pending',
+          sent_via: actionType === 'send_email' ? 'email' : 'sms',
+          expires_at: expiresAt,
+        })
+        .select('id')
+        .single();
+      if (insErr || !inserted) throw insErr || new Error('Insert failed');
+
+      const surveyLink = `${window.location.origin}/survey/${token}`;
+
+      // 2) Invoke execute-automation with a TEST rule_id so the send
+      //    is logged under a distinct id. The cron's dedup reads against
+      //    the real rule_id, so this does NOT push the caregiver's
+      //    next real send further out.
+      const testRuleId = `${ruleId}:test:${Date.now()}`;
+      const { error: invokeErr, data: result } =
+        await supabase.functions.invoke('execute-automation', {
+          body: {
+            rule_id: testRuleId,
+            caregiver_id: cg.id,
+            action_type: actionType || 'send_sms',
+            message_template: messageTemplate,
+            action_config: actionConfig,
+            rule_name: `${ruleName} (TEST)`,
+            caregiver: {
+              id: cg.id,
+              first_name: cg.first_name,
+              last_name: cg.last_name,
+              phone: cg.phone,
+              email: cg.email,
+            },
+            trigger_context: {
+              survey_link: surveyLink,
+              survey_response_id: inserted.id,
+              test_send: true,
+            },
+          },
+        });
+      if (invokeErr) throw invokeErr;
+
+      setLastResult({
+        success: result?.success !== false,
+        message:
+          result?.success === false
+            ? `Send failed: ${result?.error || 'unknown error'}`
+            : `Sent to ${cg.first_name} ${cg.last_name}. Check their phone + Activity timeline to confirm.`,
+      });
+    } catch (err) {
+      console.error('[SendTestNow] Failed:', err);
+      setLastResult({
+        success: false,
+        message: `Test send failed: ${err.message || err}`,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: 12,
+        border: '1px dashed #BFDBFE',
+        borderRadius: 8,
+        background: '#F8FAFF',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: '#1E40AF',
+          marginBottom: 8,
+          textTransform: 'uppercase',
+          letterSpacing: 0.6,
+        }}
+      >
+        Send Test Now
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <select
+          className={forms.fieldInput}
+          style={{ flex: 1, minWidth: 220 }}
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          disabled={loading}
+        >
+          <option value="">— Select a caregiver —</option>
+          {caregivers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.first_name} {c.last_name}{c.phone ? ` · ${c.phone}` : ''}
+            </option>
+          ))}
+        </select>
+        <button
+          className={btn.primaryBtn}
+          onClick={send}
+          disabled={loading || !selectedId}
+          style={{ fontSize: 12 }}
+        >
+          {loading ? 'Sending…' : 'Send test'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 6 }}>
+        Sends one availability check-in right now to the selected caregiver. Does
+        NOT affect the cron schedule — the rule's next scheduled send to this
+        caregiver is unchanged.
+      </div>
+      {lastResult && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '8px 10px',
+            borderRadius: 6,
+            fontSize: 12,
+            background: lastResult.success ? '#F0FDF4' : '#FEF2F2',
+            color: lastResult.success ? '#15803D' : '#991B1B',
+            border: `1px solid ${lastResult.success ? '#BBF7D0' : '#FECACA'}`,
+          }}
+        >
+          {lastResult.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Rule Form Modal ───
 function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [name, setName] = useState(rule?.name || '');
@@ -216,6 +430,42 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [maxReminders, setMaxReminders] = useState(rule?.conditions?.max_reminders ?? 5);
   const [reminderStartHour, setReminderStartHour] = useState(rule?.conditions?.start_hour ?? 9);
   const [reminderEndHour, setReminderEndHour] = useState(rule?.conditions?.end_hour ?? 18);
+
+  // Recurring availability check-in trigger conditions
+  const [intervalDays, setIntervalDays] = useState(
+    rule?.conditions?.interval_days ?? 14,
+  );
+  const [availabilitySurveyTemplateId, setAvailabilitySurveyTemplateId] = useState(
+    rule?.conditions?.survey_template_id || '',
+  );
+  const [availabilityStartHour, setAvailabilityStartHour] = useState(
+    rule?.conditions?.start_hour ?? 9,
+  );
+  const [availabilityEndHour, setAvailabilityEndHour] = useState(
+    rule?.conditions?.end_hour ?? 17,
+  );
+  const [availabilityTemplates, setAvailabilityTemplates] = useState([]);
+
+  // Load survey templates containing an availability_schedule question so
+  // the admin can pick which one the rule sends. Filters client-side so we
+  // don't need a new DB query helper.
+  useEffect(() => {
+    if (!supabase) return;
+    if (triggerType !== 'recurring_availability_check') return;
+    supabase
+      .from('survey_templates')
+      .select('id, name, questions, enabled')
+      .eq('enabled', true)
+      .order('name', { ascending: true })
+      .then(({ data }) => {
+        if (!data) return;
+        const withAvailability = data.filter((t) =>
+          Array.isArray(t.questions) &&
+          t.questions.some((q) => q?.type === 'availability_schedule'),
+        );
+        setAvailabilityTemplates(withAvailability);
+      });
+  }, [triggerType]);
 
   // Derived options based on entity type
   const triggerOptions = getTriggerOptions(entityType);
@@ -287,6 +537,19 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       if (!Number.isFinite(eh) || eh < 1 || eh > 24) { setError('Send window end hour must be between 1 and 24.'); return; }
       if (sh >= eh) { setError('Send window start hour must be earlier than the end hour.'); return; }
     }
+    if (triggerType === 'recurring_availability_check') {
+      const days = parseInt(intervalDays, 10);
+      const sh = parseInt(availabilityStartHour, 10);
+      const eh = parseInt(availabilityEndHour, 10);
+      if (!days || days <= 0) { setError('Interval must be a positive number of days.'); return; }
+      if (!availabilitySurveyTemplateId) { setError('Select which survey template to send.'); return; }
+      if (!Number.isFinite(sh) || sh < 0 || sh > 23) { setError('Send window start hour must be between 0 and 23.'); return; }
+      if (!Number.isFinite(eh) || eh < 1 || eh > 24) { setError('Send window end hour must be between 1 and 24.'); return; }
+      if (sh >= eh) { setError('Send window start hour must be earlier than the end hour.'); return; }
+      if (actionType !== 'send_sms' && actionType !== 'send_email') {
+        setError('Recurring availability check-in must use Send SMS or Send Email action.'); return;
+      }
+    }
     if (actionType === 'send_email' && !emailSubject.trim()) { setError('Email subject is required.'); return; }
     if (actionType === 'update_phase' && !targetPhase) { setError('Select a target phase.'); return; }
     if (actionType === 'complete_task' && !actionTaskId) { setError('Select a task to complete.'); return; }
@@ -313,6 +576,12 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
           start_hour: parseInt(reminderStartHour, 10),
           end_hour: parseInt(reminderEndHour, 10),
         } : {}),
+        ...(triggerType === 'recurring_availability_check' ? {
+          interval_days: parseInt(intervalDays, 10),
+          survey_template_id: availabilitySurveyTemplateId,
+          start_hour: parseInt(availabilityStartHour, 10),
+          end_hour: parseInt(availabilityEndHour, 10),
+        } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
       action_type: actionType,
@@ -332,6 +601,16 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       },
       message_template: messageTemplate.trim(),
     };
+
+    // Safety: new recurring_availability_check rules ship DISABLED so
+    // saving the rule never triggers an immediate broadcast to every
+    // caregiver. The admin must explicitly flip it on from the list view
+    // after testing with Send Test Now. Existing rules keep their current
+    // enabled state (so editing an already-enabled rule doesn't silently
+    // disable it).
+    if (triggerType === 'recurring_availability_check' && !rule?.id) {
+      ruleData.enabled = false;
+    }
 
     if (rule?.id) ruleData.id = rule.id;
     onSave(ruleData);
@@ -575,6 +854,138 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
               Stops automatically after {parseInt(maxReminders, 10) || 5} reminder(s) or when the caregiver completes it.
               You can stop reminders for an individual caregiver from their profile.
               Use <code>{'{{survey_link}}'}</code> in the message template below.
+            </div>
+          </>
+        )}
+
+        {/* Conditions — recurring_availability_check */}
+        {triggerType === 'recurring_availability_check' && (
+          <>
+            <div style={{
+              marginBottom: 16,
+              padding: '12px 14px',
+              background: '#FEF2F2',
+              border: '1px solid #FECACA',
+              borderRadius: 8,
+              fontSize: 12,
+              color: '#991B1B',
+              lineHeight: 1.5,
+            }}>
+              <strong>⚠️ Safe by default.</strong>{' '}
+              {rule?.id ? (
+                <>
+                  Editing an existing rule does NOT change its enabled state — if the rule is currently
+                  <em> on</em>, it stays on. Flip it off from the rules list first if you want a pause.
+                </>
+              ) : (
+                <>
+                  This rule will be created <strong>disabled</strong>. Saving does NOT send anything.
+                  After creating it, use <em>Send Test Now</em> (visible once saved) to verify on one caregiver,
+                  then enable the rule from the list view to start recurring sends.
+                </>
+              )}
+              <br />
+              Opt-outs (global STOP and per-caregiver pause) are always respected.
+            </div>
+
+            <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className={forms.fieldLabel}>Interval (days)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={intervalDays}
+                  onChange={(e) => { setIntervalDays(e.target.value); setError(''); }}
+                  min="1"
+                  step="1"
+                  placeholder="14"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  How often to text each caregiver. Default 14 = every two weeks.
+                </div>
+              </div>
+              <div>
+                <label className={forms.fieldLabel}>Survey Template</label>
+                <select
+                  className={forms.fieldInput}
+                  value={availabilitySurveyTemplateId}
+                  onChange={(e) => { setAvailabilitySurveyTemplateId(e.target.value); setError(''); }}
+                >
+                  <option value="">— Select template —</option>
+                  {availabilityTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  Only templates containing a Weekly Availability question are listed.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className={forms.fieldLabel}>Send Window Start (hour)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={availabilityStartHour}
+                  onChange={(e) => { setAvailabilityStartHour(e.target.value); setError(''); }}
+                  min="0"
+                  max="23"
+                  step="1"
+                  placeholder="9"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  0&ndash;23 Eastern. Default 9 = 9am.
+                </div>
+              </div>
+              <div>
+                <label className={forms.fieldLabel}>Send Window End (hour)</label>
+                <input
+                  type="number"
+                  className={forms.fieldInput}
+                  value={availabilityEndHour}
+                  onChange={(e) => { setAvailabilityEndHour(e.target.value); setError(''); }}
+                  min="1"
+                  max="24"
+                  step="1"
+                  placeholder="17"
+                />
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                  0&ndash;24 (exclusive). Default 17 = 5pm.
+                </div>
+              </div>
+            </div>
+
+            {/* Send Test Now — only available on saved rules */}
+            {rule?.id && (
+              <SendTestNowBlock
+                ruleId={rule.id}
+                ruleName={rule.name || 'Availability Check-In'}
+                templateId={availabilitySurveyTemplateId}
+                actionType={actionType}
+                messageTemplate={messageTemplate}
+                actionConfig={{
+                  ...(actionType === 'send_email' ? { subject: emailSubject.trim() } : {}),
+                }}
+              />
+            )}
+
+            <div style={{
+              marginBottom: 16,
+              padding: '10px 12px',
+              background: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              borderRadius: 8,
+              fontSize: 11,
+              color: '#1E40AF',
+              lineHeight: 1.5,
+            }}>
+              <strong>How this works:</strong> Every {parseInt(intervalDays, 10) || 14} day(s), between{' '}
+              {parseInt(availabilityStartHour, 10) || 9}:00 and {parseInt(availabilityEndHour, 10) || 17}:00 Eastern,
+              this rule sends the selected availability survey to each active caregiver. Caregivers who are archived,
+              globally opted out of SMS, or individually paused from availability check-ins are skipped. Use{' '}
+              <code>{'{{survey_link}}'}</code> in the message template below.
             </div>
           </>
         )}
@@ -876,6 +1287,12 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 Every {rule.conditions?.hours ?? 24}h &middot; up to {rule.conditions?.max_reminders ?? 5} reminders
                 {' '}&middot; {rule.conditions?.start_hour ?? 9}:00&ndash;{rule.conditions?.end_hour ?? 18}:00 ET
+              </div>
+            )}
+            {rule.trigger_type === 'recurring_availability_check' && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Every {rule.conditions?.interval_days ?? 14} days
+                {' '}&middot; {rule.conditions?.start_hour ?? 9}:00&ndash;{rule.conditions?.end_hour ?? 17}:00 ET
               </div>
             )}
             {rule.conditions?.phase && (
