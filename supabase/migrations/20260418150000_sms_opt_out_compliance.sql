@@ -20,15 +20,18 @@ ALTER TABLE caregivers
   ADD COLUMN IF NOT EXISTS sms_opted_out BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS sms_opted_out_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS sms_opted_out_source TEXT;
+
 ALTER TABLE clients
   ADD COLUMN IF NOT EXISTS sms_opted_out BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS sms_opted_out_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS sms_opted_out_source TEXT;
+
 -- Indexes so the admin "SMS Opt-Outs" list view and the outbound
 -- gate lookup stay fast as the tables grow.
 CREATE INDEX IF NOT EXISTS idx_caregivers_sms_opted_out
   ON caregivers (sms_opted_out)
   WHERE sms_opted_out = true;
+
 CREATE INDEX IF NOT EXISTS idx_clients_sms_opted_out
   ON clients (sms_opted_out)
   WHERE sms_opted_out = true;

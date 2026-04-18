@@ -7,6 +7,22 @@ import {
   ruleAppliesToCaregiver,
   shouldRemindSurvey,
 } from "../_shared/helpers/surveyReminders.ts";
+import {
+  filterActiveCaregiversForCheckIn,
+  isDueForAvailabilityCheck,
+  isValidAvailabilityTemplate,
+  isWithinSendWindow as isRecurringWithinSendWindow,
+  resolveAvailabilityCheckInConditions,
+} from "../_shared/helpers/availabilityCheckIn.ts";
+
+/**
+ * Generate a unique survey token (mirrors frontend generateSurveyToken).
+ * Used when the cron creates a fresh survey_responses row for a
+ * recurring availability check-in send.
+ */
+function generateAvailabilitySurveyToken(): string {
+  return "sv_" + crypto.randomUUID().replace(/-/g, "");
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -457,6 +473,237 @@ Deno.serve(async (req) => {
       }
     } catch (err) {
       console.error("Survey reminder section failed:", err);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 1.7: RECURRING AVAILABILITY CHECK-IN (re-sends availability survey)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Sends the "Availability Check-In" survey to active caregivers at a
+    // configurable cadence (interval_days) so their weekly availability in
+    // caregiver_availability stays fresh.
+    //
+    // For each enabled `recurring_availability_check` rule:
+    //   1. Gate on the rule's local-time send window.
+    //   2. Fetch every non-archived caregiver + last-fired timestamp from
+    //      automation_log for this rule.
+    //   3. Filter via pure helpers: isActiveForAvailabilityCheckIn (respects
+    //      sms_opted_out AND availability_check_paused), matchesPhaseFilter,
+    //      and isDueForAvailabilityCheck (elapsed time vs interval_days with
+    //      a 2-minute cron-jitter tolerance).
+    //   4. For each due caregiver: create a fresh survey_responses row with
+    //      a new token, then call execute-automation with send_sms so the
+    //      sms_opted_out gate runs one more time at send-time.
+    //   5. Record the send in automation_log with trigger_context
+    //      { survey_response_id, interval_days } — this is what the next
+    //      cron run reads as "last fired" to compute dueness.
+    //
+    // Ships OFF — rules default enabled=false in the admin builder.
+
+    try {
+      const now = new Date();
+
+      const { data: recurringRules, error: recurringRulesErr } = await supabase
+        .from("automation_rules")
+        .select("*")
+        .eq("enabled", true)
+        .eq("trigger_type", "recurring_availability_check");
+
+      if (recurringRulesErr) {
+        console.error(
+          "Failed to fetch recurring_availability_check rules:",
+          recurringRulesErr,
+        );
+      } else if (recurringRules && recurringRules.length > 0) {
+        const appBaseUrl =
+          Deno.env.get("APP_BASE_URL") || "https://caregiver-portal.vercel.app";
+
+        for (const rule of recurringRules) {
+          summary.rules_processed++;
+          const resolved = resolveAvailabilityCheckInConditions(rule.conditions);
+
+          // Rule must be pointed at a valid template (one containing an
+          // availability_schedule question) before we'll send anything.
+          if (!resolved.survey_template_id) {
+            console.warn(
+              `Rule ${rule.id} has no survey_template_id configured — skipping`,
+            );
+            continue;
+          }
+
+          // Gate on the configured local-time window.
+          if (
+            !isRecurringWithinSendWindow(
+              now,
+              resolved.tz,
+              resolved.start_hour,
+              resolved.end_hour,
+            )
+          ) {
+            continue;
+          }
+
+          // Verify the template is still valid (a future edit to the
+          // template could accidentally remove the availability_schedule
+          // question — fail closed).
+          const { data: template } = await supabase
+            .from("survey_templates")
+            .select("id, questions, expires_hours, enabled")
+            .eq("id", resolved.survey_template_id)
+            .single();
+          if (
+            !template ||
+            template.enabled === false ||
+            !isValidAvailabilityTemplate(template)
+          ) {
+            console.warn(
+              `Rule ${rule.id} points at template ${resolved.survey_template_id} which is missing, disabled, or has no availability_schedule question — skipping`,
+            );
+            continue;
+          }
+
+          // Pull active caregivers and the last-fired timestamp per
+          // caregiver from automation_log.
+          const { data: caregivers, error: cgErr } = await supabase
+            .from("caregivers")
+            .select(
+              "id, first_name, last_name, phone, email, archived, phase_override, phase_timestamps, sms_opted_out, availability_check_paused",
+            )
+            .eq("archived", false);
+          if (cgErr) {
+            console.error(
+              `Failed to fetch caregivers for rule ${rule.id}:`,
+              cgErr,
+            );
+            summary.errors++;
+            continue;
+          }
+
+          // Filter via the shared pure helper so the decision logic stays
+          // identical to frontend expectations and unit tests.
+          const eligible = filterActiveCaregiversForCheckIn(
+            caregivers || [],
+            rule.conditions || {},
+          );
+          if (eligible.length === 0) continue;
+
+          // Bulk-fetch the most recent successful fire per caregiver for
+          // this rule so we can compute dueness in JS.
+          const eligibleIds = eligible.map((c: any) => c.id);
+          const { data: lastFires } = await supabase
+            .from("automation_log")
+            .select("caregiver_id, executed_at")
+            .eq("rule_id", rule.id)
+            .eq("status", "success")
+            .in("caregiver_id", eligibleIds)
+            .order("executed_at", { ascending: false });
+
+          const lastFiredByCaregiver = new Map<string, string>();
+          for (const row of lastFires || []) {
+            // first match per caregiver = most recent due to order by desc
+            if (!lastFiredByCaregiver.has(row.caregiver_id)) {
+              lastFiredByCaregiver.set(row.caregiver_id, row.executed_at);
+            }
+          }
+
+          // Send to each caregiver whose interval has elapsed.
+          for (const caregiver of eligible as any[]) {
+            if (!caregiver.phone) {
+              summary.skipped++;
+              continue;
+            }
+            const lastFiredAt =
+              lastFiredByCaregiver.get(caregiver.id) || null;
+            if (!isDueForAvailabilityCheck(lastFiredAt, resolved.interval_days, now)) {
+              continue;
+            }
+
+            // Create a fresh survey_responses row for this send.
+            const token = generateAvailabilitySurveyToken();
+            const expiresAt = new Date(
+              now.getTime() + (template.expires_hours || 72) * 60 * 60 * 1000,
+            ).toISOString();
+
+            const { data: inserted, error: insertErr } = await supabase
+              .from("survey_responses")
+              .insert({
+                survey_template_id: template.id,
+                caregiver_id: caregiver.id,
+                token,
+                status: "pending",
+                sent_via: "sms",
+                expires_at: expiresAt,
+              })
+              .select("id")
+              .single();
+            if (insertErr || !inserted) {
+              summary.errors++;
+              console.error(
+                `Failed to insert survey_response for caregiver ${caregiver.id} rule ${rule.id}:`,
+                insertErr,
+              );
+              continue;
+            }
+
+            const surveyLink = `${appBaseUrl}/survey/${token}`;
+
+            try {
+              const response = await fetch(
+                `${SUPABASE_URL}/functions/v1/execute-automation`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                  },
+                  body: JSON.stringify({
+                    rule_id: rule.id,
+                    caregiver_id: caregiver.id,
+                    action_type: rule.action_type || "send_sms",
+                    message_template: rule.message_template,
+                    action_config: rule.action_config,
+                    rule_name: rule.name,
+                    caregiver: {
+                      id: caregiver.id,
+                      first_name: caregiver.first_name,
+                      last_name: caregiver.last_name,
+                      phone: caregiver.phone,
+                      email: caregiver.email,
+                    },
+                    trigger_context: {
+                      survey_link: surveyLink,
+                      survey_response_id: inserted.id,
+                      interval_days: resolved.interval_days,
+                    },
+                  }),
+                },
+              );
+              const result = await response.json();
+              if (result.success) {
+                summary.executions++;
+              } else if (result.skipped) {
+                summary.skipped++;
+              } else {
+                summary.errors++;
+                console.error(
+                  `Recurring availability send failed for rule ${rule.name}, caregiver ${caregiver.id}:`,
+                  result.error,
+                );
+              }
+            } catch (err) {
+              summary.errors++;
+              console.error(
+                `Failed to call execute-automation for availability check-in (rule ${rule.id}, caregiver ${caregiver.id}):`,
+                err,
+              );
+            }
+
+            // Rate-limit — same value the survey reminder section uses.
+            await sleep(SURVEY_REMINDER_SEND_DELAY_MS);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Recurring availability check-in section failed:", err);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -35,11 +35,13 @@ ALTER TABLE caregivers
   ADD COLUMN IF NOT EXISTS availability_check_paused BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS availability_check_paused_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS availability_check_paused_reason TEXT;
+
 -- Partial index so the "Paused Check-Ins" admin list view (PR 3) can
 -- pull just the paused caregivers without scanning the whole table.
 CREATE INDEX IF NOT EXISTS idx_caregivers_availability_check_paused
   ON caregivers (availability_check_paused)
   WHERE availability_check_paused = true;
+
 
 -- ── 2. Seed the Availability Check-In survey template ──
 --

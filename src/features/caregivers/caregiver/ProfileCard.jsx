@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
 import { supabase } from '../../../lib/supabase';
+import {
+  setCaregiverSmsOptOut,
+  setCaregiverAvailabilityCheckPaused,
+} from '../../../lib/storage';
 import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -11,6 +15,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
+  const [togglingOptOut, setTogglingOptOut] = useState(false);
+  const [togglingAvailPaused, setTogglingAvailPaused] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteMessage, setInviteMessage] = useState(null);
 
@@ -35,6 +41,65 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   };
 
   const days = getDaysSinceApplication(caregiver);
+
+  const handleToggleSmsOptOut = async () => {
+    if (togglingOptOut) return;
+    const next = !caregiver.smsOptedOut;
+    const confirmMsg = next
+      ? `Pause all SMS to ${caregiver.firstName}? Automations and manual texts will be blocked until you re-enable.`
+      : `Re-subscribe ${caregiver.firstName} to SMS? They will receive automations and manual texts again.`;
+    if (!window.confirm(confirmMsg)) return;
+    setTogglingOptOut(true);
+    try {
+      await setCaregiverSmsOptOut(caregiver.id, next, 'admin');
+      // Optimistic local update via the parent's updater
+      onUpdateCaregiver(caregiver.id, {
+        smsOptedOut: next,
+        smsOptedOutAt: next ? new Date().toISOString() : null,
+        smsOptedOutSource: next ? 'admin' : null,
+      });
+    } catch (err) {
+      console.error('Failed to toggle SMS opt-out:', err);
+      window.alert('Failed to update SMS opt-out. Please try again.');
+    } finally {
+      setTogglingOptOut(false);
+    }
+  };
+
+  const handleToggleAvailPaused = async () => {
+    if (togglingAvailPaused) return;
+    const next = !caregiver.availabilityCheckPaused;
+    const confirmMsg = next
+      ? `Pause availability check-ins for ${caregiver.firstName}? They will stop receiving recurring "update your availability" texts. Other SMS (shift offers, etc.) will continue.`
+      : `Resume availability check-ins for ${caregiver.firstName}? They will start receiving the recurring "update your availability" texts again.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    let reason = null;
+    if (next) {
+      const input = window.prompt(
+        'Optional reason (shown only to admins in the Paused Check-Ins list):',
+        '',
+      );
+      // prompt returns null on cancel — only proceed if they didn't cancel
+      if (input === null) return;
+      reason = input.trim() || null;
+    }
+
+    setTogglingAvailPaused(true);
+    try {
+      await setCaregiverAvailabilityCheckPaused(caregiver.id, next, reason);
+      onUpdateCaregiver(caregiver.id, {
+        availabilityCheckPaused: next,
+        availabilityCheckPausedAt: next ? new Date().toISOString() : null,
+        availabilityCheckPausedReason: next ? reason : null,
+      });
+    } catch (err) {
+      console.error('Failed to toggle availability check-in pause:', err);
+      window.alert('Failed to update. Please try again.');
+    } finally {
+      setTogglingAvailPaused(false);
+    }
+  };
 
   const startEditing = () => {
     setEditForm({
@@ -135,29 +200,146 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
               <div className={cards.profileValue} style={{ marginTop: 4 }}>{caregiver.initialNotes}</div>
             </div>
           )}
+          <div style={{
+            padding: '12px 20px 16px',
+            borderTop: '1px solid #F0F3F7',
+            marginTop: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+              }}>
+                SMS Status
+              </div>
+              {caregiver.smsOptedOut ? (
+                <div style={{ fontSize: 13, color: '#991B1B', fontWeight: 600 }}>
+                  🚫 Opted out
+                  {caregiver.smsOptedOutSource && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      ({caregiver.smsOptedOutSource === 'keyword' ? 'replied STOP' : 'paused by admin'})
+                    </span>
+                  )}
+                  {caregiver.smsOptedOutAt && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      on {new Date(caregiver.smsOptedOutAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                  ✓ Active — receiving texts
+                </div>
+              )}
+            </div>
+            <button
+              className={btn.secondaryBtn}
+              onClick={handleToggleSmsOptOut}
+              disabled={togglingOptOut}
+              style={{ fontSize: 12 }}
+            >
+              {togglingOptOut
+                ? 'Updating…'
+                : caregiver.smsOptedOut
+                  ? 'Re-subscribe'
+                  : 'Pause SMS'}
+            </button>
+          </div>
+          <div style={{
+            padding: '12px 20px 16px',
+            borderTop: '1px solid #F0F3F7',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+              }}>
+                Availability Check-Ins
+              </div>
+              {caregiver.availabilityCheckPaused ? (
+                <div style={{ fontSize: 13, color: '#A16207', fontWeight: 600 }}>
+                  ⏸ Paused
+                  {caregiver.availabilityCheckPausedAt && (
+                    <span style={{ fontWeight: 400, color: '#7A8BA0', marginLeft: 6 }}>
+                      on {new Date(caregiver.availabilityCheckPausedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                  {caregiver.availabilityCheckPausedReason && (
+                    <div style={{ fontWeight: 400, color: '#7A8BA0', fontSize: 12, marginTop: 2 }}>
+                      "{caregiver.availabilityCheckPausedReason}"
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                  ✓ Receiving recurring availability updates
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                Pausing only stops the "update your availability" recurring texts.
+                Other SMS (shift offers, confirmations) continue either way.
+              </div>
+            </div>
+            <button
+              className={btn.secondaryBtn}
+              onClick={handleToggleAvailPaused}
+              disabled={togglingAvailPaused}
+              style={{ fontSize: 12 }}
+            >
+              {togglingAvailPaused
+                ? 'Updating…'
+                : caregiver.availabilityCheckPaused
+                  ? 'Resume'
+                  : 'Pause check-ins'}
+            </button>
+          </div>
           {caregiver.email && (
-            <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderTop: '1px solid #F0F2F6' }}>
-              <div style={{ fontSize: 13, color: '#6B7B8F' }}>
-                {isLinked
-                  ? 'Caregiver app access is active for this account.'
-                  : 'Send a magic-link invite so this caregiver can log into the mobile app.'}
+            <div style={{
+              padding: '12px 20px 16px',
+              borderTop: '1px solid #F0F3F7',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                  textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+                }}>
+                  Caregiver App Access
+                </div>
+                <div style={{ fontSize: 13, color: isLinked ? '#15803D' : '#7A8BA0', fontWeight: isLinked ? 600 : 400 }}>
+                  {isLinked
+                    ? '✓ Linked — can sign in to the mobile app'
+                    : 'Not linked yet'}
+                </div>
+                {inviteMessage && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
+                    {inviteMessage.text}
+                  </div>
+                )}
               </div>
               <button
                 className={btn.secondaryBtn}
                 onClick={handleInvite}
                 disabled={inviting}
-                style={{ marginLeft: 'auto' }}
+                style={{ fontSize: 12 }}
               >
-                {inviting ? 'Sending…' : isLinked ? 'Resend sign-in link' : 'Invite to caregiver app'}
+                {inviting ? 'Sending…' : isLinked ? 'Resend link' : 'Invite to app'}
               </button>
-              {inviteMessage && (
-                <div style={{ width: '100%', fontSize: 13, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
-                  {inviteMessage.text}
-                </div>
-              )}
             </div>
           )}
         </>
+
       ) : expanded ? (
         <div style={{ padding: '16px 20px' }}>
           <div className={forms.formGrid}>

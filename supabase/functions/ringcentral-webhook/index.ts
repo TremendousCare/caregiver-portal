@@ -23,6 +23,35 @@ const corsHeaders = {
 // ─── Supabase Client (service role) ───
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// ─── SMS Opt-Out Keyword Detection (TCPA Compliance) ───
+// Keep in sync with src/lib/messaging/smsOptOut.js — edge functions
+// cannot import from the frontend source tree.
+const OPT_OUT_KEYWORDS = new Set([
+  "STOP",
+  "STOPALL",
+  "UNSUBSCRIBE",
+  "CANCEL",
+  "END",
+  "QUIT",
+]);
+const OPT_IN_KEYWORDS = new Set(["START", "UNSTOP", "SUBSCRIBE"]);
+
+const OPT_OUT_CONFIRMATION =
+  "You have been unsubscribed and will no longer receive messages from Tremendous Care. Reply START to resubscribe.";
+const OPT_IN_CONFIRMATION =
+  "You are resubscribed to Tremendous Care messages. Reply STOP to unsubscribe at any time.";
+
+function detectSmsOptOutIntent(messageText: string): "opt_out" | "opt_in" | null {
+  if (typeof messageText !== "string") return null;
+  const trimmed = messageText.trim();
+  if (!trimmed) return null;
+  const firstToken = trimmed.split(/\s+/)[0] || "";
+  const cleaned = firstToken.replace(/[^\p{L}\p{N}]+$/u, "").toUpperCase();
+  if (OPT_OUT_KEYWORDS.has(cleaned)) return "opt_out";
+  if (OPT_IN_KEYWORDS.has(cleaned)) return "opt_in";
+  return null;
+}
+
 // ─── Phone Number Normalization ───
 function normalizePhoneNumber(phone: string): string | null {
   if (!phone) return null;
@@ -141,6 +170,94 @@ async function matchPhoneToEntities(
   }
 
   return matches;
+}
+
+// ─── Send One-Shot Confirmation SMS (bypasses the opt-out gate) ───
+// Carriers require EXACTLY ONE final message after STOP to confirm the
+// unsubscribe. We send it directly here rather than through
+// execute-automation so it is never blocked by the opt-out gate itself.
+async function sendOptOutConfirmationSms(
+  toPhone: string,
+  messageText: string,
+): Promise<void> {
+  try {
+    const normalized = normalizePhoneNumber(toPhone);
+    if (!normalized) return;
+
+    // Reuse the same "from number" config that execute-automation reads.
+    const { data } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "ringcentral_from_number")
+      .single();
+    let fromNumber: string | null = null;
+    if (data?.value) {
+      const val =
+        typeof data.value === "string" ? data.value : String(data.value);
+      const digits = val.replace(/\D/g, "");
+      if (digits.length === 10) fromNumber = `+1${digits}`;
+      else if (digits.length === 11 && digits.startsWith("1")) fromNumber = `+${digits}`;
+      else fromNumber = val.startsWith("+") ? val : val;
+    }
+    if (!fromNumber) fromNumber = Deno.env.get("RINGCENTRAL_FROM_NUMBER") || null;
+    if (!fromNumber) return;
+
+    if (!RC_JWT_TOKEN) return;
+    const accessToken = await getRingCentralAccessTokenWithJwt(RC_JWT_TOKEN);
+
+    await fetch(
+      `${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          from: { phoneNumber: fromNumber },
+          to: [{ phoneNumber: normalized }],
+          text: messageText,
+        }),
+      },
+    );
+  } catch (err) {
+    // Never throw from the opt-out path — compliance requires we honor
+    // the opt-out even if confirmation fails to send.
+    console.error("sendOptOutConfirmationSms error:", err);
+  }
+}
+
+// ─── Apply Opt-Out / Opt-In Flag to Matched Entities ───
+async function applyOptOutFlag(
+  matches: Array<{ entity_type: string; entity: Record<string, unknown> }>,
+  intent: "opt_out" | "opt_in",
+): Promise<void> {
+  const isOptOut = intent === "opt_out";
+  const update = isOptOut
+    ? {
+        sms_opted_out: true,
+        sms_opted_out_at: new Date().toISOString(),
+        sms_opted_out_source: "keyword",
+      }
+    : {
+        sms_opted_out: false,
+        sms_opted_out_at: null,
+        sms_opted_out_source: null,
+      };
+
+  for (const match of matches) {
+    const tableName = match.entity_type === "client" ? "clients" : "caregivers";
+    const { error } = await supabase
+      .from(tableName)
+      .update(update)
+      .eq("id", match.entity.id);
+    if (error) {
+      console.error(
+        `Failed to ${intent} ${match.entity_type} ${match.entity.id}:`,
+        error,
+      );
+    }
+  }
 }
 
 // ─── Log Note on Entity ───
@@ -472,6 +589,19 @@ async function handleInboundSms(body: Record<string, unknown>): Promise<Response
   // ─── Match Phone to Entities ───
   const matches = await matchPhoneToEntities(senderPhone);
 
+  // ─── TCPA Compliance: STOP / START Keyword Handling ───
+  // Runs BEFORE any other automation path. If the recipient said STOP
+  // we flip the opt-out flag, send one confirmation, and short-circuit
+  // downstream automations for this message so the flag takes effect
+  // immediately for the very next outbound send.
+  const optIntent = detectSmsOptOutIntent(messageText);
+  if (optIntent && matches.length > 0) {
+    await applyOptOutFlag(matches, optIntent);
+    const confirmation =
+      optIntent === "opt_out" ? OPT_OUT_CONFIRMATION : OPT_IN_CONFIRMATION;
+    await sendOptOutConfirmationSms(senderPhone, confirmation);
+  }
+
   // ─── Log Note on Matched Entities ───
   for (const match of matches) {
     await logInboundNote(match.entity_type, match.entity, messageText, senderPhone);
@@ -490,38 +620,43 @@ async function handleInboundSms(body: Record<string, unknown>): Promise<Response
     automation_fired: matches.length > 0,
   });
 
-  // ─── Fire Automations (async, fire-and-forget) ───
-  for (const match of matches) {
-    fireInboundSmsAutomations(
-      match.entity_type,
-      match.entity,
-      messageText,
-      senderPhone,
-      rcMessageId
-    ).catch((err) =>
-      console.error(`Automation error for ${match.entity_type} ${match.entity.id}:`, err)
-    );
-  }
+  // ─── Fire Automations + AI Routing (skip for STOP/START) ───
+  // A STOP or START message is a compliance command, not a normal
+  // conversation. Firing keyword-based automation rules on it or
+  // classifying it through AI would produce noisy/incorrect side
+  // effects and could send messages the sender doesn't want.
+  if (!optIntent) {
+    for (const match of matches) {
+      fireInboundSmsAutomations(
+        match.entity_type,
+        match.entity,
+        messageText,
+        senderPhone,
+        rcMessageId
+      ).catch((err) =>
+        console.error(`Automation error for ${match.entity_type} ${match.entity.id}:`, err)
+      );
+    }
 
-  // ─── Queue for AI Routing (fire-and-forget) ───
-  // The message-router cron will classify intent, draft responses,
-  // and create ai_suggestions based on autonomy config.
-  supabase
-    .from("message_routing_queue")
-    .insert({
-      channel: "sms",
-      external_message_id: rcMessageId,
-      sender_identifier: senderPhone,
-      recipient_identifier: toPhone,
-      message_text: messageText,
-      matched_entity_type: primaryMatch?.entity_type || null,
-      matched_entity_id: primaryMatch ? String(primaryMatch.entity.id) : null,
-      matched_entity_name: primaryMatch
-        ? `${primaryMatch.entity.first_name} ${primaryMatch.entity.last_name}`.trim()
-        : null,
-    })
-    .then(() => {})
-    .catch((err: any) => console.error("Message routing queue insert error:", err));
+    // The message-router cron will classify intent, draft responses,
+    // and create ai_suggestions based on autonomy config.
+    supabase
+      .from("message_routing_queue")
+      .insert({
+        channel: "sms",
+        external_message_id: rcMessageId,
+        sender_identifier: senderPhone,
+        recipient_identifier: toPhone,
+        message_text: messageText,
+        matched_entity_type: primaryMatch?.entity_type || null,
+        matched_entity_id: primaryMatch ? String(primaryMatch.entity.id) : null,
+        matched_entity_name: primaryMatch
+          ? `${primaryMatch.entity.first_name} ${primaryMatch.entity.last_name}`.trim()
+          : null,
+      })
+      .then(() => {})
+      .catch((err: any) => console.error("Message routing queue insert error:", err));
+  }
 
   return new Response(
     JSON.stringify({

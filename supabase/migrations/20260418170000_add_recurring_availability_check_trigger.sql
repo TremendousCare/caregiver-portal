@@ -14,6 +14,7 @@
 
 ALTER TABLE automation_rules
   DROP CONSTRAINT IF EXISTS automation_rules_trigger_type_check;
+
 ALTER TABLE automation_rules
   ADD CONSTRAINT automation_rules_trigger_type_check
   CHECK (trigger_type = ANY (ARRAY[
