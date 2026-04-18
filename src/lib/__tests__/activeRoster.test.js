@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../constants';
-import { getExpiryStatus, getRosterCaregivers, getOnboardingCaregivers } from '../rosterUtils';
+import {
+  getExpiryStatus,
+  getRosterCaregivers,
+  getOnboardingCaregivers,
+  getSchedulableCaregivers,
+  isOnboardingCaregiver,
+} from '../rosterUtils';
 
 // ─── Constants tests ───
 
@@ -112,5 +118,59 @@ describe('getOnboardingCaregivers', () => {
     const result = getOnboardingCaregivers(caregivers);
     expect(result).toHaveLength(2);
     expect(result.map((c) => c.id)).toEqual(['2', '4']);
+  });
+});
+
+describe('getSchedulableCaregivers', () => {
+  const caregivers = [
+    { id: '1', archived: false, employmentStatus: 'active' },
+    { id: '2', archived: false, employmentStatus: 'onboarding' },
+    { id: '3', archived: true, employmentStatus: 'active' },
+    { id: '4', archived: false, employmentStatus: 'on_leave' },
+    { id: '5', archived: false },
+    { id: '6', archived: true, employmentStatus: 'onboarding' },
+  ];
+
+  it('includes active roster (any non-onboarding status) and onboarding applicants', () => {
+    const result = getSchedulableCaregivers(caregivers);
+    expect(result.map((c) => c.id).sort()).toEqual(['1', '2', '4', '5']);
+  });
+
+  it('lists roster caregivers before onboarding applicants', () => {
+    const result = getSchedulableCaregivers(caregivers);
+    const ids = result.map((c) => c.id);
+    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('2'));
+    expect(ids.indexOf('4')).toBeLessThan(ids.indexOf('5'));
+  });
+
+  it('excludes archived caregivers regardless of status', () => {
+    const result = getSchedulableCaregivers(caregivers);
+    const ids = result.map((c) => c.id);
+    expect(ids).not.toContain('3');
+    expect(ids).not.toContain('6');
+  });
+});
+
+describe('isOnboardingCaregiver', () => {
+  it('is true for a caregiver with employmentStatus "onboarding"', () => {
+    expect(isOnboardingCaregiver({ archived: false, employmentStatus: 'onboarding' })).toBe(true);
+  });
+
+  it('is true when employmentStatus is missing entirely', () => {
+    expect(isOnboardingCaregiver({ archived: false })).toBe(true);
+  });
+
+  it('is false for active roster caregivers', () => {
+    expect(isOnboardingCaregiver({ archived: false, employmentStatus: 'active' })).toBe(false);
+    expect(isOnboardingCaregiver({ archived: false, employmentStatus: 'on_leave' })).toBe(false);
+  });
+
+  it('is false for archived caregivers even if status is onboarding', () => {
+    expect(isOnboardingCaregiver({ archived: true, employmentStatus: 'onboarding' })).toBe(false);
+  });
+
+  it('is false for nullish input', () => {
+    expect(isOnboardingCaregiver(null)).toBe(false);
+    expect(isOnboardingCaregiver(undefined)).toBe(false);
   });
 });
