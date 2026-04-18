@@ -200,6 +200,46 @@ export function Dashboard({
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(() => localStorage.getItem('tc_actions_collapsed') === 'true');
+  const [dismissedActionKeys, setDismissedActionKeys] = useState(() => {
+    try {
+      const raw = localStorage.getItem('tc_actions_dismissed');
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      const today = new Date().toISOString().slice(0, 10);
+      if (parsed?.date !== today || !Array.isArray(parsed?.keys)) return new Set();
+      return new Set(parsed.keys);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const persistDismissed = (keys) => {
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem('tc_actions_dismissed', JSON.stringify({ date: today, keys: [...keys] }));
+  };
+
+  const actionItemKey = (item) =>
+    `${item.cgId || item.entityId || ''}::${item.ruleId || item.title || ''}`;
+
+  const dismissActionItem = (item) => {
+    const key = actionItemKey(item);
+    setDismissedActionKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      persistDismissed(next);
+      return next;
+    });
+  };
+
+  const clearAllActionItems = (items) => {
+    setDismissedActionKeys((prev) => {
+      const next = new Set(prev);
+      for (const it of items) next.add(actionItemKey(it));
+      persistDismissed(next);
+      return next;
+    });
+    setShowAllActions(false);
+  };
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAction, setBulkAction] = useState(null); // "phase" | "note" | "board" | "archive" | "sms"
   const [bulkNoteText, setBulkNoteText] = useState('');
@@ -271,7 +311,8 @@ export function Dashboard({
     ? Math.round(allCaregivers.reduce((s, c) => s + getOverallProgress(c), 0) / totalActive)
     : 0;
 
-  const actionItems = generateActionItems(allCaregivers);
+  const allActionItems = generateActionItems(allCaregivers);
+  const actionItems = allActionItems.filter((it) => !dismissedActionKeys.has(actionItemKey(it)));
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
 
   const selectionMode = selectedIds.size > 0;
@@ -399,6 +440,31 @@ export function Dashboard({
                   </span>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (actionItems.length === 0) return;
+                  if (window.confirm(`Clear all ${actionItems.length} action item${actionItems.length === 1 ? '' : 's'} for today? They will return tomorrow if still applicable.`)) {
+                    clearAllActionItems(actionItems);
+                  }
+                }}
+                disabled={actionItems.length === 0}
+                title="Clear all action items for today"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #E2E8F0',
+                  color: actionItems.length === 0 ? '#B0BAC8' : '#4A5568',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: actionItems.length === 0 ? 'default' : 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Clear all
+              </button>
               <span style={{
                 fontSize: 18,
                 color: '#7A8BA0',
@@ -445,6 +511,25 @@ export function Dashboard({
                       >
                         {item.urgency === 'critical' ? 'Urgent' : item.urgency === 'warning' ? 'Attention' : 'Info'}
                       </span>
+                      <button
+                        type="button"
+                        aria-label="Dismiss action item"
+                        title="Dismiss for today"
+                        onClick={(e) => { e.stopPropagation(); dismissActionItem(item); }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#7A8BA0',
+                          fontSize: 16,
+                          lineHeight: 1,
+                          cursor: 'pointer',
+                          padding: '4px 6px',
+                          borderRadius: 4,
+                          marginLeft: 4,
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                     <div className={d.itemDetail}>{item.detail}</div>
                     <div className={d.itemAction}>→ {item.action}</div>
