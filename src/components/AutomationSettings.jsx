@@ -602,6 +602,16 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       message_template: messageTemplate.trim(),
     };
 
+    // Safety: new recurring_availability_check rules ship DISABLED so
+    // saving the rule never triggers an immediate broadcast to every
+    // caregiver. The admin must explicitly flip it on from the list view
+    // after testing with Send Test Now. Existing rules keep their current
+    // enabled state (so editing an already-enabled rule doesn't silently
+    // disable it).
+    if (triggerType === 'recurring_availability_check' && !rule?.id) {
+      ruleData.enabled = false;
+    }
+
     if (rule?.id) ruleData.id = rule.id;
     onSave(ruleData);
   };
@@ -861,9 +871,21 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
               color: '#991B1B',
               lineHeight: 1.5,
             }}>
-              <strong>⚠️ Caution:</strong> When enabled, this rule texts every active caregiver every N days.
-              <strong> Ships OFF.</strong> Test with a single caregiver via the <em>Send Test Now</em> button
-              below before flipping the rule on. Opt-outs (global STOP and per-caregiver pause) are always respected.
+              <strong>⚠️ Safe by default.</strong>{' '}
+              {rule?.id ? (
+                <>
+                  Editing an existing rule does NOT change its enabled state — if the rule is currently
+                  <em> on</em>, it stays on. Flip it off from the rules list first if you want a pause.
+                </>
+              ) : (
+                <>
+                  This rule will be created <strong>disabled</strong>. Saving does NOT send anything.
+                  After creating it, use <em>Send Test Now</em> (visible once saved) to verify on one caregiver,
+                  then enable the rule from the list view to start recurring sends.
+                </>
+              )}
+              <br />
+              Opt-outs (global STOP and per-caregiver pause) are always respected.
             </div>
 
             <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
