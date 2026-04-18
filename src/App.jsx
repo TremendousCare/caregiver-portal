@@ -342,10 +342,11 @@ function RosterPage() {
 
 function AddCaregiverPage() {
   const navigate = useNavigate();
-  const { addCaregiver } = useCaregivers();
+  const { addCaregiver, caregivers } = useCaregivers();
 
   return (
     <AddCaregiver
+      caregivers={caregivers}
       onAdd={(data) => {
         const newCg = addCaregiver(data);
         navigate(`/caregiver/${newCg.id}`);
