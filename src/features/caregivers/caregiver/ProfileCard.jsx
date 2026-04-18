@@ -30,9 +30,22 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       const { data, error } = await supabase.functions.invoke('caregiver-invite', {
         body: { action: 'send', caregiver_id: caregiver.id },
       });
-      if (error) throw error;
+      if (error) {
+        let msg = error.message;
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch (_) { /* fall through */ }
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
-      setInviteMessage({ kind: 'success', text: `Magic-link invite sent to ${data.email}.` });
+      const text = data?.message
+        || (data?.already_linked
+          ? `This caregiver is already linked. Ask them to sign in at /care.`
+          : data?.already_registered
+            ? `Already has a login — ask them to sign in at /care.`
+            : `Invite email sent to ${data.email}. Check their inbox (and spam).`);
+      setInviteMessage({ kind: 'success', text });
     } catch (e) {
       setInviteMessage({ kind: 'error', text: e?.message || 'Failed to send invite.' });
     } finally {

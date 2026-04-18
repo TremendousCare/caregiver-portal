@@ -75,24 +75,59 @@ async function handleSend(req: Request, body: Record<string, unknown>) {
 
   const email = cg.email.toLowerCase();
 
-  // Generate a magic link. If the user exists, Supabase returns a
-  // "login" link; if not, it creates the user and returns a "signup"
-  // link. Either way the caregiver gets an email.
-  const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
-    type: cg.user_id ? "magiclink" : "invite",
-    email,
-    options: { redirectTo: CAREGIVER_APP_URL },
-  });
-  if (linkErr) {
-    console.error("[caregiver-invite] generateLink error:", linkErr);
-    return jsonResponse({ error: linkErr.message }, 500);
+  // Email-sending strategy:
+  //   * New user  → auth.admin.inviteUserByEmail(email, ...) — this is
+  //     the only admin-side call that *reliably* triggers an email via
+  //     Supabase's SMTP. generateLink({type:'invite'}) creates the user
+  //     but does NOT always send the email in newer SDK versions.
+  //   * Existing user → we can't re-invite (inviteUserByEmail errors on
+  //     already-registered), and admin.generateLink({type:'magiclink'})
+  //     returns a link without sending email. For Phase 1 we tell the
+  //     admin "ask the caregiver to sign in at /care themselves" — the
+  //     client-side signInWithOtp call on the login page DOES send the
+  //     email. This keeps the edge function honest and avoids silent
+  //     "invited but no email arrived" states.
+
+  let newUserId: string | null = null;
+
+  if (!cg.user_id) {
+    const { data: invited, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: { caregiver_id: cg.id },
+      redirectTo: CAREGIVER_APP_URL,
+    });
+    if (invErr) {
+      // "User already registered" is the common case when we've sent an
+      // invite before (the auth user was created by a prior buggy call).
+      // Surface a useful message instead of the raw error.
+      const msg = (invErr.message || "").toLowerCase();
+      if (msg.includes("already") || msg.includes("registered") || invErr.status === 422) {
+        return jsonResponse({
+          success: true,
+          email,
+          user_linked: !!cg.user_id,
+          already_registered: true,
+          message: "This email already has a login. Ask the caregiver to open /care and enter their email — they'll get a magic link automatically.",
+        });
+      }
+      console.error("[caregiver-invite] inviteUserByEmail error:", invErr);
+      return jsonResponse({ error: invErr.message || "Failed to send invite." }, 500);
+    }
+    newUserId = invited?.user?.id ?? null;
+  } else {
+    // Already linked — send a magic link. generateLink doesn't auto-send,
+    // so tell the admin to have the caregiver sign in themselves.
+    return jsonResponse({
+      success: true,
+      email,
+      user_linked: true,
+      already_linked: true,
+      message: "This caregiver already has app access. Ask them to open /care and enter their email — they'll get a magic link automatically.",
+    });
   }
 
-  // If this was an invite (new user), Supabase creates the auth row —
-  // we can link it to the caregiver record immediately so they land
-  // straight into /care after clicking the link.
-  const newUserId = link?.user?.id;
-  if (newUserId && !cg.user_id) {
+  // Link the new auth user to the caregiver record so they land in /care
+  // already linked after clicking the email.
+  if (newUserId) {
     await admin
       .from("caregivers")
       .update({ user_id: newUserId })
