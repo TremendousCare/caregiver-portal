@@ -4,16 +4,9 @@ import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 // Snapshot client
 //
 // Thin wrapper around the `care-plan-snapshot` edge function.
-// Phase 2b ships the contract + stub; Phase 3 swaps the server-side
-// generator for a real Claude call without any frontend changes.
-//
-// Feature flag: VITE_FEATURE_CARE_PLAN_SNAPSHOT_AI (string 'true').
-// When off, the CarePlanPanel hides the "Regenerate snapshot" button.
+// Phase 2b shipped the contract + stub; Phase 3 swapped the
+// server-side generator for a real Claude call.
 // ═══════════════════════════════════════════════════════════════
-
-export const SNAPSHOT_FEATURE_FLAG =
-  import.meta.env?.VITE_FEATURE_CARE_PLAN_SNAPSHOT_AI === 'true';
-
 
 /**
  * Regenerate (or lazily fetch) the AI snapshot for a care plan version.

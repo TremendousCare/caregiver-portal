@@ -15,7 +15,7 @@ import {
 } from './storage';
 import { SectionEditor } from './SectionEditor';
 import { PublishModal } from './PublishModal';
-import { regenerateSnapshot, SNAPSHOT_FEATURE_FLAG } from './snapshotClient';
+import { regenerateSnapshot } from './snapshotClient';
 import btn from '../../styles/buttons.module.css';
 import s from './CarePlanPanel.module.css';
 
@@ -29,7 +29,7 @@ import s from './CarePlanPanel.module.css';
 //   - Publish button in header → opens PublishModal
 //   - Editing a published version prompts the user to start a
 //     new draft (createNewDraftVersion) before allowing edits
-//   - Regenerate snapshot button (behind VITE_FEATURE_CARE_PLAN_SNAPSHOT_AI)
+//   - Regenerate snapshot button
 //
 // Realtime: subscribes to `care_plan_versions` for this plan so a
 // publish in another tab (or by the AI) appears here without refresh.
@@ -272,7 +272,6 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
             narrative={currentVersion?.data?.snapshot?.narrative
               || currentVersion?.generatedSummary}
             regenerating={regenerating}
-            featureFlagOn={SNAPSHOT_FEATURE_FLAG}
             onRegenerate={handleRegenerateSnapshot}
             hasContent={hasAnyContent}
           />
@@ -350,14 +349,10 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
 
 // ─── SnapshotBanner ───────────────────────────────────────────
 // Renders the AI-generated snapshot as a prominent lede above all
-// other sections. Feature-flagged — if the flag is off, the banner
-// shows nothing (the snapshot section is hidden from the section
-// list too, so no "Not entered yet" gap appears).
+// other sections. The snapshot section is hidden from the section
+// list too, so no "Not entered yet" gap appears.
 
-function SnapshotBanner({ narrative, regenerating, featureFlagOn, onRegenerate, hasContent }) {
-  // Feature flag off: render nothing.
-  if (!featureFlagOn) return null;
-
+function SnapshotBanner({ narrative, regenerating, onRegenerate, hasContent }) {
   // No narrative yet and no content to generate from — hide entirely.
   if (!narrative && !hasContent) return null;
 
