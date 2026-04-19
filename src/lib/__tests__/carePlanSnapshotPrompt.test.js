@@ -3,144 +3,126 @@ import {
   SNAPSHOT_SYSTEM_PROMPT,
   buildSnapshotPrompt,
   buildUserMessage,
+  buildCarePlanBlock,
+  parseSnapshotResponse,
 } from '../../../supabase/functions/care-plan-snapshot/prompt';
 
 // ═══════════════════════════════════════════════════════════════
-// Pure tests for the snapshot prompt builder.
+// Pure tests for the snapshot prompt builder + response parser.
 // No Claude calls, no Deno globals.
+//
+// The snapshot is caregiver-facing (admin + caregiver tier). The
+// user message wraps the care plan in <care_plan> tags and asks the
+// model to produce <analysis>, <snapshot>, and <gaps> blocks.
 // ═══════════════════════════════════════════════════════════════
 
 describe('SNAPSHOT_SYSTEM_PROMPT', () => {
   it('is a non-empty string', () => {
     expect(typeof SNAPSHOT_SYSTEM_PROMPT).toBe('string');
-    expect(SNAPSHOT_SYSTEM_PROMPT.length).toBeGreaterThan(1000);
+    expect(SNAPSHOT_SYSTEM_PROMPT.length).toBeGreaterThan(100);
   });
 
-  it('exceeds the 4096-token minimum for Opus 4.7 prompt caching', () => {
-    // Rough conversion: ~3.8 chars per token for English prose.
-    // We want >= 4096 tokens so the system prompt qualifies as a
-    // cacheable prefix on Opus 4.7. Being slightly under will
-    // silently miss the cache, so assert a healthy margin.
-    const approxTokens = SNAPSHOT_SYSTEM_PROMPT.length / 3.8;
-    expect(approxTokens).toBeGreaterThanOrEqual(4096);
+  it('names the role (geriatric care coordinator)', () => {
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/geriatric care coordinator/i);
   });
 
-  it('contains the voice guidelines (third person, warm, specific)', () => {
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/Third person/i);
+  it('names the audience (caregiver meeting client for the first time)', () => {
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/caregiver/i);
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/first time/i);
+  });
+
+  it('states the voice guidelines (warm, professional, confident)', () => {
     expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/warm/i);
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/specific/i);
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/professional/i);
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/confident/i);
   });
 
-  it('explicitly forbids medical jargon', () => {
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/never include/i);
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/dosages/i);
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/insurance/i);
-  });
-
-  it('names the forbidden acronyms so the model avoids them', () => {
-    // ADL/IADL are the most dangerous because they literally appear
-    // in the input data — the prompt needs to call them out.
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/ADL/);
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/IADL/);
-    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/DNR/);
-  });
-
-  it('contains at least 3 few-shot examples', () => {
-    const exampleCount = (SNAPSHOT_SYSTEM_PROMPT.match(/### Example \d/g) || []).length;
-    expect(exampleCount).toBeGreaterThanOrEqual(3);
+  it('includes the hard rules (no invention, no bullets, name not "the client")', () => {
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/never invent/i);
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/bullet/i);
+    expect(SNAPSHOT_SYSTEM_PROMPT).toMatch(/the client/i);
   });
 
   it('is deterministic — no dates, UUIDs, or per-render values', () => {
-    // Any non-deterministic content in the system prompt would
-    // invalidate the prompt cache on every request. Spot-check for
-    // common invalidators.
-    expect(SNAPSHOT_SYSTEM_PROMPT).not.toMatch(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/); // ISO timestamp
-    // UUIDs: 8-4-4-4-12 hex. Check for that pattern anywhere.
+    expect(SNAPSHOT_SYSTEM_PROMPT).not.toMatch(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(SNAPSHOT_SYSTEM_PROMPT).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
     expect(SNAPSHOT_SYSTEM_PROMPT).not.toMatch(/generated at/i);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// buildUserMessage
+// buildCarePlanBlock — the markdown chunk that goes inside <care_plan>
 // ═══════════════════════════════════════════════════════════════
 
-describe('buildUserMessage', () => {
-  it('returns an empty-ish message when no sections are populated', () => {
-    const msg = buildUserMessage({ versionData: {}, tasks: [] });
-    expect(msg).toMatch(/family-visible fields only/);
-    // No sections rendered
-    expect(msg).not.toMatch(/## Who They Are/);
-    expect(msg).not.toMatch(/## Care tasks/);
+describe('buildCarePlanBlock', () => {
+  it('returns empty string when no sections are populated', () => {
+    const block = buildCarePlanBlock({ versionData: {}, tasks: [] });
+    expect(block).toBe('');
   });
 
-  it('renders only the four family-tier sections', () => {
+  it('renders admin + caregiver tier sections (clinical data included)', () => {
     const versionData = {
       snapshot: { narrative: 'Old AI text' },
       whoTheyAre: { fullName: 'Kevin' },
-      healthProfile: { diagnoses: 'Should not appear' },
+      healthProfile: { medications: [{ name: 'Lisinopril', dose: '10mg' }] },
+      cognitionBehavior: { dementiaLevel: 'Mild' },
       matchCriteria: { match_gender: { flag: 'P' } },
       dailyLiving: { ambulation_mobilityLevel: 'Independent' },
       homeAndLife: { housekeeping_scope: 'Light' },
       dailyRhythm: { morningRoutine: 'Coffee' },
+      homeEnvironment: { homeType: 'Single-family house' },
+      careTeam: { pcpName: 'Dr. Chen' },
+      goalsOrders: { careGoals: 'Safely recover' },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
 
-    expect(msg).toMatch(/## Who They Are/);
-    expect(msg).toMatch(/## Daily Living/);
-    expect(msg).toMatch(/## Home & Life/);
-    expect(msg).toMatch(/## Daily Rhythm/);
+    expect(block).toMatch(/## Who They Are/);
+    expect(block).toMatch(/## Health Profile/);
+    expect(block).toMatch(/## Cognition & Behavior/);
+    expect(block).toMatch(/## Daily Living/);
+    expect(block).toMatch(/## Home & Life/);
+    expect(block).toMatch(/## Daily Rhythm/);
+    expect(block).toMatch(/## Home Environment/);
+    expect(block).toMatch(/## Care Team/);
+    expect(block).toMatch(/## Goals & Orders/);
 
-    // Admin / clinical sections MUST NOT leak into the family-facing prompt
-    expect(msg).not.toMatch(/## Health Profile/);
-    expect(msg).not.toMatch(/## Match Criteria/);
-    expect(msg).not.toMatch(/Should not appear/);
-    expect(msg).not.toMatch(/Snapshot/);
+    // matchCriteria is admin-only hiring data — must NOT leak in.
+    expect(block).not.toMatch(/## Caregiver Match Criteria/);
+    expect(block).not.toMatch(/## Match Criteria/);
+    // The snapshot section (the output) doesn't feed back as input.
+    expect(block).not.toMatch(/## Snapshot/);
   });
 
   it('humanizes camelCase field ids into readable labels', () => {
     const versionData = {
       whoTheyAre: { pastProfession: 'Teacher', lifeContext: 'Widowed' },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
-    expect(msg).toMatch(/Past Profession: Teacher/);
-    expect(msg).toMatch(/Life Context: Widowed/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/Past Profession: Teacher/);
+    expect(block).toMatch(/Life Context: Widowed/);
   });
 
   it('renders arrays of primitives as comma-separated', () => {
     const versionData = {
       whoTheyAre: { languages: ['English', 'Spanish'] },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
-    expect(msg).toMatch(/Languages: English, Spanish/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/Languages: English, Spanish/);
   });
 
-  it('renders list fields (arrays of objects) with pipe-separated rows', () => {
+  it('renders list-type fields (arrays of objects) with pipe separators', () => {
     const versionData = {
-      whoTheyAre: { fullName: 'Kevin' },
-      dailyLiving: {
-        nutrition_favorites_breakfast: 'Oatmeal',
+      healthProfile: {
+        medications: [
+          { name: 'Lisinopril', dose: '10mg', frequency: 'daily' },
+          { name: 'Metformin', dose: '500mg' },
+        ],
       },
     };
-    // List-type fields don't live under family-tier sections in our
-    // sections.js (medications is under healthProfile, which is
-    // admin-only). So we test the renderer directly via a synthetic
-    // list field inside a family-visible section.
-    const synthetic = buildUserMessage({
-      versionData: {
-        whoTheyAre: {
-          fullName: 'Kevin',
-          // Simulate a list-type field:
-          interests: [
-            { item: 'Woodworking', notes: 'Garage' },
-            { item: 'Crosswords' },
-          ],
-        },
-      },
-      tasks: [],
-    });
-    expect(synthetic).toMatch(/Woodworking/);
-    expect(synthetic).toMatch(/Crosswords/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/Lisinopril/);
+    expect(block).toMatch(/Metformin/);
+    expect(block).toMatch(/\|/); // pipe separator between rows
   });
 
   it('renders YN field values with their note', () => {
@@ -149,8 +131,8 @@ describe('buildUserMessage', () => {
         ambulation_gaitBelt: { answer: 'Yes', note: 'Remove while seated' },
       },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
-    expect(msg).toMatch(/Yes \(Remove while seated\)/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/Yes \(Remove while seated\)/);
   });
 
   it('skips empty and null values', () => {
@@ -162,21 +144,21 @@ describe('buildUserMessage', () => {
         languages: [],
       },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
-    expect(msg).toMatch(/Full Name: Kevin/);
-    expect(msg).not.toMatch(/Preferred Name:/);
-    expect(msg).not.toMatch(/Religion:/);
-    expect(msg).not.toMatch(/Languages:/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/Full Name: Kevin/);
+    expect(block).not.toMatch(/Preferred Name:/);
+    expect(block).not.toMatch(/Religion:/);
+    expect(block).not.toMatch(/Languages:/);
   });
 
   it('skips sections that have no meaningful content', () => {
     const versionData = {
       whoTheyAre: { fullName: 'Kevin' },
-      dailyLiving: { ambulation_mobilityLevel: '' }, // empty — skip
+      dailyLiving: { ambulation_mobilityLevel: '' },
     };
-    const msg = buildUserMessage({ versionData, tasks: [] });
-    expect(msg).toMatch(/## Who They Are/);
-    expect(msg).not.toMatch(/## Daily Living/);
+    const block = buildCarePlanBlock({ versionData, tasks: [] });
+    expect(block).toMatch(/## Who They Are/);
+    expect(block).not.toMatch(/## Daily Living/);
   });
 
   it('renders task summary grouped by category', () => {
@@ -185,33 +167,75 @@ describe('buildUserMessage', () => {
       { category: 'adl.bathing', taskName: 'Dry off' },
       { category: 'iadl.housework', taskName: 'Vacuum' },
     ];
-    const msg = buildUserMessage({ versionData: {}, tasks });
-    expect(msg).toMatch(/## Care tasks/);
-    expect(msg).toMatch(/Shower assist/);
-    expect(msg).toMatch(/Vacuum/);
-    // Categories rendered in human-readable form
-    expect(msg).toMatch(/ADL — bathing/);
-    expect(msg).toMatch(/IADL — housework/);
+    const block = buildCarePlanBlock({ versionData: {}, tasks });
+    expect(block).toMatch(/## Care tasks/);
+    expect(block).toMatch(/Shower assist/);
+    expect(block).toMatch(/Vacuum/);
+    expect(block).toMatch(/ADL — bathing/);
+    expect(block).toMatch(/IADL — housework/);
   });
 
   it('handles missing tasks array', () => {
-    const msg = buildUserMessage({ versionData: { whoTheyAre: { fullName: 'K' } } });
-    expect(msg).toMatch(/## Who They Are/);
-    expect(msg).not.toMatch(/## Care tasks/);
+    const block = buildCarePlanBlock({
+      versionData: { whoTheyAre: { fullName: 'K' } },
+    });
+    expect(block).toMatch(/## Who They Are/);
+    expect(block).not.toMatch(/## Care tasks/);
   });
 
   it('includes client display name when provided', () => {
-    const msg = buildUserMessage({
+    const block = buildCarePlanBlock({
       versionData: {},
       tasks: [],
       clientDisplayName: 'Kev',
     });
-    expect(msg).toMatch(/Kev/);
+    expect(block).toMatch(/Kev/);
   });
 
   it('omits client display name line when not provided', () => {
+    const block = buildCarePlanBlock({ versionData: {}, tasks: [] });
+    expect(block).not.toMatch(/preferred display name/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// buildUserMessage — wraps the data block + writing instructions
+// ═══════════════════════════════════════════════════════════════
+
+describe('buildUserMessage', () => {
+  it('wraps the care plan data in <care_plan> tags', () => {
+    const msg = buildUserMessage({
+      versionData: { whoTheyAre: { fullName: 'Kevin' } },
+      tasks: [],
+    });
+    expect(msg).toMatch(/<care_plan>/);
+    expect(msg).toMatch(/<\/care_plan>/);
+    expect(msg).toMatch(/Kevin/);
+  });
+
+  it('falls back to a placeholder when no data is populated', () => {
     const msg = buildUserMessage({ versionData: {}, tasks: [] });
-    expect(msg).not.toMatch(/preferred display name/);
+    expect(msg).toMatch(/<care_plan>/);
+    expect(msg).toMatch(/no care plan data populated yet/i);
+  });
+
+  it('includes the analysis / snapshot / gaps instructions', () => {
+    const msg = buildUserMessage({
+      versionData: { whoTheyAre: { fullName: 'Kevin' } },
+      tasks: [],
+    });
+    expect(msg).toMatch(/<analysis>/);
+    expect(msg).toMatch(/<snapshot>/);
+    expect(msg).toMatch(/<gaps>/);
+    expect(msg).toMatch(/Clinical priorities/);
+    expect(msg).toMatch(/Personhood/);
+    expect(msg).toMatch(/Red flags/);
+    expect(msg).toMatch(/through-line/);
+  });
+
+  it('specifies the 400-600 word length target', () => {
+    const msg = buildUserMessage({ versionData: {}, tasks: [] });
+    expect(msg).toMatch(/400-600 words/);
   });
 });
 
@@ -231,20 +255,20 @@ describe('buildSnapshotPrompt', () => {
     expect(result.summary).toBeDefined();
   });
 
-  it('summary tracks populated sections', () => {
+  it('summary tracks populated sections (admin + caregiver tier)', () => {
     const result = buildSnapshotPrompt({
       versionData: {
         whoTheyAre: { fullName: 'K' },
+        healthProfile: { medications: [{ name: 'X', dose: '1mg' }] },
         dailyRhythm: { morningRoutine: 'coffee' },
-        // empty section not counted
-        homeAndLife: {},
+        homeAndLife: {}, // empty — not counted
       },
       tasks: [{ category: 'adl.bathing', taskName: 'x' }],
     });
     expect(result.summary.populatedSections.sort()).toEqual(
-      ['dailyRhythm', 'whoTheyAre'].sort(),
+      ['dailyRhythm', 'healthProfile', 'whoTheyAre'].sort(),
     );
-    expect(result.summary.populatedSectionCount).toBe(2);
+    expect(result.summary.populatedSectionCount).toBe(3);
     expect(result.summary.taskCount).toBe(1);
     expect(result.summary.userMessageChars).toBe(result.userMessage.length);
   });
@@ -263,21 +287,88 @@ describe('buildSnapshotPrompt', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Prompt stability — critical for prompt caching
+// System prompt stability — identical across calls
 // ═══════════════════════════════════════════════════════════════
 
-describe('Prompt cache stability', () => {
-  it('system prompt is identical across calls (frozen byte sequence)', () => {
+describe('System prompt stability', () => {
+  it('system prompt is identical across calls', () => {
     const a = buildSnapshotPrompt({ versionData: {}, tasks: [] });
     const b = buildSnapshotPrompt({
       versionData: { whoTheyAre: { fullName: 'Different client' } },
       tasks: [{ category: 'adl.bathing', taskName: 'x' }],
     });
-    // The system prompt MUST be byte-identical — that's the whole
-    // point of caching it. If this test ever fails, we've accidentally
-    // introduced a dynamic value into the prompt and every request
-    // will miss the cache.
     expect(a.system).toBe(b.system);
     expect(a.system.length).toBe(b.system.length);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// parseSnapshotResponse — pulls narrative + gaps out of the tags
+// ═══════════════════════════════════════════════════════════════
+
+describe('parseSnapshotResponse', () => {
+  it('extracts narrative from <snapshot> tags', () => {
+    const raw = `<analysis>
+Some thinking here.
+</analysis>
+
+<snapshot>
+Kevin is 78, a retired Navy man...
+</snapshot>
+
+<gaps>
+- No allergy info
+</gaps>`;
+    const { narrative, gaps } = parseSnapshotResponse(raw);
+    expect(narrative).toBe('Kevin is 78, a retired Navy man...');
+    expect(gaps).toBe('- No allergy info');
+  });
+
+  it('returns empty gaps when the tag is missing', () => {
+    const raw = `<snapshot>
+Kevin is 78.
+</snapshot>`;
+    const { narrative, gaps } = parseSnapshotResponse(raw);
+    expect(narrative).toBe('Kevin is 78.');
+    expect(gaps).toBe('');
+  });
+
+  it('falls back to full text (minus scaffolding) when <snapshot> is missing', () => {
+    const raw = `<analysis>
+Thinking
+</analysis>
+
+Kevin is 78. This is the narrative without a snapshot tag.
+
+<gaps>
+- Missing stuff
+</gaps>`;
+    const { narrative } = parseSnapshotResponse(raw);
+    expect(narrative).toMatch(/Kevin is 78/);
+    expect(narrative).not.toMatch(/Thinking/);
+    expect(narrative).not.toMatch(/Missing stuff/);
+  });
+
+  it('handles non-string input gracefully', () => {
+    expect(parseSnapshotResponse(null)).toEqual({ narrative: '', gaps: '' });
+    expect(parseSnapshotResponse(undefined)).toEqual({ narrative: '', gaps: '' });
+    expect(parseSnapshotResponse(123)).toEqual({ narrative: '', gaps: '' });
+  });
+
+  it('trims whitespace inside extracted tags', () => {
+    const raw = `<snapshot>
+
+    Kevin is 78.
+
+  </snapshot>`;
+    const { narrative } = parseSnapshotResponse(raw);
+    expect(narrative).toBe('Kevin is 78.');
+  });
+
+  it('is case-insensitive on tag names', () => {
+    const raw = `<SNAPSHOT>Kevin.</SNAPSHOT><Gaps>stuff</Gaps>`;
+    const { narrative, gaps } = parseSnapshotResponse(raw);
+    expect(narrative).toBe('Kevin.');
+    expect(gaps).toBe('stuff');
   });
 });
