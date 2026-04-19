@@ -67,7 +67,7 @@ describe('CARE_PLAN_SECTIONS', () => {
       .map((s) => s.id)
       .sort();
     expect(familySections).toEqual(
-      ['dailyLiving', 'dailyRhythm', 'homeAndLife', 'snapshot', 'whoTheyAre'].sort(),
+      ['dailyLiving', 'dailyRhythm', 'homeAndLife', 'whoTheyAre'].sort(),
     );
   });
 });
@@ -272,7 +272,7 @@ describe('visibleSectionsForTier', () => {
   it('family tier only includes sections tagged for family', () => {
     const family = visibleSectionsForTier('family').map((s) => s.id).sort();
     expect(family).toEqual(
-      ['dailyLiving', 'dailyRhythm', 'homeAndLife', 'snapshot', 'whoTheyAre'].sort(),
+      ['dailyLiving', 'dailyRhythm', 'homeAndLife', 'whoTheyAre'].sort(),
     );
   });
 

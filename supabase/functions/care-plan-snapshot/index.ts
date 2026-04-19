@@ -1,29 +1,28 @@
 // ─── Care Plan Snapshot ───
 //
-// Generates a warm, family-readable narrative summary of a client's
-// care plan by calling Claude Opus 4.7.
+// Generates a caregiver-facing narrative snapshot of a client's care
+// plan by calling Claude Opus 4.7. The prompt structure:
+//   - System: voice + hard rules
+//   - User:   care plan data + structured "think then write"
+//             instructions, producing <analysis>/<snapshot>/<gaps>
+// We parse <snapshot> for the narrative and <gaps> for a list of
+// missing info the care team should collect.
 //
 // Input: { versionId: string, regenerate?: boolean }
-// Output: { narrative, cached, model, generatedAt, tokensUsed }
+// Output: { narrative, gaps, cached, model, generatedAt, tokensUsed }
 //
 // Behavior:
 //   1. Load version + tasks
 //   2. If `regenerate` is false and `generated_summary` exists,
 //      return it from cache without calling Claude
-//   3. Otherwise, build the prompt, call Claude, persist the
-//      narrative on `care_plan_versions.generated_summary` and
-//      `data.snapshot.narrative`, and emit a
-//      `care_plan_snapshot_generated` event with cost telemetry
-//
-// Caching:
-//   The system prompt (~4.8K tokens, frozen) is marked with
-//   cache_control: ephemeral. After the first snapshot generation
-//   per deploy, subsequent snapshots (any client) read the system
-//   prompt from cache at ~10% of uncached input cost.
+//   3. Otherwise, build the prompt, call Claude, parse the tagged
+//      response, persist narrative on `generated_summary` +
+//      `data.snapshot.narrative` (and gaps on `data.snapshot.gaps`),
+//      and emit a `care_plan_snapshot_generated` event.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { buildSnapshotPrompt } from "./prompt.ts";
+import { buildSnapshotPrompt, parseSnapshotResponse } from "./prompt.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,10 +31,11 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 // Model + pricing (Opus 4.7)
 //   Input:  $5.00 / 1M tokens
 //   Output: $25.00 / 1M tokens
-//   Cached reads: ~10% of input ($0.50 / 1M)
-//   Cache writes (5-min TTL): ~1.25x input ($6.25 / 1M)
+// The prompt is below the Opus cache threshold, so we no longer mark
+// the system block with cache_control.
 const CLAUDE_MODEL = "claude-opus-4-7";
-const CLAUDE_MAX_TOKENS = 4000; // narratives are short; this is headroom
+// Headroom for <analysis> + 400-600 word <snapshot> + <gaps>.
+const CLAUDE_MAX_TOKENS = 6000;
 
 const ALLOWED_ORIGINS = [
   "https://caregiver-portal.vercel.app",
@@ -174,19 +174,13 @@ Deno.serve(async (req: Request) => {
   });
 
   // ── Call Claude ──────────────────────────────────────────────
-  // System prompt is cached (4.8K tokens, frozen). Cache hits
-  // dramatically reduce cost on subsequent snapshots for any client.
+  // The user message contains the "think then write" instructions so
+  // the model does its own structured reasoning inside <analysis>
+  // tags — no separate thinking block needed.
   const requestBody = {
     model: CLAUDE_MODEL,
     max_tokens: CLAUDE_MAX_TOKENS,
-    thinking: { type: "adaptive" },
-    system: [
-      {
-        type: "text",
-        text: system,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
+    system,
     messages: [
       { role: "user", content: userMessage },
     ],
@@ -222,20 +216,27 @@ Deno.serve(async (req: Request) => {
   const claudePayload = await claudeResp.json();
   const claudeMs = Date.now() - claudeStart;
 
-  // Pull the first text block from the response. Adaptive thinking
-  // may prepend a thinking block; we skip those.
-  let narrative = "";
+  // Pull the first text block from the response and parse its tags.
+  let rawText = "";
   for (const block of claudePayload.content || []) {
     if (block.type === "text" && typeof block.text === "string") {
-      narrative = block.text.trim();
+      rawText = block.text;
       break;
     }
   }
 
-  if (!narrative) {
+  if (!rawText) {
     console.error("[care-plan-snapshot] no text block in response");
     return jsonResponse(502, {
       error: "Claude returned no text content",
+    }, cors);
+  }
+
+  const { narrative, gaps } = parseSnapshotResponse(rawText);
+  if (!narrative) {
+    console.error("[care-plan-snapshot] no <snapshot> tag in response");
+    return jsonResponse(502, {
+      error: "Claude response missing <snapshot> content",
     }, cors);
   }
 
@@ -243,7 +244,10 @@ Deno.serve(async (req: Request) => {
   const costUsd = estimateCostUsd(usage);
 
   // ── Persist ─────────────────────────────────────────────────
-  const mergedData = { ...(version.data || {}), snapshot: { narrative } };
+  const mergedData = {
+    ...(version.data || {}),
+    snapshot: { narrative, gaps: gaps || null },
+  };
   const generatedAt = new Date().toISOString();
 
   const { error: updateErr } = await supabase
@@ -288,6 +292,7 @@ Deno.serve(async (req: Request) => {
 
   return jsonResponse(200, {
     narrative,
+    gaps: gaps || null,
     cached: false,
     model: CLAUDE_MODEL,
     generatedAt,
