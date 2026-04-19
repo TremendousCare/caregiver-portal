@@ -130,13 +130,28 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Load tasks (for the prompt) ──────────────────────────────
+  // Order matters: buildUserMessage truncates each category to the
+  // first 6 task names, so without a deterministic order Postgres
+  // could surface different tasks across runs and silently drop
+  // caregiver-prioritized items. Match getTasksForVersion's ordering.
   const { data: tasks, error: tasksErr } = await supabase
     .from("care_plan_tasks")
     .select("id, category, task_name, description")
-    .eq("version_id", versionId);
+    .eq("version_id", versionId)
+    .order("category", { ascending: true })
+    .order("sort_order", { ascending: true });
 
   if (tasksErr) {
-    console.warn("[care-plan-snapshot] task load failed:", tasksErr.message);
+    // Don't write a degraded snapshot. A care plan with rich tasks
+    // but a transient task-load failure would otherwise produce a
+    // narrative missing the "what the caregiver helps with" thread,
+    // and that wrong snapshot would get persisted to
+    // generated_summary. Better to surface the error so the admin
+    // can retry.
+    console.error("[care-plan-snapshot] task load failed:", tasksErr.message);
+    return jsonResponse(500, {
+      error: `Failed to load care plan tasks: ${tasksErr.message}`,
+    }, cors);
   }
 
   // Normalize task rows to the camelCase shape the prompt expects.
