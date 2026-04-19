@@ -231,16 +231,6 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
           </p>
         </div>
         <div className={s.headerActions}>
-          {SNAPSHOT_FEATURE_FLAG && plan && hasAnyContent && (
-            <button
-              className={btn.secondaryBtn}
-              onClick={handleRegenerateSnapshot}
-              disabled={regenerating}
-              title="Regenerate AI snapshot from current data"
-            >
-              {regenerating ? 'Regenerating…' : '✨ Regenerate snapshot'}
-            </button>
-          )}
           {plan && isDraft && hasAnyContent && (
             <button
               className={btn.primaryBtn}
@@ -278,17 +268,28 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
         <>
           <VersionHeader version={currentVersion} />
 
+          <SnapshotBanner
+            narrative={currentVersion?.data?.snapshot?.narrative
+              || currentVersion?.generatedSummary}
+            regenerating={regenerating}
+            featureFlagOn={SNAPSHOT_FEATURE_FLAG}
+            onRegenerate={handleRegenerateSnapshot}
+            hasContent={hasAnyContent}
+          />
+
           <ul className={s.sectionList}>
-            {sortedSections().map((section) => (
-              <SectionCard
-                key={section.id}
-                section={section}
-                data={currentVersion?.data?.[section.id]}
-                tasks={sectionUsesTasks(section) ? tasksBySection[section.id] : null}
-                onEdit={() => handleEditSection(section)}
-                editDisabled={startingNewDraft}
-              />
-            ))}
+            {sortedSections()
+              .filter((section) => section.id !== 'snapshot') /* rendered as banner above */
+              .map((section) => (
+                <SectionCard
+                  key={section.id}
+                  section={section}
+                  data={currentVersion?.data?.[section.id]}
+                  tasks={sectionUsesTasks(section) ? tasksBySection[section.id] : null}
+                  onEdit={() => handleEditSection(section)}
+                  editDisabled={startingNewDraft}
+                />
+              ))}
           </ul>
 
           {versions.length > 0 && (
@@ -343,6 +344,57 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
         />
       )}
     </section>
+  );
+}
+
+
+// ─── SnapshotBanner ───────────────────────────────────────────
+// Renders the AI-generated snapshot as a prominent lede above all
+// other sections. Feature-flagged — if the flag is off, the banner
+// shows nothing (the snapshot section is hidden from the section
+// list too, so no "Not entered yet" gap appears).
+
+function SnapshotBanner({ narrative, regenerating, featureFlagOn, onRegenerate, hasContent }) {
+  // Feature flag off: render nothing.
+  if (!featureFlagOn) return null;
+
+  // No narrative yet and no content to generate from — hide entirely.
+  if (!narrative && !hasContent) return null;
+
+  return (
+    <div className={s.snapshotBanner}>
+      <div className={s.snapshotHeader}>
+        <div className={s.snapshotEyebrow}>
+          <span className={s.snapshotSparkle}>✨</span>
+          AI Snapshot
+        </div>
+        {hasContent && (
+          <button
+            className={s.snapshotRegenBtn}
+            onClick={onRegenerate}
+            disabled={regenerating}
+            title={narrative
+              ? 'Regenerate snapshot from the current care plan data'
+              : 'Generate snapshot for the first time'}
+          >
+            {regenerating
+              ? 'Generating…'
+              : narrative ? 'Regenerate' : 'Generate snapshot'}
+          </button>
+        )}
+      </div>
+      {narrative ? (
+        <div className={s.snapshotBody}>
+          {narrative.split(/\n\s*\n/).map((para, i) => (
+            <p key={i} className={s.snapshotPara}>{para.trim()}</p>
+          ))}
+        </div>
+      ) : (
+        <div className={s.snapshotEmpty}>
+          No snapshot yet. Click Generate to create a warm, family-readable summary from this plan.
+        </div>
+      )}
+    </div>
   );
 }
 
