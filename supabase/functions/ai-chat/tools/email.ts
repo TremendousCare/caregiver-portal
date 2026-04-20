@@ -44,6 +44,7 @@ registerTool(
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
         body: JSON.stringify({
           action: "search_emails",
+          admin_email: ctx.currentUserMailbox || null,
           email_address: emailAddress,
           keyword: input.keyword || null,
           days_back: input.days_back || 30,
@@ -89,13 +90,13 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, _ctx: ToolContext): Promise<ToolResult> => {
+  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     if (!input.email_id && !input.conversation_id) return { error: "Please provide an email_id or conversation_id. Use search_emails first to find emails." };
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
-        body: JSON.stringify({ action: "get_email_thread", email_id: input.email_id || null, conversation_id: input.conversation_id || null }),
+        body: JSON.stringify({ action: "get_email_thread", admin_email: ctx.currentUserMailbox || null, email_id: input.email_id || null, conversation_id: input.conversation_id || null }),
       });
       const result = await response.json();
       if (result.error) return { error: result.error };
@@ -169,8 +170,8 @@ registerTool(
     };
   }),
   // Confirmed handler — delegates to shared operation
-  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const result = await sendEmailOp(supabase, caregiverId, params.to_email, params.to_name, params.subject, params.body, params.cc, currentUser);
+  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string, currentUserMailbox?: string | null): Promise<ToolResult> => {
+    const result = await sendEmailOp(supabase, caregiverId, params.to_email, params.to_name, params.subject, params.body, params.cc, currentUser, currentUserMailbox ?? null);
     return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );

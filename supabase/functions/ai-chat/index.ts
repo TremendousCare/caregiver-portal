@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
     }
     const authenticatedUserId = user.id;
 
-    const { messages, caregiverId, confirmAction, currentUser, requestType } =
+    const { messages, caregiverId, confirmAction, currentUser, currentUserMailbox, requestType } =
       await req.json();
 
     // Service-role client for data operations
@@ -176,6 +176,7 @@ Deno.serve(async (req: Request) => {
         confirmAction.params,
         supabase,
         currentUser || "User",
+        currentUserMailbox || null,
       );
 
       // Log confirmed action as event (awaited to ensure completion before response)
@@ -351,7 +352,7 @@ Deno.serve(async (req: Request) => {
 
         // Process tool calls
         const toolResultBlocks: any[] = [];
-        const ctx = { supabase, caregivers, clients, currentUser: currentUser || "User" };
+        const ctx = { supabase, caregivers, clients, currentUser: currentUser || "User", currentUserMailbox: currentUserMailbox || null };
 
         for (const toolUse of toolUseBlocks) {
           const toolName = toolUse.name;

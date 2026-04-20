@@ -111,11 +111,12 @@ export async function executeConfirmedAction(
   params: any,
   supabase: any,
   currentUser: string,
+  currentUserMailbox?: string | null,
 ): Promise<ToolResult> {
   const handler = confirmHandlers.get(action);
   if (!handler) return { error: `Unknown action: ${action}` };
   try {
-    return await handler(action, caregiverId, params, supabase, currentUser);
+    return await handler(action, caregiverId, params, supabase, currentUser, currentUserMailbox ?? null);
   } catch (err) {
     console.error(`Confirmed action ${action} threw an exception:`, err);
     return { error: `Action "${action}" failed: ${(err as Error).message || "Unknown error"}` };

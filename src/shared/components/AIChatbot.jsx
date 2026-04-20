@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import DOMPurify from 'dompurify';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { useApp } from '../context/AppContext';
 import s from './AIChatbot.module.css';
 
 // ─── Web Speech API detection ───
@@ -32,6 +33,7 @@ const FALLBACK_QUICK_ACTIONS = [
 ];
 
 export function AIChatbot({ caregiverId, currentUser }) {
+  const { currentUserMailbox } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -138,6 +140,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
       const data = await callEdgeFunction({
         requestType: 'briefing',
         currentUser: currentUser || 'User',
+        currentUserMailbox: currentUserMailbox || null,
       });
 
       if (data?.briefing) {
@@ -168,6 +171,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         caregiverId: caregiverId || null,
         currentUser: currentUser || 'User',
+        currentUserMailbox: currentUserMailbox || null,
       });
 
       const aiMessage = { role: 'assistant', content: data.reply || 'No response received.' };
@@ -211,6 +215,7 @@ export function AIChatbot({ caregiverId, currentUser }) {
           params: confirmation.params,
         },
         currentUser: currentUser || 'User',
+        currentUserMailbox: currentUserMailbox || null,
       });
 
       setMessages(prev => [...prev, {

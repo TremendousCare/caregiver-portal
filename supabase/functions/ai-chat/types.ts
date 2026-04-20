@@ -24,6 +24,7 @@ export interface ToolContext {
   caregivers: any[];
   clients: any[];
   currentUser: string;
+  currentUserMailbox?: string | null;
 }
 
 export type ToolHandler = (
@@ -37,4 +38,5 @@ export type ConfirmHandler = (
   params: any,
   supabase: any,
   currentUser: string,
+  currentUserMailbox?: string | null,
 ) => Promise<ToolResult>;

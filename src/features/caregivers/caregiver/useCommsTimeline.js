@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { useApp } from '../../../shared/context/AppContext';
 
 /**
  * Shared hook for fetching and merging communication timeline data.
@@ -9,6 +10,7 @@ import { supabase } from '../../../lib/supabase';
  * merges with portal notes, and deduplicates entries that appear in both sources.
  */
 export function useCommsTimeline(caregiver) {
+  const { currentUserMailbox } = useApp();
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
   const [outlookEmails, setOutlookEmails] = useState([]);
@@ -57,6 +59,7 @@ export function useCommsTimeline(caregiver) {
     supabase.functions.invoke('outlook-integration', {
       body: {
         action: 'search_emails',
+        admin_email: currentUserMailbox || null,
         email_address: caregiver.email,
         days_back: 90,
         limit: 25,
@@ -93,7 +96,7 @@ export function useCommsTimeline(caregiver) {
       if (!cancelled) setEmailLoading(false);
     });
     return () => { cancelled = true; };
-  }, [caregiver?.email]);
+  }, [caregiver?.email, currentUserMailbox]);
 
   // Merge portal notes + RC data into unified timeline (newest first)
   const mergedTimeline = useMemo(() => {

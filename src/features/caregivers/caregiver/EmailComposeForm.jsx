@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { useApp } from '../../../shared/context/AppContext';
 import styles from './messaging.module.css';
 
 /**
@@ -8,6 +9,7 @@ import styles from './messaging.module.css';
  * Sends via the existing outlook-integration Edge Function.
  */
 export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast }) {
+  const { currentUserMailbox } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -27,6 +29,7 @@ export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast 
       const { error } = await supabase.functions.invoke('outlook-integration', {
         body: {
           action: 'send_email',
+          admin_email: currentUserMailbox || null,
           to_email: caregiver.email,
           to_name: `${caregiver.first_name || ''} ${caregiver.last_name || ''}`.trim() || null,
           subject: trimmedSubject,

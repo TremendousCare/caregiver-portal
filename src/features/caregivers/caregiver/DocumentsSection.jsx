@@ -222,6 +222,7 @@ Tremendous Care`;
           supabase.functions.invoke('outlook-integration', {
             body: {
               action: 'send_email',
+              admin_email: currentUser?.mailboxEmail || currentUser?.email || null,
               to_email: caregiver.email,
               to_name: `${caregiver.firstName} ${caregiver.lastName}`,
               subject: emailSubject,

@@ -43,6 +43,7 @@ registerTool(
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
         body: JSON.stringify({
           action: "get_calendar_events",
+          admin_email: ctx.currentUserMailbox || null,
           start_date: input.start_date || null,
           end_date: input.end_date || null,
           attendee_email: attendeeEmail,
@@ -87,13 +88,14 @@ registerTool(
     },
     riskLevel: "auto",
   },
-  async (input: any, _ctx: ToolContext): Promise<ToolResult> => {
+  async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
         body: JSON.stringify({
           action: "check_availability",
+          admin_email: ctx.currentUserMailbox || null,
           date: input.date || null,
           start_date: input.start_date || null,
           end_date: input.end_date || null,
@@ -196,8 +198,8 @@ registerTool(
     };
   }),
   // Confirmed handler — delegates to shared operation
-  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const result = await createCalendarEventOp(supabase, caregiverId, params, currentUser);
+  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string, currentUserMailbox?: string | null): Promise<ToolResult> => {
+    const result = await createCalendarEventOp(supabase, caregiverId, params, currentUser, currentUserMailbox ?? null);
     if (!result.success) return { error: result.error };
     return { success: true, message: result.message, event_id: result.data?.event_id };
   },
@@ -262,8 +264,8 @@ registerTool(
     };
   }),
   // Confirmed handler — delegates to shared operation
-  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string): Promise<ToolResult> => {
-    const result = await updateCalendarEventOp(supabase, caregiverId, params, currentUser);
+  async (_action: string, caregiverId: string, params: any, supabase: any, currentUser: string, currentUserMailbox?: string | null): Promise<ToolResult> => {
+    const result = await updateCalendarEventOp(supabase, caregiverId, params, currentUser, currentUserMailbox ?? null);
     return result.success ? { success: true, message: result.message } : { error: result.error };
   },
 );
