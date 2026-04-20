@@ -7,7 +7,8 @@ import { getClientPhase, getDaysInClientPhase, getDaysSinceCreated, isTaskDone a
 //
 // Evaluates rules from the action_item_rules table against
 // caregiver/client data to produce prioritized action items.
-// Falls back to hardcoded logic if rules haven't loaded yet.
+// The action_item_rules table is the single source of truth —
+// only rules with enabled=true produce items.
 //
 // Evaluator logic extracted to _shared/helpers/evaluators.ts
 // (Phase 4). This file re-exports for backward compatibility.
@@ -135,11 +136,11 @@ const clientAdapter = {
 
 function generateFromRules(entities, entityType) {
   const rules = _rulesCache;
-  if (!rules || rules.length === 0) return null; // signal to use fallback
+  if (!rules) return []; // cache not yet loaded — render empty until it is
 
   const adapter = entityType === 'caregiver' ? caregiverAdapter : clientAdapter;
   const relevantRules = rules.filter((r) => r.entity_type === entityType);
-  if (relevantRules.length === 0) return null;
+  if (relevantRules.length === 0) return [];
 
   const items = [];
   for (const entity of entities) {
@@ -151,23 +152,10 @@ function generateFromRules(entities, entityType) {
   return items;
 }
 
-// ─── Exports (Drop-in replacements) ──────────────────────────
-// These match the exact signatures of the old hardcoded engines
-// so dashboards can swap imports without any other changes.
-
-import { generateActionItems as hardcodedCaregiverEngine } from './actionEngine';
-import { generateClientActionItems as hardcodedClientEngine } from '../features/clients/actionEngine';
-
 export function generateActionItems(caregivers) {
-  const result = generateFromRules(caregivers, 'caregiver');
-  if (result !== null) return result;
-  // Fallback to hardcoded engine while rules are loading
-  return hardcodedCaregiverEngine(caregivers);
+  return generateFromRules(caregivers, 'caregiver');
 }
 
 export function generateClientActionItems(clients) {
-  const result = generateFromRules(clients, 'client');
-  if (result !== null) return result;
-  // Fallback to hardcoded engine while rules are loading
-  return hardcodedClientEngine(clients);
+  return generateFromRules(clients, 'client');
 }
