@@ -20,7 +20,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 // The magic link lands the caregiver on this URL.
-const CAREGIVER_APP_URL = Deno.env.get("CAREGIVER_APP_URL") ?? "https://caregiver-portal.vercel.app/care";
+const CAREGIVER_APP_URL = Deno.env.get("CAREGIVER_APP_URL") ?? "https://portal.tremendouscareca.com/care";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

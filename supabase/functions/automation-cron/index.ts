@@ -327,7 +327,7 @@ Deno.serve(async (req) => {
         console.error("Failed to fetch survey_pending rules:", surveyRulesErr);
       } else if (surveyRules && surveyRules.length > 0) {
         const appBaseUrl =
-          Deno.env.get("APP_BASE_URL") || "https://caregiver-portal.vercel.app";
+          Deno.env.get("APP_BASE_URL") || "https://portal.tremendouscareca.com";
 
         for (const rule of surveyRules) {
           summary.rules_processed++;
@@ -525,7 +525,7 @@ Deno.serve(async (req) => {
         );
       } else if (recurringRules && recurringRules.length > 0) {
         const appBaseUrl =
-          Deno.env.get("APP_BASE_URL") || "https://caregiver-portal.vercel.app";
+          Deno.env.get("APP_BASE_URL") || "https://portal.tremendouscareca.com";
 
         for (const rule of recurringRules) {
           summary.rules_processed++;
