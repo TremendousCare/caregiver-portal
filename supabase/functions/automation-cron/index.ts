@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeActionType, resolveAutomationMergeFields } from "../_shared/helpers/automations.ts";
 import {
   buildSurveyUrlFromToken,
+  computeReminderExpiry,
   isWithinSendWindow,
   resolveReminderConditions,
   ruleAppliesToCaregiver,
@@ -343,7 +344,7 @@ Deno.serve(async (req) => {
           const { data: candidates, error: candErr } = await supabase
             .from("survey_responses")
             .select(
-              "id, caregiver_id, token, status, reminders_sent, last_reminder_sent_at, reminders_stopped, sent_at"
+              "id, caregiver_id, token, status, reminders_sent, last_reminder_sent_at, reminders_stopped, sent_at, expires_at"
             )
             .eq("status", "pending")
             .eq("reminders_stopped", false)
@@ -442,11 +443,20 @@ Deno.serve(async (req) => {
                 // the previously-read reminders_sent as the optimistic base;
                 // if two cron runs collide, only one will win — the other's
                 // update is still safe (just increments by 1 either way).
+                // Also extend expires_at — the template default (48h) is
+                // shorter than the reminder loop (up to 5 × interval_hours),
+                // so without this bump applicants who click a later reminder
+                // land on an expired token.
                 await supabase
                   .from("survey_responses")
                   .update({
                     reminders_sent: (survey.reminders_sent || 0) + 1,
                     last_reminder_sent_at: now.toISOString(),
+                    expires_at: computeReminderExpiry(
+                      now,
+                      resolved.hours,
+                      survey.expires_at,
+                    ),
                   })
                   .eq("id", survey.id);
               } else if (result.skipped) {
