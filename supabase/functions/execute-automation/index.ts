@@ -162,30 +162,57 @@ async function getRCFromNumber(): Promise<string | null> {
 }
 
 // ─── Get RingCentral Access Token ───
+// Retries on transient failures (network errors, 5xx, 429) with exponential
+// backoff. Does NOT retry on 4xx (bad credentials won't succeed on retry).
+// Retry is scoped to the token exchange only — never the SMS send — so a
+// retry can never cause a duplicate message: if we never got a token, no
+// message was ever transmitted to RingCentral.
 async function getRingCentralAccessToken(): Promise<string> {
   if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
     throw new Error("RingCentral credentials not configured");
   }
 
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Authorization": `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: RC_JWT_TOKEN,
-    }),
-  });
+  const maxAttempts = 3;
+  const backoffMs = [500, 1500];
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let retriable = true;
+    try {
+      const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          assertion: RC_JWT_TOKEN,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.access_token;
+      }
+
+      retriable = response.status >= 500 || response.status === 429;
+      const errorText = await response.text();
+      lastError = new Error(`RingCentral auth failed (${response.status}): ${errorText}`);
+    } catch (err) {
+      // Network error (DNS, timeout, connection reset) — always retriable
+      lastError = err as Error;
+    }
+
+    if (!retriable || attempt === maxAttempts) throw lastError;
+
+    console.warn(
+      `[RC auth] transient failure on attempt ${attempt}/${maxAttempts}, retrying: ${lastError.message}`,
+    );
+    await new Promise((r) => setTimeout(r, backoffMs[attempt - 1]));
   }
 
-  const data = await response.json();
-  return data.access_token;
+  throw lastError ?? new Error("RingCentral auth failed after retries");
 }
 
 // ─── Enhanced Merge Field Substitution ───
