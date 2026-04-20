@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
-import { getCurrentPhase, getOverallProgress, getDaysInPhase, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../../lib/utils';
+import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../../lib/utils';
 import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
@@ -85,13 +85,11 @@ function StatCard({ label, value, accent, icon }) {
 }
 
 // ─── CAREGIVER CARD ──────────────────────────────────────────
-function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode, surveyStatus }) {
+function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode, surveyStatus, urgent }) {
   const phase = getCurrentPhase(caregiver);
   const phaseInfo = PHASES.find((p) => p.id === phase);
   const progressPct = getOverallProgress(caregiver);
   const days = getDaysSinceApplication(caregiver);
-  const daysInPhase = getDaysInPhase(caregiver);
-  const urgent = (phase === 'onboarding' && daysInPhase >= 5) || (phase === 'intake' && daysInPhase >= 2);
   const greenLight = isGreenLight(caregiver);
 
   return (
@@ -314,6 +312,18 @@ export function Dashboard({
   const allActionItems = generateActionItems(allCaregivers);
   const actionItems = allActionItems.filter((it) => !dismissedActionKeys.has(actionItemKey(it)));
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
+
+  // Card urgency is derived from the same rules engine that drives the
+  // Today's Action Items panel. A card is urgent if the caregiver has any
+  // active critical or warning action item. Dismissals are intentionally
+  // ignored — dismissing today's notification does not mean the underlying
+  // problem is resolved.
+  const urgentCaregiverIds = new Set(
+    allActionItems
+      .filter((it) => it.urgency === 'critical' || it.urgency === 'warning')
+      .map((it) => it.cgId)
+      .filter(Boolean)
+  );
 
   const selectionMode = selectedIds.size > 0;
   const sortedCaregivers = [...caregivers].sort((a, b) => getOverallProgress(b) - getOverallProgress(a));
@@ -622,6 +632,7 @@ export function Dashboard({
                   onToggleSelect={() => toggleSelect(cg.id)}
                   selectionMode={selectionMode}
                   surveyStatus={surveyStatuses[cg.id]}
+                  urgent={urgentCaregiverIds.has(cg.id)}
                 />
               </div>
             ))}
