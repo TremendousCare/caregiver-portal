@@ -13,7 +13,7 @@ const FIELD_COLORS = {
   initials: { bg: 'rgba(41, 190, 228, 0.15)', border: '#29BEE4', label: 'Initials' },
   date: { bg: 'rgba(234, 88, 12, 0.15)', border: '#EA580C', label: 'Date' },
   text: { bg: 'rgba(21, 128, 61, 0.15)', border: '#15803D', label: 'Text' },
-  checkbox: { bg: 'rgba(107, 114, 128, 0.15)', border: '#6B7280', label: 'Check' },
+  checkbox: { bg: 'rgba(124, 58, 237, 0.22)', border: '#7C3AED', label: 'Check' },
 };
 
 const DEFAULT_SIZES = {
@@ -21,7 +21,7 @@ const DEFAULT_SIZES = {
   initials: { w: 80, h: 30 },
   date: { w: 120, h: 20 },
   text: { w: 200, h: 20 },
-  checkbox: { w: 20, h: 20 },
+  checkbox: { w: 14, h: 14 },
 };
 
 /**
@@ -462,17 +462,18 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: Math.max(9, 10 * pageData.scale),
+                  fontSize: field.type === 'checkbox' ? Math.max(12, displayH * 0.9) : Math.max(9, 10 * pageData.scale),
                   fontWeight: 600,
                   color: colors.border,
+                  lineHeight: 1,
                   boxShadow: isSelected ? `0 0 0 2px ${colors.border}40` : 'none',
                   zIndex: isSelected ? 10 : 1,
                   transition: 'box-shadow 0.1s',
                 }}
                 title={`${colors.label} — ${field.w}x${field.h}`}
               >
-                {colors.label}
-                {field.required && <span style={{ color: '#DC2626', marginLeft: 2 }}>*</span>}
+                {field.type === 'checkbox' ? '\u2610' : colors.label}
+                {field.required && field.type !== 'checkbox' && <span style={{ color: '#DC2626', marginLeft: 2 }}>*</span>}
 
                 {/* Resize handles — only on selected field */}
                 {isSelected && !readOnly && (
