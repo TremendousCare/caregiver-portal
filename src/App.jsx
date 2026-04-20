@@ -360,7 +360,7 @@ function AddCaregiverPage() {
 function CaregiverDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showToast, currentUserName, currentUserEmail } = useApp();
+  const { showToast, currentUserName, currentUserEmail, currentUserMailbox } = useApp();
   const {
     caregivers, activeCaregivers,
     updateTask, updateTasksBulk, addNote,
@@ -388,7 +388,7 @@ function CaregiverDetailPage() {
     <CaregiverDetail
       caregiver={caregiver}
       allCaregivers={activeCaregivers}
-      currentUser={{ displayName: currentUserName, email: currentUserEmail }}
+      currentUser={{ displayName: currentUserName, email: currentUserEmail, mailboxEmail: currentUserMailbox }}
       onBack={() => navigate('/')}
       onUpdateTask={updateTask}
       onUpdateTasksBulk={updateTasksBulk}
@@ -469,7 +469,7 @@ function AddClientPage() {
 function ClientDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showToast, currentUserName, currentUserEmail } = useApp();
+  const { showToast, currentUserName, currentUserEmail, currentUserMailbox } = useApp();
   const {
     clients, activeClients,
     updateTask, updateTasksBulk, addNote, updatePhase,
@@ -494,7 +494,7 @@ function ClientDetailPage() {
     <ClientDetail
       client={client}
       allClients={activeClients}
-      currentUser={{ displayName: currentUserName, email: currentUserEmail }}
+      currentUser={{ displayName: currentUserName, email: currentUserEmail, mailboxEmail: currentUserMailbox }}
       onBack={() => navigate('/clients')}
       onUpdateTask={updateTask}
       onUpdateTasksBulk={updateTasksBulk}

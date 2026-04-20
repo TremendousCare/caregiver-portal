@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { useApp } from '../../../shared/context/AppContext';
 import { groupEmailsByThread, extractBodyFromText } from './emailUtils';
 import styles from './messaging.module.css';
 
@@ -58,6 +59,7 @@ function getDisplayBody(email) {
  * Lazy-loads full email bodies from Outlook when a thread is expanded.
  */
 export function EmailThreadView({ emails }) {
+  const { currentUserMailbox } = useApp();
   const [expandedThread, setExpandedThread] = useState(null);
   const [loadedBodies, setLoadedBodies] = useState({}); // { outlookId: fullBody } — flat map keyed by email ID
   const [loadingThread, setLoadingThread] = useState(null);
@@ -81,7 +83,7 @@ export function EmailThreadView({ emails }) {
       const convMsg = outlookMsgs.find((m) => m.conversationId);
       if (convMsg) {
         const { data, error } = await supabase.functions.invoke('outlook-integration', {
-          body: { action: 'get_email_thread', conversation_id: convMsg.conversationId },
+          body: { action: 'get_email_thread', admin_email: currentUserMailbox || null, conversation_id: convMsg.conversationId },
         });
 
         if (!error && data?.emails?.length) {
@@ -151,7 +153,7 @@ export function EmailThreadView({ emails }) {
         if (!msg.outlookId || newBodies[msg.outlookId]) continue;
         try {
           const { data, error } = await supabase.functions.invoke('outlook-integration', {
-            body: { action: 'get_email_thread', email_id: msg.outlookId },
+            body: { action: 'get_email_thread', admin_email: currentUserMailbox || null, email_id: msg.outlookId },
           });
           if (!error && data?.emails?.[0]?.body) {
             const body = data.emails[0].body.length > 5000

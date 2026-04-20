@@ -20,6 +20,7 @@ export async function createCalendarEvent(
     is_online: boolean;
   },
   actor: string,
+  adminEmail: string | null = null,
 ): Promise<OperationResult> {
   let cg: any = null;
   if (caregiverId && caregiverId !== "__no_caregiver__") {
@@ -70,6 +71,7 @@ export async function createCalendarEvent(
         },
         body: JSON.stringify({
           action: "create_event",
+          admin_email: adminEmail || null,
           subject: title,
           start_datetime,
           end_datetime,
@@ -133,6 +135,7 @@ export async function updateCalendarEvent(
     caregiver_name: string | null;
   },
   actor: string,
+  adminEmail: string | null = null,
 ): Promise<OperationResult> {
   let cg: any = null;
   if (caregiverId && caregiverId !== "__no_caregiver__") {
@@ -165,6 +168,7 @@ export async function updateCalendarEvent(
         },
         body: JSON.stringify({
           action: "update_event",
+          admin_email: adminEmail || null,
           event_id,
           subject: title || null,
           start_datetime,

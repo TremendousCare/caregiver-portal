@@ -28,6 +28,7 @@ export function AppProvider({ children }) {
   // ─── Derived user info ───
   const currentUserName = currentUser?.displayName || '';
   const currentUserEmail = currentUser?.email || '';
+  const currentUserMailbox = currentUser?.mailboxEmail || currentUser?.email || '';
   const isAdmin = currentUser?.isAdmin || false;
 
   // ─── Role lookup on login ───
@@ -40,6 +41,7 @@ export function AppProvider({ children }) {
   const handleUserReady = useCallback(async (userInfo) => {
     let userIsAdmin = false;
     let noRole = false;
+    let mailboxEmail = userInfo.email || '';
     if (userInfo.email && isSupabaseConfigured()) {
       try {
         // Is this a caregiver account? (Only visible if linked via user_id
@@ -60,11 +62,12 @@ export function AppProvider({ children }) {
 
         const { data } = await supabase
           .from('user_roles')
-          .select('role')
+          .select('role, mailbox_email')
           .eq('email', userInfo.email.toLowerCase())
           .maybeSingle();
         if (data) {
           userIsAdmin = data.role === 'admin';
+          mailboxEmail = data.mailbox_email || userInfo.email;
         } else {
           noRole = true;
         }
@@ -75,6 +78,7 @@ export function AppProvider({ children }) {
     setCurrentUser({
       displayName: userInfo.displayName,
       email: userInfo.email,
+      mailboxEmail,
       isAdmin: userIsAdmin,
       noRole,
     });
@@ -97,7 +101,7 @@ export function AppProvider({ children }) {
       toast, showToast,
       sidebarCollapsed, setSidebarCollapsed,
       mobileMenuOpen, setMobileMenuOpen,
-      currentUser, currentUserName, currentUserEmail, isAdmin,
+      currentUser, currentUserName, currentUserEmail, currentUserMailbox, isAdmin,
       handleUserReady, handleLogout,
     }}>
       {children}

@@ -14,6 +14,7 @@ export async function sendEmail(
   body: string,
   cc: string | null,
   actor: string,
+  adminEmail: string | null = null,
 ): Promise<OperationResult> {
   // Optionally fetch caregiver for note logging
   let cg: any = null;
@@ -40,6 +41,7 @@ export async function sendEmail(
         },
         body: JSON.stringify({
           action: "send_email",
+          admin_email: adminEmail || null,
           to_email: toEmail,
           to_name: toName,
           subject,
