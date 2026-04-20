@@ -145,6 +145,36 @@ export function buildSurveyUrlFromToken(token: string, baseUrl: string): string 
 }
 
 /**
+ * Compute an extended `expires_at` for a survey_response after a reminder is
+ * sent. The original expiry (default 48h from survey_templates.expires_hours)
+ * is shorter than the reminder loop (up to 5 × 24h = 120h), so applicants who
+ * click a later reminder see "survey expired". This bumps the expiry to at
+ * least `intervalHours × 2` past now so the link outlives the next reminder.
+ *
+ * Never shrinks an existing expiry — if the current one is already farther
+ * out than the proposed new value, it is preserved.
+ *
+ * Used by supabase/functions/automation-cron/index.ts (Section 1.5) after a
+ * successful reminder send.
+ */
+export function computeReminderExpiry(
+  now: Date,
+  intervalHours: number,
+  currentExpiresAt: string | Date | null | undefined,
+): string {
+  const safeInterval = Number.isFinite(intervalHours) && intervalHours > 0
+    ? intervalHours
+    : DEFAULT_REMINDER_HOURS;
+  const proposedMs = now.getTime() + safeInterval * 2 * 60 * 60 * 1000;
+  let currentMs = 0;
+  if (currentExpiresAt) {
+    const parsed = new Date(currentExpiresAt).getTime();
+    if (Number.isFinite(parsed)) currentMs = parsed;
+  }
+  return new Date(Math.max(proposedMs, currentMs)).toISOString();
+}
+
+/**
  * Decide whether a survey_pending reminder rule applies to a given caregiver.
  * Used by the cron to enforce the "Only in Phase" filter on the rule.
  *

@@ -9,6 +9,7 @@ import {
   isReminderDue,
   shouldRemindSurvey,
   buildSurveyUrlFromToken,
+  computeReminderExpiry,
   ruleAppliesToCaregiver,
 } from '../../../supabase/functions/_shared/helpers/surveyReminders.ts';
 
@@ -233,6 +234,61 @@ describe('surveyReminders', () => {
       expect(buildSurveyUrlFromToken('sv_xyz', 'https://example.com///')).toBe(
         'https://example.com/survey/sv_xyz'
       );
+    });
+  });
+
+  describe('computeReminderExpiry', () => {
+    const now = new Date('2026-04-15T14:00:00Z');
+
+    it('extends a soon-to-expire survey past the next two reminder cycles', () => {
+      // Original expiry 48h from creation, 30h of that already elapsed → 18h left.
+      // New expiry must cover another 2×24h = 48h window from now.
+      const current = new Date(now.getTime() + 18 * 60 * 60 * 1000).toISOString();
+      const result = computeReminderExpiry(now, 24, current);
+      const resultMs = new Date(result).getTime();
+      expect(resultMs).toBe(now.getTime() + 48 * 60 * 60 * 1000);
+    });
+
+    it('extends an already-expired survey forward from now', () => {
+      // The 48h window lapsed yesterday; reminder arrives anyway.
+      const current = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+      const result = computeReminderExpiry(now, 24, current);
+      const resultMs = new Date(result).getTime();
+      expect(resultMs).toBe(now.getTime() + 48 * 60 * 60 * 1000);
+    });
+
+    it('preserves a current expiry that is already further out than the proposed one', () => {
+      // Admin set a 10-day expiry manually — don't shrink it.
+      const current = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString();
+      const result = computeReminderExpiry(now, 24, current);
+      expect(result).toBe(current);
+    });
+
+    it('falls back to the default interval when intervalHours is zero', () => {
+      const result = computeReminderExpiry(now, 0, null);
+      const expected = now.getTime() + DEFAULT_REMINDER_HOURS * 2 * 60 * 60 * 1000;
+      expect(new Date(result).getTime()).toBe(expected);
+    });
+
+    it('handles a null current expiry by extending from now', () => {
+      const result = computeReminderExpiry(now, 12, null);
+      expect(new Date(result).getTime()).toBe(now.getTime() + 24 * 60 * 60 * 1000);
+    });
+
+    it('handles an invalid ISO string by treating it as no prior expiry', () => {
+      const result = computeReminderExpiry(now, 24, 'not-a-date');
+      expect(new Date(result).getTime()).toBe(now.getTime() + 48 * 60 * 60 * 1000);
+    });
+
+    it('scales with a custom reminder interval (12h → 24h window)', () => {
+      const result = computeReminderExpiry(now, 12, null);
+      expect(new Date(result).getTime()).toBe(now.getTime() + 24 * 60 * 60 * 1000);
+    });
+
+    it('returns an ISO string', () => {
+      const result = computeReminderExpiry(now, 24, null);
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     });
   });
 
