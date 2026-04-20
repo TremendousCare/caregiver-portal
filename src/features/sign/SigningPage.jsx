@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
 import s from './SigningPage.module.css';
-import { isRadioGroupMember, getRequiredGroupViolations } from '../../lib/esignCheckboxGroups.js';
+import { isRadioGroupMember, getRequiredGroupViolations, groupCheckboxFields } from '../../lib/esignCheckboxGroups.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -271,8 +271,11 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
 
         if (field.type === 'checkbox') {
           const isRadio = isRadioGroupMember(field, allTemplateFields);
+          // Pull siblings from the same normalized-key bucket the helper uses,
+          // so whitespace typos like "status" vs "status " can't split a group
+          // between the visual/validation path and the click-update path.
           const groupMembers = isRadio
-            ? (allTemplateFields || []).filter((f) => f.type === 'checkbox' && f.group === field.group)
+            ? (groupCheckboxFields(allTemplateFields).get((field.group || '').trim()) || [])
             : null;
           const groupIsRequired = isRadio && groupMembers.some((f) => f.required === true);
 

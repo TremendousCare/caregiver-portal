@@ -57,6 +57,19 @@ describe('groupCheckboxFields', () => {
     expect(groupCheckboxFields(null).size).toBe(0);
     expect(groupCheckboxFields([]).size).toBe(0);
   });
+
+  it('merges fields whose group names differ only by whitespace', () => {
+    // Designer typo: "status" vs "status " should resolve to one group so the
+    // visual/validation path and the click-update path stay aligned.
+    const fields = [
+      checkbox('a', 'status'),
+      checkbox('b', 'status '),
+      checkbox('c', ' status'),
+    ];
+    const groups = groupCheckboxFields(fields);
+    expect([...groups.keys()]).toEqual(['status']);
+    expect(groups.get('status').map((f) => f.id)).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('isRadioGroupMember', () => {
