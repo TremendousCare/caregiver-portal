@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
 import s from './SigningPage.module.css';
+import { isRadioGroupMember, getRequiredGroupViolations, groupCheckboxFields } from '../../lib/esignCheckboxGroups.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -269,22 +270,66 @@ function DocumentPage({ pageData, fields, fieldValues, onFieldChange, onSignatur
         }
 
         if (field.type === 'checkbox') {
+          const isRadio = isRadioGroupMember(field, allTemplateFields);
+          // Pull siblings from the same normalized-key bucket the helper uses,
+          // so whitespace typos like "status" vs "status " can't split a group
+          // between the visual/validation path and the click-update path.
+          const groupMembers = isRadio
+            ? (groupCheckboxFields(allTemplateFields).get((field.group || '').trim()) || [])
+            : null;
+          const groupIsRequired = isRadio && groupMembers.some((f) => f.required === true);
+
           const handleCheckboxClick = () => {
-            if (field.group) {
-              // Radio group behavior: select this one, deselect others in same group
-              const groupFields = (allTemplateFields || []).filter(
-                (f) => f.type === 'checkbox' && f.group === field.group
-              );
-              for (const gf of groupFields) {
+            if (isRadio) {
+              // Required radio groups lock the current selection — you can
+              // switch, but clicking the already-checked option is a no-op
+              // (prevents accidentally emptying a required group).
+              if (value && groupIsRequired) return;
+              for (const gf of groupMembers) {
                 onFieldChange(gf.id, gf.id === field.id ? !value : false);
               }
             } else {
-              // Independent checkbox: just toggle this one
               onFieldChange(field.id, !value);
             }
-            // Auto-advance guide when checking (not unchecking)
             if (!value && onFieldComplete) onFieldComplete();
           };
+
+          if (isRadio) {
+            // Circle (radio button) rendering — universal "pick one" affordance.
+            const diameter = Math.min(displayW, displayH);
+            return (
+              <div
+                key={field.id}
+                data-field-id={field.id}
+                onClick={handleCheckboxClick}
+                className={isActive ? s.guideActiveField : undefined}
+                style={{
+                  position: 'absolute', left: displayX, top: displayY,
+                  width: displayW, height: displayH,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+              >
+                <div
+                  style={{
+                    width: diameter, height: diameter, borderRadius: '50%',
+                    border: isActive ? '2px solid #EAB308' : '2px solid #2E4E8D',
+                    background: isActive ? 'rgba(234,179,8,0.15)' : 'rgba(219,234,254,0.7)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: isActive ? undefined : '0 0 0 2px rgba(46,78,141,0.15)',
+                    transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  {value && (
+                    <div style={{
+                      width: '55%', height: '55%', borderRadius: '50%', background: '#2E4E8D',
+                    }} />
+                  )}
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div
@@ -447,26 +492,21 @@ export function SigningPage() {
     if (!envelopeData?.templates) return [];
     const missing = [];
     for (const tpl of envelopeData.templates) {
-      const checkedGroups = new Set(); // Track which checkbox groups we've already validated
+      // Required checkbox groups: one entry per empty group
+      for (const violation of getRequiredGroupViolations(tpl.fields || [], fieldValues[tpl.id] || {})) {
+        missing.push({
+          template: tpl.name,
+          label: `Selection (${violation.groupName})`,
+          fieldId: violation.fieldId,
+          type: 'checkbox',
+          page: violation.page,
+        });
+      }
+
+      // Everything else (signatures, initials, dates, text, ungrouped required checkboxes)
       for (const field of (tpl.fields || [])) {
         if (!field.required) continue;
-
-        // Grouped checkboxes: validate the group, not individual checkboxes
-        if (field.type === 'checkbox' && field.group) {
-          if (checkedGroups.has(field.group)) continue; // Already checked this group
-          checkedGroups.add(field.group);
-          const groupFields = (tpl.fields || []).filter(
-            (f) => f.type === 'checkbox' && f.group === field.group
-          );
-          const anyChecked = groupFields.some((f) => fieldValues[tpl.id]?.[f.id]);
-          if (!anyChecked) {
-            missing.push({ template: tpl.name, label: `Selection (${field.group})`, fieldId: field.id, type: 'checkbox', page: field.page || 1 });
-          }
-          continue;
-        }
-
-        // Non-grouped checkboxes that are required (unusual but supported)
-        // and all other field types
+        if (field.type === 'checkbox' && field.group && field.group.trim()) continue; // handled above
         if (!fieldValues[tpl.id]?.[field.id]) {
           const label = field.type === 'signature' ? 'Signature'
             : field.type === 'initials' ? 'Initials'

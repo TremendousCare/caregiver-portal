@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import btn from '../styles/buttons.module.css';
+import { isRadioGroupMember, groupCheckboxFields } from '../lib/esignCheckboxGroups.js';
 
 // Use the bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -437,6 +438,8 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
             const displayY = field.y * pageData.scale;
             const displayW = (field.w || 100) * pageData.scale;
             const displayH = (field.h || 20) * pageData.scale;
+            const isRadio = isRadioGroupMember(field, fields);
+            const diameter = Math.min(displayW, displayH);
 
             const handleStyle = (cursor) => ({
               position: 'absolute', width: 8, height: 8,
@@ -455,8 +458,8 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                   top: displayY,
                   width: displayW,
                   height: displayH,
-                  background: colors.bg,
-                  border: `2px ${isSelected ? 'solid' : 'dashed'} ${colors.border}`,
+                  background: isRadio ? 'transparent' : colors.bg,
+                  border: isRadio ? 'none' : `2px ${isSelected ? 'solid' : 'dashed'} ${colors.border}`,
                   borderRadius: 3,
                   cursor: readOnly ? 'default' : 'move',
                   display: 'flex',
@@ -466,14 +469,39 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                   fontWeight: 600,
                   color: colors.border,
                   lineHeight: 1,
-                  boxShadow: isSelected ? `0 0 0 2px ${colors.border}40` : 'none',
+                  boxShadow: isSelected && !isRadio ? `0 0 0 2px ${colors.border}40` : 'none',
                   zIndex: isSelected ? 10 : 1,
                   transition: 'box-shadow 0.1s',
+                  overflow: 'visible',
                 }}
-                title={`${colors.label} — ${field.w}x${field.h}`}
+                title={`${colors.label} — ${field.w}x${field.h}${isRadio ? ` · group "${field.group}"` : ''}`}
               >
-                {field.type === 'checkbox' ? '\u2610' : colors.label}
+                {isRadio ? (
+                  <div style={{
+                    width: diameter, height: diameter, borderRadius: '50%',
+                    border: `2px ${isSelected ? 'solid' : 'dashed'} ${colors.border}`,
+                    background: colors.bg,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: isSelected ? `0 0 0 2px ${colors.border}40` : 'none',
+                    boxSizing: 'border-box',
+                    pointerEvents: 'none',
+                  }}>
+                    <div style={{
+                      width: '45%', height: '45%', borderRadius: '50%', background: colors.border,
+                    }} />
+                  </div>
+                ) : (field.type === 'checkbox' ? '\u2610' : colors.label)}
                 {field.required && field.type !== 'checkbox' && <span style={{ color: '#DC2626', marginLeft: 2 }}>*</span>}
+                {isRadio && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: '50%', transform: 'translate(-50%, 2px)',
+                    padding: '1px 6px', borderRadius: 10, fontSize: 9, fontWeight: 600,
+                    background: colors.border, color: '#fff', whiteSpace: 'nowrap',
+                    pointerEvents: 'none', letterSpacing: 0.2,
+                  }}>
+                    {field.group}
+                  </div>
+                )}
 
                 {/* Resize handles — only on selected field */}
                 {isSelected && !readOnly && (
@@ -555,18 +583,33 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
               />
             </>
           )}
-          {selectedFieldData.type === 'checkbox' && (
-            <>
-              <label style={{ fontSize: 10, color: '#7A8BA0' }}>Group:</label>
-              <input
-                type="text" value={selectedFieldData.group || ''}
-                onChange={(e) => updateSelectedField('group', e.target.value)}
-                placeholder="e.g. filing_status"
-                title="Checkboxes in the same group act as radio buttons — selecting one deselects the others"
-                style={{ width: 110, fontSize: 11, padding: '2px 6px', border: '1px solid #D5DCE6', borderRadius: 4 }}
-              />
-            </>
-          )}
+          {selectedFieldData.type === 'checkbox' && (() => {
+            const groupName = (selectedFieldData.group || '').trim();
+            const groupMembers = groupName
+              ? (groupCheckboxFields(fields).get(groupName) || [])
+              : [];
+            const groupRequired = groupMembers.some((m) => m.required === true);
+            const isGrouped = groupMembers.length >= 2;
+            return (
+              <>
+                <label style={{ fontSize: 10, color: '#7A8BA0' }}>Group:</label>
+                <input
+                  type="text" value={selectedFieldData.group || ''}
+                  onChange={(e) => updateSelectedField('group', e.target.value)}
+                  placeholder="e.g. filing_status"
+                  title="Checkboxes in the same group act as radio buttons — selecting one deselects the others"
+                  style={{ width: 110, fontSize: 11, padding: '2px 6px', border: '1px solid #D5DCE6', borderRadius: 4 }}
+                />
+                {groupName && (
+                  <span style={{ fontSize: 10, color: isGrouped ? '#7C3AED' : '#7A8BA0', fontWeight: 600 }}>
+                    {isGrouped
+                      ? `${groupMembers.length} fields · ${groupRequired ? 'required' : 'optional'}`
+                      : 'only field in this group'}
+                  </span>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 

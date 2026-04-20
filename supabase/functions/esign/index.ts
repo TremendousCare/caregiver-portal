@@ -32,6 +32,52 @@ function appendAudit(existing: any[], action: string, extra: Record<string, any>
   return [...(existing || []), { action, at: new Date().toISOString(), ...extra }];
 }
 
+// Mirror of src/lib/esignCheckboxGroups.js — keep in sync.
+// Supabase only bundles code under supabase/functions/, so we can't import
+// the client helper directly.
+function groupCheckboxFields(fields: any[]): Map<string, any[]> {
+  const groups = new Map<string, any[]>();
+  for (const f of fields || []) {
+    if (!f || f.type !== "checkbox") continue;
+    const name = typeof f.group === "string" ? f.group.trim() : "";
+    if (!name) continue;
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name)!.push(f);
+  }
+  return groups;
+}
+
+function getRequiredGroupViolations(fields: any[], values: Record<string, any>) {
+  const violations: Array<{ groupName: string; page: number; fieldId: string }> = [];
+  for (const [groupName, members] of groupCheckboxFields(fields)) {
+    const required = members.some((m) => m.required === true);
+    if (!required) continue;
+    const anyChecked = members.some((m) => values?.[m.id] === true || values?.[m.id] === "true");
+    if (!anyChecked) {
+      const first = members[0];
+      violations.push({ groupName, page: first.page || 1, fieldId: first.id });
+    }
+  }
+  return violations;
+}
+
+function normalizeCheckboxGroups(fields: any[], values: Record<string, any>) {
+  const out = { ...(values || {}) };
+  const corrections: Array<{ groupName: string; keptFieldId: string; clearedFieldIds: string[] }> = [];
+  for (const [groupName, members] of groupCheckboxFields(fields)) {
+    const truthy = members.filter((m) => out[m.id] === true || out[m.id] === "true");
+    if (truthy.length <= 1) continue;
+    const [keep, ...clear] = truthy;
+    for (const m of clear) out[m.id] = false;
+    corrections.push({
+      groupName,
+      keptFieldId: keep.id,
+      clearedFieldIds: clear.map((m) => m.id),
+    });
+  }
+  return { values: out, corrections };
+}
+
 async function hashDocument(pdfBytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", pdfBytes);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -416,6 +462,39 @@ async function handleSubmitSignature(
 
   if (!templates?.length) return jsonResponse({ error: "Templates not found." }, 500);
 
+  // Defense in depth: enforce required checkbox groups server-side (client
+  // already validates, but we don't trust the client). Fail fast before
+  // any PDF work so the user gets a clean error.
+  const allViolations: Array<{ template: string; groupName: string; page: number }> = [];
+  for (const tpl of templates) {
+    const tplValues = (field_values as Record<string, any>)[tpl.id] || {};
+    for (const v of getRequiredGroupViolations(tpl.fields || [], tplValues)) {
+      allViolations.push({ template: tpl.name, groupName: v.groupName, page: v.page });
+    }
+  }
+  if (allViolations.length > 0) {
+    const details = allViolations.map((v) => `"${v.template}" group "${v.groupName}" (page ${v.page})`).join("; ");
+    return jsonResponse({
+      error: `Required selection missing in ${allViolations.length} group(s): ${details}`,
+      violations: allViolations,
+    }, 400);
+  }
+
+  // Pre-normalize radio exclusivity per template. At most one truthy value
+  // per checkbox group ends up in the PDF and in signature_data — if the
+  // client submitted multiple (shouldn't happen under normal flow), keep
+  // the first in field-declaration order and clear the rest.
+  const normalizedFieldValues: Record<string, any> = {};
+  const groupCorrections: Array<{ template: string; corrections: any[] }> = [];
+  for (const tpl of templates) {
+    const tplValues = (field_values as Record<string, any>)[tpl.id] || {};
+    const { values, corrections } = normalizeCheckboxGroups(tpl.fields || [], tplValues);
+    normalizedFieldValues[tpl.id] = values;
+    if (corrections.length > 0) {
+      groupCorrections.push({ template: tpl.name, corrections });
+    }
+  }
+
   // Fetch caregiver info for SharePoint
   const { data: cg } = await supabase
     .from("caregivers")
@@ -500,7 +579,7 @@ async function handleSubmitSignature(
     try {
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const pages = pdfDoc.getPages();
-      const templateFields = field_values[template.id] || {};
+      const templateFields = normalizedFieldValues[template.id] || {};
 
       for (const fieldDef of (template.fields || [])) {
         const value = templateFields[fieldDef.id];
@@ -679,7 +758,7 @@ async function handleSubmitSignature(
       signer_user_agent: ua,
       document_hash: combinedHash,
       document_hashes: docHashMap,
-      signature_data: field_values,
+      signature_data: normalizedFieldValues,
       documents_uploaded: uploadedDocIds.length > 0,
       uploaded_doc_ids: uploadedDocIds,
       tasks_completed: completedTasks,
@@ -694,6 +773,7 @@ async function handleSubmitSignature(
         certificate_generated: !!certificateDocId,
         failed_uploads: failedUploads,
         processing_log: processingLog,
+        ...(groupCorrections.length > 0 ? { checkbox_group_corrections: groupCorrections } : {}),
       }),
     })
     .eq("id", envelope.id);
