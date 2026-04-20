@@ -167,8 +167,14 @@ async function getRCFromNumber(): Promise<string | null> {
 // Retry is scoped to the token exchange only — never the SMS send — so a
 // retry can never cause a duplicate message: if we never got a token, no
 // message was ever transmitted to RingCentral.
-async function getRingCentralAccessToken(): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
+//
+// `overrideJwt` — when supplied, authenticates as that JWT's extension
+// instead of the global RINGCENTRAL_JWT_TOKEN env var. Used by the
+// category-routing path so an automation rule with "Send from:
+// Onboarding (TAS)" authenticates as the TAS extension, not the default.
+async function getRingCentralAccessToken(overrideJwt?: string): Promise<string> {
+  const jwt = overrideJwt || RC_JWT_TOKEN;
+  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !jwt) {
     throw new Error("RingCentral credentials not configured");
   }
 
@@ -187,7 +193,7 @@ async function getRingCentralAccessToken(): Promise<string> {
         },
         body: new URLSearchParams({
           grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: RC_JWT_TOKEN,
+          assertion: jwt,
         }),
       });
 
@@ -257,17 +263,89 @@ function resolveTemplate(
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => fieldMap[key] || "");
 }
 
+// ─── Resolve Route Credentials ───
+// When the rule specifies a communication route (via action_config.category
+// from the "Send from" dropdown), look up the route's dedicated phone number
+// and JWT. Returns null on any failure — caller must fall back to the legacy
+// global-credentials path so a misconfigured route never blocks a send.
+async function resolveRouteCredentials(
+  category: string,
+): Promise<{ fromNumber: string; jwt: string } | null> {
+  try {
+    const { data, error } = await supabase.rpc("get_route_ringcentral_jwt", {
+      p_category: category,
+    });
+    if (error) {
+      console.warn(`[sendSMS] Route lookup RPC failed for "${category}", falling back to default number: ${error.message}`);
+      return null;
+    }
+    if (!data || data.length === 0) {
+      console.warn(`[sendSMS] Route "${category}" not found or inactive, falling back to default number`);
+      return null;
+    }
+    const route = data[0];
+    if (!route.sms_from_number) {
+      console.warn(`[sendSMS] Route "${category}" has no phone number configured, falling back to default number`);
+      return null;
+    }
+    if (!route.jwt) {
+      console.warn(`[sendSMS] Route "${category}" has no JWT configured, falling back to default number`);
+      return null;
+    }
+    const digits = String(route.sms_from_number).replace(/\D/g, "");
+    let normalized: string | null = null;
+    if (digits.length === 10) normalized = `+1${digits}`;
+    else if (digits.length === 11 && digits.startsWith("1")) normalized = `+${digits}`;
+    if (!normalized) {
+      console.warn(`[sendSMS] Route "${category}" has an invalid phone number: ${route.sms_from_number}, falling back to default number`);
+      return null;
+    }
+    return { fromNumber: normalized, jwt: route.jwt };
+  } catch (err) {
+    console.warn(`[sendSMS] Unexpected error resolving route "${category}", falling back to default number:`, (err as Error).message);
+    return null;
+  }
+}
+
 // ─── Send SMS via RingCentral ───
-async function sendSMS(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
+// `category` — optional. When provided (from action_config.category, set by
+// the "Send from" dropdown on the automation rule), sends through that
+// route's dedicated RingCentral extension. When omitted or when route
+// lookup fails, falls back to the global RINGCENTRAL_JWT_TOKEN +
+// app_settings.ringcentral_from_number path (byte-identical to the pre-
+// routing behavior).
+async function sendSMS(
+  phone: string,
+  message: string,
+  category?: string | null,
+): Promise<{ success: boolean; error?: string }> {
   const normalized = normalizePhoneNumber(phone);
   if (!normalized) return { success: false, error: `Invalid phone number: ${phone}` };
 
-  const fromNumber = await getRCFromNumber();
-  if (!fromNumber) return { success: false, error: "RingCentral from number not configured. Set it in Settings > RingCentral." };
+  // Try the route-based credentials when a category is specified. On any
+  // failure (missing route, missing JWT, bad phone, RPC error) this
+  // returns null and we fall through to the legacy path — the send is
+  // never blocked by a misconfigured route.
+  let fromNumber: string | null = null;
+  let routeJwt: string | null = null;
+  if (category) {
+    const routed = await resolveRouteCredentials(category);
+    if (routed) {
+      fromNumber = routed.fromNumber;
+      routeJwt = routed.jwt;
+    }
+  }
+
+  // Legacy path: global from-number + global JWT env var. Byte-identical
+  // to pre-routing behavior when category is absent OR route lookup failed.
+  if (!fromNumber) {
+    fromNumber = await getRCFromNumber();
+    if (!fromNumber) return { success: false, error: "RingCentral from number not configured. Set it in Settings > RingCentral." };
+  }
 
   let accessToken: string;
   try {
-    accessToken = await getRingCentralAccessToken();
+    accessToken = await getRingCentralAccessToken(routeJwt ?? undefined);
   } catch (err) {
     return { success: false, error: `Failed to connect to SMS service: ${err.message}` };
   }
@@ -449,7 +527,7 @@ Deno.serve(async (req) => {
           };
           break;
         }
-        result = await sendSMS(caregiver.phone, resolvedMessage);
+        result = await sendSMS(caregiver.phone, resolvedMessage, action_config?.category);
         break;
       }
       case "send_email": {
