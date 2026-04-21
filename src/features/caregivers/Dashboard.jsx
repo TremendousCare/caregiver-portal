@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
-import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress, sortCaregiversForDashboard } from '../../lib/utils';
+import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress, sortCaregiversForDashboard, isAwaitingInterviewResponse, getDaysSinceInterviewLinkSent } from '../../lib/utils';
 import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
@@ -50,7 +50,9 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
                 📋 Current View ({filteredCount})
               </div>
               <div className={layout.exportItemDesc}>
-                {PHASES.find((p) => p.id === filterPhase)?.label} caregivers only
+                {filterPhase === 'intake_pending'
+                  ? 'Pending Interview caregivers only'
+                  : `${PHASES.find((p) => p.id === filterPhase)?.label} caregivers only`}
               </div>
             </button>
           )}
@@ -91,6 +93,9 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
   const progressPct = getOverallProgress(caregiver);
   const days = getDaysSinceApplication(caregiver);
   const greenLight = isGreenLight(caregiver);
+  const awaitingInterview = isAwaitingInterviewResponse(caregiver);
+  const linkDaysAgo = awaitingInterview ? getDaysSinceInterviewLinkSent(caregiver) : null;
+  const linkAgoLabel = linkDaysAgo == null ? '' : linkDaysAgo === 0 ? 'today' : `${linkDaysAgo}d ago`;
 
   return (
     <button
@@ -153,7 +158,7 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
       </div>
 
       <div className={cards.cgPhaseRow}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span
             className={progress.phaseBadge}
             style={{
@@ -164,6 +169,23 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
           >
             {phaseInfo.icon} {phaseInfo.short}
           </span>
+          {awaitingInterview && (
+            <span
+              style={{
+                background: '#FFF8ED',
+                color: '#A16207',
+                border: '1px solid #FDE68A',
+                padding: '2px 8px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+              title="Interview link sent, awaiting response"
+            >
+              ⏳ Link sent{linkAgoLabel ? ` · ${linkAgoLabel}` : ''}
+            </span>
+          )}
         </span>
         <span className={cards.cgDays}>Day {days}</span>
       </div>
@@ -385,6 +407,8 @@ export function Dashboard({
           <p className={layout.pageSubtitle}>
             {filterPhase === 'archived'
               ? 'Showing: Archived caregivers'
+              : filterPhase === 'intake_pending'
+              ? 'Showing: Pending Interview — link sent, awaiting response'
               : filterPhase !== 'all'
               ? `Showing: ${PHASES.find((p) => p.id === filterPhase)?.label}`
               : 'All active caregivers in the pipeline'}

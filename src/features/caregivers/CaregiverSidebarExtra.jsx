@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { PHASES } from '../../lib/constants';
-import { getCurrentPhase } from '../../lib/utils';
+import { getCurrentPhase, isAwaitingInterviewResponse } from '../../lib/utils';
 import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import layout from '../../styles/layout.module.css';
@@ -17,6 +17,8 @@ export function CaregiverSidebarExtra() {
     navigate('/');
   };
 
+  const pendingInterviewCount = onboardingCaregivers.filter(isAwaitingInterviewResponse).length;
+
   if (!collapsed) {
     return (
       <>
@@ -25,16 +27,34 @@ export function CaregiverSidebarExtra() {
           {PHASES.map((p) => {
             const count = onboardingCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
             return (
-              <button
-                key={p.id}
-                className={layout.pipelineItem}
-                style={filterPhase === p.id ? { background: 'rgba(41,190,228,0.12)' } : {}}
-                onClick={() => goToDashboard(p.id)}
-              >
-                <span>{p.icon}</span>
-                <span style={{ flex: 1, textAlign: 'left' }}>{p.short}</span>
-                <span className={layout.badge}>{count}</span>
-              </button>
+              <div key={p.id}>
+                <button
+                  className={layout.pipelineItem}
+                  style={filterPhase === p.id ? { background: 'rgba(41,190,228,0.12)' } : {}}
+                  onClick={() => goToDashboard(p.id)}
+                >
+                  <span>{p.icon}</span>
+                  <span style={{ flex: 1, textAlign: 'left' }}>{p.short}</span>
+                  <span className={layout.badge}>{count}</span>
+                </button>
+                {p.id === 'intake' && pendingInterviewCount > 0 && (
+                  <button
+                    className={layout.pipelineItem}
+                    style={{
+                      paddingLeft: 32,
+                      fontSize: 12,
+                      opacity: 0.85,
+                      ...(filterPhase === 'intake_pending' ? { background: 'rgba(41,190,228,0.12)', opacity: 1 } : {}),
+                    }}
+                    onClick={() => goToDashboard('intake_pending')}
+                    title="Interview link sent, awaiting response"
+                  >
+                    <span>⏳</span>
+                    <span style={{ flex: 1, textAlign: 'left' }}>Pending Interview</span>
+                    <span className={layout.badge}>{pendingInterviewCount}</span>
+                  </button>
+                )}
+              </div>
             );
           })}
           {archivedCaregivers.length > 0 && (

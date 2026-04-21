@@ -116,9 +116,11 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
     toCsv(summaryRows),
   ].join('\n');
 
-  const phaseLabel = filterPhase !== 'all'
-    ? PHASES.find((p) => p.id === filterPhase)?.short || filterPhase
-    : 'All';
+  const phaseLabel = filterPhase === 'all'
+    ? 'All'
+    : filterPhase === 'intake_pending'
+    ? 'Pending_Interview'
+    : PHASES.find((p) => p.id === filterPhase)?.short || filterPhase;
   const date = new Date().toISOString().split('T')[0];
   const filename = `TremendousCare_Pipeline_${phaseLabel}_${date}.csv`;
 

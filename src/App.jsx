@@ -28,7 +28,7 @@ import { SigningPage } from './features/sign/SigningPage';
 import { SurveyPage } from './features/survey/SurveyPage';
 import { CaregiverApp } from './features/caregiver-portal/CaregiverApp';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
-import { getCurrentPhase, getOverallProgress } from './lib/utils';
+import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import { saveBoard } from './lib/storage';
 import btn from './styles/buttons.module.css';
@@ -49,7 +49,12 @@ function DashboardPage() {
   const filtered = useMemo(() => {
     const base = filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers;
     return base.filter((cg) => {
-      const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getCurrentPhase(cg) === filterPhase;
+      const matchPhase =
+        filterPhase === 'all' ||
+        filterPhase === 'archived' ||
+        (filterPhase === 'intake_pending'
+          ? getCurrentPhase(cg) === 'intake' && isAwaitingInterviewResponse(cg)
+          : getCurrentPhase(cg) === filterPhase);
       const matchSearch =
         !searchTerm ||
         `${cg.firstName} ${cg.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
