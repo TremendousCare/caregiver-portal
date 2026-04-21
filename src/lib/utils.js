@@ -57,6 +57,20 @@ export const getDaysSinceApplication = (caregiver) => {
   return Math.floor((Date.now() - new Date(caregiver.applicationDate).getTime()) / 86400000);
 };
 
+// ─── Dashboard Sort ──────────────────────────────────────────
+//
+// Survey responders float to the top so they can be reviewed first,
+// then remaining applicants are ordered by application age (oldest
+// first) to surface anyone who has been waiting the longest.
+export const sortCaregiversForDashboard = (caregivers, surveyStatuses = {}) => {
+  return [...caregivers].sort((a, b) => {
+    const aHasSurvey = !!surveyStatuses[a.id];
+    const bHasSurvey = !!surveyStatuses[b.id];
+    if (aHasSurvey !== bHasSurvey) return aHasSurvey ? -1 : 1;
+    return getDaysSinceApplication(b) - getDaysSinceApplication(a);
+  });
+};
+
 // ─── Green Light ─────────────────────────────────────────────
 
 export const isGreenLight = (caregiver) => {

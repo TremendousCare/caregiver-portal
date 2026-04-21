@@ -15,6 +15,7 @@ const {
   getOverallProgress,
   getDaysInPhase,
   getDaysSinceApplication,
+  sortCaregiversForDashboard,
   isGreenLight,
   formatDate,
 } = await import('../utils');
@@ -212,6 +213,97 @@ describe('getDaysSinceApplication', () => {
     // Allow +-1 day tolerance for timezone edge cases
     expect(result).toBeGreaterThanOrEqual(4);
     expect(result).toBeLessThanOrEqual(6);
+  });
+});
+
+// ─── sortCaregiversForDashboard ─────────────────────────────────
+
+describe('sortCaregiversForDashboard', () => {
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+
+  it('returns an empty array when given an empty array', () => {
+    expect(sortCaregiversForDashboard([], {})).toEqual([]);
+  });
+
+  it('does not mutate the input array', () => {
+    const caregivers = [
+      { id: 'a', applicationDate: daysAgo(1) },
+      { id: 'b', applicationDate: daysAgo(3) },
+    ];
+    const snapshot = [...caregivers];
+    sortCaregiversForDashboard(caregivers, {});
+    expect(caregivers).toEqual(snapshot);
+  });
+
+  it('orders survey responders above non-responders', () => {
+    const caregivers = [
+      { id: 'no-survey-old', applicationDate: daysAgo(30) },
+      { id: 'survey-new', applicationDate: daysAgo(1) },
+    ];
+    const surveyStatuses = { 'survey-new': 'qualified' };
+    const sorted = sortCaregiversForDashboard(caregivers, surveyStatuses);
+    expect(sorted.map((c) => c.id)).toEqual(['survey-new', 'no-survey-old']);
+  });
+
+  it('treats any survey status (qualified, flagged, disqualified) as a responder', () => {
+    const caregivers = [
+      { id: 'none', applicationDate: daysAgo(100) },
+      { id: 'flagged', applicationDate: daysAgo(2) },
+      { id: 'disqualified', applicationDate: daysAgo(1) },
+      { id: 'qualified', applicationDate: daysAgo(3) },
+    ];
+    const surveyStatuses = {
+      flagged: 'flagged',
+      disqualified: 'disqualified',
+      qualified: 'qualified',
+    };
+    const sorted = sortCaregiversForDashboard(caregivers, surveyStatuses);
+    expect(sorted[sorted.length - 1].id).toBe('none');
+    expect(sorted.slice(0, 3).map((c) => c.id).sort()).toEqual(
+      ['disqualified', 'flagged', 'qualified']
+    );
+  });
+
+  it('within each group, orders older applications before newer ones', () => {
+    const caregivers = [
+      { id: 'new', applicationDate: daysAgo(2) },
+      { id: 'oldest', applicationDate: daysAgo(20) },
+      { id: 'middle', applicationDate: daysAgo(10) },
+    ];
+    const sorted = sortCaregiversForDashboard(caregivers, {});
+    expect(sorted.map((c) => c.id)).toEqual(['oldest', 'middle', 'new']);
+  });
+
+  it('orders survey responders by application age among themselves', () => {
+    const caregivers = [
+      { id: 'survey-new', applicationDate: daysAgo(1) },
+      { id: 'survey-old', applicationDate: daysAgo(14) },
+      { id: 'no-survey', applicationDate: daysAgo(30) },
+    ];
+    const surveyStatuses = {
+      'survey-new': 'qualified',
+      'survey-old': 'flagged',
+    };
+    const sorted = sortCaregiversForDashboard(caregivers, surveyStatuses);
+    expect(sorted.map((c) => c.id)).toEqual(['survey-old', 'survey-new', 'no-survey']);
+  });
+
+  it('treats missing applicationDate as 0 days and places those last within their group', () => {
+    const caregivers = [
+      { id: 'no-date' },
+      { id: 'old', applicationDate: daysAgo(5) },
+    ];
+    const sorted = sortCaregiversForDashboard(caregivers, {});
+    expect(sorted.map((c) => c.id)).toEqual(['old', 'no-date']);
+  });
+
+  it('defaults to empty surveyStatuses when none provided', () => {
+    const caregivers = [
+      { id: 'new', applicationDate: daysAgo(1) },
+      { id: 'old', applicationDate: daysAgo(10) },
+    ];
+    const sorted = sortCaregiversForDashboard(caregivers);
+    expect(sorted.map((c) => c.id)).toEqual(['old', 'new']);
   });
 });
 
