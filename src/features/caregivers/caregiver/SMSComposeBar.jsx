@@ -2,6 +2,12 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { useCaregivers } from '../../../shared/context/CaregiverContext';
 import styles from './messaging.module.css';
+import {
+  listActiveTemplates,
+  renderCaregiverTemplate,
+  groupTemplatesByCategory,
+  searchTemplates,
+} from './messageTemplateHelpers';
 
 const MAX_CHARS = 1000;
 
@@ -38,6 +44,12 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [showRoutePicker, setShowRoutePicker] = useState(false);
   const routePickerRef = useRef(null);
+
+  // ── Template picker state ──
+  const [templates, setTemplates] = useState([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const templatePickerRef = useRef(null);
 
   const hasPhone = !!caregiver.phone;
   const smsOptedOut = caregiver.smsOptedOut === true || caregiver.sms_opted_out === true;
@@ -123,6 +135,60 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showRoutePicker]);
+
+  // Load active message templates once on mount. If admins add or
+  // edit templates while the composer is open, staff pick up the
+  // changes on the next page load — same pattern as routes above.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listActiveTemplates();
+        if (!cancelled) setTemplates(data);
+      } catch (err) {
+        console.warn('[SMSComposeBar] Failed to load message templates:', err);
+        // Non-fatal — picker just shows "no templates" if the fetch fails.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Close the template picker on outside click + Escape key.
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+    const onMouseDown = (e) => {
+      if (templatePickerRef.current && !templatePickerRef.current.contains(e.target)) {
+        setShowTemplatePicker(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setShowTemplatePicker(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showTemplatePicker]);
+
+  // Filter templates by search query, then group by category for display.
+  const filteredTemplateGroups = useMemo(() => {
+    const filtered = searchTemplates(templates, templateSearch);
+    return groupTemplatesByCategory(filtered);
+  }, [templates, templateSearch]);
+
+  const hasTemplates = templates.length > 0;
+
+  const handleSelectTemplate = useCallback(
+    (template) => {
+      const rendered = renderCaregiverTemplate(template.body, caregiver);
+      setMessage(rendered);
+      setShowTemplatePicker(false);
+      setTemplateSearch('');
+    },
+    [caregiver],
+  );
 
   // Only show the selector when the user has something to choose between.
   // A single route (or zero routes) means there's no decision to make.
@@ -318,6 +384,68 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
           {'\uD83C\uDF99'}
         </button>
       )}
+      <div className={styles.templatePicker} ref={templatePickerRef}>
+        <button
+          type="button"
+          className={styles.micBtn}
+          onClick={() => {
+            setShowTemplatePicker((v) => !v);
+            setTemplateSearch('');
+          }}
+          disabled={sending}
+          title={hasTemplates ? 'Insert message template' : 'No templates yet — ask an admin to add one in Settings'}
+          aria-label="Insert template"
+          aria-expanded={showTemplatePicker}
+        >
+          {'📋'}
+        </button>
+        {showTemplatePicker && (
+          <div className={styles.templatePickerMenu} role="dialog" aria-label="Message templates">
+            <div className={styles.templatePickerHeader}>
+              <input
+                type="text"
+                className={styles.templatePickerSearch}
+                placeholder="Search templates..."
+                value={templateSearch}
+                onChange={(e) => setTemplateSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className={styles.templatePickerBody}>
+              {!hasTemplates ? (
+                <div className={styles.templatePickerEmpty}>
+                  No templates yet. Ask an admin to add one in Settings &rarr; Message Templates.
+                </div>
+              ) : filteredTemplateGroups.length === 0 ? (
+                <div className={styles.templatePickerEmpty}>
+                  No templates match &ldquo;{templateSearch}&rdquo;.
+                </div>
+              ) : (
+                filteredTemplateGroups.map((group) => (
+                  <div key={group.category} className={styles.templatePickerGroup}>
+                    <div className={styles.templatePickerGroupLabel}>{group.label}</div>
+                    {group.templates.map((t) => {
+                      const preview = renderCaregiverTemplate(t.body, caregiver);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className={styles.templatePickerItem}
+                          onClick={() => handleSelectTemplate(t)}
+                          title={preview}
+                        >
+                          <div className={styles.templatePickerItemName}>{t.name}</div>
+                          <div className={styles.templatePickerItemPreview}>{preview}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
       <button
         className={styles.composeButton}
         onClick={handleSend}

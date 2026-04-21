@@ -14,6 +14,7 @@ import { AutonomySettings } from './AutonomySettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
+import { MessageTemplateSettings } from './MessageTemplateSettings';
 import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ─── Settings Section Card ───
@@ -2591,6 +2592,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Automation Engine */}
       <div style={{ marginBottom: 20 }}>
         <AutomationSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Message Templates (reusable SMS inserted from the composer) */}
+      <div style={{ marginBottom: 20 }}>
+        <MessageTemplateSettings showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* SMS Opt-Out Compliance */}
