@@ -167,9 +167,16 @@ async function getRCFromNumber(): Promise<string | null> {
 // Retry is scoped to the token exchange only — never the SMS send — so a
 // retry can never cause a duplicate message: if we never got a token, no
 // message was ever transmitted to RingCentral.
-async function getRingCentralAccessToken(): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
-    throw new Error("RingCentral credentials not configured");
+//
+// Accepts the JWT as an argument so the caller can pick which extension to
+// authenticate as — either the global env-var JWT (legacy path) or a
+// per-route JWT fetched from Supabase Vault (category path).
+async function getRingCentralAccessToken(jwt: string): Promise<string> {
+  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
+    throw new Error("RingCentral client credentials not configured");
+  }
+  if (!jwt) {
+    throw new Error("RingCentral JWT not provided");
   }
 
   const maxAttempts = 3;
@@ -187,7 +194,7 @@ async function getRingCentralAccessToken(): Promise<string> {
         },
         body: new URLSearchParams({
           grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: RC_JWT_TOKEN,
+          assertion: jwt,
         }),
       });
 
@@ -213,6 +220,57 @@ async function getRingCentralAccessToken(): Promise<string> {
   }
 
   throw lastError ?? new Error("RingCentral auth failed after retries");
+}
+
+// Resolve (fromNumber, jwt) for a send based on an optional route category.
+//
+// - When `category` is provided → look up the configured route in
+//   communication_routes and fetch its JWT from Supabase Vault via the
+//   get_route_ringcentral_jwt RPC. This is how automations opt into a
+//   specific RingCentral extension (e.g. the "onboarding" / TAS line).
+//
+// - When `category` is omitted or blank → fall back to the legacy path
+//   (app_settings.ringcentral_from_number + RINGCENTRAL_JWT_TOKEN env var).
+//   Byte-identical to pre-routing behavior, so any automation rule that
+//   leaves "Send from" on Auto keeps sending from the general office number.
+async function getSendingCredentials(
+  category: string | null | undefined,
+): Promise<{ fromNumber: string; jwt: string; routeUsed: string | null }> {
+  if (category) {
+    const { data, error } = await supabase.rpc("get_route_ringcentral_jwt", {
+      p_category: category,
+    });
+    if (error) {
+      throw new Error(`Route lookup failed for "${category}": ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      throw new Error(`Communication route "${category}" not found or inactive.`);
+    }
+    const route = data[0];
+    if (!route.sms_from_number) {
+      throw new Error(`Route "${category}" has no phone number configured. Set one in Admin Settings → Communication Routes.`);
+    }
+    if (!route.jwt) {
+      throw new Error(`Route "${category}" has no JWT configured. Set one in Admin Settings → Communication Routes.`);
+    }
+    const digits = String(route.sms_from_number).replace(/\D/g, "");
+    let normalized: string | null = null;
+    if (digits.length === 10) normalized = `+1${digits}`;
+    else if (digits.length === 11 && digits.startsWith("1")) normalized = `+${digits}`;
+    if (!normalized) {
+      throw new Error(`Route "${category}" has an invalid phone number: ${route.sms_from_number}`);
+    }
+    return { fromNumber: normalized, jwt: route.jwt, routeUsed: category };
+  }
+
+  const fromNumber = await getRCFromNumber();
+  if (!fromNumber) {
+    throw new Error("RingCentral from number not configured. Set it in Settings > RingCentral.");
+  }
+  if (!RC_JWT_TOKEN) {
+    throw new Error("RingCentral JWT not configured (RINGCENTRAL_JWT_TOKEN env var missing)");
+  }
+  return { fromNumber, jwt: RC_JWT_TOKEN, routeUsed: null };
 }
 
 // ─── Enhanced Merge Field Substitution ───
@@ -258,16 +316,32 @@ function resolveTemplate(
 }
 
 // ─── Send SMS via RingCentral ───
-async function sendSMS(phone: string, message: string): Promise<{ success: boolean; error?: string }> {
+// `category` picks a configured route (communication_routes row) — used when
+// the automation rule sets action_config.category via the "Send from" UI.
+// Omitted/blank falls back to the legacy env-var path (general office).
+async function sendSMS(
+  phone: string,
+  message: string,
+  category?: string | null,
+): Promise<{ success: boolean; error?: string; routeUsed?: string | null }> {
   const normalized = normalizePhoneNumber(phone);
   if (!normalized) return { success: false, error: `Invalid phone number: ${phone}` };
 
-  const fromNumber = await getRCFromNumber();
-  if (!fromNumber) return { success: false, error: "RingCentral from number not configured. Set it in Settings > RingCentral." };
+  let fromNumber: string;
+  let jwt: string;
+  let routeUsed: string | null;
+  try {
+    const creds = await getSendingCredentials(category);
+    fromNumber = creds.fromNumber;
+    jwt = creds.jwt;
+    routeUsed = creds.routeUsed;
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 
   let accessToken: string;
   try {
-    accessToken = await getRingCentralAccessToken();
+    accessToken = await getRingCentralAccessToken(jwt);
   } catch (err) {
     return { success: false, error: `Failed to connect to SMS service: ${err.message}` };
   }
@@ -291,7 +365,7 @@ async function sendSMS(phone: string, message: string): Promise<{ success: boole
     return { success: false, error: `RingCentral API error (${smsResponse.status}): ${errorText}` };
   }
 
-  return { success: true };
+  return { success: true, routeUsed };
 }
 
 // ─── Send Email via Outlook Integration ───
@@ -421,7 +495,7 @@ Deno.serve(async (req) => {
       : "";
 
     // ─── Execute Action ───
-    let result: { success: boolean; error?: string; skipped?: boolean };
+    let result: { success: boolean; error?: string; skipped?: boolean; routeUsed?: string | null };
 
     switch (action_type) {
       case "send_sms": {
@@ -449,7 +523,7 @@ Deno.serve(async (req) => {
           };
           break;
         }
-        result = await sendSMS(caregiver.phone, resolvedMessage);
+        result = await sendSMS(caregiver.phone, resolvedMessage, action_config?.category);
         break;
       }
       case "send_email": {
@@ -737,10 +811,13 @@ Deno.serve(async (req) => {
         noteText = `DocuSign envelope sent via automation rule: ${rule_name || rule_id}`;
       }
 
+      const outcomeSuffix = action_type === "send_sms" && result.routeUsed
+        ? ` (route: ${result.routeUsed})`
+        : "";
       const autoNote: Record<string, any> = {
         text: noteText,
         type: noteType,
-        outcome: `via automation rule: ${rule_name || rule_id}`,
+        outcome: `via automation rule: ${rule_name || rule_id}${outcomeSuffix}`,
         timestamp: Date.now(),
         author: "Automation Engine",
       };
