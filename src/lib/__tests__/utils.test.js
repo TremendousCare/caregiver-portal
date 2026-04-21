@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DEFAULT_PHASE_TASKS } from '../constants';
 
-// Mock storage module so getPhaseTasks returns the defaults
+// Tests can override phase tasks by assigning to mockedPhaseTasks.value
+const mockedPhaseTasks = vi.hoisted(() => ({ value: null }));
+
 vi.mock('../storage', () => ({
-  getPhaseTasks: () => DEFAULT_PHASE_TASKS,
+  getPhaseTasks: () => mockedPhaseTasks.value,
 }));
+
+// Default to the real defaults; individual describe blocks reassign as needed
+mockedPhaseTasks.value = DEFAULT_PHASE_TASKS;
 
 // Import after mocks are set up
 const {
@@ -18,6 +23,9 @@ const {
   sortCaregiversForDashboard,
   isGreenLight,
   formatDate,
+  isAwaitingInterviewResponse,
+  getInterviewLinkSentAt,
+  getDaysSinceInterviewLinkSent,
 } = await import('../utils');
 
 // ─── isTaskDone ─────────────────────────────────────────────────
@@ -396,5 +404,131 @@ describe('formatDate', () => {
     const result = formatDate('2025-06-20T12:00:00Z');
     expect(result).toContain('Jun');
     expect(result).toContain('20');
+  });
+});
+
+// ─── Pending Interview (link sent, awaiting response) ─────────
+//
+// Real agencies (e.g., Daniela's) customize the intake checklist,
+// so these helpers match tasks by label keywords. The fixture below
+// mirrors Daniela's actual intake checklist from the portal UI.
+
+describe('isAwaitingInterviewResponse', () => {
+  const INTAKE_CUSTOM = [
+    { id: 'survey_reviewed', label: 'Survey Reviewed' },
+    { id: 'send_interview_link', label: 'Send Link to schedule Interview' },
+    { id: 'interview_scheduled', label: 'Interview Scheduled', critical: true },
+    { id: 'send_survey', label: 'Send Survey' },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, intake: INTAKE_CUSTOM };
+  });
+
+  it('returns false when link-sent task is not completed', () => {
+    const cg = { tasks: {} };
+    expect(isAwaitingInterviewResponse(cg)).toBe(false);
+  });
+
+  it('returns true when link is sent but interview not yet scheduled', () => {
+    const cg = {
+      tasks: {
+        send_interview_link: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingInterviewResponse(cg)).toBe(true);
+  });
+
+  it('returns false once interview is scheduled', () => {
+    const cg = {
+      tasks: {
+        send_interview_link: { completed: true, completedAt: Date.now() },
+        interview_scheduled: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingInterviewResponse(cg)).toBe(false);
+  });
+
+  it('returns false when caregiver has advanced past intake', () => {
+    const cg = {
+      phaseOverride: 'interview',
+      tasks: {
+        send_interview_link: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingInterviewResponse(cg)).toBe(false);
+  });
+
+  it('accepts legacy boolean task values', () => {
+    const cg = { tasks: { send_interview_link: true } };
+    expect(isAwaitingInterviewResponse(cg)).toBe(true);
+  });
+
+  it('returns false when checklist has no matching link task', () => {
+    mockedPhaseTasks.value = DEFAULT_PHASE_TASKS; // defaults have no "send link"
+    const cg = { tasks: {} };
+    expect(isAwaitingInterviewResponse(cg)).toBe(false);
+  });
+
+  it('returns false for null/undefined caregiver', () => {
+    expect(isAwaitingInterviewResponse(null)).toBe(false);
+    expect(isAwaitingInterviewResponse(undefined)).toBe(false);
+  });
+});
+
+describe('getInterviewLinkSentAt', () => {
+  const INTAKE_CUSTOM = [
+    { id: 'send_interview_link', label: 'Send Link to schedule Interview' },
+    { id: 'interview_scheduled', label: 'Interview Scheduled' },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, intake: INTAKE_CUSTOM };
+  });
+
+  it('returns the timestamp when link was sent', () => {
+    const ts = Date.now() - 2 * 86400000;
+    const cg = { tasks: { send_interview_link: { completed: true, completedAt: ts } } };
+    expect(getInterviewLinkSentAt(cg)).toBe(ts);
+  });
+
+  it('returns null when task is incomplete', () => {
+    expect(getInterviewLinkSentAt({ tasks: {} })).toBeNull();
+  });
+
+  it('returns null when task is a bare boolean (no timestamp)', () => {
+    const cg = { tasks: { send_interview_link: true } };
+    expect(getInterviewLinkSentAt(cg)).toBeNull();
+  });
+
+  it('parses ISO date strings', () => {
+    const cg = { tasks: { send_interview_link: { completed: true, completedAt: '2026-04-01T12:00:00Z' } } };
+    expect(getInterviewLinkSentAt(cg)).toBe(new Date('2026-04-01T12:00:00Z').getTime());
+  });
+});
+
+describe('getDaysSinceInterviewLinkSent', () => {
+  const INTAKE_CUSTOM = [
+    { id: 'send_interview_link', label: 'Send Link to schedule Interview' },
+    { id: 'interview_scheduled', label: 'Interview Scheduled' },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, intake: INTAKE_CUSTOM };
+  });
+
+  it('returns the whole number of days since the link was sent', () => {
+    const ts = Date.now() - 3 * 86400000 - 60 * 1000; // ~3 days ago
+    const cg = { tasks: { send_interview_link: { completed: true, completedAt: ts } } };
+    expect(getDaysSinceInterviewLinkSent(cg)).toBe(3);
+  });
+
+  it('returns 0 when link was sent earlier today', () => {
+    const cg = { tasks: { send_interview_link: { completed: true, completedAt: Date.now() - 60 * 1000 } } };
+    expect(getDaysSinceInterviewLinkSent(cg)).toBe(0);
+  });
+
+  it('returns null when link was not sent', () => {
+    expect(getDaysSinceInterviewLinkSent({ tasks: {} })).toBeNull();
   });
 });

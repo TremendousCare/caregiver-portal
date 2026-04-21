@@ -43,6 +43,50 @@ export const getOverallProgress = (caregiver) => {
   return Math.round((done / allTasks.length) * 100);
 };
 
+// ─── Pending Interview (link sent, awaiting response) ──────
+// The intake checklist is agency-customizable, so match by label
+// keywords rather than hard-coded IDs. Returns null when no matching
+// task exists — the feature degrades silently instead of throwing.
+
+const findIntakeTaskId = (predicate) => {
+  const tasks = getPhaseTasks()?.intake;
+  if (!Array.isArray(tasks)) return null;
+  const match = tasks.find((t) => predicate((t.label || '').toLowerCase()));
+  return match?.id || null;
+};
+
+const findInterviewLinkSentTaskId = () =>
+  findIntakeTaskId((l) => /\bsend\b/.test(l) && /\blink\b/.test(l) && /(interview|schedule)/.test(l));
+
+const findInterviewScheduledTaskId = () =>
+  findIntakeTaskId((l) => /(interview\s*scheduled|scheduled\s*interview|interview\s*booked|book(ed)?\s*interview)/.test(l));
+
+export const getInterviewLinkSentAt = (caregiver) => {
+  const id = findInterviewLinkSentTaskId();
+  if (!id) return null;
+  const task = caregiver?.tasks?.[id];
+  if (!isTaskDone(task)) return null;
+  const ts = typeof task === 'object' ? task?.completedAt : null;
+  if (!ts) return null;
+  const t = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+export const isAwaitingInterviewResponse = (caregiver) => {
+  if (!caregiver || getCurrentPhase(caregiver) !== 'intake') return false;
+  const linkId = findInterviewLinkSentTaskId();
+  if (!linkId || !isTaskDone(caregiver.tasks?.[linkId])) return false;
+  const scheduledId = findInterviewScheduledTaskId();
+  if (scheduledId && isTaskDone(caregiver.tasks?.[scheduledId])) return false;
+  return true;
+};
+
+export const getDaysSinceInterviewLinkSent = (caregiver) => {
+  const ts = getInterviewLinkSentAt(caregiver);
+  if (ts == null) return null;
+  return Math.floor((Date.now() - ts) / 86400000);
+};
+
 // ─── Days Calculations ───────────────────────────────────────
 
 export const getDaysInPhase = (caregiver) => {
