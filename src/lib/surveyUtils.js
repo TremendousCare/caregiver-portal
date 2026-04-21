@@ -289,13 +289,12 @@ export function extractProfileFieldUpdates(questions, answers) {
   return updates;
 }
 
+const SURVEY_BASE_URL = 'https://portal.tremendouscareca.com';
+
 /**
  * Build the survey URL for a given token.
- * Uses the current origin or falls back to the production URL.
+ * Always uses the custom domain so SMS links pass carrier content filtering.
  */
 export function buildSurveyUrl(token) {
-  const base = typeof window !== 'undefined'
-    ? window.location.origin
-    : 'https://portal.tremendouscareca.com';
-  return `${base}/survey/${token}`;
+  return `${SURVEY_BASE_URL}/survey/${token}`;
 }
