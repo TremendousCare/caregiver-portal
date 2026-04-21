@@ -10,6 +10,8 @@ import {
   getDefaultOptions,
   extractProfileFieldUpdates,
   PROFILE_FIELD_OPTIONS,
+  INTERVIEW_WRITEBACK_FIELDS,
+  prefillAnswersFromCaregiver,
   hasOptions,
   buildSurveyUrl,
   QUESTION_TYPES,
@@ -516,6 +518,113 @@ describe('surveyUtils', () => {
       expect(values).toContain('certifications');
       expect(values).toContain('years_experience');
       expect(values).toContain('');  // "None" option
+    });
+
+    it('includes interview-evaluation fields', () => {
+      const values = PROFILE_FIELD_OPTIONS.map((f) => f.value);
+      expect(values).toContain('tb_test');
+      expect(values).toContain('auto_insurance');
+      expect(values).toContain('allergies');
+      expect(values).toContain('client_gender_preference');
+      expect(values).toContain('proposed_pay_rate');
+    });
+  });
+
+  // ─── INTERVIEW_WRITEBACK_FIELDS ───
+
+  describe('INTERVIEW_WRITEBACK_FIELDS', () => {
+    it('allows the fields the interview evaluation touches', () => {
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('tb_test')).toBe(true);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('auto_insurance')).toBe(true);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('has_hca')).toBe(true);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('proposed_pay_rate')).toBe(true);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('allergies')).toBe(true);
+    });
+
+    it('does not allow arbitrary fields', () => {
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('archived')).toBe(false);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('user_id')).toBe(false);
+      expect(INTERVIEW_WRITEBACK_FIELDS.has('board_status')).toBe(false);
+    });
+  });
+
+  // ─── prefillAnswersFromCaregiver ───
+
+  describe('prefillAnswersFromCaregiver', () => {
+    it('returns empty object for empty input', () => {
+      expect(prefillAnswersFromCaregiver([], {})).toEqual({});
+      expect(prefillAnswersFromCaregiver(null, { firstName: 'A' })).toEqual({});
+      expect(prefillAnswersFromCaregiver([{ id: 'q1' }], null)).toEqual({});
+    });
+
+    it('skips questions without profile_field', () => {
+      const questions = [{ id: 'q1', type: 'free_text', text: 'Free' }];
+      expect(prefillAnswersFromCaregiver(questions, { firstName: 'Ana' })).toEqual({});
+    });
+
+    it('pre-fills free_text and number fields directly', () => {
+      const questions = [
+        { id: 'q_email', type: 'free_text', profile_field: 'email' },
+        { id: 'q_rate', type: 'number', profile_field: 'proposed_pay_rate' },
+      ];
+      const caregiver = { email: 'ana@example.com', proposedPayRate: 22.5 };
+      expect(prefillAnswersFromCaregiver(questions, caregiver)).toEqual({
+        q_email: 'ana@example.com',
+        q_rate: 22.5,
+      });
+    });
+
+    it('normalizes yes_no values to the matching option casing', () => {
+      const questions = [
+        { id: 'q_hca', type: 'yes_no', options: ['Yes', 'No'], profile_field: 'has_hca' },
+        { id: 'q_dl', type: 'yes_no', options: ['Yes', 'No'], profile_field: 'has_dl' },
+      ];
+      const caregiver = { hasHCA: 'yes', hasDL: 'NO' };
+      expect(prefillAnswersFromCaregiver(questions, caregiver)).toEqual({
+        q_hca: 'Yes',
+        q_dl: 'No',
+      });
+    });
+
+    it('skips fields with empty values', () => {
+      const questions = [
+        { id: 'q_allergies', type: 'free_text', profile_field: 'allergies' },
+        { id: 'q_email', type: 'free_text', profile_field: 'email' },
+      ];
+      const caregiver = { allergies: '', email: null };
+      expect(prefillAnswersFromCaregiver(questions, caregiver)).toEqual({});
+    });
+
+    it('splits comma-separated strings into multi_select arrays', () => {
+      const questions = [
+        {
+          id: 'q_langs',
+          type: 'multi_select',
+          profile_field: 'languages',
+          options: ['English', 'Spanish', 'Tagalog'],
+        },
+      ];
+      const caregiver = { languages: 'Spanish, english' };
+      expect(prefillAnswersFromCaregiver(questions, caregiver)).toEqual({
+        q_langs: ['Spanish', 'English'],
+      });
+    });
+
+    it('falls back to raw string when yes_no answer does not match any option', () => {
+      const questions = [
+        { id: 'q_hca', type: 'yes_no', options: ['Yes', 'No'], profile_field: 'has_hca' },
+      ];
+      const caregiver = { hasHCA: 'willing' };
+      expect(prefillAnswersFromCaregiver(questions, caregiver)).toEqual({
+        q_hca: 'willing',
+      });
+    });
+
+    it('handles unknown profile_field gracefully', () => {
+      const questions = [
+        { id: 'q_unknown', type: 'free_text', profile_field: 'not_a_real_field' },
+      ];
+      expect(prefillAnswersFromCaregiver(questions, { firstName: 'Ana' })).toEqual({});
     });
   });
 });

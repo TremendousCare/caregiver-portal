@@ -109,11 +109,14 @@ export async function fireEventTriggers(triggerType, caregiver, triggerContext =
  */
 async function createSurveyForCaregiver(caregiverId) {
   try {
-    // Get the first enabled survey template
+    // Get the first enabled public survey template. Internal-only
+    // templates (e.g. Interview Evaluation) are filled by staff and
+    // must never be sent to applicants.
     const { data: templates, error: tErr } = await supabase
       .from('survey_templates')
       .select('id, expires_hours')
       .eq('enabled', true)
+      .or('internal_only.is.null,internal_only.eq.false')
       .order('created_at', { ascending: true })
       .limit(1);
 

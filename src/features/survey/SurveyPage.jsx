@@ -320,7 +320,7 @@ export function SurveyPage() {
 
 // ── Question Field Component ──
 
-function QuestionField({ question, index, value, error, onChange }) {
+export function QuestionField({ question, index, value, error, onChange }) {
   const { id, text, type, required, options } = question;
 
   return (

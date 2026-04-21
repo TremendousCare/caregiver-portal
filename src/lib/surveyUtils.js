@@ -69,21 +69,114 @@ export function createBlankQuestion() {
  */
 export const PROFILE_FIELD_OPTIONS = [
   { value: '', label: 'None (don\'t map)' },
+  { value: 'phone', label: 'Phone' },
   { value: 'email', label: 'Email' },
   { value: 'address', label: 'Address' },
   { value: 'city', label: 'City' },
   { value: 'state', label: 'State' },
   { value: 'zip', label: 'Zip Code' },
+  { value: 'per_id', label: 'HCA PER ID #' },
   { value: 'has_hca', label: 'HCA Status' },
   { value: 'has_dl', label: 'Driver\'s License' },
   { value: 'has_vehicle', label: 'Has Vehicle' },
+  { value: 'tb_test', label: 'TB Test' },
+  { value: 'auto_insurance', label: 'Auto Insurance' },
+  { value: 'allergies', label: 'Allergies' },
+  { value: 'client_gender_preference', label: 'Client Gender Preference' },
   { value: 'years_experience', label: 'Years of Experience' },
   { value: 'availability', label: 'Availability' },
   { value: 'preferred_shift', label: 'Preferred Shift' },
   { value: 'languages', label: 'Languages' },
   { value: 'specializations', label: 'Specializations' },
   { value: 'certifications', label: 'Certifications' },
+  { value: 'proposed_pay_rate', label: 'Proposed Pay Rate' },
 ];
+
+// Profile fields that the Interview Evaluation form is allowed to write
+// back to. Kept separate from PROFILE_FIELD_OPTIONS so the UI dropdown
+// for general surveys stays broad while internal form writes are
+// explicit and reviewable.
+export const INTERVIEW_WRITEBACK_FIELDS = new Set([
+  'phone', 'email', 'city',
+  'per_id', 'has_hca', 'has_dl', 'has_vehicle',
+  'tb_test', 'auto_insurance',
+  'allergies', 'client_gender_preference',
+  'years_experience', 'availability',
+  'proposed_pay_rate',
+]);
+
+// Reverse map: snake_case profile field -> camelCase property on the
+// caregiver app model. Used to pre-fill the evaluation form from
+// existing caregiver data.
+const PROFILE_FIELD_TO_CAREGIVER_KEY = {
+  phone: 'phone',
+  email: 'email',
+  address: 'address',
+  city: 'city',
+  state: 'state',
+  zip: 'zip',
+  per_id: 'perId',
+  has_hca: 'hasHCA',
+  has_dl: 'hasDL',
+  has_vehicle: 'hasVehicle',
+  tb_test: 'tbTest',
+  auto_insurance: 'autoInsurance',
+  allergies: 'allergies',
+  client_gender_preference: 'clientGenderPreference',
+  years_experience: 'yearsExperience',
+  availability: 'availability',
+  preferred_shift: 'preferredShift',
+  languages: 'languages',
+  specializations: 'specializations',
+  certifications: 'certifications',
+  proposed_pay_rate: 'proposedPayRate',
+};
+
+/**
+ * Build an initial answers map by pulling existing caregiver values
+ * into questions whose `profile_field` points to a known caregiver
+ * property. Returns `{}` if no fields can be pre-filled.
+ *
+ * Value normalization:
+ *   - yes_no / multiple_choice: title-case "yes" -> "Yes" so the
+ *     renderer highlights the matching option pill.
+ *   - multi_select: if stored value is a comma-separated string,
+ *     split it into an array matched against `options`.
+ */
+export function prefillAnswersFromCaregiver(questions, caregiver) {
+  if (!Array.isArray(questions) || !caregiver) return {};
+  const answers = {};
+  for (const q of questions) {
+    if (!q || !q.profile_field) continue;
+    const key = PROFILE_FIELD_TO_CAREGIVER_KEY[q.profile_field];
+    if (!key) continue;
+    const raw = caregiver[key];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    if (q.type === 'yes_no' || q.type === 'multiple_choice') {
+      const strVal = String(raw);
+      const options = Array.isArray(q.options) ? q.options : [];
+      const match = options.find((o) => String(o).trim().toLowerCase() === strVal.trim().toLowerCase());
+      if (match) answers[q.id] = match;
+      else answers[q.id] = strVal;
+    } else if (q.type === 'multi_select') {
+      let arr = [];
+      if (Array.isArray(raw)) arr = raw;
+      else if (typeof raw === 'string') arr = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        const lower = new Map(q.options.map((o) => [String(o).toLowerCase(), o]));
+        arr = arr.map((v) => lower.get(String(v).toLowerCase()) || v);
+      }
+      if (arr.length > 0) answers[q.id] = arr;
+    } else if (q.type === 'number') {
+      const num = Number(raw);
+      if (Number.isFinite(num)) answers[q.id] = num;
+    } else {
+      answers[q.id] = String(raw);
+    }
+  }
+  return answers;
+}
 
 /**
  * Get the default options for a question type.

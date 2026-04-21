@@ -149,6 +149,8 @@ export function CaregiverDetail({
             caregiver={caregiver}
             allCaregivers={allCaregivers}
             activePhase={activePhase}
+            currentUser={currentUser}
+            showToast={showToast}
             showScripts={showScripts}
             onToggleScripts={setShowScripts}
             onUpdateTask={onUpdateTask}
