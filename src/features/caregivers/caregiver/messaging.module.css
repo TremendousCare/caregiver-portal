@@ -508,6 +508,121 @@
   50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
 }
 
+/* ─── Template Picker (inline composer popover) ──────────────── */
+
+.templatePicker {
+  position: relative;
+}
+
+.templatePickerMenu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  background: #fff;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 36, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.templatePickerHeader {
+  padding: 10px 12px;
+  border-bottom: 1px solid #EEF1F5;
+  background: #F8F9FB;
+}
+
+.templatePickerSearch {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #DDE2E8;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: var(--tc-font-base);
+  outline: none;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.templatePickerSearch:focus {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 2px rgba(41, 190, 228, 0.12);
+}
+
+.templatePickerBody {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.templatePickerEmpty {
+  padding: 20px 14px;
+  font-size: 13px;
+  color: #7A8BA0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.templatePickerGroup {
+  margin-bottom: 4px;
+}
+
+.templatePickerGroup:last-child {
+  margin-bottom: 0;
+}
+
+.templatePickerGroupLabel {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #7A8BA0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.templatePickerItem {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--tc-font-base);
+  transition: background 0.12s ease;
+}
+
+.templatePickerItem:hover {
+  background: #F0F4FA;
+}
+
+.templatePickerItem:focus-visible {
+  outline: 2px solid var(--tc-cyan);
+  outline-offset: -2px;
+}
+
+.templatePickerItemName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F1724;
+  margin-bottom: 2px;
+}
+
+.templatePickerItemPreview {
+  font-size: 11px;
+  color: #7A8BA0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .composeDisabledMsg {
   padding: 12px 24px;
   border-top: 1px solid var(--tc-border-light);
