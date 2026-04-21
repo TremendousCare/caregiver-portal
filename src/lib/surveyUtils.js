@@ -296,6 +296,6 @@ export function extractProfileFieldUpdates(questions, answers) {
 export function buildSurveyUrl(token) {
   const base = typeof window !== 'undefined'
     ? window.location.origin
-    : 'https://caregiver-portal.vercel.app';
+    : 'https://portal.tremendouscareca.com';
   return `${base}/survey/${token}`;
 }
