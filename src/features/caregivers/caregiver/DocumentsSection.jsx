@@ -158,8 +158,7 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
     setRequestSending(true);
     try {
       const token = generateToken();
-      const portalUrl = window.location.origin;
-      const uploadUrl = `${portalUrl}/upload/${token}`;
+      const uploadUrl = `https://portal.tremendouscareca.com/upload/${token}`;
 
       // Insert token into database
       const { error: insertErr } = await supabase
