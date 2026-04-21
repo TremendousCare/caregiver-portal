@@ -278,7 +278,7 @@ function SendTestNowBlock({
         .single();
       if (insErr || !inserted) throw insErr || new Error('Insert failed');
 
-      const surveyLink = `${window.location.origin}/survey/${token}`;
+      const surveyLink = `https://portal.tremendouscareca.com/survey/${token}`;
 
       // 2) Invoke execute-automation with a TEST rule_id so the send
       //    is logged under a distinct id. The cron's dedup reads against
@@ -560,7 +560,7 @@ function SendBulkNowBlock({
           .single();
         if (insErr || !inserted) throw insErr || new Error('Insert failed');
 
-        const surveyLink = `${window.location.origin}/survey/${token}`;
+        const surveyLink = `https://portal.tremendouscareca.com/survey/${token}`;
 
         const { data: result, error: invokeErr } =
           await supabase.functions.invoke('execute-automation', {
