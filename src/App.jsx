@@ -54,6 +54,8 @@ function DashboardPage() {
         filterPhase === 'archived' ||
         (filterPhase === 'intake_pending'
           ? getCurrentPhase(cg) === 'intake' && isAwaitingInterviewResponse(cg)
+          : filterPhase === 'intake'
+          ? getCurrentPhase(cg) === 'intake' && !isAwaitingInterviewResponse(cg)
           : getCurrentPhase(cg) === filterPhase);
       const matchSearch =
         !searchTerm ||
