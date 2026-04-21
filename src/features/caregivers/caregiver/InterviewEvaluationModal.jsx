@@ -39,7 +39,12 @@ export function InterviewEvaluationModal({
 
   // Load template + most recent prior response when opened
   useEffect(() => {
-    if (!isOpen || !templateId || !supabase) return;
+    if (!isOpen || !templateId) return;
+    if (!supabase) {
+      setLoading(false);
+      setLoadError('Not connected to the database.');
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setLoadError(null);

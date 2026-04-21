@@ -43,10 +43,14 @@ export function SurveyResults({ caregiver }) {
       return;
     }
 
+    // Exclude internal-only templates (e.g. Interview Evaluation) — those are
+    // filled by staff and shouldn't surface in the applicant "Pre-Screening"
+    // section. `!inner` makes the template filter push down to the server.
     supabase
       .from('survey_responses')
-      .select('*, survey_templates(name, questions)')
+      .select('*, survey_templates!inner(name, questions, internal_only)')
       .eq('caregiver_id', caregiver.id)
+      .or('internal_only.is.null,internal_only.eq.false', { foreignTable: 'survey_templates' })
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (!error && data) setResponses(data);
