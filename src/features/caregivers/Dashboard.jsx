@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
-import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress } from '../../lib/utils';
+import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress, sortCaregiversForDashboard } from '../../lib/utils';
 import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
@@ -326,7 +326,7 @@ export function Dashboard({
   );
 
   const selectionMode = selectedIds.size > 0;
-  const sortedCaregivers = [...caregivers].sort((a, b) => getOverallProgress(b) - getOverallProgress(a));
+  const sortedCaregivers = sortCaregiversForDashboard(caregivers, surveyStatuses);
 
   // Seed the SMS category smart default as selection changes, but only until
   // the user explicitly picks a route via the chip (then their choice sticks).
