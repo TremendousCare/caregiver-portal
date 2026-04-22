@@ -49,7 +49,7 @@ If any "Yes" below is checked, double-check the retrofit checklist at the bottom
 ### Secrets and integrations
 
 - [ ] No new single-account env var was added for a tenant-sensitive integration (RingCentral, Microsoft, DocuSign, Anthropic, etc.).
-- [ ] Any new integration credential is fetched via the per-org lookup pattern (`get_route_ringcentral_jwt_rpc`-style).
+- [ ] Any new integration credential is fetched via the per-org lookup pattern (`public.get_route_ringcentral_jwt`-style RPC).
 
 ### Branding and configuration
 

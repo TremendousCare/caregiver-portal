@@ -65,7 +65,7 @@ Read both before starting any work on schema, auth, secrets, branding, or pipeli
 
 3. **Every new query is org-scoped.** Either `WHERE org_id = <current_org>` or it relies on an RLS policy that enforces it. Never introduce cross-tenant reads. This includes edge functions and cron jobs.
 
-4. **Every new secret uses the per-org lookup pattern.** See `communication_routes` + `get_route_ringcentral_jwt_rpc` (migrations `20260414213447`, `20260414221401`) for the reference implementation. Do not add new single-account env vars for tenant-sensitive integrations (messaging, email, calendar, e-sign, AI providers).
+4. **Every new secret uses the per-org lookup pattern.** See `communication_routes` + the `public.get_route_ringcentral_jwt(p_category TEXT)` RPC (migrations `20260414213447`, `20260414221401`) for the reference implementation. Do not add new single-account env vars for tenant-sensitive integrations (messaging, email, calendar, e-sign, AI providers).
 
 5. **No new hardcoded Tremendous Care branding, URLs, phases, or pipeline config.** Configurable strings belong in `organizations.settings` (or the specific data-driven home they warrant). Hardcoding a string that will vary per customer is a regression even if nothing breaks today.
 

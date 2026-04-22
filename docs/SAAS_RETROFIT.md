@@ -43,7 +43,7 @@ These are also listed in `CLAUDE.md` so they load into every session. Duplicated
 1. **Production safety first.** Tremendous Care's operations depend on this app. Every schema change is additive. No `DROP`s, no `DELETE`s, no destructive migrations. Columns change state as `nullable → backfilled → NOT NULL → RLS tightened`. Every PR touching schema, auth, or secrets ships with an explicit rollback plan in its description.
 2. **Every new table gets `org_id uuid REFERENCES organizations(id)`.** No exceptions.
 3. **Every new query is org-scoped.** Either explicit `WHERE org_id = ...` or an RLS policy that enforces it. Never cross-tenant reads.
-4. **Every new secret uses the per-org lookup pattern.** See `communication_routes` + `get_route_ringcentral_jwt_rpc` (migrations `20260414213447`, `20260414221401`) for the reference. No new single-account env vars for tenant-sensitive integrations.
+4. **Every new secret uses the per-org lookup pattern.** See `communication_routes` + the `public.get_route_ringcentral_jwt(p_category TEXT)` RPC (migrations `20260414213447`, `20260414221401`) for the reference. No new single-account env vars for tenant-sensitive integrations.
 5. **No new hardcoded Tremendous Care branding, URLs, phases, or pipeline config.** Configurable strings belong in `organizations.settings`.
 6. **When in doubt, pause and ask the owner.** Surprise is worse than delay.
 
@@ -66,7 +66,7 @@ These are also listed in `CLAUDE.md` so they load into every session. Duplicated
 
 ### Secrets
 - Per-org credentials stored in Supabase Vault, namespaced by org.
-- Edge functions look up secrets via an RPC that takes `(org_id, secret_name)` and returns the value. Generalizes the existing `get_route_ringcentral_jwt_rpc`.
+- Edge functions look up secrets via an RPC that takes `(org_id, secret_name)` and returns the value. Generalizes the existing `public.get_route_ringcentral_jwt(p_category TEXT)` RPC.
 - Fallback to env vars remains during the transition for Tremendous Care only, gated on `org_id = <tremendous_care_uuid>`.
 
 ### Hosting and domains
