@@ -46,6 +46,45 @@ GitHub Actions runs on every PR to `main` (`.github/workflows/ci.yml`):
 
 If any step fails, the PR is blocked.
 
+---
+
+## Strategic Context: Becoming Multi-Tenant SaaS
+
+The portal is currently single-tenant for Tremendous Care. We are actively refactoring it into a multi-tenant SaaS to sell to other home-care agencies. Every change from this point forward must be made with multi-tenancy in mind.
+
+- **Full plan**: `docs/SAAS_RETROFIT.md`
+- **Current phase and status**: `docs/SAAS_RETROFIT_STATUS.md`
+
+Read both before starting any work on schema, auth, secrets, branding, or pipeline phases. If you are unsure whether a change is tenancy-relevant, assume it is and check the plan.
+
+### Prime Directives (non-negotiable)
+
+1. **Production safety.** Tremendous Care operations run on this app today. Every schema change is additive. No `DROP`s, no `DELETE`s, no destructive migrations. Column changes stage as `nullable → backfill → NOT NULL → RLS tightened`. Every PR that touches schema, auth, or secrets ships with an explicit rollback plan in the PR description.
+
+2. **Every new table gets `org_id uuid REFERENCES organizations(id)`.** Nullable at creation, defaulted to Tremendous Care's org for the backfill step, then `NOT NULL` once every row has a value. No exceptions — even tables that feel "obviously single-org" get the column.
+
+3. **Every new query is org-scoped.** Either `WHERE org_id = <current_org>` or it relies on an RLS policy that enforces it. Never introduce cross-tenant reads. This includes edge functions and cron jobs.
+
+4. **Every new secret uses the per-org lookup pattern.** See `communication_routes` + the `public.get_route_ringcentral_jwt(p_category TEXT)` RPC (migrations `20260414213447`, `20260414221401`) for the reference implementation. Do not add new single-account env vars for tenant-sensitive integrations (messaging, email, calendar, e-sign, AI providers).
+
+5. **No new hardcoded Tremendous Care branding, URLs, phases, or pipeline config.** Configurable strings belong in `organizations.settings` (or the specific data-driven home they warrant). Hardcoding a string that will vary per customer is a regression even if nothing breaks today.
+
+6. **When in doubt on any of the above, pause and ask before writing code.** The owner prefers discussion to surprise. A half-finished retrofit PR that merges is worse than a PR that sits for a day while we talk.
+
+### Rollout Phasing (summary)
+
+Work proceeds in five sequential phases, each preceded by a bake period on `main` before the next begins. Current phase is tracked in `docs/SAAS_RETROFIT_STATUS.md`.
+
+- **Phase A** — Auth foundation (`organizations`, `org_memberships`, JWT access token hook). No behavior change.
+- **Phase B** — Add `org_id` to every table, backfill, then tighten RLS one table at a time.
+- **Phase C** — Per-org secrets for RingCentral, Microsoft, DocuSign, Anthropic. Generalize the `communication_routes` pattern.
+- **Phase D** — Configurable pipeline phases, per-org branding, feature toggles.
+- **Phase E** — Self-serve onboarding, invite flow, HIPAA/BAA artifacts, billing integration.
+
+Phases are not parallelizable. Do not start Phase B work before Phase A is shipped and baked.
+
+---
+
 ## Project Overview
 
 - **Supabase Project ID**: `zocrnurvazyxdpyqimgj`
