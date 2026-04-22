@@ -283,10 +283,13 @@ export function Dashboard({
   const [surveyStatuses, setSurveyStatuses] = useState({});
   useEffect(() => {
     if (!supabase) return;
+    // Exclude internal-only templates (e.g. Interview Evaluation) — those
+    // shouldn't drive the pre-screening status badge on caregiver cards.
     supabase
       .from('survey_responses')
-      .select('caregiver_id, status')
+      .select('caregiver_id, status, survey_templates!inner(internal_only)')
       .in('status', ['flagged', 'disqualified', 'qualified'])
+      .or('internal_only.is.null,internal_only.eq.false', { foreignTable: 'survey_templates' })
       .then(({ data }) => {
         if (!data) return;
         const PRIORITY = { disqualified: 3, flagged: 2, qualified: 1 };

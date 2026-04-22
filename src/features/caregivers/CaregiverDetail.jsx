@@ -40,10 +40,13 @@ export function CaregiverDetail({
 
   useEffect(() => {
     if (!supabase || !caregiver.id) return;
+    // Exclude internal-only templates — the header badge reflects the
+    // applicant-facing pre-screening survey only.
     supabase
       .from('survey_responses')
-      .select('status')
+      .select('status, survey_templates!inner(internal_only)')
       .eq('caregiver_id', caregiver.id)
+      .or('internal_only.is.null,internal_only.eq.false', { foreignTable: 'survey_templates' })
       .order('submitted_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .then(({ data }) => setSurveyStatus(data?.[0]?.status ?? null));
@@ -149,6 +152,8 @@ export function CaregiverDetail({
             caregiver={caregiver}
             allCaregivers={allCaregivers}
             activePhase={activePhase}
+            currentUser={currentUser}
+            showToast={showToast}
             showScripts={showScripts}
             onToggleScripts={setShowScripts}
             onUpdateTask={onUpdateTask}

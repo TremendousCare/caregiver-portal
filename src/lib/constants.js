@@ -60,6 +60,7 @@ export const DEFAULT_PHASE_TASKS = {
   ],
   interview: [
     { id: 'interview_completed', label: 'Interview completed, scored, notes in ATS' },
+    { id: 'interview_evaluation', label: 'Completed Interview Evaluation', critical: true, surveyTemplateId: '00000000-0000-0000-0000-0000000e0001' },
     { id: 'decision_made', label: '"Green Light" confirmed by TMS/Management', critical: true },
     { id: 'verbal_offer', label: 'Verbal offer extended (rate confirmed with mgmt)' },
     { id: 'next_steps_discussed', label: 'Next steps & onboarding timeline discussed' },
