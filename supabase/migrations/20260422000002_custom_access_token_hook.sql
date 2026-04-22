@@ -55,6 +55,13 @@ REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM authentic
 REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM anon;
 GRANT  EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
 
+-- supabase_auth_admin needs USAGE on the schema to reach the function
+-- and the tables below. The EXECUTE grant above is meaningless without
+-- it; without this line the hook can fail at runtime with
+-- "permission denied for schema public" once the manual Dashboard
+-- toggle enables it. Matches Supabase's documented hook pattern.
+GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
+
 -- The hook reads these tables as the auth admin; ensure access.
 GRANT SELECT ON public.organizations   TO supabase_auth_admin;
 GRANT SELECT ON public.org_memberships TO supabase_auth_admin;
