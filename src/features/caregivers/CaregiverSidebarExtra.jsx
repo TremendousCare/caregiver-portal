@@ -35,7 +35,6 @@ export function CaregiverSidebarExtra() {
                   style={filterPhase === p.id ? { background: 'rgba(41,190,228,0.12)' } : {}}
                   onClick={() => goToDashboard(p.id)}
                 >
-                  <span>{p.icon}</span>
                   <span style={{ flex: 1, textAlign: 'left' }}>{p.short}</span>
                   <span className={layout.badge}>{count}</span>
                 </button>
@@ -51,7 +50,6 @@ export function CaregiverSidebarExtra() {
                     onClick={() => goToDashboard('intake_pending')}
                     title="Interview link sent, awaiting response"
                   >
-                    <span>⏳</span>
                     <span style={{ flex: 1, textAlign: 'left' }}>Pending Interview</span>
                     <span className={layout.badge}>{pendingInterviewCount}</span>
                   </button>
@@ -70,7 +68,6 @@ export function CaregiverSidebarExtra() {
               }}
               onClick={() => goToDashboard('archived')}
             >
-              <span>📦</span>
               <span style={{ flex: 1, textAlign: 'left' }}>Archived</span>
               <span className={layout.badge}>{archivedCaregivers.length}</span>
             </button>
