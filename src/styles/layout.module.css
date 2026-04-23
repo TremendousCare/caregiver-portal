@@ -111,6 +111,7 @@
 .navItem:hover {
   color: rgba(255,255,255,0.8);
   background: rgba(41,190,228,0.06);
+  transform: translateX(4px);
 }
 
 .navActive {
