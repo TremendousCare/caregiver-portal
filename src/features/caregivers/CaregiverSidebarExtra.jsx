@@ -73,21 +73,6 @@ export function CaregiverSidebarExtra() {
             </button>
           )}
         </div>
-
-        <div className={layout.sidebarSection}>
-          <div className={layout.sidebarLabel}>Golden Rules</div>
-          {[
-            { emoji: '⚡', text: '30-min contact window' },
-            { emoji: '🕐', text: '24-hr to interview' },
-            { emoji: '📅', text: '7-day onboarding sprint' },
-            { emoji: '🛡️', text: 'Zero-gap compliance' },
-          ].map((rule, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', marginBottom: 2 }}>
-              <div style={{ fontSize: 13 }}>{rule.emoji}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4, fontWeight: 500 }}>{rule.text}</div>
-            </div>
-          ))}
-        </div>
       </>
     );
   }
