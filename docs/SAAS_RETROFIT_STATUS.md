@@ -10,9 +10,9 @@ This file is the living tracker. Update it in the same PR that advances the retr
 ## Current phase
 
 **Phase A — Auth foundation**
-**Status**: Not started
+**Status**: In progress
 **Target**: Weeks 1–2 of the retrofit
-**Next PR**: Introduce `organizations` + `org_memberships` tables, custom access token hook, and AppContext plumbing. No behavior change.
+**Open PR**: `claude/phase-a-auth-foundation-M94Sk` — introduces `organizations` + `org_memberships` tables, `public.custom_access_token_hook`, and AppContext plumbing (`currentOrgId`/`currentOrgSlug`/`currentOrgRole`). Scaffolding only; no behavior change. Requires manual Supabase Dashboard step to enable the hook after merge.
 
 ---
 
@@ -20,7 +20,7 @@ This file is the living tracker. Update it in the same PR that advances the retr
 
 | Phase | Name | Status | Shipped | Notes |
 |-------|------|--------|---------|-------|
-| A | Auth foundation | Not started | — | `organizations`, `org_memberships`, JWT hook |
+| A | Auth foundation | In progress | — | `organizations`, `org_memberships`, JWT hook |
 | B | Tenant isolation on every table | Not started | — | `org_id` + RLS, one table at a time |
 | C | Per-org secrets and integrations | Not started | — | Generalize `communication_routes` pattern |
 | D | Configurable phases, branding, feature toggles | Not started | — | `pipeline_phases`, `organizations.settings` |

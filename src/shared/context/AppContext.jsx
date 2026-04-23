@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, getOrgClaims } from '../../lib/supabase';
 import { loadActionItemRules } from '../../lib/actionItemEngine';
 
 const AppContext = createContext();
@@ -9,6 +9,11 @@ export function AppProvider({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  // Org claims from JWT — populated on login, cleared on logout.
+  // Phase A: stored only. No other code reads these yet.
+  const [currentOrgId, setCurrentOrgId] = useState(null);
+  const [currentOrgSlug, setCurrentOrgSlug] = useState(null);
+  const [currentOrgRole, setCurrentOrgRole] = useState(null);
 
   // ─── Load action item rules cache on mount ───
   useEffect(() => {
@@ -44,6 +49,15 @@ export function AppProvider({ children }) {
     let mailboxEmail = userInfo.email || '';
     if (userInfo.email && isSupabaseConfigured()) {
       try {
+        // Pull org claims from the current session JWT. Phase A: the
+        // claims are stored on context but not consumed anywhere else
+        // yet. getOrgClaims returns nulls on any failure.
+        const { data: sessionData } = await supabase.auth.getSession();
+        const claims = getOrgClaims(sessionData?.session);
+        setCurrentOrgId(claims.orgId);
+        setCurrentOrgSlug(claims.orgSlug);
+        setCurrentOrgRole(claims.orgRole);
+
         // Is this a caregiver account? (Only visible if linked via user_id
         // and the RLS policy caregivers_read_own matches auth.uid().)
         const { data: authData } = await supabase.auth.getUser();
@@ -93,6 +107,9 @@ export function AppProvider({ children }) {
       localStorage.removeItem('tc-user-name-v1');
     }
     setCurrentUser(null);
+    setCurrentOrgId(null);
+    setCurrentOrgSlug(null);
+    setCurrentOrgRole(null);
     window.location.reload();
   }, []);
 
@@ -102,6 +119,7 @@ export function AppProvider({ children }) {
       sidebarCollapsed, setSidebarCollapsed,
       mobileMenuOpen, setMobileMenuOpen,
       currentUser, currentUserName, currentUserEmail, currentUserMailbox, isAdmin,
+      currentOrgId, currentOrgSlug, currentOrgRole,
       handleUserReady, handleLogout,
     }}>
       {children}
