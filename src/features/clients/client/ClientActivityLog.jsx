@@ -26,6 +26,11 @@ const NOTE_OUTCOMES = [
   { value: 'completed', label: 'Completed' },
 ];
 
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'All', icon: '📋' },
+  ...NOTE_TYPES,
+];
+
 function normalizePhone(phone) {
   if (!phone) return null;
   return phone.replace(/[^0-9+]/g, '');
@@ -34,10 +39,7 @@ function normalizePhone(phone) {
 // ─── Unified Activity Log ───────────────────────────────────
 export function ClientActivityLog({ client, currentUser, onAddNote }) {
   const [noteText, setNoteText] = useState('');
-  const [noteType, setNoteType] = useState('note');
-  const [noteDirection, setNoteDirection] = useState('outbound');
-  const [noteOutcome, setNoteOutcome] = useState('');
-  const [filterType, setFilterType] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('all');
 
   // RingCentral data
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
@@ -60,8 +62,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
       accessTokenRef.current = session?.access_token || '';
     });
   }, []);
-
-  const isCommType = COMM_TYPES.includes(noteType);
 
   // ─── Fetch RingCentral Data ─────────────────────────────
   useEffect(() => {
@@ -116,7 +116,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
     }));
 
     // Dedup: skip RC entries that match portal notes within 2 minutes
-    const commTypes = ['call', 'text', 'sms', 'email', 'meeting'];
     const portalOutboundTexts = portalEntries.filter(
       (n) => (n.type === 'text' || n.type === 'sms') && n.direction === 'outbound' && n.source === 'portal'
     );
@@ -136,33 +135,21 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
       return true;
     });
 
-    let all = [...portalEntries, ...deduped].sort(
+    return [...portalEntries, ...deduped].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
+  }, [client.notes, rcData]);
 
-    // Apply filter
-    if (filterType !== 'all') {
-      if (filterType === 'comms') {
-        all = all.filter((e) => commTypes.includes(e.type));
-      } else {
-        all = all.filter((e) => e.type === filterType || (filterType === 'text' && e.type === 'sms'));
-      }
-    }
-
-    return all;
-  }, [client.notes, rcData, filterType]);
+  // Treat 'sms' entries as 'text' for filter purposes
+  const filteredTimeline = activeFilter === 'all'
+    ? mergedTimeline
+    : mergedTimeline.filter((e) => e.type === activeFilter || (activeFilter === 'text' && e.type === 'sms'));
 
   // ─── Add Note Handler ───────────────────────────────────
   const handleAddNote = () => {
     if (!noteText.trim()) return;
-    const note = { text: noteText.trim(), type: noteType };
-    if (isCommType) {
-      note.direction = noteDirection;
-      if (noteOutcome) note.outcome = noteOutcome;
-    }
-    onAddNote(client.id, note);
+    onAddNote(client.id, { text: noteText.trim(), type: 'note' });
     setNoteText('');
-    setNoteOutcome('');
   };
 
   const fetchTranscript = async (recordingId) => {
@@ -198,103 +185,39 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
   const getTypeInfo = (type) => NOTE_TYPES.find((t) => t.value === type || (t.value === 'text' && type === 'sms'));
   const outcomeInfo = (val) => NOTE_OUTCOMES.find((o) => o.value === val);
 
-  // ─── Filter options ─────────────────────────────────────
-  const FILTER_OPTIONS = [
-    { value: 'all', label: 'All' },
-    { value: 'comms', label: 'Communications' },
-    { value: 'note', label: 'Notes' },
-    { value: 'auto', label: 'Auto' },
-  ];
-
   return (
     <div className={cl.notesSection}>
       <h3 className={cl.notesSectionTitle}>📋 Activity Log</h3>
 
-      {/* Input section */}
-      <div style={styles.inputSection}>
-        {/* Type selector pills */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-          {NOTE_TYPES.map((t) => (
-            <button
-              key={t.value}
-              style={{
-                padding: '5px 12px', borderRadius: 20, border: '1px solid',
-                borderColor: noteType === t.value ? '#2E4E8D' : '#D1D5DB',
-                background: noteType === t.value ? '#EBF0FA' : '#FAFBFC',
-                color: noteType === t.value ? '#2E4E8D' : '#6B7B8F',
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-              }}
-              onClick={() => setNoteType(t.value)}
-            >
-              {t.icon} {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Direction + Outcome row (only for communication types) */}
-        {isCommType && (
-          <div style={styles.formRow}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {['outbound', 'inbound'].map((dir) => (
-                <button
-                  key={dir}
-                  style={{
-                    ...styles.directionBtn,
-                    ...(noteDirection === dir ? styles.directionBtnActive : {}),
-                  }}
-                  onClick={() => setNoteDirection(dir)}
-                >
-                  {dir === 'outbound' ? '↗ Outbound' : '↙ Inbound'}
-                </button>
-              ))}
-            </div>
-            <select
-              className={forms.fieldInput}
-              style={{ padding: '4px 8px', fontSize: 12, maxWidth: 160 }}
-              value={noteOutcome}
-              onChange={(e) => setNoteOutcome(e.target.value)}
-            >
-              <option value="">Outcome...</option>
-              {NOTE_OUTCOMES.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Note text input */}
-        <div className={forms.noteInputRow}>
-          <input
-            className={forms.noteInput}
-            placeholder={isCommType ? 'What was discussed or attempted...' : noteType === 'note' ? 'Add an internal note...' : 'Add a note...'}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
-          />
-          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleAddNote}>
-            {isCommType ? 'Log' : 'Add'}
-          </button>
-        </div>
-      </div>
-
-      {/* Filter row */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, color: '#6B7B8F', fontWeight: 600, marginRight: 4 }}>Show:</span>
-        {FILTER_OPTIONS.map((f) => (
+      {/* Filter pills */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {FILTER_OPTIONS.map((t) => (
           <button
-            key={f.value}
+            key={t.value}
             style={{
-              padding: '3px 10px', borderRadius: 14, border: '1px solid',
-              borderColor: filterType === f.value ? '#2E4E8D' : '#E2E8F0',
-              background: filterType === f.value ? '#EBF0FA' : '#fff',
-              color: filterType === f.value ? '#2E4E8D' : '#6B7B8F',
-              fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              padding: '5px 12px', borderRadius: 20, border: '1px solid',
+              borderColor: activeFilter === t.value ? '#2E4E8D' : '#D1D5DB',
+              background: activeFilter === t.value ? '#EBF0FA' : '#FAFBFC',
+              color: activeFilter === t.value ? '#2E4E8D' : '#6B7B8F',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}
-            onClick={() => setFilterType(f.value)}
+            onClick={() => setActiveFilter(activeFilter === t.value ? 'all' : t.value)}
           >
-            {f.label}
+            {t.icon} {t.label}
           </button>
         ))}
+      </div>
+
+      {/* Note text input */}
+      <div className={forms.noteInputRow}>
+        <input
+          className={forms.noteInput}
+          placeholder="Add an internal note..."
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
+        />
+        <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleAddNote}>Add</button>
       </div>
 
       {/* Loading indicator */}
@@ -312,7 +235,7 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
       {/* Unified timeline */}
       <div className={cl.notesList} style={{ maxHeight: 500 }}>
-        {mergedTimeline.map((entry) => {
+        {filteredTimeline.map((entry) => {
           const isRC = entry.source === 'ringcentral';
           const typeInfo = getTypeInfo(entry.type);
           const outcome = outcomeInfo(entry.outcome);
@@ -429,9 +352,11 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
           );
         })}
 
-        {mergedTimeline.length === 0 && !rcLoading && (
+        {filteredTimeline.length === 0 && !rcLoading && (
           <div style={{ color: '#6B7B8F', fontSize: 13, padding: 24, textAlign: 'center', fontWeight: 500 }}>
-            No activity yet. Log your outreach and communications here.
+            {activeFilter === 'all'
+              ? 'No activity yet.'
+              : `No ${FILTER_OPTIONS.find((f) => f.value === activeFilter)?.label.toLowerCase() || 'matching'} entries found.`}
           </div>
         )}
       </div>
@@ -441,36 +366,6 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
 // ─── Inline Styles ──────────────────────────────────────────
 const styles = {
-  inputSection: {
-    background: '#F8F9FB',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    border: '1px solid #E2E8F0',
-  },
-  formRow: {
-    display: 'flex',
-    gap: 10,
-    marginBottom: 10,
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  },
-  directionBtn: {
-    padding: '4px 10px',
-    borderRadius: 6,
-    border: '1px solid #D1D5DB',
-    background: '#FAFBFC',
-    color: '#6B7B8F',
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  directionBtnActive: {
-    borderColor: '#1084C3',
-    background: '#EBF5FB',
-    color: '#1084C3',
-  },
   loadingRow: {
     display: 'flex',
     alignItems: 'center',
