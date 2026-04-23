@@ -1,3 +1,11 @@
 node_modules
 dist
 supabase/.temp/
+
+# Local environment files — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# MCP config may contain tokens — keep local
+.mcp.json
