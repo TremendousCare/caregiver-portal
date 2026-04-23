@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
 import { supabase } from '../../../lib/supabase';
+import { generateCaregiverPassword } from '../../../lib/caregiverPassword';
 import {
   setCaregiverSmsOptOut,
   setCaregiverAvailabilityCheckPaused,
@@ -19,10 +20,43 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [togglingAvailPaused, setTogglingAvailPaused] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteMessage, setInviteMessage] = useState(null);
+  // When set, we've just minted a login for this caregiver and are
+  // showing the admin the credentials to share with them.
+  const [credentials, setCredentials] = useState(null);
 
   const isLinked = !!caregiver.userId;
 
-  const handleInvite = async () => {
+  const handleCreateLogin = async () => {
+    if (!supabase || !caregiver.email) return;
+    setInviting(true);
+    setInviteMessage(null);
+    setCredentials(null);
+    const password = generateCaregiverPassword();
+    try {
+      const { data, error } = await supabase.functions.invoke('caregiver-invite', {
+        body: { action: 'create_password', caregiver_id: caregiver.id, password },
+      });
+      if (error) {
+        let msg = error.message;
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch (_) { /* fall through */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      setCredentials({ email: data.email, password });
+      onUpdateCaregiver(caregiver.id, { userId: 'pending' });
+    } catch (e) {
+      setInviteMessage({ kind: 'error', text: e?.message || 'Failed to create login.' });
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  // Legacy magic-link flow, retained for caregivers who were onboarded
+  // this way before the password flow existed.
+  const handleSendMagicLink = async () => {
     if (!supabase || !caregiver.email) return;
     setInviting(true);
     setInviteMessage(null);
@@ -50,6 +84,17 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       setInviteMessage({ kind: 'error', text: e?.message || 'Failed to send invite.' });
     } finally {
       setInviting(false);
+    }
+  };
+
+  const handleCopyCredentials = async () => {
+    if (!credentials) return;
+    const text = `Portal: https://portal.tremendouscareca.com/care\nEmail: ${credentials.email}\nPassword: ${credentials.password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setInviteMessage({ kind: 'success', text: 'Credentials copied to clipboard.' });
+    } catch (_) {
+      setInviteMessage({ kind: 'error', text: 'Copy failed — select the text manually.' });
     }
   };
 
@@ -319,36 +364,89 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
               padding: '12px 20px 16px',
               borderTop: '1px solid #F0F3F7',
               display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
+              flexDirection: 'column',
+              gap: 10,
             }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 700, color: '#7A8BA0',
-                  textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
-                }}>
-                  Caregiver App Access
-                </div>
-                <div style={{ fontSize: 13, color: isLinked ? '#15803D' : '#7A8BA0', fontWeight: isLinked ? 600 : 400 }}>
-                  {isLinked
-                    ? '✓ Linked — can sign in to the mobile app'
-                    : 'Not linked yet'}
-                </div>
-                {inviteMessage && (
-                  <div style={{ marginTop: 4, fontSize: 12, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
-                    {inviteMessage.text}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, color: '#7A8BA0',
+                    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
+                  }}>
+                    Caregiver App Access
                   </div>
+                  <div style={{ fontSize: 13, color: isLinked ? '#15803D' : '#7A8BA0', fontWeight: isLinked ? 600 : 400 }}>
+                    {isLinked
+                      ? '✓ Linked — can sign in to the mobile app'
+                      : 'Not linked yet'}
+                  </div>
+                  {inviteMessage && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: inviteMessage.kind === 'success' ? '#2E7D4A' : '#C53030' }}>
+                      {inviteMessage.text}
+                    </div>
+                  )}
+                </div>
+                {!isLinked && (
+                  <button
+                    className={btn.primaryBtn}
+                    onClick={handleCreateLogin}
+                    disabled={inviting}
+                    style={{ fontSize: 12 }}
+                    title="Create an email + password login and show the credentials to share with the caregiver."
+                  >
+                    {inviting ? 'Creating…' : 'Create login'}
+                  </button>
+                )}
+                {isLinked && (
+                  <button
+                    className={btn.secondaryBtn}
+                    onClick={handleSendMagicLink}
+                    disabled={inviting}
+                    style={{ fontSize: 12 }}
+                    title="Send a one-time magic-link email. Use only for legacy caregivers who don't have a password."
+                  >
+                    {inviting ? 'Sending…' : 'Send magic link'}
+                  </button>
                 )}
               </div>
-              <button
-                className={btn.secondaryBtn}
-                onClick={handleInvite}
-                disabled={inviting}
-                style={{ fontSize: 12 }}
-              >
-                {inviting ? 'Sending…' : isLinked ? 'Resend link' : 'Invite to app'}
-              </button>
+              {credentials && (
+                <div style={{
+                  background: '#F0FDF4',
+                  border: '1px solid #86EFAC',
+                  borderRadius: 6,
+                  padding: 12,
+                  fontSize: 13,
+                }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6, color: '#166534' }}>
+                    ✓ Login created. Share these credentials with the caregiver:
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 13, lineHeight: 1.6 }}>
+                    <div><strong>Email:</strong> {credentials.email}</div>
+                    <div><strong>Password:</strong> {credentials.password}</div>
+                  </div>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className={btn.secondaryBtn}
+                      onClick={handleCopyCredentials}
+                      style={{ fontSize: 12 }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className={btn.secondaryBtn}
+                      onClick={() => setCredentials(null)}
+                      style={{ fontSize: 12 }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#166534' }}>
+                    This password is shown once. The caregiver can change it after signing in via &ldquo;Forgot password?&rdquo;.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

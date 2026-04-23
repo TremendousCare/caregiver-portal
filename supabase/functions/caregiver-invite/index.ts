@@ -1,12 +1,21 @@
 // ─── Caregiver Invite ───
-// Two actions:
-//   1. "send"  — staff-only. Send a magic-link invite to a caregiver.
-//                If they already have an auth account, we just resend
-//                the magic link. Otherwise we create the auth user.
-//   2. "link"  — called by the caregiver PWA on first login. Matches
-//                the authenticated email to a caregivers row and
-//                populates caregivers.user_id so subsequent sessions
-//                can see their own data via RLS.
+// Three actions:
+//   1. "send"            — staff-only. Send a magic-link invite. Kept
+//                          for backward compatibility with caregivers
+//                          who were already onboarded this way. New
+//                          invites should use "create_with_password".
+//   2. "create_password" — staff-only. Create an auth user with an
+//                          admin-supplied password and link it to the
+//                          caregiver record. No email is sent; the admin
+//                          shares the credentials with the caregiver
+//                          directly. This is the preferred flow for
+//                          new invites because email magic links have
+//                          proven slow/unreliable.
+//   3. "link"            — called by the caregiver PWA on first login.
+//                          Matches the authenticated email to a
+//                          caregivers row and populates
+//                          caregivers.user_id so subsequent sessions
+//                          can see their own data via RLS.
 //
 // Why separate "link" rather than a DB trigger? Triggers on auth.users
 // require service-role access and are painful to maintain. A simple
@@ -154,6 +163,90 @@ async function handleSend(req: Request, body: Record<string, unknown>) {
   });
 }
 
+// ─── Action: staff creates an auth user with a known password ───
+// No email is sent. Admin hands the caregiver their email + password
+// out-of-band (SMS, phone, in person). This is the replacement for
+// the magic-link flow for all new caregivers.
+async function handleCreateWithPassword(req: Request, body: Record<string, unknown>) {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return jsonResponse({ error: "Missing Authorization." }, 401);
+  const check = await assertStaff(authHeader);
+  if (!check.ok) return jsonResponse({ error: check.error }, check.status);
+
+  const { caregiver_id, password } = body ?? {};
+  if (!caregiver_id) return jsonResponse({ error: "Missing caregiver_id." }, 400);
+  if (typeof password !== "string" || password.length < 10) {
+    return jsonResponse({ error: "Password must be at least 10 characters." }, 400);
+  }
+
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  const { data: cg, error: cgErr } = await admin
+    .from("caregivers")
+    .select("id, email, first_name, last_name, user_id")
+    .eq("id", caregiver_id)
+    .maybeSingle();
+  if (cgErr || !cg) return jsonResponse({ error: "Caregiver not found." }, 404);
+  if (!cg.email) return jsonResponse({ error: "Caregiver has no email on file." }, 400);
+  if (cg.user_id) {
+    return jsonResponse({
+      error: "This caregiver already has a login. To reset the password, have them use the 'Forgot password?' link on the sign-in page.",
+    }, 409);
+  }
+
+  const email = cg.email.toLowerCase();
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { caregiver_id: cg.id, invited_by: "admin" },
+  });
+  if (createErr) {
+    const msg = (createErr.message || "").toLowerCase();
+    if (msg.includes("already") || msg.includes("registered") || createErr.status === 422) {
+      return jsonResponse({
+        error: "An account already exists for this email. Ask the caregiver to use 'Forgot password?' to reset it.",
+      }, 409);
+    }
+    console.error("[caregiver-invite] createUser error:", createErr);
+    return jsonResponse({ error: createErr.message || "Failed to create login." }, 500);
+  }
+
+  const newUserId = created?.user?.id;
+  if (!newUserId) {
+    return jsonResponse({ error: "Auth user creation returned no id." }, 500);
+  }
+
+  const { error: updErr } = await admin
+    .from("caregivers")
+    .update({ user_id: newUserId })
+    .eq("id", cg.id);
+  if (updErr) {
+    console.error("[caregiver-invite] link update error after create:", updErr);
+    return jsonResponse({ error: "Login created but could not link to caregiver record." }, 500);
+  }
+
+  try {
+    await admin.from("events").insert({
+      event_type: "caregiver_invite_sent",
+      entity_type: "caregiver",
+      entity_id: cg.id,
+      actor: "system:caregiver-invite",
+      payload: { email, method: "password" },
+    });
+  } catch (_) {
+    // Non-fatal
+  }
+
+  return jsonResponse({
+    success: true,
+    email,
+    user_linked: true,
+    method: "password",
+  });
+}
+
 // ─── Action: caregiver self-links on first login ───
 // Called by the PWA when a newly-authenticated user has no linked
 // caregiver record. Matches by email (case-insensitive) and sets
@@ -229,8 +322,9 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const action = body?.action;
     if (action === "send") return await handleSend(req, body);
+    if (action === "create_password") return await handleCreateWithPassword(req, body);
     if (action === "link") return await handleLink(req);
-    return jsonResponse({ error: "Unknown action. Pass { action: 'send' | 'link' } in the body." }, 400);
+    return jsonResponse({ error: "Unknown action. Pass { action: 'send' | 'create_password' | 'link' } in the body." }, 400);
   } catch (err) {
     console.error("[caregiver-invite] unhandled error:", err);
     return jsonResponse({ error: (err as Error).message || "Internal server error." }, 500);
