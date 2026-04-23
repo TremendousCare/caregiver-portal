@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { getCurrentPosition, evaluateGeofence, formatDistanceUs } from '../../lib/geofence';
+import { callCaregiverClock } from '../../lib/callCaregiverClock';
 import s from './CaregiverPortal.module.css';
 
 const dtFmt = new Intl.DateTimeFormat(undefined, {
@@ -99,7 +100,10 @@ export function CaregiverShiftDetail({ caregiver }) {
     setClockState('submitting');
     setSubmitError(null);
     try {
-      const { data, error } = await supabase.functions.invoke('caregiver-clock', {
+      await callCaregiverClock({
+        supabaseClient: supabase,
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+        anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         body: {
           shift_id: shift.id,
           event_type: action,
@@ -109,8 +113,6 @@ export function CaregiverShiftDetail({ caregiver }) {
           override_reason: overrideReason.trim() || undefined,
         },
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
       setClockState('idle');
       setLocationResult(null);
       setOverrideReason('');
