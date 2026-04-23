@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useCaregiverSession } from './hooks/useCaregiverSession';
 import { CaregiverLogin } from './CaregiverLogin';
+import { CaregiverSetPassword } from './CaregiverSetPassword';
 import { CaregiverShifts } from './CaregiverShifts';
 import { CaregiverShiftDetail } from './CaregiverShiftDetail';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +10,18 @@ import s from './CaregiverPortal.module.css';
 
 export function CaregiverApp() {
   const { loading, session, caregiver, linkError, refresh } = useCaregiverSession();
+  const [recoveringPassword, setRecoveringPassword] = useState(false);
+
+  // Supabase fires PASSWORD_RECOVERY when the caregiver clicks a
+  // reset link from their email. We gate the app on a "set new
+  // password" screen until they update it.
+  useEffect(() => {
+    if (!supabase) return undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setRecoveringPassword(true);
+    });
+    return () => subscription?.unsubscribe?.();
+  }, []);
 
   if (loading) {
     return (
@@ -19,6 +33,10 @@ export function CaregiverApp() {
 
   if (!session) {
     return <CaregiverLogin />;
+  }
+
+  if (recoveringPassword) {
+    return <CaregiverSetPassword onDone={() => setRecoveringPassword(false)} />;
   }
 
   // Authed but not linked to a caregiver record (rare — usually only
