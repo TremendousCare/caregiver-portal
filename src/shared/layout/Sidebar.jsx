@@ -116,7 +116,7 @@ function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
               }}
               title={item.label}
             >
-              <span className={layout.navIcon}>{item.icon}</span>
+              {sidebarCollapsed && <span className={layout.navIcon}>{item.icon}</span>}
               {!sidebarCollapsed && <span className="sidebar-text">{item.label}</span>}
             </button>
           ))}
