@@ -33,7 +33,6 @@ export function ClientSidebarExtra() {
                 style={filterPhase === p.id ? { background: 'rgba(41,190,228,0.12)' } : {}}
                 onClick={() => goToDashboard(p.id)}
               >
-                <span>{p.icon}</span>
                 <span style={{ flex: 1, textAlign: 'left' }}>{p.short}</span>
                 <span className={layout.badge}>{count}</span>
               </button>
@@ -50,7 +49,6 @@ export function ClientSidebarExtra() {
               }}
               onClick={() => goToDashboard('archived')}
             >
-              <span>📦</span>
               <span style={{ flex: 1, textAlign: 'left' }}>Archived</span>
               <span className={layout.badge}>{archivedClients.length}</span>
             </button>
@@ -60,12 +58,11 @@ export function ClientSidebarExtra() {
         <div className={layout.sidebarSection}>
           <div className={layout.sidebarLabel}>Key Metrics</div>
           {[
-            { emoji: '📊', text: `Active Leads: ${activeClients.length}` },
-            { emoji: '⚠️', text: `Overdue: ${overdueCount}` },
-          ].map((rule, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', marginBottom: 2 }}>
-              <div style={{ fontSize: 13 }}>{rule.emoji}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4, fontWeight: 500 }}>{rule.text}</div>
+            `Active Leads: ${activeClients.length}`,
+            `Overdue: ${overdueCount}`,
+          ].map((text, i) => (
+            <div key={i} style={{ padding: '7px 14px', marginBottom: 2, fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4, fontWeight: 500 }}>
+              {text}
             </div>
           ))}
         </div>
