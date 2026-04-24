@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getCurrentPhase } from '../../lib/utils';
-import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels } from '../../lib/storage';
+import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels, setCaregiverPhaseOverride } from '../../lib/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireEventTriggers } from '../../lib/automations';
 import { useApp } from './AppContext';
@@ -370,7 +370,21 @@ export function CaregiverProvider({ children }) {
       })
     );
     if (changed) {
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      // phase_override is excluded from the whole-row upsert in caregiverToDb
+      // (so stale client state can't clobber it). When the caller is changing
+      // phaseOverride, persist it via a targeted update alongside the related
+      // phaseTimestamps entry.
+      if ('phaseOverride' in updates) {
+        recentLocalEdits.current.set(cgId, Date.now());
+        setCaregiverPhaseOverride(cgId, updates.phaseOverride, changed.phaseTimestamps)
+          .catch(() => showToast('Failed to save phase — check your connection'));
+      }
+      const hasOtherUpdates = Object.keys(updates).some(
+        (k) => k !== 'phaseOverride' && k !== 'phaseTimestamps',
+      );
+      if (hasOtherUpdates) {
+        saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      }
       const newPhase = getCurrentPhase(changed);
       if (oldPhase && newPhase !== oldPhase) {
         fireEventTriggers('phase_change', changed, { from_phase: oldPhase, to_phase: newPhase });
@@ -400,7 +414,16 @@ export function CaregiverProvider({ children }) {
         return updated;
       })
     );
-    if (changed.length) saveCaregiversBulk(changed).catch(() => showToast('Failed to save — check your connection'));
+    if (changed.length) {
+      // Per-row targeted updates. A whole-row bulk upsert here would
+      // risk clobbering other fields with whatever the local cache has.
+      for (const cg of changed) recentLocalEdits.current.set(cg.id, Date.now());
+      Promise.all(
+        changed.map((cg) =>
+          setCaregiverPhaseOverride(cg.id, cg.phaseOverride, cg.phaseTimestamps),
+        ),
+      ).catch(() => showToast('Failed to save — check your connection'));
+    }
   }, [showToast]);
 
   const bulkAddNote = useCallback((ids, text) => {

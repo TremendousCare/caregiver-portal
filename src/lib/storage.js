@@ -141,6 +141,48 @@ export const saveCaregiver = async (caregiver) => {
 };
 
 /**
+ * Set a caregiver's manual phase override via a targeted update.
+ * Avoids the whole-row upsert in saveCaregiver so that a stale client
+ * (another tab / another user whose realtime missed the echo) can't
+ * clobber phase_override by writing back an out-of-date cached value.
+ *
+ * Accepts an optional phaseTimestamps so the moved-to phase's start
+ * time is persisted alongside the override in the same UPDATE.
+ *
+ * Pass phaseOverride = null to clear the override (fall back to
+ * task-calculated phase).
+ *
+ * @param {string}  caregiverId
+ * @param {string|null} phaseOverride
+ * @param {object}  [phaseTimestamps]   optional; if provided, written together
+ */
+export const setCaregiverPhaseOverride = async (caregiverId, phaseOverride, phaseTimestamps) => {
+  let data = null;
+  if (isSupabaseConfigured()) {
+    const patch = { phase_override: phaseOverride || null };
+    if (phaseTimestamps !== undefined) patch.phase_timestamps = phaseTimestamps || {};
+    const { data: row, error } = await supabase
+      .from('caregivers')
+      .update(patch)
+      .eq('id', caregiverId)
+      .select()
+      .single();
+    if (error) throw error;
+    data = row;
+  }
+  // Mirror into the localStorage cache so the fallback path and any
+  // post-refresh reload reflect the new override.
+  const all = localGet(CAREGIVERS_KEY) || [];
+  const idx = all.findIndex((c) => c.id === caregiverId);
+  if (idx >= 0) {
+    all[idx] = { ...all[idx], phaseOverride: phaseOverride || null };
+    if (phaseTimestamps !== undefined) all[idx].phaseTimestamps = phaseTimestamps || {};
+    localSet(CAREGIVERS_KEY, all);
+  }
+  return data;
+};
+
+/**
  * Toggle the SMS opt-out flag on a caregiver. Direct targeted update
  * — does NOT round-trip the full record, so it's safe to call from
  * any admin UI without risking accidental overwrites of other fields.
@@ -651,7 +693,7 @@ export const dbToCaregiver = (row) => ({
   createdAt: row.created_at,
 });
 
-const caregiverToDb = (cg) => ({
+export const caregiverToDb = (cg) => ({
   id: cg.id,
   first_name: cg.firstName || '',
   last_name: cg.lastName || '',
@@ -684,7 +726,7 @@ const caregiverToDb = (cg) => ({
   tasks: cg.tasks || {},
   notes: cg.notes || [],
   phase_timestamps: cg.phaseTimestamps || {},
-  phase_override: cg.phaseOverride || null,
+  // phase_override intentionally omitted — see comment below.
   board_status: cg.boardStatus || null,
   board_note: cg.boardNote || null,
   board_moved_at: cg.boardMovedAt || null,
@@ -704,10 +746,13 @@ const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
-  // user_id, sms_opted_out*, availability_check_paused* are set via
-  // targeted .update() calls (edge functions + setCaregiverSmsOptOut
-  // + setCaregiverAvailabilityCheckPaused). Not round-tripped here
-  // so admin edits don't clobber them.
+  // user_id, sms_opted_out*, availability_check_paused*, and
+  // phase_override are set via targeted .update() calls (edge
+  // functions + setCaregiverSmsOptOut + setCaregiverAvailabilityCheckPaused
+  // + setCaregiverPhaseOverride). Not round-tripped here so admin
+  // edits (add note, complete task, edit profile) don't clobber them
+  // when the client has stale state (multi-tab / multi-user / dropped
+  // realtime echo).
   created_at: cg.createdAt || Date.now(),
 });
 
