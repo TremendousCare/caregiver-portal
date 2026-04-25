@@ -2,8 +2,24 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { getCurrentPosition, evaluateGeofence, formatDistanceUs } from '../../lib/geofence';
+import { evaluateShiftWindow } from '../../lib/shiftWindow';
 import { callCaregiverClock } from '../../lib/callCaregiverClock';
 import s from './CaregiverPortal.module.css';
+
+const OVERRIDE_REASON_MAX_LEN = 250;
+const OVERRIDE_REASON_MIN_LEN = 5;
+
+function describeWindowFailure(windowResult, action) {
+  if (!windowResult || windowResult.passed) return null;
+  const verb = action === 'in' ? 'clock in' : 'clock out';
+  if (windowResult.reason === 'too_early') {
+    return `Too early to ${verb} — you’re ${windowResult.minutesEarly} min outside the allowed window.`;
+  }
+  if (windowResult.reason === 'too_late') {
+    return `Too late to ${verb} — you’re ${windowResult.minutesLate} min outside the allowed window.`;
+  }
+  return null;
+}
 
 const dtFmt = new Intl.DateTimeFormat(undefined, {
   weekday: 'short', month: 'short', day: 'numeric',
@@ -82,8 +98,14 @@ export function CaregiverShiftDetail({ caregiver }) {
         radiusM: Number(client?.geofence_radius_m ?? 150),
         accuracyM: pos.accuracyM,
       });
-      setLocationResult({ pos, evalResult });
-      setClockState(evalResult.passed ? 'ready' : 'blocked');
+      const windowResult = evaluateShiftWindow({
+        now: new Date(),
+        startTime: shift.start_time,
+        endTime: shift.end_time,
+        eventType: action,
+      });
+      setLocationResult({ pos, evalResult, windowResult });
+      setClockState(evalResult.passed && windowResult.passed ? 'ready' : 'blocked');
     } catch (err) {
       setLocationResult(null);
       setSubmitError(
@@ -119,7 +141,11 @@ export function CaregiverShiftDetail({ caregiver }) {
       await loadShift();
     } catch (err) {
       setSubmitError(err?.message || 'Could not record the clock event.');
-      setClockState(locationResult?.evalResult?.passed ? 'ready' : 'blocked');
+      setClockState(
+        locationResult?.evalResult?.passed && locationResult?.windowResult?.passed
+          ? 'ready'
+          : 'blocked',
+      );
     }
   };
 
@@ -142,6 +168,16 @@ export function CaregiverShiftDetail({ caregiver }) {
   const addressLine = client
     ? [client.address, client.city, client.state, client.zip].filter(Boolean).join(', ')
     : '';
+
+  const windowFailureMessage = locationResult?.windowResult && !locationResult.windowResult.passed
+    ? describeWindowFailure(locationResult.windowResult, action)
+    : null;
+  const geofenceFailed = locationResult?.evalResult && !locationResult.evalResult.passed;
+  const geofenceMessage = !geofenceFailed
+    ? null
+    : locationResult.evalResult.reason === 'client_not_geocoded'
+      ? 'This client’s address isn’t set up for geofencing yet.'
+      : `You’re ${formatDistanceUs(locationResult.evalResult.distanceM)} from the client’s home — outside the allowed area.`;
 
   return (
     <div className={s.page}>
@@ -208,23 +244,27 @@ export function CaregiverShiftDetail({ caregiver }) {
           {clockState === 'blocked' && (
             <>
               <div className={s.errorBanner}>
-                {locationResult?.evalResult?.reason === 'client_not_geocoded'
-                  ? 'This client\u2019s address isn\u2019t set up for geofencing yet. You can still clock in with a reason; your coordinator will review it.'
-                  : (
-                    <>You&rsquo;re {formatDistanceUs(locationResult?.evalResult?.distanceM)} from the client&rsquo;s home — outside the allowed area.</>
-                  )}
+                {windowFailureMessage && <div>{windowFailureMessage}</div>}
+                {geofenceMessage && <div>{geofenceMessage}</div>}
               </div>
               <label className={s.label}>Override reason</label>
               <textarea
                 className={s.textarea}
                 rows={3}
-                placeholder="e.g. Client is at the park; seeing them at a pharmacy pickup; GPS inaccurate in this building"
+                maxLength={OVERRIDE_REASON_MAX_LEN}
+                placeholder="e.g. Client called us early; visit ran long for medication; GPS inaccurate in this building"
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
               />
+              <p className={s.helper}>
+                {overrideReason.length} / {OVERRIDE_REASON_MAX_LEN} — your coordinator will review this.
+              </p>
               <button
                 className={s.primaryBtnLarge}
-                disabled={overrideReason.trim().length < 5}
+                disabled={
+                  overrideReason.trim().length < OVERRIDE_REASON_MIN_LEN
+                  || overrideReason.length > OVERRIDE_REASON_MAX_LEN
+                }
                 onClick={submitClock}
               >
                 {action === 'in' ? 'Clock in with override' : 'Clock out with override'}

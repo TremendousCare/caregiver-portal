@@ -63,6 +63,41 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
   return EARTH_RADIUS_M * c;
 }
 
+// ─── Shift-window enforcement ───
+// Mirrors src/lib/shiftWindow.js. Server is authoritative; the PWA
+// runs the same check for UX feedback. See that file for rationale.
+const CLOCK_IN_GRACE_BEFORE_MIN = 15;
+const CLOCK_OUT_GRACE_AFTER_MIN = 60;
+const OVERRIDE_REASON_MAX_LEN = 250;
+
+type WindowResult =
+  | { passed: true }
+  | { passed: false; reason: "too_early" | "too_late"; minutesOff: number };
+
+function evaluateShiftWindow(
+  nowMs: number,
+  startMs: number,
+  endMs: number,
+  eventType: "in" | "out",
+): WindowResult {
+  let earliestMs: number;
+  let latestMs: number;
+  if (eventType === "in") {
+    earliestMs = startMs - CLOCK_IN_GRACE_BEFORE_MIN * 60_000;
+    latestMs = endMs;
+  } else {
+    earliestMs = startMs;
+    latestMs = endMs + CLOCK_OUT_GRACE_AFTER_MIN * 60_000;
+  }
+  if (nowMs < earliestMs) {
+    return { passed: false, reason: "too_early", minutesOff: Math.ceil((earliestMs - nowMs) / 60_000) };
+  }
+  if (nowMs > latestMs) {
+    return { passed: false, reason: "too_late", minutesOff: Math.ceil((nowMs - latestMs) / 60_000) };
+  }
+  return { passed: true };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "POST required." }, 405);
@@ -96,6 +131,14 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "Missing or invalid caregiver GPS coordinates." }, 400);
     }
     const accuracy = Number.isFinite(Number(accuracy_m)) ? Number(accuracy_m) : null;
+
+    // Cap override_reason length up front so we never insert oversized
+    // text (the DB has a CHECK constraint as the final backstop).
+    if (typeof override_reason === "string" && override_reason.length > OVERRIDE_REASON_MAX_LEN) {
+      return jsonResponse({
+        error: `Override reason is too long (max ${OVERRIDE_REASON_MAX_LEN} characters).`,
+      }, 400);
+    }
 
     // Use service role for everything else — we've already verified
     // auth and we need to read across caregiver + shift + clients.
@@ -143,6 +186,35 @@ Deno.serve(async (req: Request) => {
       }, 409);
     }
 
+    // Compute trimmed override up front — both the shift-window and
+    // geofence checks below use it to decide whether a failure is
+    // overridable.
+    const overrideReasonTrim = typeof override_reason === "string"
+      ? override_reason.trim()
+      : "";
+
+    // Shift-window check. Reject clock-ins more than 15 min before
+    // the scheduled start (or after the shift has already ended), and
+    // clock-outs more than 60 min after scheduled end. The caregiver
+    // can override with a reason, which is logged for admin review.
+    const startMs = Date.parse(shift.start_time);
+    const endMs = Date.parse(shift.end_time);
+    if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      const windowResult = evaluateShiftWindow(Date.now(), startMs, endMs, event_type);
+      if (!windowResult.passed && !overrideReasonTrim) {
+        const verb = event_type === "in" ? "clock in" : "clock out";
+        const msg = windowResult.reason === "too_early"
+          ? `Too early to ${verb} — you're ${windowResult.minutesOff} min outside the allowed window. Provide an override reason to ${verb} anyway.`
+          : `Too late to ${verb} — you're ${windowResult.minutesOff} min outside the allowed window. Provide an override reason to ${verb} anyway.`;
+        return jsonResponse({
+          error: msg,
+          shift_window_passed: false,
+          shift_window_reason: windowResult.reason,
+          minutes_off: windowResult.minutesOff,
+        }, 403);
+      }
+    }
+
     // Server-side geofence compute.
     let distanceM: number | null = null;
     let geofencePassed = false;
@@ -168,9 +240,6 @@ Deno.serve(async (req: Request) => {
 
     // If geofence failed and no override reason was provided, reject.
     // A self-override with a reason is allowed (logged for admin review).
-    const overrideReasonTrim = typeof override_reason === "string"
-      ? override_reason.trim()
-      : "";
     if (!geofencePassed && !overrideReasonTrim) {
       return jsonResponse({
         error: client.latitude == null
@@ -199,6 +268,16 @@ Deno.serve(async (req: Request) => {
       .single();
     if (insErr || !clockRow) {
       console.error("[caregiver-clock] insert error:", insErr);
+      // Unique-constraint violation on (shift_id, event_type) means
+      // a duplicate clock event slipped past the status check (race
+      // between two near-simultaneous taps). Surface a clear message.
+      if ((insErr as { code?: string } | null)?.code === "23505") {
+        return jsonResponse({
+          error: event_type === "in"
+            ? "You've already clocked in for this shift."
+            : "You've already clocked out for this shift.",
+        }, 409);
+      }
       return jsonResponse({ error: "Failed to record clock event." }, 500);
     }
 
