@@ -29,12 +29,29 @@
 // sample worker shape, status codes, and per-call durations. Safe to
 // paste back to Claude — no secrets included.
 //
+// Invocation requires three Edge Function secrets:
+//   - PAYCHEX_CLIENT_ID, PAYCHEX_CLIENT_SECRET (the partner-level
+//     Paychex OAuth credentials)
+//   - PAYCHEX_DIAGNOSTIC_TOKEN (any long random string; pass it as
+//     the X-Diagnostic-Token request header). Without this gate the
+//     anon key alone could scrape Paychex company metadata + a
+//     5-worker nonpii sample because the function is deployed with
+//     --no-verify-jwt.
+//
 // See: docs/plans/2026-04-25-paychex-integration-plan.md (Phase 0).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const PAYCHEX_CLIENT_ID = Deno.env.get("PAYCHEX_CLIENT_ID");
 const PAYCHEX_CLIENT_SECRET = Deno.env.get("PAYCHEX_CLIENT_SECRET");
+// Shared-secret gate: the function is deployed with --no-verify-jwt
+// (see .github/workflows/deploy-edge-functions.yml) so without this
+// gate anyone with the public anon key could scrape Paychex company
+// metadata + a 5-worker nonpii sample. Set PAYCHEX_DIAGNOSTIC_TOKEN
+// to a long random value in Supabase Edge Function secrets, then
+// pass it as the X-Diagnostic-Token request header when invoking
+// from the Supabase Functions UI.
+const PAYCHEX_DIAGNOSTIC_TOKEN = Deno.env.get("PAYCHEX_DIAGNOSTIC_TOKEN");
 
 const PAYCHEX_BASE = "https://api.paychex.com";
 const TC_DISPLAY_ID = "70125496";
@@ -129,6 +146,18 @@ Deno.serve(async (req: Request) => {
   if (!PAYCHEX_CLIENT_ID || !PAYCHEX_CLIENT_SECRET) {
     return jsonResponse(500, {
       error: "PAYCHEX_CLIENT_ID and PAYCHEX_CLIENT_SECRET must be set in Supabase Edge Function secrets",
+    }, cors);
+  }
+
+  if (!PAYCHEX_DIAGNOSTIC_TOKEN) {
+    return jsonResponse(500, {
+      error: "PAYCHEX_DIAGNOSTIC_TOKEN must be set in Supabase Edge Function secrets to invoke this diagnostic",
+    }, cors);
+  }
+  const providedToken = req.headers.get("x-diagnostic-token") || "";
+  if (providedToken !== PAYCHEX_DIAGNOSTIC_TOKEN) {
+    return jsonResponse(401, {
+      error: "missing or invalid X-Diagnostic-Token header",
     }, cors);
   }
 
@@ -252,6 +281,23 @@ Deno.serve(async (req: Request) => {
   );
   calls.push(workersResult.report);
 
+  if (!workersResult.report.ok) {
+    return jsonResponse(200, {
+      summary: {
+        ok: false,
+        stoppedAt: "workers_sample",
+        message: "Workers sample call failed; companyId was discovered successfully but worker scope or read access is missing",
+        scope: tokenMeta.scope,
+        displayId: TC_DISPLAY_ID,
+        companyId,
+        companyLegalName: companyEntry?.legalName ?? null,
+      },
+      calls,
+      tokenMeta,
+      workersResponseBody: workersResult.bodyJson ?? workersResult.bodyText.slice(0, 1000),
+    }, cors);
+  }
+
   const workersBody = workersResult.bodyJson as {
     metadata?: { pagination?: { total?: number; offset?: number; limit?: number } };
     content?: unknown[];
@@ -263,7 +309,7 @@ Deno.serve(async (req: Request) => {
 
   return jsonResponse(200, {
     summary: {
-      ok: workersResult.report.ok,
+      ok: true,
       scope: tokenMeta.scope,
       displayId: TC_DISPLAY_ID,
       companyId,
