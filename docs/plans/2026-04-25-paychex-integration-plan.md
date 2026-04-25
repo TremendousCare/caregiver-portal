@@ -3,7 +3,7 @@
 **Date:** 2026-04-25
 **Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
-**Status:** Planning. No code written yet.
+**Status:** Planning. Phase 0 complete (2026-04-25, PR #207 merged). Phase 1 next.
 
 ---
 
@@ -179,8 +179,8 @@ The seed migration sets, for the Tremendous Care row only, a `paychex` object in
 {
   "paychex": {
     "display_id": "70125496",
-    "company_id": "<discovered in Phase 0 via GET /companies?displayid=70125496>",
-    "company_display": "70125496 - Tremendous Care",
+    "company_id": "00M9LQF7LUBLSED1THE0",
+    "company_display": "70125496 - TREMENDOUS CARE",
     "pay_period": { "frequency": "weekly", "ends_on": "sunday", "pay_day": "friday" },
     "default_employment_type": "FULL_TIME",
     "default_exemption_type": "NON_EXEMPT"
@@ -249,7 +249,7 @@ Money totals are the most prominent element on every screen. Exceptions surface 
 
 Each phase is independently shippable as its own PR. Each PR satisfies the multi-tenancy checklist in `.github/pull_request_template.md`. Each PR includes a rollback plan.
 
-### Phase 0 — Verification and `company_id` discovery (half day, no schema changes)
+### Phase 0 — Verification and `company_id` discovery (half day, no schema changes) — COMPLETE 2026-04-25
 
 Goal: confirm the API keys actually work against the real Paychex Flex company, surface any access issues before writing dependent code, and **discover TC's internal `companyId`** for use in the Phase 1 seed migration.
 
@@ -261,10 +261,35 @@ Goal: confirm the API keys actually work against the real Paychex Flex company, 
 - Returns a single structured JSON report with: scope, companyId, total worker count, sample worker shape, status codes for each call, request durations.
 - Run once via the Supabase Functions UI by the owner. Output captured and pasted back to me for the Phase 1 seed migration values.
 - No production data written. No schema changes. No DB tables touched.
+- **Auth gating added during PR review**: the diagnostic is deployed with `--no-verify-jwt` (per the standard edge-functions deploy workflow), so the function additionally requires a `PAYCHEX_DIAGNOSTIC_TOKEN` env secret + matching `X-Diagnostic-Token` request header. Without this gate the public anon key alone could scrape Paychex company metadata and a 5-worker nonpii sample. The gate is removed when the function is deleted in Phase 1's cleanup.
 
 Exit criteria: we can confirm we're talking to TC's real Paychex Flex company, the Company and Worker (read) scopes work as expected, we have the exact `companyId` value for the seed migration, and we know the exact JSON shape Paychex returns for workers.
 
 Rollback: delete the function. Nothing else depends on it. Edge function deletion is a one-commit revert.
+
+#### Phase 0 results (captured 2026-04-25)
+
+PR #207 merged to `main`. The diagnostic was invoked from the Supabase Dashboard with successful results across all three calls:
+
+| Field | Value |
+|---|---|
+| `displayId` | `70125496` |
+| `companyId` | `00M9LQF7LUBLSED1THE0` |
+| Paychex `legalName` | `TREMENDOUS CARE` (all caps; this is what the seed migration's `company_display` uses) |
+| Granted OAuth scopes | `api-delegation ext-api read:company_people write:company_people` |
+| Total workers in Paychex | 83 |
+| OAuth token TTL | 3599 seconds (1 hour, matches the plan's assumption) |
+| Token type | `Bearer` |
+
+**Scope confirmation:** the granted scopes cover Worker read + write (sufficient for Phases 2, 3, 4, and 6). The Payroll and Check API scope is **not** present, confirming Phase 5 is correctly gated on a separate Paychex rep request. Phases 1-4 are unblocked; Phase 5 waits.
+
+**Worker shape observations (for the Phase 2 mapping function):**
+- Top-level fields observed on every worker: `workerId`, `employeeId`, `workerType`, `exemptionType`, `hireDate`, `name`, `organization`, `currentStatus`, `links`. `employmentType` is present on some workers and absent on others (existing Paychex records may pre-date the field; new TC syncs in Phase 2 always set it).
+- `name` sub-fields: `familyName`, `givenName` always present. `middleName` and `preferredName` are optional. The mapping function in Phase 2 must tolerate missing values.
+- `currentStatus.statusType` values seen in the sample: `ACTIVE`, `TERMINATED`. `statusReason` values seen: `HIRED`, `RESIGNED`, `DISCHARGED`, `TERMINATION`. New caregivers Phase 2 syncs will use `IN_PROGRESS` / `PENDING_HIRE` per the plan; status transitions are managed in Paychex Flex by the back office, not by the portal.
+- `employeeId` is a short sequential integer (`"3"`, `"28"`, `"54"`, ...) Paychex assigns. **It is not the same as our `caregivers.id`**. The plan-mandated `workerCorrelationId = caregiver.id` linkage stays — that's how we round-trip from a Paychex worker back to our caregiver record. `employeeId` is informational only from our side.
+
+**Cleanup tracked for Phase 1 PR**: the `paychex-diagnostic` function and the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret should both be deleted when Phase 1 ships, since the seed migration captures the `companyId` permanently and the diagnostic has no further purpose. This is noted in the Phase 1 PR description as a follow-up item.
 
 ### Phase 1 — Data model (1 day)
 
@@ -457,10 +482,10 @@ These need owner input before or during the relevant phase. Listed in the order 
 In strict order. Do not proceed past a step until it succeeds.
 
 1. **Owner (in parallel, non-blocking)**: email Paychex rep to enable Payroll and Check API scope on the existing Caregiver Portal app in App Hub. Reference Company ID 70125496. This unblocks Phase 5 (optional enhancement) only — the integration ships full value without it.
-2. **Owner**: confirm `PAYCHEX_CLIENT_ID` and `PAYCHEX_CLIENT_SECRET` are set in Supabase Edge Functions secrets (Project Settings → Edge Functions → Secrets). **Done.**
-3. **Claude**: open a PR from `claude/paychex-multi-org-refactor-lpDA8` containing the docs revisions (this plan + the SAAS_RETROFIT_STATUS update). Owner reviews and merges. **In progress now.**
-4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration.
-5. **Owner**: answer open questions 2, 3, 6 above (pay period boundaries, mileage rate, hire_date column on caregivers). They go into the Phase 1 seed migration.
+2. **Owner**: confirm `PAYCHEX_CLIENT_ID` and `PAYCHEX_CLIENT_SECRET` are set in Supabase Edge Functions secrets (Project Settings → Edge Functions → Secrets). **Done.** Initial secret was rotated during Phase 0 verification (the original was rejected by Paychex with `Bad credentials`; the regenerated secret authenticated successfully on first try).
+3. **Claude**: open a PR from `claude/paychex-multi-org-refactor-lpDA8` containing the docs revisions (this plan + the SAAS_RETROFIT_STATUS update). Owner reviews and merges. **Done** (PR #205, merged 2026-04-25).
+4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration. **Done** (PR #207, merged 2026-04-25). Captured `companyId = 00M9LQF7LUBLSED1THE0`, scopes `api-delegation ext-api read:company_people write:company_people`, 83 workers in Paychex. Worker schema observations recorded above under "Phase 0 results."
+5. **Owner**: answer open questions 2, 3, 6 above (pay period boundaries, mileage rate, hire_date column on caregivers). They go into the Phase 1 seed migration. **In progress now.**
 6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply).
 7. **Owner**: create the "Test Caregiver — Do Not Pay" record in Paychex Flex (open question 5). Required before step 8 can verify end-to-end.
 8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status.
