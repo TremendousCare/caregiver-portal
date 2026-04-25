@@ -11,9 +11,14 @@ import s from './AutomationSettings.module.css';
 import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 
 // ─── Entity Types ───
+// 'shift' is the workforce-ops domain (assigned-caregiver notifications
+// like shift_assigned, shift_reminder_24h, shift_changed, shift_canceled).
+// Distinct from the caregiver pipeline (recruiting/onboarding) and the
+// client pipeline (lead-to-active).
 const ENTITY_TYPES = [
   { value: 'caregiver', label: 'Caregiver', icon: '\uD83D\uDC64' },
   { value: 'client', label: 'Client', icon: '\uD83C\uDFE0' },
+  { value: 'shift', label: 'Scheduling', icon: '📅' },
 ];
 
 // ─── Trigger & Action Config (Caregiver) ───
@@ -38,6 +43,14 @@ const CLIENT_TRIGGER_OPTIONS = [
   { value: 'client_task_completed', label: 'Task Completed', description: 'Fires when a specific client task is marked complete' },
 ];
 
+// ─── Trigger & Action Config (Scheduling) ───
+const SHIFT_TRIGGER_OPTIONS = [
+  { value: 'shift_assigned', label: 'Shift Assigned', description: 'Fires when a shift is assigned to a caregiver (or reassigned to a different caregiver)' },
+  { value: 'shift_reminder_24h', label: 'Shift Reminder (24h)', description: 'Fires once per shift, ~24 hours before the scheduled start time. Honors a local-time send window.' },
+  { value: 'shift_changed', label: 'Shift Updated', description: 'Fires when an already-assigned shift’s start time, end time, or client is edited' },
+  { value: 'shift_canceled', label: 'Shift Canceled', description: 'Fires when an assigned shift is canceled or its caregiver is removed' },
+];
+
 const CAREGIVER_ACTION_OPTIONS = [
   { value: 'send_sms', label: 'Send SMS', description: 'Send a text message via RingCentral' },
   { value: 'send_email', label: 'Send Email', description: 'Send an email via Outlook' },
@@ -58,6 +71,15 @@ const CLIENT_ACTION_OPTIONS = [
   { value: 'update_field', label: 'Update Field', description: 'Change a client field value' },
 ];
 
+// Scheduling rules send messages to the assigned caregiver. SMS only
+// for v1; email and other actions can be added once we see what admins
+// actually need.
+const SHIFT_ACTION_OPTIONS = [
+  { value: 'send_sms', label: 'Send SMS', description: 'Send a text message via RingCentral to the assigned caregiver' },
+];
+
+const SHIFT_TRIGGERS = ['shift_assigned', 'shift_reminder_24h', 'shift_changed', 'shift_canceled'];
+
 const MERGE_FIELDS = [
   { key: 'first_name', label: 'First Name' },
   { key: 'last_name', label: 'Last Name' },
@@ -73,19 +95,38 @@ const MERGE_FIELDS = [
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
   { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },
   { key: 'sender_number', label: 'Sender Number', triggers: ['inbound_sms'] },
+  // Shift-context fields — populated by the dispatcher (frontend
+  // shiftAutomations.js or the cron's SECTION 1.8) and resolved by
+  // resolveAutomationMergeFields. Pre-formatted so the template stays a
+  // simple string-replace.
+  { key: 'shift_start_text', label: 'Shift Start (formatted)', triggers: SHIFT_TRIGGERS },
+  { key: 'shift_end_text', label: 'Shift End (formatted)', triggers: SHIFT_TRIGGERS },
+  { key: 'shift_address', label: 'Shift Address', triggers: SHIFT_TRIGGERS },
+  { key: 'client_first_name', label: 'Client First Name', triggers: SHIFT_TRIGGERS },
+  { key: 'client_last_name', label: 'Client Last Name', triggers: SHIFT_TRIGGERS },
+  { key: 'client_full_name', label: 'Client Full Name', triggers: SHIFT_TRIGGERS },
 ];
 
-// Helper: get trigger/action options based on entity type
+// Helper: get trigger/action options based on entity type. Shift rules
+// don't have phase/task concepts so getPhases / getTasksByPhase return
+// empty collections — the form's phase- and task-conditional sections
+// then render nothing for shift rules.
 function getTriggerOptions(entityType) {
-  return entityType === 'client' ? CLIENT_TRIGGER_OPTIONS : CAREGIVER_TRIGGER_OPTIONS;
+  if (entityType === 'shift') return SHIFT_TRIGGER_OPTIONS;
+  if (entityType === 'client') return CLIENT_TRIGGER_OPTIONS;
+  return CAREGIVER_TRIGGER_OPTIONS;
 }
 function getActionOptions(entityType) {
-  return entityType === 'client' ? CLIENT_ACTION_OPTIONS : CAREGIVER_ACTION_OPTIONS;
+  if (entityType === 'shift') return SHIFT_ACTION_OPTIONS;
+  if (entityType === 'client') return CLIENT_ACTION_OPTIONS;
+  return CAREGIVER_ACTION_OPTIONS;
 }
 function getPhases(entityType) {
+  if (entityType === 'shift') return [];
   return entityType === 'client' ? CLIENT_PHASES : PHASES;
 }
 function getTasksByPhase(entityType) {
+  if (entityType === 'shift') return {};
   if (entityType === 'client') return getClientPhaseTasks();
   return getPhaseTasks();
 }
@@ -954,7 +995,11 @@ const quickBtnStyle = {
 // ─── Rule Form Modal ───
 function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [name, setName] = useState(rule?.name || '');
-  const defaultTrigger = entityType === 'client' ? 'new_client' : 'new_caregiver';
+  const defaultTrigger = entityType === 'shift'
+    ? 'shift_assigned'
+    : entityType === 'client'
+      ? 'new_client'
+      : 'new_caregiver';
   const [triggerType, setTriggerType] = useState(rule?.trigger_type || defaultTrigger);
   const [daysInactive, setDaysInactive] = useState(rule?.conditions?.days || 3);
   const [actionType, setActionType] = useState(rule?.action_type || 'send_sms');
@@ -1558,17 +1603,21 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
           </>
         )}
 
-        {/* Universal phase filter — all trigger types */}
-        <div style={{ marginBottom: 16 }}>
-          <label className={forms.fieldLabel}>Only in Phase (optional)</label>
-          <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}>
-            <option value="">Any phase</option>
-            {phases.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
-          </select>
-          <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-            Restrict this rule to only fire when the {entityLabel} is in a specific phase.
+        {/* Universal phase filter — caregiver/client trigger types only.
+            Shift rules don't have phase concepts; the filter would be
+            empty and meaningless. */}
+        {entityType !== 'shift' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Only in Phase (optional)</label>
+            <select className={forms.fieldInput} style={{ cursor: 'pointer' }} value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}>
+              <option value="">Any phase</option>
+              {phases.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Restrict this rule to only fire when the {entityLabel} is in a specific phase.
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Action Type */}
         <div style={{ marginBottom: 16 }}>
@@ -2279,7 +2328,13 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
 
       {/* Rules Section */}
       <SettingsCard
-        title={`${activeEntityType === 'client' ? 'Client' : 'Caregiver'} Automation Rules`}
+        title={
+          activeEntityType === 'shift'
+            ? 'Scheduling Automation Rules'
+            : activeEntityType === 'client'
+              ? 'Client Automation Rules'
+              : 'Caregiver Automation Rules'
+        }
         description={`${filteredRules.length} rule${filteredRules.length !== 1 ? 's' : ''}`}
         headerRight={
           <button
@@ -2293,9 +2348,11 @@ export function AutomationSettings({ showToast, currentUserEmail }) {
       >
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#7A8BA0', lineHeight: 1.5 }}>
-            {activeEntityType === 'client'
-              ? 'Automation rules for the Client Pipeline. Configure triggers (new client, days inactive, phase change, task completion) with actions (SMS, email, phase move, task completion, notes, field updates).'
-              : 'Automation rules for the Caregiver Pipeline. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload, document signed) with actions (SMS, email, phase move, task completion, notes, field updates, DocuSign envelopes).'
+            {activeEntityType === 'shift'
+              ? 'Notifications sent to caregivers about their assigned shifts: new assignment, 24-hour reminder, schedule changes, and cancellations. Templates support shift merge fields (start time, client name, address). Caregivers who have opted out of SMS are skipped automatically.'
+              : activeEntityType === 'client'
+                ? 'Automation rules for the Client Pipeline. Configure triggers (new client, days inactive, phase change, task completion) with actions (SMS, email, phase move, task completion, notes, field updates).'
+                : 'Automation rules for the Caregiver Pipeline. Configure triggers (new caregiver, days inactive, phase change, task completion, document upload, document signed) with actions (SMS, email, phase move, task completion, notes, field updates, DocuSign envelopes).'
             }
           </div>
         </div>

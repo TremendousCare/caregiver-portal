@@ -106,6 +106,48 @@ describe('Shared Automations (direct _shared import)', () => {
       const result = resolveAutomationMergeFields('Hi {{first_name}}', {});
       expect(result).toBe('Hi ');
     });
+
+    it('resolves survey_link from trigger context', () => {
+      const result = resolveAutomationMergeFields(
+        'Click {{survey_link}} to start',
+        { first_name: 'Jane' },
+        { survey_link: 'https://example.com/s/abc' },
+      );
+      expect(result).toBe('Click https://example.com/s/abc to start');
+    });
+
+    it('resolves shift-context fields from trigger context', () => {
+      const result = resolveAutomationMergeFields(
+        'Hi {{first_name}}, shift on {{shift_start_text}} for {{client_full_name}} at {{shift_address}}',
+        { first_name: 'Marcus' },
+        {
+          shift_start_text: 'Mon, Apr 25, 2:00 PM ET',
+          client_full_name: 'Eleanor Doe',
+          shift_address: '123 Main St, Boston, MA',
+        },
+      );
+      expect(result).toBe(
+        'Hi Marcus, shift on Mon, Apr 25, 2:00 PM ET for Eleanor Doe at 123 Main St, Boston, MA',
+      );
+    });
+
+    it('renders empty strings for missing shift-context fields', () => {
+      const result = resolveAutomationMergeFields(
+        '{{shift_start_text}}|{{shift_end_text}}|{{shift_address}}|{{client_full_name}}',
+        {},
+        {},
+      );
+      expect(result).toBe('|||');
+    });
+
+    it('resolves client_first_name and client_last_name independently', () => {
+      const result = resolveAutomationMergeFields(
+        'For {{client_first_name}} ({{client_last_name}})',
+        {},
+        { client_first_name: 'Eleanor', client_last_name: 'Doe' },
+      );
+      expect(result).toBe('For Eleanor (Doe)');
+    });
   });
 
   describe('normalizeActionType', () => {
