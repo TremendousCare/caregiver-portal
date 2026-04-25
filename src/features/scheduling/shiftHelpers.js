@@ -348,3 +348,81 @@ export function buildShiftUpdatePatch(original, draft) {
   }
   return patch;
 }
+
+/**
+ * Reduce a list of clock_events into the caregiver's actual start /
+ * end / duration for a shift. Events should be passed in
+ * chronological order (occurredAt ascending) — the storage helper
+ * already sorts them that way.
+ *
+ *   - actualStart   ISO of the first 'in' event, or null
+ *   - actualEnd     ISO of the last 'out' event, or null
+ *   - durationMs    ms between actualStart and actualEnd, or null if
+ *                   the shift is still open or only has one side
+ *   - isOpen        true if there's an 'in' with no matching later 'out'
+ *                   (caregiver is still on the clock)
+ *   - eventCount    total number of events (display only)
+ */
+export function computeShiftActuals(events) {
+  const list = Array.isArray(events) ? events : [];
+  let actualStart = null;
+  let actualEnd = null;
+  let isOpen = false;
+  for (const ev of list) {
+    if (!ev || !ev.occurredAt) continue;
+    if (ev.eventType === 'in') {
+      if (!actualStart) actualStart = ev.occurredAt;
+      isOpen = true;
+    } else if (ev.eventType === 'out') {
+      actualEnd = ev.occurredAt;
+      isOpen = false;
+    }
+  }
+  let durationMs = null;
+  if (actualStart && actualEnd) {
+    const a = new Date(actualStart).getTime();
+    const b = new Date(actualEnd).getTime();
+    if (!Number.isNaN(a) && !Number.isNaN(b) && b > a) {
+      durationMs = b - a;
+    }
+  }
+  return { actualStart, actualEnd, durationMs, isOpen, eventCount: list.length };
+}
+
+/**
+ * Format an ISO timestamp as a short clock-event label, in the given
+ * timezone. Example: "Tue Apr 23 · 8:03a". Omit `timezone` to use the
+ * runtime's local zone.
+ */
+export function formatClockEventTime(iso, timezone) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dayLabel = timezone
+    ? d.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        timeZone: timezone,
+      })
+    : d.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+  return `${dayLabel} · ${formatLocalTimeShort(d, timezone)}`;
+}
+
+/**
+ * Format a duration in milliseconds as "Xh Ym". Returns '' for null
+ * / negative / NaN. Used for the "actual hours worked" readout.
+ */
+export function formatDurationMs(ms) {
+  if (ms == null || Number.isNaN(ms) || ms < 0) return '';
+  const totalMinutes = Math.round(ms / 60000);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}

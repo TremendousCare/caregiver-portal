@@ -16,6 +16,9 @@ import {
   shiftToCalendarEvent,
   validateShiftDraft,
   buildShiftUpdatePatch,
+  computeShiftActuals,
+  formatClockEventTime,
+  formatDurationMs,
 } from '../../features/scheduling/shiftHelpers';
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -533,5 +536,124 @@ describe('buildShiftUpdatePatch', () => {
       status: 'confirmed',
       notes: 'Updated note',
     });
+  });
+});
+
+// ─── computeShiftActuals ───────────────────────────────────────
+
+describe('computeShiftActuals', () => {
+  it('returns nulls for an empty list', () => {
+    expect(computeShiftActuals([])).toEqual({
+      actualStart: null,
+      actualEnd: null,
+      durationMs: null,
+      isOpen: false,
+      eventCount: 0,
+    });
+  });
+
+  it('handles a non-array input safely', () => {
+    expect(computeShiftActuals(null)).toEqual({
+      actualStart: null,
+      actualEnd: null,
+      durationMs: null,
+      isOpen: false,
+      eventCount: 0,
+    });
+  });
+
+  it('marks the shift as open when there is an in but no out', () => {
+    const events = [
+      { eventType: 'in', occurredAt: '2026-05-04T15:00:00.000Z' },
+    ];
+    const actuals = computeShiftActuals(events);
+    expect(actuals.actualStart).toBe('2026-05-04T15:00:00.000Z');
+    expect(actuals.actualEnd).toBe(null);
+    expect(actuals.durationMs).toBe(null);
+    expect(actuals.isOpen).toBe(true);
+  });
+
+  it('computes duration between first in and last out', () => {
+    const events = [
+      { eventType: 'in', occurredAt: '2026-05-04T15:00:00.000Z' },
+      { eventType: 'out', occurredAt: '2026-05-04T19:30:00.000Z' },
+    ];
+    const actuals = computeShiftActuals(events);
+    expect(actuals.actualStart).toBe('2026-05-04T15:00:00.000Z');
+    expect(actuals.actualEnd).toBe('2026-05-04T19:30:00.000Z');
+    expect(actuals.durationMs).toBe(4.5 * 60 * 60 * 1000);
+    expect(actuals.isOpen).toBe(false);
+  });
+
+  it('keeps the FIRST in and the LAST out across multiple punches', () => {
+    const events = [
+      { eventType: 'in', occurredAt: '2026-05-04T15:00:00.000Z' },
+      { eventType: 'out', occurredAt: '2026-05-04T17:00:00.000Z' },
+      { eventType: 'in', occurredAt: '2026-05-04T17:30:00.000Z' },
+      { eventType: 'out', occurredAt: '2026-05-04T19:00:00.000Z' },
+    ];
+    const actuals = computeShiftActuals(events);
+    expect(actuals.actualStart).toBe('2026-05-04T15:00:00.000Z');
+    expect(actuals.actualEnd).toBe('2026-05-04T19:00:00.000Z');
+    expect(actuals.eventCount).toBe(4);
+    expect(actuals.isOpen).toBe(false);
+  });
+
+  it('skips malformed events without occurredAt', () => {
+    const events = [
+      { eventType: 'in' },
+      { eventType: 'in', occurredAt: '2026-05-04T15:00:00.000Z' },
+      null,
+      { eventType: 'out', occurredAt: '2026-05-04T19:00:00.000Z' },
+    ];
+    const actuals = computeShiftActuals(events);
+    expect(actuals.actualStart).toBe('2026-05-04T15:00:00.000Z');
+    expect(actuals.actualEnd).toBe('2026-05-04T19:00:00.000Z');
+  });
+});
+
+// ─── formatClockEventTime ──────────────────────────────────────
+
+describe('formatClockEventTime', () => {
+  it('returns empty string for missing input', () => {
+    expect(formatClockEventTime(null)).toBe('');
+    expect(formatClockEventTime('')).toBe('');
+    expect(formatClockEventTime('not-a-date')).toBe('');
+  });
+
+  it('formats a UTC ISO string with day and short time', () => {
+    // 2026-05-04 15:30 UTC = 8:30a Pacific
+    const out = formatClockEventTime('2026-05-04T15:30:00.000Z', 'America/Los_Angeles');
+    expect(out).toContain('Mon');
+    expect(out).toContain('May');
+    expect(out).toContain('8:30a');
+  });
+});
+
+// ─── formatDurationMs ──────────────────────────────────────────
+
+describe('formatDurationMs', () => {
+  it('returns empty for null / NaN / negative', () => {
+    expect(formatDurationMs(null)).toBe('');
+    expect(formatDurationMs(undefined)).toBe('');
+    expect(formatDurationMs(NaN)).toBe('');
+    expect(formatDurationMs(-1)).toBe('');
+  });
+
+  it('formats hours-only durations', () => {
+    expect(formatDurationMs(4 * 60 * 60 * 1000)).toBe('4h');
+  });
+
+  it('formats minutes-only durations', () => {
+    expect(formatDurationMs(45 * 60 * 1000)).toBe('45m');
+  });
+
+  it('formats hours and minutes together', () => {
+    expect(formatDurationMs(4.5 * 60 * 60 * 1000)).toBe('4h 30m');
+  });
+
+  it('rounds to the nearest minute', () => {
+    expect(formatDurationMs(60 * 1000 + 29 * 1000)).toBe('1m');
+    expect(formatDurationMs(60 * 1000 + 31 * 1000)).toBe('2m');
   });
 });
