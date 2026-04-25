@@ -684,13 +684,25 @@ export const dbToClockEvent = (row) => ({
   createdAt: row.created_at,
 });
 
-export const getClockEventsForShift = async (shiftId) => {
+/**
+ * Load clock events for a shift, optionally scoped to a caregiver.
+ *
+ * Scoping by caregiverId matters because clock_events keeps history
+ * keyed on (shift_id, caregiver_id): if a shift is reassigned, the
+ * previous caregiver's punches stay in the table. The drawer panel
+ * always passes the currently-assigned caregiver so the timeline only
+ * shows that caregiver's events — mixing multiple caregivers'
+ * punches into one summary would produce wrong actual start/end and
+ * expose the wrong rows to edit/delete.
+ */
+export const getClockEventsForShift = async (shiftId, { caregiverId } = {}) => {
   if (!isSupabaseConfigured() || !shiftId) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from('clock_events')
     .select('*')
-    .eq('shift_id', shiftId)
-    .order('occurred_at', { ascending: true });
+    .eq('shift_id', shiftId);
+  if (caregiverId) query = query.eq('caregiver_id', caregiverId);
+  const { data, error } = await query.order('occurred_at', { ascending: true });
   if (error) throw error;
   return (data || []).map(dbToClockEvent);
 };

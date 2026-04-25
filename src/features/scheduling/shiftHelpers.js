@@ -372,6 +372,11 @@ export function computeShiftActuals(events) {
     if (!ev || !ev.occurredAt) continue;
     if (ev.eventType === 'in') {
       if (!actualStart) actualStart = ev.occurredAt;
+      // A new clock-in invalidates any earlier clock-out: the shift
+      // is open again, so we don't want a stale end time on display.
+      // Without this, an in→out→in sequence (possible via manual
+      // entries) shows both "On the clock" and a closed-shift duration.
+      actualEnd = null;
       isOpen = true;
     } else if (ev.eventType === 'out') {
       actualEnd = ev.occurredAt;

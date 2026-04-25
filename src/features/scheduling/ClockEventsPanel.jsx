@@ -57,7 +57,10 @@ export function ClockEventsPanel({
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await getClockEventsForShift(shiftId);
+      // Scope to the currently-assigned caregiver. Without this, a
+      // reassigned shift would surface the previous caregiver's
+      // punches in the summary and edit list.
+      const rows = await getClockEventsForShift(shiftId, { caregiverId });
       setEvents(rows);
     } catch (e) {
       console.error('Load clock events failed:', e);
@@ -65,7 +68,7 @@ export function ClockEventsPanel({
     } finally {
       setLoading(false);
     }
-  }, [shiftId]);
+  }, [shiftId, caregiverId]);
 
   useEffect(() => {
     load();

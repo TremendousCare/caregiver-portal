@@ -599,6 +599,21 @@ describe('computeShiftActuals', () => {
     expect(actuals.isOpen).toBe(false);
   });
 
+  it('clears actualEnd when a later clock-in reopens the shift (in→out→in)', () => {
+    // Possible when staff add a manual in after a clock-out, or when
+    // the caregiver clocks back in after clocking out by mistake.
+    const events = [
+      { eventType: 'in', occurredAt: '2026-05-04T15:00:00.000Z' },
+      { eventType: 'out', occurredAt: '2026-05-04T17:00:00.000Z' },
+      { eventType: 'in', occurredAt: '2026-05-04T17:30:00.000Z' },
+    ];
+    const actuals = computeShiftActuals(events);
+    expect(actuals.actualStart).toBe('2026-05-04T15:00:00.000Z');
+    expect(actuals.actualEnd).toBe(null);
+    expect(actuals.durationMs).toBe(null);
+    expect(actuals.isOpen).toBe(true);
+  });
+
   it('skips malformed events without occurredAt', () => {
     const events = [
       { eventType: 'in' },

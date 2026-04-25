@@ -30,20 +30,21 @@ function createSupabaseMock() {
   }
 
   function makeBuilder(table, action, payload) {
+    const filters = [];
     const builder = {
       select() { return builder; },
-      eq() { return builder; },
+      eq(col, val) { filters.push({ col, val }); return builder; },
       order() { return builder; },
       single() {
-        calls.push({ table, action, terminal: 'single', payload });
+        calls.push({ table, action, terminal: 'single', payload, filters });
         return Promise.resolve(dequeue(table, action, 'single'));
       },
       maybeSingle() {
-        calls.push({ table, action, terminal: 'maybeSingle', payload });
+        calls.push({ table, action, terminal: 'maybeSingle', payload, filters });
         return Promise.resolve(dequeue(table, action, 'maybeSingle'));
       },
       then(onFulfilled, onRejected) {
-        calls.push({ table, action, terminal: 'noTerminal', payload });
+        calls.push({ table, action, terminal: 'noTerminal', payload, filters });
         return Promise.resolve(dequeue(table, action, 'noTerminal'))
           .then(onFulfilled, onRejected);
       },
@@ -74,6 +75,7 @@ const {
   insertManualClockEvent,
   updateClockEventTime,
   deleteManualClockEvent,
+  getClockEventsForShift,
 } = await import('../../features/scheduling/storage.js');
 
 beforeEach(() => {
@@ -235,6 +237,33 @@ describe('updateClockEventTime', () => {
     await expect(
       updateClockEventTime('evt-1', { occurredAt: null, editReason: 'x' }),
     ).rejects.toThrow(/Missing id/);
+    expect(mock.calls.length).toBe(0);
+  });
+});
+
+// ─── getClockEventsForShift ────────────────────────────────────
+
+describe('getClockEventsForShift', () => {
+  it('filters by shift_id only when no caregiver scope is given', async () => {
+    mock.enqueue('clock_events', 'select', 'noTerminal', { data: [], error: null });
+    await getClockEventsForShift('shift-A');
+    const select = mock.calls.find((c) => c.action === 'select');
+    expect(select.filters).toEqual([{ col: 'shift_id', val: 'shift-A' }]);
+  });
+
+  it('also filters by caregiver_id when given (so a reassigned shift does not mix prior caregivers\' punches)', async () => {
+    mock.enqueue('clock_events', 'select', 'noTerminal', { data: [], error: null });
+    await getClockEventsForShift('shift-A', { caregiverId: 'cg-9' });
+    const select = mock.calls.find((c) => c.action === 'select');
+    expect(select.filters).toEqual([
+      { col: 'shift_id', val: 'shift-A' },
+      { col: 'caregiver_id', val: 'cg-9' },
+    ]);
+  });
+
+  it('returns [] without hitting the network when shiftId is missing', async () => {
+    const out = await getClockEventsForShift(null);
+    expect(out).toEqual([]);
     expect(mock.calls.length).toBe(0);
   });
 });
