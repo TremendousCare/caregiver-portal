@@ -1,7 +1,7 @@
 # Paychex Flex Payroll Integration — Implementation Plan
 
 **Date:** 2026-04-25
-**Branch:** `claude/integrate-paychex-payroll-W2tQj`
+**Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
 **Status:** Planning. No code written yet.
 
@@ -11,7 +11,9 @@
 
 This document is the durable plan for adding Paychex Flex payroll processing to the Tremendous Care caregiver portal. It exists so any contributor — human or AI — opening the repo can pick up the work without reconstructing context from chat history.
 
-The integration is being built **after** the SaaS retrofit's Phase A shipped (PR #186). All new tables, queries, secrets, and configuration in this plan respect the six prime directives in `CLAUDE.md`. If you have not read `CLAUDE.md` and `docs/SAAS_RETROFIT.md`, read those first.
+The integration is being built **after** the SaaS retrofit's Phase A has shipped to `main` and baked successfully (organizations, org_memberships, custom access token hook, AppContext plumbing all live). Every TC user's JWT now carries `org_id`, `org_slug`, and `org_role` claims. Phase B (org_id on every existing table) is targeted to begin within the week. All new tables, queries, secrets, and configuration in this plan respect the six prime directives in `CLAUDE.md`. If you have not read `CLAUDE.md` and `docs/SAAS_RETROFIT.md`, read those first.
+
+**Sequencing note (revised 2026-04-25 after `developer.paychex.com` audit)**: Paychex's API is structured so that **one partner app holds one set of OAuth credentials** (our `PAYCHEX_CLIENT_ID` / `PAYCHEX_CLIENT_SECRET`) and that single credential pair is granted access to **multiple Paychex client companies** via the `/management/requestclientaccess` flow. Per-tenant scoping happens at the `companyId` level, not at the credential level. **Therefore the Paychex OAuth credentials are partner-level (env-var, permanent) and not per-org.** Per-org Paychex configuration — `company_id`, `display_id`, pay period boundaries, mileage rate — lives entirely in `organizations.settings.paychex` (jsonb, RLS-protected). This is consistent with directive 4 in `CLAUDE.md`: those credentials are not "single-account credentials for a tenant-sensitive integration"; they are **partner credentials that span all tenants**. The earlier draft of this plan included a "Phase 1.5" to introduce a per-org secret helper as a Paychex prerequisite. **That phase is removed**: Paychex does not need per-org secret storage. The per-org secret persistence decision (Vault vs `org_secrets` table) returns to retrofit Phase C kickoff, where it can be made coherently across RingCentral, DocuSign, Microsoft, and Anthropic at once.
 
 ## Vision in one paragraph
 
@@ -27,24 +29,32 @@ Confirmed by screenshots from the owner on 2026-04-25:
 
 There is **no separate sandbox**. All worker writes hit real production data. Mitigation: the first synced caregiver is a designated test record ("Test Caregiver — Do Not Pay") and a `PAYCHEX_DRY_RUN` environment flag intercepts writes during development.
 
-The owner is contacting Paychex to enable the Payroll and Check API scope. This unblocks Phase 5 only; Phases 0–4 and 6 do not depend on it.
+The owner is contacting Paychex to enable the Payroll and Check API scope. **This scope unblocks Phase 5 (direct API submission) only. The integration delivers full operational value without it.**
+
+Without Phase 5, the Phase 4 Approval UI's "Submit Run" action produces a structured CSV (and on-screen line-by-line preview) of the approved payroll run that the back-office user uploads or pastes into Paychex Flex manually — i.e. the current workflow, but with all the upstream automation (timesheet generation, OT classification, exception detection, approval gating, audit log) in place. Phase 5 graduates that final step from "export and paste" to "one-click direct submission." It is documented in this plan in full so that the work is ready to ship the day Paychex enables the scope, but it is **not on the critical path** for getting the integration live.
 
 ## Decisions locked
 
+- **Paychex auth model**: partner-level. One App Hub registration, one `PAYCHEX_CLIENT_ID` / `PAYCHEX_CLIENT_SECRET` pair held in env vars permanently. Multi-org scoping happens via `companyId` per call. New agency onboarding follows the `/management/requestclientaccess` flow (see Architecture below). These env vars are an explicit allowance under directive 4 because the credentials are partner-spanning, not single-account.
 - **Worker classification**: W-2 employees only at launch. No 1099 contractor flow.
+- **Worker `employmentType` for TC**: all caregivers sync as `FULL_TIME`. TC hires every caregiver as full-time even though hours functionally vary by week (some weeks 20h, some 45h). This is a Paychex classification field, not a weekly hours indicator. Future orgs that mix FT/PT/seasonal can override per-caregiver via a `caregivers.paychex_employment_type` column added later (out of scope for v1; one-line additive migration when needed).
+- **Worker `exemptionType` for TC**: all caregivers sync as `NON_EXEMPT` (hourly + OT-eligible).
+- **Worker `workState` for TC**: `CA`. Sourced from `organizations.settings.payroll.default_work_state` so future multi-state orgs can override per-worker via `caregivers.work_state` column added later.
 - **Pay period**: weekly. Specific day-of-week boundaries to be set per org in `organizations.settings.paychex.pay_period`. Tremendous Care defaults: Sunday end-of-day cutoff, Friday pay date.
 - **Overtime jurisdiction at launch**: California rules (daily >8h at 1.5x, daily >12h at 2x, weekly >40h at 1.5x, 7th consecutive day rules). Future orgs may need other states; the OT engine takes a jurisdiction parameter from day one even though only `CA` is implemented in v1.
 - **Timezone for OT day boundaries**: `America/Los_Angeles`. Stored as a single constant in `src/lib/payroll/constants.js`. Future orgs that operate in other timezones will read this from `organizations.settings.timezone`.
 - **Mileage**: tracked per-shift on `shifts.mileage`. Reimbursed as a non-taxable line item in Paychex (separate from wages). Rate stored in `organizations.settings.payroll.mileage_rate`. IRS 2026 standard rate ($0.70/mi) is the Tremendous Care default.
 - **Tax data storage**: all sensitive PII (SSN, bank account, W-4 elections) is sent directly to Paychex and **never stored locally**. The portal stores only `paychex_worker_id` and onboarding completion timestamps.
+- **Worker reads use the nonpii media type by default**: read flows fetch `application/vnd.paychex.workers.nonpii.v1+json` (or the matching nonpii variant per endpoint). Full-PII variants are used only when a specific operation needs it and the response is logged with PII-masked redaction. Keeps SSNs out of `paychex_api_log` by default.
 - **Approval workflow**: every timesheet must be approved by a user with role `admin` or `member` (back-office) before it can be included in a payroll run. Caregivers themselves cannot approve their own timesheets.
 - **Submission gating**: a payroll run cannot be submitted within 2 hours of the Paychex submission cutoff for that pay date. Hard block with a clear UI message.
 - **Sidebar placement**: a new top-level `Accounting` nav item with `Payroll` as a sub-tab inside the Accounting page. Future tabs: `Invoicing`, `Expenses`, `Reports`. Gated behind `organizations.settings.features_enabled.payroll === true`.
+- **Migration deployment**: SQL migrations apply to production via the manually-triggered `Deploy Database Migrations` workflow in GitHub Actions (`.github/workflows/deploy-migrations.yml`). The owner triggers a dry run first, reviews the listed pending migrations, then re-runs with `dry_run=false` to apply. Each schema-changing PR ships a matching down-script in `supabase/migrations/_rollback/` that the owner can paste into the Supabase Dashboard SQL editor for emergency rollback.
 - **No emojis** in any payroll UI strings, code comments, or documentation.
 
 ## Decisions still open
 
-- **Per-org credential storage mechanism**: SAAS_RETROFIT.md Phase C lists "Vault entries vs dedicated `org_secrets` table" as still-open. This integration will pioneer the pattern. The proposal in this doc (a `getOrgSecret(orgId, secretName)` abstraction with env-var fallback gated to TC during transition) needs owner approval before Phase 1 starts.
+- **Per-org credential storage mechanism (Vault vs `org_secrets` table)**: returns to retrofit Phase C kickoff (out of scope for this work). Paychex no longer needs this — its OAuth credentials are partner-level and live in env vars. The decision is made coherently across RingCentral, DocuSign, Microsoft, Anthropic when Phase C properly begins.
 - **Multi-state expansion timing**: when do we add OT rules for other US states? Defer until the second org with non-CA caregivers is signing.
 - **Off-cycle payroll** (bonuses, corrections, terminations mid-period): out of scope for v1. Manual via Paychex UI. Add to v2 backlog.
 - **Year-end W-2 generation**: handled automatically by Paychex once workers are synced. No work required from us; document in the runbook.
@@ -52,19 +62,35 @@ The owner is contacting Paychex to enable the Payroll and Check API scope. This 
 
 ## Architecture — multi-org from day one
 
-### Where the Paychex company ID lives
+### Where Paychex IDs and configuration live
 
-`organizations.settings.paychex.company_id` (jsonb). Tremendous Care's row gets `"70125496"` set by a one-line UPDATE in the seed migration. Code reads it via the standard `useOrgSettings()` hook on the frontend or by selecting `organizations.settings -> 'paychex'` in edge functions. **Never hardcoded in source.**
+Two distinct identifiers live in `organizations.settings.paychex` (jsonb), set per org:
 
-Display string also stored: `organizations.settings.paychex.company_display`. For TC: `"70125496 - Tremendous Care"`. Used in the admin UI ("Connected to Paychex Flex Company: ...").
+- **`display_id`**: the 8-digit human-readable Paychex Flex client number (TC: `"70125496"`). This is what the owner sees in Paychex Flex's UI and what gets supplied to `/management/requestclientaccess` during the onboarding flow. It is also what the back-office user types when verifying "yes, this is the right Paychex company."
+- **`company_id`**: the long alphanumeric internal identifier Paychex returns from `/companies` (e.g. `"00H2A1IUK695XL45NDO6"`). This is what every API call uses (`/companies/{companyId}/workers` etc.). For TC it is discovered once during initial connect and stored; for new orgs it is discovered automatically the first time the portal calls `/companies?displayid=<their_display_id>` after the admin approves the integration in Paychex Flex.
+
+Both **never hardcoded in source.** Frontend code reads them via the standard `useOrgSettings()` hook (or equivalent AppContext accessor); edge functions select `organizations.settings -> 'paychex'` server-side after deriving `org_id` from the JWT.
+
+A display string is also stored: `organizations.settings.paychex.company_display` ("70125496 - Tremendous Care"). Used in admin UI ("Connected to Paychex Flex Company: …") and the dollar-typed confirmation modal.
 
 ### Where Paychex API credentials live
 
-The retrofit plan defers the Vault-vs-dedicated-table decision to Phase C kickoff. Paychex pioneers the pattern.
+`PAYCHEX_CLIENT_ID` and `PAYCHEX_CLIENT_SECRET` live in **Supabase Edge Function secrets** (Project Settings → Edge Functions → Secrets in the Supabase Dashboard). They are **partner-level credentials**, shared across all orgs the portal serves, and stay as env vars permanently. Edge functions read them with `Deno.env.get(...)`. This is consistent with directive 4 because the credentials identify the entire Caregiver Portal SaaS to Paychex, not any single tenant; tenant scoping happens at the `companyId` layer per call.
 
-Proposed abstraction: a single helper `getOrgSecret(orgId, secretName)` in `supabase/functions/_shared/orgSecrets.ts`. During the transition for Tremendous Care, it reads from environment variables (`PAYCHEX_CLIENT_ID`, `PAYCHEX_CLIENT_SECRET`) gated on `org_id = (SELECT id FROM organizations WHERE slug = 'tremendous-care')`. For any other org, it queries Vault via an RPC (to be created in this work). When Phase C generalizes the pattern, the helper signature stays the same; only the implementation changes.
+This is the only Paychex secret the portal holds. Per-org Paychex configuration (`display_id`, `company_id`, pay periods, mileage rate) is non-secret jsonb in `organizations.settings.paychex`.
 
-This means **no new env vars for tenant-sensitive data going forward**. The TC env vars are a transition allowance explicitly permitted by directive 4 in `CLAUDE.md`.
+### How a new agency gets connected to Paychex (Phase E reference, documented here for completeness)
+
+The multi-tenant onboarding flow uses `POST /management/requestclientaccess`. Conceptually:
+
+1. New agency provides their 8-digit Paychex Flex `displayId` during signup.
+2. Portal stores it in `organizations.settings.paychex.display_id`.
+3. Portal edge function calls `/management/requestclientaccess` with that `displayId`. Response is `{ approvalLink: "https://myapps.paychex.com/#?clients=…&app=…" }`.
+4. Portal emails or texts the `approvalLink` to the agency's Paychex Flex admin (the human who has admin rights inside Paychex).
+5. Admin clicks the link, logs into Paychex Flex, navigates to Company Settings → Integrated Applications, locates the Caregiver Portal app showing "Access Requested," opens it, agrees to the Third-Party Terms of Use, clicks Save.
+6. After approval, the portal calls `GET /companies?displayid=<their_display_id>`, captures the returned `companyId`, persists it to `organizations.settings.paychex.company_id`, and from then on operates on that org's Paychex data normally.
+
+This entire flow ships in retrofit Phase E (self-serve onboarding). It is documented here so the Phase 2 worker-sync code is structured to consume `companyId` from `organizations.settings.paychex.company_id` (already true in this plan), making Phase E work with no Paychex code changes when it lands. **For Tremendous Care today**, the seed migration in Phase 1 inserts the known `display_id` ("70125496") and `company_id` (discovered manually in Phase 0 by hitting `GET /companies?displayid=70125496` once), bypassing the request-access flow because the connection has already been approved in Paychex App Hub.
 
 ### How edge functions read org context
 
@@ -76,16 +102,28 @@ Every new payroll table is born with row-level security. Predicate: `(auth.jwt()
 
 ### Events table integration
 
-Every payroll-related action writes to the existing `events` table: `timesheet_generated`, `timesheet_approved`, `timesheet_adjusted`, `payroll_run_submitted`, `payroll_run_completed`, `payroll_run_failed`, `paychex_worker_synced`, `paychex_worker_sync_failed`. The `events` table does not yet have an `org_id` column (Phase B work). Events are written without org_id today; Phase B's backfill will populate from the entity reference. Acceptable.
+Every payroll-related action writes to the existing `events` table: `timesheet_generated`, `timesheet_approved`, `timesheet_adjusted`, `payroll_run_submitted`, `payroll_run_completed`, `payroll_run_failed`, `paychex_worker_synced`, `paychex_worker_sync_failed`. The `events` table does not yet have an `org_id` column — Phase B of the SaaS retrofit adds it.
+
+Payroll events written during the gap before Phase B ships will not include `org_id`. Phase B's backfill SQL derives `org_id` deterministically from the event payload using these mappings (document this in the Phase B PR description so the recipe is preserved):
+
+| Event types | Source for org_id |
+|---|---|
+| `timesheet_generated`, `timesheet_approved`, `timesheet_adjusted` | `timesheets.org_id` joined on `payload->>'timesheet_id'` |
+| `payroll_run_submitted`, `payroll_run_completed`, `payroll_run_failed` | `payroll_runs.org_id` joined on `payload->>'payroll_run_id'` |
+| `paychex_worker_synced`, `paychex_worker_sync_failed` | `caregivers.org_id` joined on `payload->>'caregiver_id'` |
+
+Every payload shape above must include the corresponding ID field as a top-level key from the very first write so the backfill is mechanical. This is enforced by the `logEvent(...)` call sites in the payroll edge functions; review during Phase 1.5 / Phase 2 PRs.
 
 ### Paychex API client
 
 `supabase/functions/_shared/paychex.ts` — single OAuth2 client used by every payroll edge function. Responsibilities:
-- Token acquisition via client_credentials, cached in Deno KV until 5 minutes before expiry.
-- Idempotency keys on every write (hash of payload + ISO date bucket).
-- Retry with exponential backoff: 3 retries on 5xx or network errors at 2s, 4s, 8s. No retry on 4xx.
-- Every call writes a row to `paychex_api_log` before the response returns to the caller.
-- Honors `PAYCHEX_DRY_RUN` env flag — when true, write calls log the intended request to `paychex_api_log` with `dry_run = true` and return a synthetic success response without contacting Paychex.
+- **Token acquisition** via client_credentials at `POST https://api.paychex.com/auth/oauth/v2/token` with `grant_type=client_credentials`, `client_id`, `client_secret` form-encoded. Token TTL is ~1 hour (`expires_in: 3599`). Cached in Deno KV until 5 minutes before expiry.
+- **Vendor media types per call.** Every Paychex endpoint requires a specific `Accept` header (e.g. `application/vnd.paychex.companies.v1+json`, `application/vnd.paychex.workers.nonpii.v1+json`, `application/vnd.paychex.payroll.paycomponents.v1+json`). The shared client takes the media type as a per-call parameter; never defaults to `application/json`. Reads default to the `nonpii` variant where one exists.
+- **PATCH path asymmetry**. Worker creation is `POST /companies/{companyId}/workers` with the body wrapped as a single-element array `[{...}]`. Worker updates are `PATCH /workers/{workerId}` (no `companyId` in path, body is a single object). The shared client encodes this asymmetry once.
+- **Idempotency keys** on every write. Worker create: hash of `(workerCorrelationId, ISO date bucket)`. Payroll submission (Phase 5): `payroll_runs.id`. Retries cannot create duplicates.
+- **Retry with exponential backoff**: 3 retries on 5xx or network errors at 2s, 4s, 8s. **No retry on 4xx.** **`423 Locked` is a hard fail with explicit handling**: the Paychex docs warn that a 423 may partially succeed and return a `workerId` that is invalid and must not be used. The client treats 423 as a non-retriable error, **never persists any `workerId` from a 423 response**, and surfaces a structured `client_account_locked` error so callers can requeue via cron rather than retrying immediately.
+- **Logging**: every call writes a row to `paychex_api_log` before the response returns to the caller. Request/response bodies are stored verbatim except for SSN-redaction on full-PII worker variants (which we should rarely use; reads default to nonpii).
+- **`PAYCHEX_DRY_RUN` env flag** — when true, write calls log the intended request to `paychex_api_log` with `dry_run = true` and return a synthetic success response without contacting Paychex.
 
 ### CA overtime rules
 
@@ -101,7 +139,7 @@ All new tables get `org_id uuid REFERENCES public.organizations(id)` from creati
 
 | Column | Type | Purpose |
 |---|---|---|
-| `paychex_worker_id` | text | Paychex Worker ID once synced. Null until first sync. |
+| `paychex_worker_id` | text | Paychex Worker ID once synced. Null until first sync. Scoped per Paychex company. |
 | `paychex_sync_status` | text | One of `not_started`, `pending`, `active`, `error`. Default `not_started`. |
 | `paychex_last_synced_at` | timestamptz | Timestamp of last successful sync. |
 | `paychex_sync_error` | text | Last error message. Cleared on successful sync. |
@@ -111,11 +149,15 @@ All new tables get `org_id uuid REFERENCES public.organizations(id)` from creati
 
 These three onboarding timestamps are flags only. The actual W-4 / I-9 / bank data lives in Paychex.
 
+**Uniqueness**: `paychex_worker_id` is unique per Paychex company, not globally. Once Phase B of the retrofit adds `org_id` to `caregivers`, add a unique constraint on `(org_id, paychex_worker_id)` (partial, `WHERE paychex_worker_id IS NOT NULL`). Do **not** add a global unique constraint on `paychex_worker_id` alone — that breaks the day a second org with its own Paychex company joins. Until `caregivers.org_id` exists, no DB-level uniqueness is added; application code in `paychex-sync-worker` enforces it via lookup-before-write.
+
 ### New tables
 
 **`timesheets`** — one per caregiver per pay period. Source of truth for what gets paid.
 
-Key columns: `id uuid PK`, `org_id uuid NOT NULL REFERENCES organizations(id)`, `caregiver_id text REFERENCES caregivers(id)`, `pay_period_start date`, `pay_period_end date`, `status text` (one of `draft | pending_approval | approved | submitted | paid | rejected | blocked`), `regular_hours numeric(6,2)`, `overtime_hours numeric(6,2)`, `double_time_hours numeric(6,2)`, `mileage_total numeric(8,2)`, `mileage_reimbursement numeric(10,2)`, `gross_pay numeric(10,2)`, `approved_by text`, `approved_at timestamptz`, `submitted_at timestamptz`, `paychex_check_id text`, `block_reason text` (when status = blocked), `notes text`, `created_at timestamptz`. UNIQUE constraint on `(caregiver_id, pay_period_start)`.
+Key columns: `id uuid PK`, `org_id uuid NOT NULL REFERENCES organizations(id)`, `caregiver_id text REFERENCES caregivers(id)`, `pay_period_start date`, `pay_period_end date`, `status text` (one of `draft | pending_approval | approved | exported | submitted | paid | rejected | blocked`), `regular_hours numeric(6,2)`, `overtime_hours numeric(6,2)`, `double_time_hours numeric(6,2)`, `mileage_total numeric(8,2)`, `mileage_reimbursement numeric(10,2)`, `gross_pay numeric(10,2)`, `approved_by text`, `approved_at timestamptz`, `exported_at timestamptz` (set when included in a CSV export run), `submitted_at timestamptz` (set when submitted via Phase 5 API), `paychex_check_id text` (Phase 5 only; nullable indefinitely without it), `block_reason text` (when status = blocked), `notes text`, `created_at timestamptz`. UNIQUE constraint on `(org_id, caregiver_id, pay_period_start)` — org-scoped composite ensures uniqueness even after multi-org expansion.
+
+The `exported` and `submitted` statuses are distinct: `exported` means the data was packaged in a CSV that the back office downloaded (the path that ships in Phase 4); `submitted` means the data was sent directly to Paychex via API (Phase 5 only). A timesheet can move `approved → exported → paid` (manual entry path) or `approved → submitted → paid` (API path).
 
 **`timesheet_shifts`** — junction table linking timesheets to the shifts they cover, with the per-shift hour classification.
 
@@ -123,7 +165,7 @@ Key columns: `timesheet_id uuid REFERENCES timesheets(id) ON DELETE CASCADE`, `s
 
 **`payroll_runs`** — a batch of timesheets submitted together to Paychex.
 
-Key columns: `id uuid PK`, `org_id uuid NOT NULL`, `pay_period_start date`, `pay_period_end date`, `pay_date date`, `status text` (one of `draft | submitted | processing | completed | failed`), `timesheet_count int`, `total_gross numeric(12,2)`, `total_mileage numeric(10,2)`, `paychex_payperiod_id text`, `submitted_by text`, `submitted_at timestamptz`, `completed_at timestamptz`, `error_details jsonb`, `created_at timestamptz`. UNIQUE constraint on `(org_id, pay_period_start, pay_date)` to prevent duplicate runs.
+Key columns: `id uuid PK`, `org_id uuid NOT NULL`, `pay_period_start date`, `pay_period_end date`, `pay_date date`, `status text` (one of `draft | exported | submitted | processing | completed | failed`), `submission_mode text` (one of `csv_export | api_direct`), `timesheet_count int`, `total_gross numeric(12,2)`, `total_mileage numeric(10,2)`, `csv_export_url text` (Supabase Storage path for the generated CSV; nullable for `api_direct` runs), `paychex_payperiod_id text` (Phase 5 only), `submitted_by text`, `submitted_at timestamptz`, `completed_at timestamptz` (manually set by user marking the run as paid in CSV mode; webhook-driven in API mode), `error_details jsonb`, `created_at timestamptz`. UNIQUE constraint on `(org_id, pay_period_start, pay_date)` to prevent duplicate runs.
 
 **`paychex_api_log`** — every Paychex API call, request, response, and outcome.
 
@@ -136,14 +178,18 @@ The seed migration sets, for the Tremendous Care row only, a `paychex` object in
 ```jsonc
 {
   "paychex": {
-    "company_id": "70125496",
+    "display_id": "70125496",
+    "company_id": "<discovered in Phase 0 via GET /companies?displayid=70125496>",
     "company_display": "70125496 - Tremendous Care",
-    "pay_period": { "frequency": "weekly", "ends_on": "sunday", "pay_day": "friday" }
+    "pay_period": { "frequency": "weekly", "ends_on": "sunday", "pay_day": "friday" },
+    "default_employment_type": "FULL_TIME",
+    "default_exemption_type": "NON_EXEMPT"
   },
   "payroll": {
     "mileage_rate": 0.70,
     "ot_jurisdiction": "CA",
-    "timezone": "America/Los_Angeles"
+    "timezone": "America/Los_Angeles",
+    "default_work_state": "CA"
   },
   "features_enabled": {
     "payroll": true
@@ -203,17 +249,22 @@ Money totals are the most prominent element on every screen. Exceptions surface 
 
 Each phase is independently shippable as its own PR. Each PR satisfies the multi-tenancy checklist in `.github/pull_request_template.md`. Each PR includes a rollback plan.
 
-### Phase 0 — Verification (half day, no schema changes)
+### Phase 0 — Verification and `company_id` discovery (half day, no schema changes)
 
-Goal: confirm the API keys actually work against the real Paychex Flex company, and surface any access issues before writing dependent code.
+Goal: confirm the API keys actually work against the real Paychex Flex company, surface any access issues before writing dependent code, and **discover TC's internal `companyId`** for use in the Phase 1 seed migration.
 
-- New file: `supabase/functions/paychex-diagnostic/index.ts`. A throwaway-style edge function that authenticates with the existing keys, calls `GET /companies` and `GET /companies/{id}/workers?limit=5`, and returns a structured report (status codes, sample data, scope decoded from the OAuth token).
-- Run via the Supabase Functions UI by the owner. Output captured for the project notes.
-- No production data written. No schema changes.
+- New file: `supabase/functions/paychex-diagnostic/index.ts`. A throwaway-style edge function that:
+  1. Calls `POST https://api.paychex.com/auth/oauth/v2/token` with `grant_type=client_credentials` + the `PAYCHEX_CLIENT_ID` / `PAYCHEX_CLIENT_SECRET` from `Deno.env`. Reports the returned `scope` so we know exactly what the credentials can do.
+  2. Calls `GET https://api.paychex.com/companies?displayid=70125496` with `Accept: application/vnd.paychex.companies.v1+json`. Reports the returned `companyId` (the long alphanumeric like `"00H2A1IUK..."`). **This is the value that goes into the Phase 1 seed migration.**
+  3. Calls `GET https://api.paychex.com/companies/{companyId}/workers?offset=0&limit=5` with `Accept: application/vnd.paychex.workers.nonpii.v1+json` (avoids pulling SSNs into the diagnostic output). Reports the worker count (`metadata.pagination.total`) and the first 5 worker shapes for schema inspection.
+  4. Does **not** call any write endpoints. No worker creation in Phase 0.
+- Returns a single structured JSON report with: scope, companyId, total worker count, sample worker shape, status codes for each call, request durations.
+- Run once via the Supabase Functions UI by the owner. Output captured and pasted back to me for the Phase 1 seed migration values.
+- No production data written. No schema changes. No DB tables touched.
 
-Exit criteria: we can confirm we're talking to TC's real Paychex Flex company (not a sandbox or wrong account), Worker scope works for both read and write, and we know the exact JSON shape Paychex returns.
+Exit criteria: we can confirm we're talking to TC's real Paychex Flex company, the Company and Worker (read) scopes work as expected, we have the exact `companyId` value for the seed migration, and we know the exact JSON shape Paychex returns for workers.
 
-Rollback: delete the function. Nothing else depends on it.
+Rollback: delete the function. Nothing else depends on it. Edge function deletion is a one-commit revert.
 
 ### Phase 1 — Data model (1 day)
 
@@ -233,22 +284,23 @@ Exit criteria: all migrations apply cleanly to a dev branch of the database. RLS
 
 Rollback: run the down scripts in reverse migration order. No existing tables modified, so nothing else regresses.
 
+> **Note**: an earlier draft of this plan included a "Phase 1.5 — Generalize `getOrgSecret`" inserted here as a Paychex prerequisite. After the 2026-04-25 audit of `developer.paychex.com`, that phase was removed: Paychex's OAuth credentials are partner-level (env vars permanently) and Paychex Phase 2 has no per-org secret needs. The per-org secret persistence decision returns to retrofit Phase C kickoff, where it is made coherently across RingCentral, DocuSign, Microsoft, and Anthropic.
+
 ### Phase 2 — Paychex client and worker sync (2 days)
 
-Goal: ship the Paychex API client. Sync caregivers to Paychex one at a time. Read-only impact on caregivers (mapping caregiver fields to Worker fields), one-way write to Paychex.
+Goal: ship the shared Paychex API client and a per-caregiver sync edge function. One-way write to Paychex; reads are limited to the nonpii worker variant for verification. No `getOrgSecret` dependency — the OAuth credentials are partner-level env vars read directly via `Deno.env.get(...)`.
 
 New files:
-- `supabase/functions/_shared/paychex.ts` — OAuth2 client, idempotency, retries, structured logging to `paychex_api_log`. Honors `PAYCHEX_DRY_RUN`.
-- `supabase/functions/_shared/orgSecrets.ts` — `getOrgSecret(orgId, secretName)` abstraction.
-- `supabase/functions/paychex-sync-worker/index.ts` — given `caregiver_id`, upsert the Paychex Worker record. Reads org from JWT.
-- `src/lib/paychex/workerMapping.js` — pure function: caregiver row → Paychex Worker payload.
-- `src/lib/paychex/__tests__/workerMapping.test.js` — Vitest coverage.
+- `supabase/functions/_shared/paychex.ts` — OAuth2 client per the responsibilities listed in "Paychex API client" above (token caching, vendor media types, PATCH path asymmetry, idempotency keys, retries with 423 hard-fail, structured logging, dry-run honoring). Reads `PAYCHEX_CLIENT_ID` / `PAYCHEX_CLIENT_SECRET` from `Deno.env`.
+- `supabase/functions/paychex-sync-worker/index.ts` — given `caregiver_id`, the function loads the caregiver, derives `org_id` from the JWT, loads `companyId` from `organizations.settings.paychex.company_id`, calls the worker mapping, then either `POST /companies/{companyId}/workers` (if `caregivers.paychex_worker_id` is null) or `PATCH /workers/{workerId}` (if it is set). On `200`, persists `paychex_worker_id`, `paychex_sync_status='active'`, `paychex_last_synced_at`. On `423`, sets `paychex_sync_status='error'` with `paychex_sync_error='client_account_locked'` and **does not persist the returned `workerId`** (the docs warn it is invalid in this case).
+- `src/lib/paychex/workerMapping.js` — pure function: caregiver row + org settings → Paychex Worker payload (single object, the edge function wraps it in an array for POST per the API). Sets `workerCorrelationId = caregiver.id`, `workerType = 'EMPLOYEE'`, `employmentType` from `organizations.settings.paychex.default_employment_type` (TC: `FULL_TIME`), `currentStatus.{statusType: 'IN_PROGRESS', statusReason: 'PENDING_HIRE', effectiveDate: caregiver.hire_date}`, and the name/birthDate fields. Does **not** include `legalId` (SSN) — that comes from the Phase 6 hosted onboarding flow.
+- `src/lib/paychex/__tests__/workerMapping.test.js` — Vitest coverage for every caregiver field that maps to a Worker field, null/undefined handling, special characters in names, missing hire_date fallback (default to today's date).
 
 UI: a dev-only sync button is **not** added to the caregiver detail view in this phase. Verification happens via direct edge function invocation. UI lives in Phase 6.
 
-Exit criteria: a designated test caregiver can be synced to Paychex via the edge function. Sync status fields populate correctly. All API calls visible in `paychex_api_log`. Tests for the mapping function pass with ≥90% coverage of caregiver → worker transformations.
+Exit criteria: a designated test caregiver ("Test Caregiver — Do Not Pay") can be synced to Paychex via the edge function and the resulting Worker shows up in Paychex App Hub with `IN_PROGRESS` / `PENDING_HIRE` status. Sync status fields populate correctly. All API calls visible in `paychex_api_log`. Tests for the mapping function pass with ≥90% coverage. 423 handling verified via dry-run injection.
 
-Rollback: revert the PR. The edge function ceases to exist; existing data is unchanged.
+Rollback: revert the PR. The edge function ceases to exist; existing caregiver data is unchanged. The `paychex_worker_id` column on `caregivers` from Phase 1 stays — it is just unused. To clean up the test caregiver in Paychex Flex itself, the back-office user deletes it manually via the Paychex UI (Paychex's Worker DELETE endpoint is in the docs but we never need to call it from our side).
 
 ### Phase 3 — Timesheet generation and overtime engine (3 days)
 
@@ -266,9 +318,11 @@ Exit criteria: cron runs and produces correct draft timesheets for real TC shift
 
 Rollback: disable the cron in Supabase. Drafts in `timesheets` can be ignored or marked `rejected` manually.
 
-### Phase 4 — Approval UI (3 days)
+### Phase 4 — Approval UI and CSV export (4 days)
 
-Goal: the Accounting > Payroll page goes live. Back office can review, edit, and approve timesheets. No Paychex submission yet.
+Goal: the Accounting > Payroll page goes live. Back office can review, edit, approve, and **export** timesheets as a CSV ready to upload or paste into Paychex Flex's existing manual entry interface. **This phase delivers the full operational value of the integration without requiring Paychex's Payroll API scope.**
+
+The "Submit Run" action in this phase generates a CSV (and on-screen line-by-line preview) of the approved payroll run, marks the constituent timesheets `exported`, marks the run `exported`, and writes the export event. The back-office user then enters the data into Paychex Flex (current workflow) and clicks "Mark as Paid" once payroll has been confirmed processed in Paychex — flipping the run to `completed` and timesheets to `paid`. This is the manual reconciliation path; Phase 5 graduates it to API-driven.
 
 New files:
 - `src/features/accounting/AccountingPage.jsx` — top-level page with sub-tab routing.
@@ -278,32 +332,46 @@ New files:
 - `src/features/accounting/payroll/PayrollSettingsView.jsx`
 - `src/features/accounting/payroll/TimesheetRow.jsx`
 - `src/features/accounting/payroll/ExceptionBadge.jsx`
+- `src/features/accounting/payroll/SubmissionPreview.jsx` — line-by-line preview of what will be exported, with column headers matching Paychex Flex's manual entry columns.
+- `src/lib/payroll/csvExport.js` — pure function: list of approved timesheets → CSV string in the exact column order Paychex Flex's manual entry accepts. Tested in `__tests__`.
+- `supabase/functions/payroll-export-run/index.ts` — server-side: receives a list of approved timesheet IDs, validates org-scoping, generates CSV, uploads to Supabase Storage with a signed URL, marks run + timesheets as `exported`, writes `events`. Returns the signed URL.
 - Module CSS files for each.
 - Route + sidebar entry in `AppShell.jsx`.
 
+CSV column format: confirmed against Paychex Flex's manual entry screen during Phase 0 diagnostic (see open question #1 below — owner confirms the exact columns by sharing a screenshot of the entry screen). Reasonable expected columns: Worker ID, Worker Name, Pay Period Start, Pay Period End, Regular Hours, OT Hours, DT Hours, Mileage Reimbursement (line item, non-taxable). Stored once in `src/lib/payroll/csvExport.js` as a single source of truth.
+
+Submission UX:
+1. User clicks "Generate Payroll Run" on `ThisWeekView`. All approved timesheets for the current period are batched into a `payroll_runs` row in `draft` status.
+2. Confirmation modal opens showing total caregiver count, total hours, total gross, and the dollar-typed confirmation field. Modal header shows `PRODUCTION` or `DRY-RUN` indicator.
+3. On confirm, run is marked `exported`, CSV is generated server-side, and a download begins. The line-by-line preview stays visible for cross-referencing during manual entry.
+4. After the user enters the data into Paychex Flex, they return to `PayrollRunsView`, open the run, and click "Mark as Paid in Paychex." This flips the run to `completed` and all member timesheets to `paid`. Audit event written.
+
 Notification: a Monday 7 AM Pacific cron job sends an email and writes an `events` row when draft timesheets exist for the prior week, addressed to users with role `admin` or `member` in the org.
 
-Exit criteria: a back-office user can complete a full week's review and approval flow on a Vercel preview deploy. Empty state, single-caregiver state, and 50+-caregiver state all render and perform acceptably. Approval writes events to the `events` table.
+Exit criteria: a back-office user can complete a full week's review, approval, and CSV export flow on a Vercel preview deploy. CSV opens cleanly in Paychex Flex's import or matches its manual entry format exactly. Empty state, single-caregiver state, and 50+-caregiver state all render and perform acceptably. Approval and export write events to the `events` table.
 
 Rollback: hide the sidebar entry behind a feature flag override. Route stays accessible to debug. Data is unchanged.
 
-### Phase 5 — Submission and webhook (3 days, gated on Payroll API scope)
+### Phase 5 — Direct API submission and webhook (3 days, OPTIONAL — gated on Payroll API scope)
+
+**This phase is an enhancement, not a requirement. The integration is fully operational without it via the CSV export path shipped in Phase 4. Phase 5 is documented in full so the work is ready when Paychex enables the Payroll and Check API scope, but it is not on the critical path.**
 
 **Cannot start until owner confirms Payroll and Check API scope is enabled by Paychex.**
 
-Goal: clean submission of approved timesheets to Paychex, with status surfaced back via webhook.
+Goal: graduate the final submission step from CSV-export-and-paste to direct API submission, with status surfaced back via webhook.
 
 New files:
 - `supabase/functions/payroll-submit-run/index.ts` — wraps DB transaction (mark run `submitted` before API call) and Paychex `/paydata` call. Idempotency key = `payroll_runs.id`.
 - `supabase/functions/paychex-webhook/index.ts` — validates Paychex signature, updates `payroll_runs.status` and per-timesheet `paychex_check_id`, writes `events`.
-- Submission UI: confirmation modal on the Payroll Runs view requiring the user to type the gross total to confirm.
-- Preview Submission view: shows exactly what will be sent to Paychex, line by line.
+- Submission UI: a second submission button ("Submit to Paychex via API") appears alongside the existing "Generate CSV" button on the Payroll Runs view. Confirmation modal requires the user to type the gross total. The CSV path remains available as a fallback indefinitely.
+- Preview Submission view: reuses the Phase 4 line-by-line preview; the only difference is what the "Confirm" button does.
+- `payroll_runs.submission_mode` is set to `api_direct` for runs submitted via this path; `csv_export` for runs that go via the Phase 4 path. Both modes coexist permanently — a back-office user can choose per-run.
 
-Production cutover requires owner sign-off after a sandbox-equivalent dry run on at least one full pay period using `PAYCHEX_DRY_RUN=true`.
+Production cutover requires owner sign-off after a dry run on at least one full pay period using `PAYCHEX_DRY_RUN=true` (the CSV-mode export from Phase 4 also serves as the side-by-side comparison: API result should match CSV result penny for penny).
 
-Exit criteria: a payroll run submits successfully via the live API for one pay period. Webhook updates status. Failure modes (rejected workers, validation errors) surface clearly in the UI. Audit trail complete in `paychex_api_log` and `events`.
+Exit criteria: a payroll run submits successfully via the live API for one pay period. Webhook updates status. Failure modes (rejected workers, validation errors) surface clearly in the UI and the user can fall back to CSV export for the same run with one click. Audit trail complete in `paychex_api_log` and `events`.
 
-Rollback: void any in-flight submission via Paychex Flex UI directly. Code rollback via Vercel. The `payroll_runs.status` machine permits a `failed` terminal state from any prior state, so a stuck record can be force-marked manually.
+Rollback: void any in-flight submission via Paychex Flex UI directly. Code rollback via Vercel. The CSV export path remains available throughout. The `payroll_runs.status` machine permits a `failed` terminal state from any prior state, so a stuck record can be force-marked manually.
 
 ### Phase 6 — W-2 tax onboarding flow (3 days)
 
@@ -349,6 +417,10 @@ Things that will be tempting and must not be done:
 - **Skipping the dry-run preview before first production submission.** At least one full pay period must be validated with `PAYCHEX_DRY_RUN=true` before the live cutover.
 - **Adding mileage to the wage total instead of as a separate non-taxable line item.** Wrong tax treatment, real consequences.
 - **Reusing one Paychex `/paydata` call for multiple pay periods.** One submission per period. Composability is not a feature here; correctness is.
+- **Trusting a `workerId` returned in a 423 "client account locked" response.** Paychex docs explicitly warn that 423 responses may include a `workerId` that is invalid. The shared client must drop any such ID on the floor and never persist it; the sync state machine moves to `error` and the cron retries later.
+- **Defaulting Paychex requests to `Accept: application/json`.** Every Paychex endpoint requires a vendor-specific media type (`application/vnd.paychex.<resource>.v1+json`). Generic `application/json` may return ambiguous shapes or different field sets. The shared client refuses to send a request without an explicit vendor media type.
+- **Hardcoding TC's `companyId` (the long alphanumeric).** That value is per-org and is discovered from Paychex's `/companies` endpoint. The 8-digit `display_id` (`70125496`) is also per-org. Both belong in `organizations.settings.paychex`, never in source.
+- **Treating Paychex webhook deliveries as exactly-once.** Paychex retries failed deliveries every 5 minutes until 2XX. Our `paychex-webhook` edge function (Phase 5) must dedupe by Paychex's event identifier (logged in `paychex_api_log`) and treat repeat deliveries as no-ops.
 
 ## Testing strategy
 
@@ -363,29 +435,41 @@ Things that will be tempting and must not be done:
 
 These need owner input before or during the relevant phase. Listed in the order they become blocking.
 
-1. **Paychex submission cutoff timing**: confirm how many business days before pay date Paychex Flex requires the `/paydata` submission. Affects the Phase 4 cutoff-block UI and the Monday review notification timing.
-2. **Pay period boundaries**: confirm Sunday end-of-day cutoff and Friday pay date are correct for Tremendous Care today.
+1. **Paychex Flex manual entry column format**: owner shares a screenshot of the Paychex Flex manual payroll entry screen so Phase 4's CSV export columns match exactly. Affects `src/lib/payroll/csvExport.js`. Not blocking until Phase 4.
+2. **Pay period boundaries**: confirm Sunday end-of-day cutoff and Friday pay date are correct for Tremendous Care today. Goes in the Phase 1 seed migration.
 3. **Mileage rate**: confirm $0.70/mi for 2026 is the rate currently used. If TC reimburses at a different rate, set it accordingly in the seed migration.
-4. **Per-org credential storage approval**: the proposed `getOrgSecret(orgId, secretName)` abstraction with TC env-var fallback. This is the pattern that Phase C of the SaaS retrofit will generalize. Owner approval needed before Phase 1 starts.
-5. **Notification recipients**: which users receive the Monday "payroll ready to review" email? All `admin` + `member` role users in the org by default; owner can override.
-6. **Test caregiver setup**: owner creates the "Test Caregiver — Do Not Pay" record in Paychex Flex before Phase 2 begins.
-7. **Paychex rep status**: track the Payroll and Check API scope request. Phase 5 cannot start until the scope is enabled.
+4. **Notification recipients**: which users receive the Monday "payroll ready to review" email? All `admin` + `member` role users in the org by default; owner can override at Phase 4.
+5. **Test caregiver setup**: owner creates the "Test Caregiver — Do Not Pay" record in Paychex Flex before Phase 2 begins. Per the API behavior, we'll then run Phase 2's sync against that caregiver as the first end-to-end exercise.
+6. **`hire_date` field on caregivers**: the worker mapping needs a hire date (`currentStatus.effectiveDate` for IN_PROGRESS create). Confirm what column on `caregivers` holds this today; if there isn't one, mapping defaults to "today" and the back-office user adjusts in Paychex Flex during the IN_PROGRESS → ACTIVE transition.
+7. **Paychex rep status (Phase 5 only)**: track the Payroll and Check API scope request. Phase 5 cannot start until the scope is enabled. The integration ships full value via Phase 4's CSV export without Phase 5.
+
+**Resolved during the 2026-04-25 docs audit (no longer open):**
+- ~~Paychex submission cutoff timing~~ — moved to Phase 5 design when that scope is granted.
+- ~~Per-org credential storage approval~~ — Paychex auth is partner-level; per-org persistence decision returns to retrofit Phase C.
+- ~~Vendor media type per endpoint~~ — confirmed required; client takes media type per call.
+- ~~POST workers body shape~~ — array of worker objects; client wraps single worker in `[...]`.
+- ~~PATCH worker URL~~ — `/workers/{workerId}`, no companyId in path.
+- ~~423 handling~~ — never trust `workerId` from 423 response; documented in client and anti-patterns.
+- ~~`employmentType` for TC~~ — all `FULL_TIME` (TC hires every caregiver as full-time even though hours functionally vary).
 
 ## Immediate next actions
 
 In strict order. Do not proceed past a step until it succeeds.
 
-1. **Owner**: email Paychex rep to enable Payroll and Check API scope on the existing Caregiver Portal app in App Hub. Reference Company ID 70125496.
-2. **Owner**: answer the seven open questions above. Especially questions 1, 2, 3 — they go straight into the seed migration.
-3. **Claude**: open a draft PR from `claude/integrate-paychex-payroll-W2tQj` containing this plan document only. Get owner approval on the plan.
-4. **Claude**: implement Phase 0 (diagnostic edge function). One-PR scope. Owner runs it once and shares the output.
-5. **Claude**: implement Phase 1 (data model + seed). One-PR scope. Reviewed against the multi-tenancy checklist.
-6. **Claude**: implement Phase 2 (Paychex client + worker sync). Sync the test caregiver. Verify in Paychex App Hub that the Worker record appears as expected.
-7. **Claude**: implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks the produced drafts against actual TC payroll for those weeks.
-8. **Claude**: implement Phase 4 (approval UI). Back office runs 1-2 cycles of approval flow without submitting. Catches any UX issues.
-9. **Owner**: confirm Paychex Payroll API scope is enabled. Without this, Phase 5 cannot proceed.
-10. **Claude**: implement Phase 5 (submission + webhook). Run two pay periods in dry-run. Owner reviews Preview output. On owner sign-off, flip `PAYCHEX_DRY_RUN` off and submit one real payroll run.
-11. **Claude**: implement Phase 6 (W-2 onboarding flow) for the next new hire.
+1. **Owner (in parallel, non-blocking)**: email Paychex rep to enable Payroll and Check API scope on the existing Caregiver Portal app in App Hub. Reference Company ID 70125496. This unblocks Phase 5 (optional enhancement) only — the integration ships full value without it.
+2. **Owner**: confirm `PAYCHEX_CLIENT_ID` and `PAYCHEX_CLIENT_SECRET` are set in Supabase Edge Functions secrets (Project Settings → Edge Functions → Secrets). **Done.**
+3. **Claude**: open a PR from `claude/paychex-multi-org-refactor-lpDA8` containing the docs revisions (this plan + the SAAS_RETROFIT_STATUS update). Owner reviews and merges. **In progress now.**
+4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration.
+5. **Owner**: answer open questions 2, 3, 6 above (pay period boundaries, mileage rate, hire_date column on caregivers). They go into the Phase 1 seed migration.
+6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply).
+7. **Owner**: create the "Test Caregiver — Do Not Pay" record in Paychex Flex (open question 5). Required before step 8 can verify end-to-end.
+8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status.
+9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks.
+10. **Claude**: on a fresh branch, implement Phase 4 (approval UI + CSV export). **At this point the integration is operationally complete.** Back office runs 1-2 cycles end-to-end: review, approve, export CSV, manually enter into Paychex, mark as paid. Catches any UX issues.
+11. **Bake**: 2-4 weeks of weekly payroll runs through the Phase 4 CSV path before considering Phase 5. Confirms numbers match Paychex's processing penny-for-penny in real conditions.
+12. **Owner (only if Paychex enables the scope)**: confirm Paychex Payroll API scope is enabled.
+13. **Claude (only if step 12 happens)**: implement Phase 5 (direct API submission + webhook). Run two pay periods in dry-run alongside the CSV export (compare line-by-line). Owner reviews Preview output. On owner sign-off, flip `PAYCHEX_DRY_RUN` off and submit one real payroll run.
+14. **Claude**: implement Phase 6 (W-2 onboarding flow) for the next new hire. Can run in parallel with Phase 5 or independently — neither blocks the other.
 
-After Phase 6 ships, this document graduates to `docs/runbooks/payroll-runbook.md` (a new doc covering day-to-day operation, exception handling, and what-to-do-when scenarios).
+After Phase 4 ships, this document graduates to `docs/runbooks/payroll-runbook.md` (a new doc covering day-to-day operation of the CSV export workflow, exception handling, and what-to-do-when scenarios). The runbook is updated again if/when Phase 5 ships.
 
