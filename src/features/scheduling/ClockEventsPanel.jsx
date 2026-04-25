@@ -9,6 +9,7 @@ import {
 import {
   combineDateAndTimeToIso,
   computeShiftActuals,
+  computeShiftVariance,
   formatClockEventTime,
   formatDurationMs,
   formatLocalTimeShort,
@@ -40,6 +41,7 @@ const eventTypeLabel = (t) => (t === 'in' ? 'Clock in' : t === 'out' ? 'Clock ou
 export function ClockEventsPanel({
   shiftId,
   caregiverId,
+  shiftStatus,
   scheduledStart,
   scheduledEnd,
   currentUserName,
@@ -98,6 +100,15 @@ export function ClockEventsPanel({
 
   const actuals = useMemo(() => computeShiftActuals(events), [events]);
 
+  const variance = useMemo(
+    () =>
+      computeShiftVariance(
+        { startTime: scheduledStart, endTime: scheduledEnd, status: shiftStatus },
+        actuals,
+      ),
+    [scheduledStart, scheduledEnd, shiftStatus, actuals],
+  );
+
   const scheduledLine = useMemo(() => {
     if (!scheduledStart || !scheduledEnd) return null;
     return `${formatClockEventTime(scheduledStart, timezone)} – ${formatLocalTimeShort(
@@ -147,6 +158,14 @@ export function ClockEventsPanel({
             )}
             {actuals.isOpen && (
               <span className={s.openBadge}>On the clock</span>
+            )}
+            {variance.hasVariance && (
+              <span
+                className={`${s.varianceBadge} ${s[`variance_${variance.primaryFlag}`] || ''}`}
+                title={varianceTooltip(variance)}
+              >
+                {variance.primaryLabel}
+              </span>
             )}
           </dd>
         </div>
@@ -438,4 +457,18 @@ function ManualEventForm({
       </div>
     </form>
   );
+}
+
+function varianceTooltip(variance) {
+  const parts = [];
+  if (variance.lateStartMinutes > 0) {
+    parts.push(`Clocked in ${variance.lateStartMinutes} min after scheduled start`);
+  }
+  if (variance.overtimeMinutes > 0) {
+    parts.push(`Clocked out ${variance.overtimeMinutes} min after scheduled end`);
+  }
+  if (variance.undertimeMinutes > 0) {
+    parts.push(`Clocked out ${variance.undertimeMinutes} min before scheduled end`);
+  }
+  return parts.join(' · ');
 }

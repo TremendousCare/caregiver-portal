@@ -27,6 +27,7 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - Vercel preview deploys are created for every PR — use them to test before merging
 - Edge Functions **auto-deploy on merge to `main`** via GitHub Actions (`.github/workflows/deploy-edge-functions.yml`). Workflow deploys every function under `supabase/functions/` (except `_shared/`) using the `SUPABASE_ACCESS_TOKEN` GitHub secret. No manual CLI deploys needed for committed functions — just merge and the workflow runs.
 - Manual deploy is still available for urgent hotfixes: `npx supabase functions deploy <name> --no-verify-jwt`. If you must do this, `git pull origin main` first to avoid drift, then commit the code before you go home.
+- **Database migrations** are applied via the manual `Deploy Database Migrations` GitHub Actions workflow (`.github/workflows/deploy-migrations.yml`). After merging a PR with new files in `supabase/migrations/`, trigger the workflow from the Actions tab — first with `dry_run=true` to confirm the pending list, then `dry_run=false` to apply. Runs `supabase db push --include-all`, so any migration that uses `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` is idempotent and safe to re-run. Do NOT copy-paste SQL into the Supabase Dashboard for migrations that exist in the repo — the workflow keeps the deployed schema in sync with `main`.
 - If a deploy breaks production, Vercel dashboard allows instant rollback to previous deployment (frontend). For edge functions, re-run the Deploy Edge Functions workflow on an earlier commit via the GitHub Actions UI.
 
 ### Testing
@@ -34,7 +35,7 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Framework**: Vitest (config in `vitest.config.js`)
 - **Test location**: `src/lib/__tests__/`
 - **Commands**: `npm test` (CI), `npm run test:watch` (dev), `npm run test:ui` (browser UI)
-- **Current coverage**: 1,842+ tests across 66 test files (utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking, scheduling conflict detection, availability matching, recurrence expansion, eligibility ranking, broadcast helpers, service plan helpers, shift helpers, schedule view helpers, clock event mutations, no-show eligibility, and more)
+- **Current coverage**: 1,859+ tests across 66 test files (utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking, scheduling conflict detection, availability matching, recurrence expansion, eligibility ranking, broadcast helpers, service plan helpers, shift helpers, schedule view helpers, clock event mutations, no-show eligibility, shift variance, and more)
 - **Rule**: New utility/business logic functions MUST have tests before merging
 
 ### CI Pipeline

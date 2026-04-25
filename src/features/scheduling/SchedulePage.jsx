@@ -7,7 +7,12 @@ import { useApp } from '../../shared/context/AppContext';
 import { useClients } from '../../shared/context/ClientContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import { supabase } from '../../lib/supabase';
-import { getShifts, updateShift, getServicePlansForClient } from './storage';
+import {
+  getShifts,
+  updateShift,
+  getServicePlansForClient,
+  getClockEventsSummaryForShifts,
+} from './storage';
 import {
   SHIFT_STATUSES,
   computeDefaultShiftEnd,
@@ -66,6 +71,7 @@ export function SchedulePage() {
 
   // Data
   const [shifts, setShifts] = useState([]);
+  const [actualsByShiftId, setActualsByShiftId] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
@@ -125,6 +131,19 @@ export function SchedulePage() {
       if (filterStatus) filters.status = filterStatus;
       const rows = await getShifts(filters);
       setShifts(rows);
+
+      // Bulk-load actuals for the visible shifts so the calendar
+      // can flag variance (late start, overtime, undertime) without
+      // a per-shift round-trip. Best-effort — if it fails, calendar
+      // still renders without variance chips.
+      const shiftIds = rows.map((r) => r.id);
+      try {
+        const summary = await getClockEventsSummaryForShifts(shiftIds);
+        setActualsByShiftId(summary);
+      } catch (e) {
+        console.warn('Failed to load shift actuals summary:', e);
+        setActualsByShiftId(new Map());
+      }
     } catch (e) {
       console.error('Failed to load shifts:', e);
       setLoadError(e.message || 'Failed to load shifts');
@@ -173,9 +192,15 @@ export function SchedulePage() {
   // ─── FullCalendar events ─────────────────────────────────────
   const calendarEvents = useMemo(() => {
     return shifts
-      .map((shift) => shiftToCalendarEvent(shift, { clientsById, caregiversById }))
+      .map((shift) =>
+        shiftToCalendarEvent(shift, {
+          clientsById,
+          caregiversById,
+          actuals: actualsByShiftId.get(shift.id) || null,
+        }),
+      )
       .filter(Boolean);
-  }, [shifts, clientsById, caregiversById]);
+  }, [shifts, clientsById, caregiversById, actualsByShiftId]);
 
   // ─── Calendar handlers ───────────────────────────────────────
   const handleDatesSet = (info) => {

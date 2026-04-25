@@ -33,7 +33,8 @@ function createSupabaseMock() {
     const filters = [];
     const builder = {
       select() { return builder; },
-      eq(col, val) { filters.push({ col, val }); return builder; },
+      eq(col, val) { filters.push({ col, val, op: 'eq' }); return builder; },
+      in(col, vals) { filters.push({ col, val: vals, op: 'in' }); return builder; },
       order() { return builder; },
       single() {
         calls.push({ table, action, terminal: 'single', payload, filters });
@@ -76,6 +77,7 @@ const {
   updateClockEventTime,
   deleteManualClockEvent,
   getClockEventsForShift,
+  getClockEventsSummaryForShifts,
 } = await import('../../features/scheduling/storage.js');
 
 beforeEach(() => {
@@ -248,7 +250,7 @@ describe('getClockEventsForShift', () => {
     mock.enqueue('clock_events', 'select', 'noTerminal', { data: [], error: null });
     await getClockEventsForShift('shift-A');
     const select = mock.calls.find((c) => c.action === 'select');
-    expect(select.filters).toEqual([{ col: 'shift_id', val: 'shift-A' }]);
+    expect(select.filters).toEqual([{ col: 'shift_id', val: 'shift-A', op: 'eq' }]);
   });
 
   it('also filters by caregiver_id when given (so a reassigned shift does not mix prior caregivers\' punches)', async () => {
@@ -256,8 +258,8 @@ describe('getClockEventsForShift', () => {
     await getClockEventsForShift('shift-A', { caregiverId: 'cg-9' });
     const select = mock.calls.find((c) => c.action === 'select');
     expect(select.filters).toEqual([
-      { col: 'shift_id', val: 'shift-A' },
-      { col: 'caregiver_id', val: 'cg-9' },
+      { col: 'shift_id', val: 'shift-A', op: 'eq' },
+      { col: 'caregiver_id', val: 'cg-9', op: 'eq' },
     ]);
   });
 
@@ -284,5 +286,70 @@ describe('deleteManualClockEvent', () => {
   it('rejects without an id', async () => {
     await expect(deleteManualClockEvent(null)).rejects.toThrow(/Missing/);
     expect(mock.calls.length).toBe(0);
+  });
+});
+
+// ─── getClockEventsSummaryForShifts ────────────────────────────
+
+describe('getClockEventsSummaryForShifts', () => {
+  it('returns an empty Map without hitting the network for an empty list', async () => {
+    const out = await getClockEventsSummaryForShifts([]);
+    expect(out).toBeInstanceOf(Map);
+    expect(out.size).toBe(0);
+    expect(mock.calls.length).toBe(0);
+  });
+
+  it('queries clock_events with shift_id IN (...) and reduces per shift', async () => {
+    mock.enqueue('clock_events', 'select', 'noTerminal', {
+      data: [
+        // shift A: clean in/out
+        { shift_id: 'A', event_type: 'in', occurred_at: '2026-05-04T15:00:00.000Z' },
+        { shift_id: 'A', event_type: 'out', occurred_at: '2026-05-04T19:00:00.000Z' },
+        // shift B: still clocked in
+        { shift_id: 'B', event_type: 'in', occurred_at: '2026-05-04T15:00:00.000Z' },
+        // shift C: in→out→in (later in reopens, actualEnd should be null)
+        { shift_id: 'C', event_type: 'in', occurred_at: '2026-05-04T15:00:00.000Z' },
+        { shift_id: 'C', event_type: 'out', occurred_at: '2026-05-04T17:00:00.000Z' },
+        { shift_id: 'C', event_type: 'in', occurred_at: '2026-05-04T17:30:00.000Z' },
+      ],
+      error: null,
+    });
+
+    const out = await getClockEventsSummaryForShifts(['A', 'B', 'C']);
+
+    expect(out.get('A')).toMatchObject({
+      actualStart: '2026-05-04T15:00:00.000Z',
+      actualEnd: '2026-05-04T19:00:00.000Z',
+      isOpen: false,
+      eventCount: 2,
+    });
+    expect(out.get('B')).toMatchObject({
+      actualStart: '2026-05-04T15:00:00.000Z',
+      actualEnd: null,
+      isOpen: true,
+    });
+    expect(out.get('C')).toMatchObject({
+      actualStart: '2026-05-04T15:00:00.000Z',
+      actualEnd: null,
+      isOpen: true,
+    });
+
+    const select = mock.calls.find((c) => c.action === 'select');
+    expect(select.filters).toEqual([
+      { col: 'shift_id', val: ['A', 'B', 'C'], op: 'in' },
+    ]);
+  });
+
+  it('skips shifts that have no clock events', async () => {
+    mock.enqueue('clock_events', 'select', 'noTerminal', {
+      data: [
+        { shift_id: 'A', event_type: 'in', occurred_at: '2026-05-04T15:00:00.000Z' },
+      ],
+      error: null,
+    });
+
+    const out = await getClockEventsSummaryForShifts(['A', 'B']);
+    expect(out.has('A')).toBe(true);
+    expect(out.has('B')).toBe(false);
   });
 });
