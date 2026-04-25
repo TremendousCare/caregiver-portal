@@ -419,6 +419,31 @@ export function formatClockEventTime(iso, timezone) {
 }
 
 /**
+ * Eligibility check for the "Mark no-show" quick action.
+ *
+ * A shift can be marked no-show when:
+ *   - it's in 'assigned' or 'confirmed' state (caregiver was lined up
+ *     but the system has no clock-in yet — clock-in flips status to
+ *     'in_progress', which is a separate state and never a no-show)
+ *   - the scheduled start time has passed
+ *
+ * 'open' and 'offered' shifts have no caregiver to no-show. 'in_progress',
+ * 'completed', 'cancelled', and 'no_show' are terminal or already-acted
+ * on, so the action does not apply.
+ *
+ * `now` is injectable so tests don't depend on Date.now().
+ */
+export function canMarkShiftNoShow(shift, now = new Date()) {
+  if (!shift || !shift.startTime) return false;
+  if (shift.status !== 'assigned' && shift.status !== 'confirmed') return false;
+  const start = new Date(shift.startTime).getTime();
+  if (Number.isNaN(start)) return false;
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (Number.isNaN(nowMs)) return false;
+  return start <= nowMs;
+}
+
+/**
  * Format a duration in milliseconds as "Xh Ym". Returns '' for null
  * / negative / NaN. Used for the "actual hours worked" readout.
  */

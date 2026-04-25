@@ -19,6 +19,7 @@ import {
   computeShiftActuals,
   formatClockEventTime,
   formatDurationMs,
+  canMarkShiftNoShow,
 } from '../../features/scheduling/shiftHelpers';
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -670,5 +671,53 @@ describe('formatDurationMs', () => {
   it('rounds to the nearest minute', () => {
     expect(formatDurationMs(60 * 1000 + 29 * 1000)).toBe('1m');
     expect(formatDurationMs(60 * 1000 + 31 * 1000)).toBe('2m');
+  });
+});
+
+// ─── canMarkShiftNoShow ────────────────────────────────────────
+
+describe('canMarkShiftNoShow', () => {
+  const NOW = new Date('2026-05-04T18:00:00.000Z');
+  const past = '2026-05-04T15:00:00.000Z';   // before NOW
+  const future = '2026-05-04T20:00:00.000Z'; // after NOW
+
+  it('is true for an assigned shift whose start has passed', () => {
+    expect(canMarkShiftNoShow({ status: 'assigned', startTime: past }, NOW)).toBe(true);
+  });
+
+  it('is true for a confirmed shift whose start has passed', () => {
+    expect(canMarkShiftNoShow({ status: 'confirmed', startTime: past }, NOW)).toBe(true);
+  });
+
+  it('is false before the scheduled start time', () => {
+    expect(canMarkShiftNoShow({ status: 'assigned', startTime: future }, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'confirmed', startTime: future }, NOW)).toBe(false);
+  });
+
+  it('is false once the caregiver has clocked in (status=in_progress)', () => {
+    // Clock-in flips status to in_progress, so a no-show can't apply.
+    expect(canMarkShiftNoShow({ status: 'in_progress', startTime: past }, NOW)).toBe(false);
+  });
+
+  it('is false for terminal statuses', () => {
+    expect(canMarkShiftNoShow({ status: 'completed', startTime: past }, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'cancelled', startTime: past }, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'no_show', startTime: past }, NOW)).toBe(false);
+  });
+
+  it('is false for unassigned shifts', () => {
+    expect(canMarkShiftNoShow({ status: 'open', startTime: past }, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'offered', startTime: past }, NOW)).toBe(false);
+  });
+
+  it('is false for missing or malformed input', () => {
+    expect(canMarkShiftNoShow(null, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'assigned' }, NOW)).toBe(false);
+    expect(canMarkShiftNoShow({ status: 'assigned', startTime: 'not-a-date' }, NOW)).toBe(false);
+  });
+
+  it('treats start time exactly equal to now as eligible (boundary)', () => {
+    const at = NOW.toISOString();
+    expect(canMarkShiftNoShow({ status: 'assigned', startTime: at }, NOW)).toBe(true);
   });
 });

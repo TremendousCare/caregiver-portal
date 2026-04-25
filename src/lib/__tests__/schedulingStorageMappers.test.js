@@ -225,6 +225,48 @@ describe('shift mappers', () => {
     expect(shift.requiredSkills).toEqual([]);
   });
 
+  it('dbToShift surfaces no-show metadata when present', () => {
+    const shift = dbToShift({
+      ...fullRow,
+      status: 'no_show',
+      no_show_note: 'Caregiver did not arrive; client called the office at 8:30',
+      marked_no_show_at: '2026-05-04T16:00:00.000Z',
+      marked_no_show_by: 'Jessica',
+    });
+    expect(shift.status).toBe('no_show');
+    expect(shift.noShowNote).toBe('Caregiver did not arrive; client called the office at 8:30');
+    expect(shift.markedNoShowAt).toBe('2026-05-04T16:00:00.000Z');
+    expect(shift.markedNoShowBy).toBe('Jessica');
+  });
+
+  it('shiftToDb writes no-show metadata back to snake_case columns', () => {
+    const shift = {
+      clientId: 'client-A',
+      startTime: '2026-05-04T08:00:00.000Z',
+      endTime: '2026-05-04T12:00:00.000Z',
+      status: 'no_show',
+      noShowNote: 'No call no show',
+      markedNoShowAt: '2026-05-04T16:00:00.000Z',
+      markedNoShowBy: 'Jessica',
+    };
+    const row = shiftToDb(shift);
+    expect(row.status).toBe('no_show');
+    expect(row.no_show_note).toBe('No call no show');
+    expect(row.marked_no_show_at).toBe('2026-05-04T16:00:00.000Z');
+    expect(row.marked_no_show_by).toBe('Jessica');
+  });
+
+  it('shiftToDb defaults no-show metadata to null', () => {
+    const row = shiftToDb({
+      clientId: 'client-A',
+      startTime: '2026-05-04T08:00:00.000Z',
+      endTime: '2026-05-04T12:00:00.000Z',
+    });
+    expect(row.no_show_note).toBeNull();
+    expect(row.marked_no_show_at).toBeNull();
+    expect(row.marked_no_show_by).toBeNull();
+  });
+
   it('shiftToDb maps camelCase back with nulls for missing fields', () => {
     const shift = {
       clientId: 'client-A',
