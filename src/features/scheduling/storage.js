@@ -715,6 +715,61 @@ export const dbToClockEvent = (row) => ({
 });
 
 /**
+ * Bulk-load actual start / end summaries for a list of shifts.
+ *
+ * Used by the calendar to render variance chips without making one
+ * network round-trip per shift. Returns a Map keyed by shift_id, value:
+ *   { actualStart, actualEnd, isOpen, eventCount }
+ *
+ * Shifts with no clock events are simply absent from the map — callers
+ * should treat a missing entry as "no actuals yet". Filters by the
+ * shift's currently-assigned caregiver (read from the shift list)
+ * to mirror getClockEventsForShift's reassignment behavior. Without
+ * passing the caregiver list, we'd need a separate query; for now we
+ * just join all events for the given shift_ids and let the caller
+ * post-filter if needed.
+ */
+export const getClockEventsSummaryForShifts = async (shiftIds) => {
+  const out = new Map();
+  if (!isSupabaseConfigured()) return out;
+  if (!Array.isArray(shiftIds) || shiftIds.length === 0) return out;
+
+  const { data, error } = await supabase
+    .from('clock_events')
+    .select('shift_id, caregiver_id, event_type, occurred_at')
+    .in('shift_id', shiftIds)
+    .order('occurred_at', { ascending: true });
+  if (error) throw error;
+
+  // Group rows by shift_id then run computeShiftActuals semantics
+  // inline (we can't import it from shiftHelpers without a cycle).
+  const byShift = new Map();
+  for (const row of data || []) {
+    if (!byShift.has(row.shift_id)) byShift.set(row.shift_id, []);
+    byShift.get(row.shift_id).push(row);
+  }
+
+  for (const [shiftId, rows] of byShift) {
+    let actualStart = null;
+    let actualEnd = null;
+    let isOpen = false;
+    for (const ev of rows) {
+      if (!ev.occurred_at) continue;
+      if (ev.event_type === 'in') {
+        if (!actualStart) actualStart = ev.occurred_at;
+        actualEnd = null;
+        isOpen = true;
+      } else if (ev.event_type === 'out') {
+        actualEnd = ev.occurred_at;
+        isOpen = false;
+      }
+    }
+    out.set(shiftId, { actualStart, actualEnd, isOpen, eventCount: rows.length });
+  }
+  return out;
+};
+
+/**
  * Load clock events for a shift, optionally scoped to a caregiver.
  *
  * Scoping by caregiverId matters because clock_events keeps history

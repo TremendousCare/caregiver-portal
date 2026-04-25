@@ -106,6 +106,34 @@
   letter-spacing: 0.4px;
 }
 
+.varianceBadge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.variance_late_start {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: #FBBF24;
+}
+
+.variance_overtime {
+  background: #DBEAFE;
+  color: #1E40AF;
+  border-color: #60A5FA;
+}
+
+.variance_undertime {
+  background: #FEE2E2;
+  color: #991B1B;
+  border-color: #F87171;
+}
+
 /* ─── Event list ─── */
 
 .eventList {

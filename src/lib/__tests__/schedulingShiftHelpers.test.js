@@ -20,6 +20,8 @@ import {
   formatClockEventTime,
   formatDurationMs,
   canMarkShiftNoShow,
+  computeShiftVariance,
+  VARIANCE_THRESHOLD_MS,
 } from '../../features/scheduling/shiftHelpers';
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -719,5 +721,166 @@ describe('canMarkShiftNoShow', () => {
   it('treats start time exactly equal to now as eligible (boundary)', () => {
     const at = NOW.toISOString();
     expect(canMarkShiftNoShow({ status: 'assigned', startTime: at }, NOW)).toBe(true);
+  });
+});
+
+// ─── computeShiftVariance ──────────────────────────────────────
+
+describe('computeShiftVariance', () => {
+  const shift = {
+    status: 'completed',
+    startTime: '2026-05-04T15:00:00.000Z',
+    endTime: '2026-05-04T19:00:00.000Z',
+  };
+
+  it('uses a 15 min default threshold', () => {
+    expect(VARIANCE_THRESHOLD_MS).toBe(15 * 60 * 1000);
+  });
+
+  it('returns hasVariance=false when actuals match scheduled times', () => {
+    const v = computeShiftVariance(shift, {
+      actualStart: shift.startTime,
+      actualEnd: shift.endTime,
+    });
+    expect(v.hasVariance).toBe(false);
+    expect(v.primaryFlag).toBe(null);
+  });
+
+  it('does not flag drift below the threshold', () => {
+    // 10 min late, 10 min early → still on-time
+    const v = computeShiftVariance(shift, {
+      actualStart: '2026-05-04T15:10:00.000Z',
+      actualEnd: '2026-05-04T18:50:00.000Z',
+    });
+    expect(v.hasVariance).toBe(false);
+  });
+
+  it('flags late_start when caregiver clocks in past the threshold', () => {
+    const v = computeShiftVariance(shift, {
+      actualStart: '2026-05-04T15:20:00.000Z', // 20 min late
+      actualEnd: shift.endTime,
+    });
+    expect(v.hasVariance).toBe(true);
+    expect(v.primaryFlag).toBe('late_start');
+    expect(v.lateStartMinutes).toBe(20);
+    expect(v.primaryLabel).toBe('20 min late');
+  });
+
+  it('flags overtime when caregiver clocks out past the threshold', () => {
+    const v = computeShiftVariance(shift, {
+      actualStart: shift.startTime,
+      actualEnd: '2026-05-04T20:30:00.000Z', // 90 min over
+    });
+    expect(v.hasVariance).toBe(true);
+    expect(v.primaryFlag).toBe('overtime');
+    expect(v.overtimeMinutes).toBe(90);
+    expect(v.primaryLabel).toBe('1h 30m overtime');
+  });
+
+  it('flags undertime when caregiver clocks out early past the threshold', () => {
+    const v = computeShiftVariance(shift, {
+      actualStart: shift.startTime,
+      actualEnd: '2026-05-04T18:30:00.000Z', // 30 min early
+    });
+    expect(v.hasVariance).toBe(true);
+    expect(v.primaryFlag).toBe('undertime');
+    expect(v.undertimeMinutes).toBe(30);
+    expect(v.primaryLabel).toBe('Left 30 min early');
+  });
+
+  it('promotes late_start over undertime/overtime when both apply', () => {
+    // Late start AND short shift: late_start wins for the chip.
+    const v = computeShiftVariance(shift, {
+      actualStart: '2026-05-04T15:30:00.000Z', // 30 min late
+      actualEnd: '2026-05-04T18:00:00.000Z', // 60 min undertime
+    });
+    expect(v.primaryFlag).toBe('late_start');
+    expect(v.lateStartMinutes).toBe(30);
+    expect(v.undertimeMinutes).toBe(60);
+  });
+
+  it('returns no variance for cancelled or no_show shifts', () => {
+    const cancelled = { ...shift, status: 'cancelled' };
+    const noShow = { ...shift, status: 'no_show' };
+    const actuals = {
+      actualStart: '2026-05-04T16:00:00.000Z',
+      actualEnd: '2026-05-04T20:00:00.000Z',
+    };
+    expect(computeShiftVariance(cancelled, actuals).hasVariance).toBe(false);
+    expect(computeShiftVariance(noShow, actuals).hasVariance).toBe(false);
+  });
+
+  it('computes only late_start when actualEnd is missing (in_progress)', () => {
+    const inProgress = { ...shift, status: 'in_progress' };
+    const v = computeShiftVariance(inProgress, {
+      actualStart: '2026-05-04T15:25:00.000Z', // 25 min late
+      actualEnd: null,
+    });
+    expect(v.primaryFlag).toBe('late_start');
+    expect(v.overtimeMinutes).toBe(0);
+    expect(v.undertimeMinutes).toBe(0);
+  });
+
+  it('returns no variance for missing inputs', () => {
+    expect(computeShiftVariance(null, { actualStart: shift.startTime }).hasVariance).toBe(false);
+    expect(computeShiftVariance(shift, null).hasVariance).toBe(false);
+    expect(computeShiftVariance({ status: 'completed' }, {}).hasVariance).toBe(false);
+  });
+
+  it('respects a custom threshold via opts.thresholdMs', () => {
+    // With a 30 min threshold, a 20 min late start no longer qualifies.
+    const v = computeShiftVariance(
+      shift,
+      { actualStart: '2026-05-04T15:20:00.000Z', actualEnd: shift.endTime },
+      { thresholdMs: 30 * 60 * 1000 },
+    );
+    expect(v.hasVariance).toBe(false);
+  });
+});
+
+// ─── shiftToCalendarEvent variance integration ─────────────────
+
+describe('shiftToCalendarEvent (variance)', () => {
+  const baseShift = {
+    id: 'shift-1',
+    clientId: 'c1',
+    assignedCaregiverId: 'cg1',
+    startTime: '2026-05-04T15:00:00.000Z',
+    endTime: '2026-05-04T19:00:00.000Z',
+    status: 'completed',
+  };
+  const ctx = {
+    clientsById: { c1: { firstName: 'Maria', lastName: 'Lopez' } },
+    caregiversById: { cg1: { firstName: 'Sam', lastName: 'Park' } },
+  };
+
+  it('appends variance label to the title when actuals are out of band', () => {
+    const event = shiftToCalendarEvent(baseShift, {
+      ...ctx,
+      actuals: {
+        actualStart: '2026-05-04T15:30:00.000Z', // 30 min late
+        actualEnd: '2026-05-04T19:00:00.000Z',
+      },
+    });
+    expect(event.title).toBe('Maria Lopez · Sam Park · 30 min late');
+    expect(event.classNames).toContain('shift-variance-late_start');
+    expect(event.extendedProps.variance.hasVariance).toBe(true);
+  });
+
+  it('omits variance label when actuals are within threshold', () => {
+    const event = shiftToCalendarEvent(baseShift, {
+      ...ctx,
+      actuals: { actualStart: baseShift.startTime, actualEnd: baseShift.endTime },
+    });
+    expect(event.title).toBe('Maria Lopez · Sam Park');
+    expect(event.classNames).not.toContain('shift-variance-late_start');
+    expect(event.classNames).not.toContain('shift-variance-overtime');
+    expect(event.classNames).not.toContain('shift-variance-undertime');
+  });
+
+  it('omits variance label when no actuals available', () => {
+    const event = shiftToCalendarEvent(baseShift, ctx);
+    expect(event.title).toBe('Maria Lopez · Sam Park');
+    expect(event.extendedProps.variance.hasVariance).toBe(false);
   });
 });

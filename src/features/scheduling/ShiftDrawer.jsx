@@ -592,6 +592,7 @@ export function ShiftDrawer({
             <ClockEventsPanel
               shiftId={shift.id}
               caregiverId={shift.assignedCaregiverId}
+              shiftStatus={shift.status}
               scheduledStart={shift.startTime}
               scheduledEnd={shift.endTime}
               currentUserName={currentUserName}

@@ -249,7 +249,10 @@ export function formatSkillsInput(skills) {
  * The full shift is stashed on `extendedProps.shift` so the click
  * handler has access to it.
  */
-export function shiftToCalendarEvent(shift, { clientsById = {}, caregiversById = {} } = {}) {
+export function shiftToCalendarEvent(
+  shift,
+  { clientsById = {}, caregiversById = {}, actuals = null } = {},
+) {
   if (!shift || !shift.startTime || !shift.endTime) return null;
   const colors = shiftStatusColors(shift.status);
   const client = clientsById[shift.clientId];
@@ -260,7 +263,19 @@ export function shiftToCalendarEvent(shift, { clientsById = {}, caregiversById =
   const caregiverName = caregiver
     ? `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim()
     : '';
-  const title = caregiverName ? `${clientName} · ${caregiverName}` : `${clientName} (open)`;
+  const baseTitle = caregiverName ? `${clientName} · ${caregiverName}` : `${clientName} (open)`;
+
+  // Variance is only computed when we have actuals — calendar only
+  // bulk-loads them for the visible window, so events outside that
+  // window simply skip the chip.
+  const variance = actuals
+    ? computeShiftVariance(shift, actuals)
+    : { hasVariance: false, primaryFlag: null, primaryLabel: null };
+
+  const title = variance.hasVariance ? `${baseTitle} · ${variance.primaryLabel}` : baseTitle;
+
+  const classNames = [`shift-status-${shift.status}`];
+  if (variance.hasVariance) classNames.push(`shift-variance-${variance.primaryFlag}`);
 
   return {
     id: shift.id,
@@ -275,8 +290,9 @@ export function shiftToCalendarEvent(shift, { clientsById = {}, caregiversById =
       clientName,
       caregiverName,
       status: shift.status,
+      variance,
     },
-    classNames: [`shift-status-${shift.status}`],
+    classNames,
   };
 }
 
@@ -456,3 +472,123 @@ export function formatDurationMs(ms) {
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 }
+
+// ─── Variance ──────────────────────────────────────────────────
+//
+// "Variance" is the gap between scheduled and actual time-on-shift.
+// Office staff care about three patterns:
+//   - LATE START   caregiver clocked in significantly after start
+//   - OVERTIME     caregiver clocked out significantly after end
+//   - UNDERTIME    caregiver clocked out significantly before end
+//
+// We surface a single threshold (default 15 min) so a 5-minute drift
+// doesn't spam every shift. Below the threshold the shift counts as
+// on-time and produces no chip.
+//
+// We do NOT compute variance for shifts in 'cancelled' or 'no_show'
+// status — those have their own banners and any clock events were
+// orphaned by the status flip.
+
+export const VARIANCE_THRESHOLD_MS = 15 * 60 * 1000;
+
+/**
+ * Compute the variance of a shift's actual time-on-shift relative to
+ * its scheduled window.
+ *
+ * @param {object} shift  - { startTime, endTime, status }
+ * @param {object} actuals - { actualStart, actualEnd } as ISO strings
+ *                           (typically from computeShiftActuals)
+ * @param {object} [opts]
+ * @param {number} [opts.thresholdMs=VARIANCE_THRESHOLD_MS]
+ * @returns {{
+ *   hasVariance: boolean,
+ *   primaryFlag: 'late_start' | 'overtime' | 'undertime' | null,
+ *   primaryLabel: string | null,
+ *   lateStartMinutes: number,
+ *   overtimeMinutes: number,
+ *   undertimeMinutes: number,
+ * }}
+ *
+ * primaryFlag is the most operationally significant variance to
+ * surface as the visible chip. Order of precedence: late_start →
+ * undertime → overtime. The other fields are still populated in
+ * case the UI wants to show the full detail.
+ */
+export function computeShiftVariance(shift, actuals, opts = {}) {
+  const empty = {
+    hasVariance: false,
+    primaryFlag: null,
+    primaryLabel: null,
+    lateStartMinutes: 0,
+    overtimeMinutes: 0,
+    undertimeMinutes: 0,
+  };
+
+  if (!shift || !shift.startTime || !shift.endTime) return empty;
+  if (shift.status === 'cancelled' || shift.status === 'no_show') return empty;
+  if (!actuals) return empty;
+
+  const threshold = opts.thresholdMs ?? VARIANCE_THRESHOLD_MS;
+  const scheduledStart = new Date(shift.startTime).getTime();
+  const scheduledEnd = new Date(shift.endTime).getTime();
+  if (Number.isNaN(scheduledStart) || Number.isNaN(scheduledEnd)) return empty;
+
+  let lateStartMs = 0;
+  if (actuals.actualStart) {
+    const ms = new Date(actuals.actualStart).getTime();
+    if (!Number.isNaN(ms) && ms - scheduledStart > threshold) {
+      lateStartMs = ms - scheduledStart;
+    }
+  }
+
+  let overtimeMs = 0;
+  let undertimeMs = 0;
+  if (actuals.actualEnd) {
+    const ms = new Date(actuals.actualEnd).getTime();
+    if (!Number.isNaN(ms)) {
+      if (ms - scheduledEnd > threshold) overtimeMs = ms - scheduledEnd;
+      else if (scheduledEnd - ms > threshold) undertimeMs = scheduledEnd - ms;
+    }
+  }
+
+  const lateStartMinutes = Math.round(lateStartMs / 60000);
+  const overtimeMinutes = Math.round(overtimeMs / 60000);
+  const undertimeMinutes = Math.round(undertimeMs / 60000);
+
+  let primaryFlag = null;
+  let primaryLabel = null;
+  if (lateStartMinutes > 0) {
+    primaryFlag = 'late_start';
+    primaryLabel = `${lateStartMinutes} min late`;
+  } else if (undertimeMinutes > 0) {
+    primaryFlag = 'undertime';
+    primaryLabel = `Left ${formatVarianceMinutes(undertimeMinutes)} early`;
+  } else if (overtimeMinutes > 0) {
+    primaryFlag = 'overtime';
+    primaryLabel = `${formatVarianceMinutes(overtimeMinutes)} overtime`;
+  }
+
+  return {
+    hasVariance: primaryFlag != null,
+    primaryFlag,
+    primaryLabel,
+    lateStartMinutes,
+    overtimeMinutes,
+    undertimeMinutes,
+  };
+}
+
+/**
+ * Format a duration in minutes for variance labels. Keeps short
+ * durations as "Nm" but rolls up to "Xh" / "Xh Ym" past 60 min so
+ * the chip stays compact.
+ */
+function formatVarianceMinutes(minutes) {
+  if (minutes == null || Number.isNaN(minutes) || minutes <= 0) return '';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
