@@ -22,6 +22,7 @@ import {
   canMarkShiftNoShow,
   computeShiftVariance,
   VARIANCE_THRESHOLD_MS,
+  nextStatusForManualClockEvent,
 } from '../../features/scheduling/shiftHelpers';
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -882,5 +883,53 @@ describe('shiftToCalendarEvent (variance)', () => {
     const event = shiftToCalendarEvent(baseShift, ctx);
     expect(event.title).toBe('Maria Lopez · Sam Park');
     expect(event.extendedProps.variance.hasVariance).toBe(false);
+  });
+});
+
+// ─── nextStatusForManualClockEvent ─────────────────────────────
+
+describe('nextStatusForManualClockEvent', () => {
+  it('moves an assigned shift to in_progress on a manual clock-in', () => {
+    expect(nextStatusForManualClockEvent('assigned', 'in')).toBe('in_progress');
+  });
+
+  it('moves a confirmed shift to in_progress on a manual clock-in', () => {
+    expect(nextStatusForManualClockEvent('confirmed', 'in')).toBe('in_progress');
+  });
+
+  it('moves an in_progress shift to completed on a manual clock-out', () => {
+    expect(nextStatusForManualClockEvent('in_progress', 'out')).toBe('completed');
+  });
+
+  it('moves an assigned shift directly to completed on a manual clock-out', () => {
+    // E.g. office staff fills in both clock-in and clock-out after the fact;
+    // depending on the order they add events, one of them may skip in_progress.
+    expect(nextStatusForManualClockEvent('assigned', 'out')).toBe('completed');
+  });
+
+  it('does not move past a completed status', () => {
+    expect(nextStatusForManualClockEvent('completed', 'in')).toBe(null);
+    expect(nextStatusForManualClockEvent('completed', 'out')).toBe(null);
+  });
+
+  it('does not flip an in_progress shift back on another clock-in', () => {
+    expect(nextStatusForManualClockEvent('in_progress', 'in')).toBe(null);
+  });
+
+  it('never overrides terminal cancelled or no_show statuses', () => {
+    expect(nextStatusForManualClockEvent('cancelled', 'in')).toBe(null);
+    expect(nextStatusForManualClockEvent('cancelled', 'out')).toBe(null);
+    expect(nextStatusForManualClockEvent('no_show', 'in')).toBe(null);
+    expect(nextStatusForManualClockEvent('no_show', 'out')).toBe(null);
+  });
+
+  it('handles open / offered shifts as starting points too', () => {
+    expect(nextStatusForManualClockEvent('open', 'in')).toBe('in_progress');
+    expect(nextStatusForManualClockEvent('offered', 'in')).toBe('in_progress');
+  });
+
+  it('returns null for unknown event types', () => {
+    expect(nextStatusForManualClockEvent('assigned', 'lunch')).toBe(null);
+    expect(nextStatusForManualClockEvent('assigned', null)).toBe(null);
   });
 });

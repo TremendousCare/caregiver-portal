@@ -598,6 +598,10 @@ export function ShiftDrawer({
               currentUserName={currentUserName}
               timezone={DEFAULT_APP_TIMEZONE}
               disabled={isTerminal}
+              onShiftUpdated={(updated) => {
+                showToast?.(`Shift status → ${shiftStatusLabel(updated.status)}`);
+                onSaved?.(updated);
+              }}
             />
           )}
 

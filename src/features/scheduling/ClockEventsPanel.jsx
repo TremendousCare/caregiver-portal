@@ -5,6 +5,7 @@ import {
   insertManualClockEvent,
   updateClockEventTime,
   deleteManualClockEvent,
+  updateShift,
 } from './storage';
 import {
   combineDateAndTimeToIso,
@@ -15,6 +16,7 @@ import {
   formatLocalTimeShort,
   isoToDateInput,
   isoToTimeInput,
+  nextStatusForManualClockEvent,
 } from './shiftHelpers';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import btn from '../../styles/buttons.module.css';
@@ -47,6 +49,7 @@ export function ClockEventsPanel({
   currentUserName,
   timezone = DEFAULT_APP_TIMEZONE,
   disabled = false,
+  onShiftUpdated,
 }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -186,6 +189,23 @@ export function ClockEventsPanel({
               editedBy: currentUserName || null,
               editReason: reason,
             });
+            // Mirror the auto-transition the caregiver-clock edge
+            // function performs on real clock-ins/outs: a manual 'in'
+            // moves the shift to in_progress, a manual 'out' to
+            // completed. Without this, the calendar would still show
+            // the shift as 'assigned' even though clock activity exists.
+            const nextStatus = nextStatusForManualClockEvent(shiftStatus, eventType);
+            if (nextStatus) {
+              try {
+                const updated = await updateShift(shiftId, { status: nextStatus });
+                onShiftUpdated?.(updated);
+              } catch (statusErr) {
+                // Status transition is best-effort — the clock event
+                // itself is already saved. Surface the error but
+                // don't undo the insert.
+                console.warn('Status transition failed after manual clock event:', statusErr);
+              }
+            }
             setShowAddForm(false);
             await load();
           }}

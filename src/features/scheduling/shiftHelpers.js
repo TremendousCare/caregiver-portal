@@ -473,6 +473,34 @@ export function formatDurationMs(ms) {
   return `${h}h ${m}m`;
 }
 
+/**
+ * Decide what shift status should result from inserting a manual
+ * clock event. Mirrors the auto-transition that the caregiver-clock
+ * edge function applies for real clock-ins / clock-outs:
+ *
+ *   - on 'in'  → 'in_progress' (unless already past that point)
+ *   - on 'out' → 'completed'
+ *
+ * Returns the new status to apply, or null if nothing should change.
+ *
+ * Terminal statuses ('cancelled', 'no_show') are never overridden —
+ * if office staff somehow add a clock event to a cancelled shift
+ * (the panel's disabled gate normally prevents this), we don't want
+ * to silently un-cancel it.
+ */
+export function nextStatusForManualClockEvent(currentStatus, eventType) {
+  if (currentStatus === 'cancelled' || currentStatus === 'no_show') return null;
+  if (eventType === 'in') {
+    if (currentStatus === 'in_progress' || currentStatus === 'completed') return null;
+    return 'in_progress';
+  }
+  if (eventType === 'out') {
+    if (currentStatus === 'completed') return null;
+    return 'completed';
+  }
+  return null;
+}
+
 // ─── Variance ──────────────────────────────────────────────────
 //
 // "Variance" is the gap between scheduled and actual time-on-shift.
