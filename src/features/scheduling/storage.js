@@ -141,6 +141,9 @@ export const dbToShift = (row) => ({
   cancelReason: row.cancel_reason,
   cancelledAt: row.cancelled_at,
   cancelledBy: row.cancelled_by,
+  noShowNote: row.no_show_note,
+  markedNoShowAt: row.marked_no_show_at,
+  markedNoShowBy: row.marked_no_show_by,
   createdBy: row.created_by,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -166,6 +169,9 @@ export const shiftToDb = (shift) => ({
   cancel_reason: shift.cancelReason ?? null,
   cancelled_at: shift.cancelledAt ?? null,
   cancelled_by: shift.cancelledBy ?? null,
+  no_show_note: shift.noShowNote ?? null,
+  marked_no_show_at: shift.markedNoShowAt ?? null,
+  marked_no_show_by: shift.markedNoShowBy ?? null,
   created_by: shift.createdBy ?? null,
   updated_at: new Date().toISOString(),
 });
@@ -203,6 +209,9 @@ export const updateShift = async (id, patch) => {
   if ('cancelReason' in patch) row.cancel_reason = patch.cancelReason;
   if ('cancelledAt' in patch) row.cancelled_at = patch.cancelledAt;
   if ('cancelledBy' in patch) row.cancelled_by = patch.cancelledBy;
+  if ('noShowNote' in patch) row.no_show_note = patch.noShowNote;
+  if ('markedNoShowAt' in patch) row.marked_no_show_at = patch.markedNoShowAt;
+  if ('markedNoShowBy' in patch) row.marked_no_show_by = patch.markedNoShowBy;
   row.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -221,6 +230,27 @@ export const cancelShift = async (id, { reason, cancelledBy }) => {
     cancelReason: reason ?? null,
     cancelledAt: new Date().toISOString(),
     cancelledBy: cancelledBy ?? null,
+  });
+};
+
+/**
+ * Mark a shift as a no-show. Used when the scheduled start time has
+ * passed and the assigned caregiver never clocked in. The note is
+ * free-form (no dropdown) since reasons vary widely — the office
+ * usually has spoken to someone by the time they're filling this in.
+ *
+ * Eligibility (status in [assigned, confirmed] and start time has
+ * passed) is enforced in the UI via canMarkShiftNoShow(). The storage
+ * layer does not re-check; if a caller bypasses the guard, the
+ * status update will still succeed because 'no_show' is a valid
+ * shifts.status value.
+ */
+export const markShiftNoShow = async (id, { note, markedBy }) => {
+  return updateShift(id, {
+    status: 'no_show',
+    noShowNote: note ?? null,
+    markedNoShowAt: new Date().toISOString(),
+    markedNoShowBy: markedBy ?? null,
   });
 };
 

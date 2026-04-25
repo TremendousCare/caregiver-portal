@@ -146,6 +146,27 @@
   cursor: not-allowed;
 }
 
+.linkBtnDanger {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.linkBtnDanger:hover:not(:disabled) {
+  color: #991B1B;
+  text-decoration: underline;
+}
+
+.linkBtnDanger:disabled {
+  color: #A2B0C4;
+  cursor: not-allowed;
+}
+
 .cancelledBanner {
   padding: 10px 14px;
   background: #F5F5F5;
@@ -154,6 +175,21 @@
   color: #525252;
   font-size: 13px;
   margin-bottom: 16px;
+}
+
+.noShowBanner {
+  padding: 10px 14px;
+  background: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #7F1D1D;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.bannerMeta {
+  color: #9F1239;
+  font-style: italic;
 }
 
 /* ─── Broadcast history box ─── */
@@ -360,6 +396,47 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.noShowBox {
+  margin-top: 16px;
+  padding: 14px;
+  background: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 10px;
+}
+
+.noShowTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #991B1B;
+  margin-bottom: 6px;
+}
+
+.noShowHint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #7F1D1D;
+  line-height: 1.4;
+}
+
+.noShowTextarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  background: #fff;
+  color: #0F1724;
+  outline: none;
+  font-family: inherit;
+  margin-bottom: 10px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.noShowTextarea:focus {
+  border-color: #DC2626;
 }
 
 .footer {

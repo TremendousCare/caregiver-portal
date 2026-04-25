@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import {
   updateShift,
   cancelShift,
+  markShiftNoShow,
   getShiftOffersForShift,
   updateShiftOffer,
   getShifts,
@@ -10,6 +11,7 @@ import {
 import {
   SHIFT_CANCEL_REASONS,
   buildShiftUpdatePatch,
+  canMarkShiftNoShow,
   formatShiftTimeRange,
   shiftStatusColors,
   shiftStatusLabel,
@@ -50,6 +52,9 @@ export function ShiftDrawer({
   const [error, setError] = useState(null);
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [showNoShowForm, setShowNoShowForm] = useState(false);
+  const [noShowNote, setNoShowNote] = useState('');
+  const [markingNoShow, setMarkingNoShow] = useState(false);
   // Phase 7: "Apply to all future shifts in this series" checkboxes
   // Default is OFF — per user decision, one-off edits are the safe default.
   const [applyToFutureEdits, setApplyToFutureEdits] = useState(false);
@@ -61,6 +66,8 @@ export function ShiftDrawer({
     setError(null);
     setShowCancelForm(false);
     setCancelReason('');
+    setShowNoShowForm(false);
+    setNoShowNote('');
     setApplyToFutureEdits(false);
     setApplyToFutureCancel(false);
   }, [shift]);
@@ -119,6 +126,9 @@ export function ShiftDrawer({
   const patch = useMemo(() => buildShiftUpdatePatch(shift, draft), [shift, draft]);
   const isDirty = Object.keys(patch).length > 0;
   const isCancelled = shift?.status === 'cancelled';
+  const isNoShow = shift?.status === 'no_show';
+  const isTerminal = isCancelled || isNoShow;
+  const noShowEligible = canMarkShiftNoShow(shift);
 
   const statusColors = shiftStatusColors(draft?.status);
 
@@ -337,6 +347,26 @@ export function ShiftDrawer({
     }
   };
 
+  const handleMarkNoShow = async () => {
+    setMarkingNoShow(true);
+    setError(null);
+    try {
+      const updated = await markShiftNoShow(shift.id, {
+        note: noShowNote.trim() || null,
+        markedBy: currentUserName || null,
+      });
+      showToast?.('Shift marked as no-show');
+      setShowNoShowForm(false);
+      setNoShowNote('');
+      onSaved?.(updated);
+    } catch (e) {
+      console.error('Mark no-show failed:', e);
+      setError(e.message || 'Could not mark no-show.');
+    } finally {
+      setMarkingNoShow(false);
+    }
+  };
+
   if (!shift) return null;
 
   return (
@@ -379,7 +409,7 @@ export function ShiftDrawer({
         </header>
 
         <div className={s.body}>
-          {!isCancelled && (
+          {!isTerminal && (
             <div className={s.quickActions}>
               <span className={s.quickActionsLabel}>Quick actions:</span>
               {(draft.status === 'open' || draft.status === 'offered') && (
@@ -427,6 +457,18 @@ export function ShiftDrawer({
                   Mark assigned
                 </button>
               )}
+              {noShowEligible && !showNoShowForm && (
+                <button
+                  className={s.linkBtnDanger}
+                  onClick={() => {
+                    setShowNoShowForm(true);
+                    setShowCancelForm(false);
+                  }}
+                  disabled={saving}
+                >
+                  Mark no-show
+                </button>
+              )}
             </div>
           )}
 
@@ -434,6 +476,19 @@ export function ShiftDrawer({
             <div className={s.cancelledBanner}>
               <strong>Cancelled.</strong>
               {shift.cancelReason && <> Reason: {shift.cancelReason}</>}
+            </div>
+          )}
+
+          {isNoShow && (
+            <div className={s.noShowBanner}>
+              <strong>No-show.</strong>
+              {shift.noShowNote && <> {shift.noShowNote}</>}
+              {shift.markedNoShowBy && (
+                <span className={s.bannerMeta}>
+                  {' — marked by '}
+                  {shift.markedNoShowBy}
+                </span>
+              )}
             </div>
           )}
 
@@ -502,7 +557,7 @@ export function ShiftDrawer({
               scheduledEnd={shift.endTime}
               currentUserName={currentUserName}
               timezone={DEFAULT_APP_TIMEZONE}
-              disabled={isCancelled}
+              disabled={isTerminal}
             />
           )}
 
@@ -515,7 +570,45 @@ export function ShiftDrawer({
             errorMessage={error}
           />
 
-          {!isCancelled && showCancelForm && (
+          {!isTerminal && showNoShowForm && (
+            <div className={s.noShowBox}>
+              <div className={s.noShowTitle}>Mark this shift as a no-show?</div>
+              <p className={s.noShowHint}>
+                Use this when the assigned caregiver did not show up for
+                the shift. The note is optional but helpful for follow-up.
+              </p>
+              <textarea
+                className={s.noShowTextarea}
+                value={noShowNote}
+                onChange={(e) => setNoShowNote(e.target.value)}
+                placeholder="What happened? (optional)"
+                rows={3}
+                maxLength={500}
+                disabled={markingNoShow}
+              />
+              <div className={s.cancelActions}>
+                <button
+                  className={btn.secondaryBtn}
+                  onClick={() => {
+                    setShowNoShowForm(false);
+                    setNoShowNote('');
+                  }}
+                  disabled={markingNoShow}
+                >
+                  Never mind
+                </button>
+                <button
+                  className={btn.dangerBtn}
+                  onClick={handleMarkNoShow}
+                  disabled={markingNoShow}
+                >
+                  {markingNoShow ? 'Saving…' : 'Mark no-show'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!isTerminal && showCancelForm && (
             <div className={s.cancelBox}>
               <div className={s.cancelTitle}>Cancel this shift?</div>
               <select
@@ -564,7 +657,7 @@ export function ShiftDrawer({
           )}
         </div>
 
-        {isRecurring && isDirty && !isCancelled && (
+        {isRecurring && isDirty && !isTerminal && (
           <div className={s.recurringEditBar}>
             <label className={s.recurringCheckbox}>
               <input
@@ -579,7 +672,7 @@ export function ShiftDrawer({
         )}
 
         <footer className={s.footer}>
-          {!isCancelled && !showCancelForm && (
+          {!isTerminal && !showCancelForm && !showNoShowForm && (
             <button
               className={s.dangerLink}
               onClick={() => setShowCancelForm(true)}
@@ -595,7 +688,7 @@ export function ShiftDrawer({
             <button
               className={btn.primaryBtn}
               onClick={handleSave}
-              disabled={saving || !isDirty || isCancelled}
+              disabled={saving || !isDirty || isTerminal}
             >
               {saving ? 'Saving…' : 'Save changes'}
             </button>
