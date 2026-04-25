@@ -93,7 +93,14 @@ export function CaregiverShifts({ caregiver }) {
         <button
           type="button"
           className={s.linkBtn}
-          onClick={() => supabase.auth.signOut()}
+          onClick={async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch (e) {
+              console.error('Sign out failed:', e);
+            }
+            window.location.reload();
+          }}
         >
           Sign out
         </button>
