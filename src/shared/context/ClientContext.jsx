@@ -109,14 +109,14 @@ export function ClientProvider({ children }) {
   }, []);
 
   // ─── Client CRUD ───
-  const addClient = useCallback((data) => {
+  const addClient = useCallback((data, { phase = 'new_lead' } = {}) => {
     const newClient = {
       id: crypto.randomUUID(),
       ...data,
       tasks: {},
       notes: [],
-      phase: 'new_lead',
-      phaseTimestamps: { new_lead: Date.now() },
+      phase,
+      phaseTimestamps: { [phase]: Date.now() },
       priority: data.priority || 'normal',
       createdAt: Date.now(),
       updatedAt: Date.now(),
