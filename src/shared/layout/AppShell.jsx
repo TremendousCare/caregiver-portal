@@ -44,14 +44,6 @@ export function AppShell() {
         extra: <CaregiverSidebarExtra />,
       },
       {
-        id: 'boards',
-        label: 'Boards',
-        items: [
-          { id: 'boards-index', path: '/boards', icon: '📋', label: 'All Boards' },
-          ...boardItems,
-        ],
-      },
-      {
         id: 'clients',
         label: 'Clients',
         items: [
@@ -66,6 +58,14 @@ export function AppShell() {
         label: 'Scheduling',
         items: [
           { id: 'schedule', path: '/schedule', icon: '📅', label: 'Calendar' },
+        ],
+      },
+      {
+        id: 'boards',
+        label: 'Boards',
+        items: [
+          { id: 'boards-index', path: '/boards', icon: '📋', label: 'All Boards' },
+          ...boardItems,
         ],
       },
       // Future:
