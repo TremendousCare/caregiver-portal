@@ -47,6 +47,7 @@ export function AppShell() {
         id: 'clients',
         label: 'Clients',
         items: [
+          { id: 'active-clients', path: '/clients/active', icon: '✅', label: 'Active Clients' },
           { id: 'clients-dashboard', path: '/clients', icon: '🏠', label: 'Clients', onNavigate: () => setClientFilterPhase('all') },
           { id: 'add-client', path: '/clients/add', icon: '＋', label: 'New Client' },
           { id: 'sequences', path: '/clients/sequences', icon: '⚡', label: 'Sequences' },
