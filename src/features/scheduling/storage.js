@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { dispatchShiftAutomations } from '../../lib/shiftAutomations';
 
 // ═══════════════════════════════════════════════════════════════
 // Scheduling Storage Layer
@@ -186,11 +187,27 @@ export const createShift = async (shift) => {
     .select()
     .single();
   if (error) throw error;
-  return dbToShift(data);
+  const newShift = dbToShift(data);
+  // Fire shift automation rules (shift_assigned for new assignment).
+  // Fire-and-forget — never blocks return. Old shift is null on creation.
+  dispatchShiftAutomations(null, newShift);
+  return newShift;
 };
 
 export const updateShift = async (id, patch) => {
   if (!isSupabaseConfigured()) return null;
+
+  // Load the current row so we can diff old vs new and decide which
+  // shift automations to fire. One extra round-trip is acceptable —
+  // updateShift is not on a hot path and the diff is necessary to
+  // distinguish reassignment / cancellation / time-edit cases.
+  const { data: oldRow } = await supabase
+    .from('shifts')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  const oldShift = oldRow ? dbToShift(oldRow) : null;
+
   // Only map fields present in the patch so we don't clobber columns
   const row = {};
   if ('servicePlanId' in patch) row.service_plan_id = patch.servicePlanId;
@@ -221,7 +238,10 @@ export const updateShift = async (id, patch) => {
     .select()
     .single();
   if (error) throw error;
-  return dbToShift(data);
+  const newShift = dbToShift(data);
+  // Fire-and-forget shift automations off the diff between old and new.
+  dispatchShiftAutomations(oldShift, newShift);
+  return newShift;
 };
 
 export const cancelShift = async (id, { reason, cancelledBy }) => {

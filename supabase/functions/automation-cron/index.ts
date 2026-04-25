@@ -717,6 +717,209 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 1.8: SHIFT REMINDER (24h before scheduled start)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Sends one SMS reminder per (shift × caregiver) when the shift's
+    // start_time is approximately 24h from now and the shift is still
+    // active (assigned or confirmed). Idempotent via automation_log:
+    // each reminder records trigger_context.shift_id, and the section
+    // skips shifts that already have a successful log row for this rule.
+    //
+    // Window: [now+23h, now+25h]. The cron runs every 5 min; this 2h
+    // window comfortably brackets the cron cadence, so every shift gets
+    // exactly one chance to be reminded as it crosses the 24h mark.
+    // The dedup query ensures a shift entering the window twice (e.g.
+    // because its start_time was edited slightly) still only sends once.
+    //
+    // Like SECTION 1.5, gates on the rule's local-time send window.
+    // sms_opted_out caregivers are skipped at the candidate stage so the
+    // execute-automation call doesn't get spent on a noop.
+
+    try {
+      const now = new Date();
+
+      const { data: shiftReminderRules, error: shiftRulesErr } = await supabase
+        .from("automation_rules")
+        .select("*")
+        .eq("enabled", true)
+        .eq("trigger_type", "shift_reminder_24h");
+
+      if (shiftRulesErr) {
+        console.error("Failed to fetch shift_reminder_24h rules:", shiftRulesErr);
+      } else if (shiftReminderRules && shiftReminderRules.length > 0) {
+        // Window covers ~24h ± 1h so we hit every shift exactly once
+        // regardless of cron jitter.
+        const windowStart = new Date(now.getTime() + 23 * 3600_000).toISOString();
+        const windowEnd = new Date(now.getTime() + 25 * 3600_000).toISOString();
+
+        for (const rule of shiftReminderRules) {
+          summary.rules_processed++;
+          const resolved = resolveReminderConditions(rule.conditions);
+
+          // Local-time send window — reuses the survey-reminder helper.
+          if (!isWithinSendWindow(now, resolved.tz, resolved.start_hour, resolved.end_hour)) {
+            continue;
+          }
+
+          const { data: candidateShifts, error: shiftsErr } = await supabase
+            .from("shifts")
+            .select("id, client_id, assigned_caregiver_id, start_time, end_time, status")
+            .gte("start_time", windowStart)
+            .lte("start_time", windowEnd)
+            .in("status", ["assigned", "confirmed"])
+            .not("assigned_caregiver_id", "is", null);
+
+          if (shiftsErr) {
+            console.error(`Failed to fetch shifts for rule ${rule.id}:`, shiftsErr);
+            summary.errors++;
+            continue;
+          }
+          if (!candidateShifts || candidateShifts.length === 0) continue;
+
+          // Bulk dedup: pull every prior success for this rule with a
+          // shift_id in the candidate set, build a Set of already-sent ids.
+          const candidateIds = candidateShifts.map((s: any) => s.id);
+          const { data: priorSends } = await supabase
+            .from("automation_log")
+            .select("trigger_context")
+            .eq("rule_id", rule.id)
+            .eq("status", "success")
+            .in("trigger_context->>shift_id", candidateIds);
+          const alreadySent = new Set(
+            (priorSends || [])
+              .map((row: any) => row?.trigger_context?.shift_id)
+              .filter(Boolean),
+          );
+
+          const dueShifts = candidateShifts.filter((s: any) => !alreadySent.has(s.id));
+          if (dueShifts.length === 0) continue;
+
+          // Bulk-fetch caregivers + clients so we don't N+1 inside the loop.
+          const cgIds = Array.from(new Set(dueShifts.map((s: any) => s.assigned_caregiver_id).filter(Boolean)));
+          const clientIds = Array.from(new Set(dueShifts.map((s: any) => s.client_id).filter(Boolean)));
+
+          const [cgRes, clientRes] = await Promise.all([
+            supabase
+              .from("caregivers")
+              .select("id, first_name, last_name, phone, email, sms_opted_out, archived")
+              .in("id", cgIds),
+            supabase
+              .from("clients")
+              .select("id, first_name, last_name, address, city, state, zip")
+              .in("id", clientIds),
+          ]);
+
+          const cgMap = new Map((cgRes.data || []).map((c: any) => [c.id, c]));
+          const clientMap = new Map((clientRes.data || []).map((c: any) => [c.id, c]));
+
+          for (const shift of dueShifts) {
+            const caregiver = cgMap.get(shift.assigned_caregiver_id);
+            if (!caregiver || caregiver.archived || caregiver.sms_opted_out) {
+              summary.skipped++;
+              continue;
+            }
+            const client = clientMap.get(shift.client_id);
+
+            // Pre-format the merge-field-friendly trigger_context so the
+            // edge function's resolveAutomationMergeFields just does a
+            // string replace. Mirrors src/lib/shiftAutomations.js.
+            const fullName = client
+              ? `${client.first_name || ""} ${client.last_name || ""}`.trim()
+              : "";
+            const addressParts = client
+              ? [client.address, client.city, client.state, client.zip].filter(Boolean)
+              : [];
+
+            // Format shift times in 'America/New_York' to match the frontend
+            // dispatcher. Phase D will move this into organizations.settings.
+            let shiftStartText = "";
+            let shiftEndText = "";
+            try {
+              const fmt = new Intl.DateTimeFormat("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: "America/New_York",
+                timeZoneName: "short",
+              });
+              shiftStartText = fmt.format(new Date(shift.start_time));
+              shiftEndText = fmt.format(new Date(shift.end_time));
+            } catch {
+              shiftStartText = shift.start_time;
+              shiftEndText = shift.end_time;
+            }
+
+            try {
+              const response = await fetch(
+                `${SUPABASE_URL}/functions/v1/execute-automation`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                  },
+                  body: JSON.stringify({
+                    rule_id: rule.id,
+                    caregiver_id: caregiver.id,
+                    action_type: rule.action_type,
+                    message_template: rule.message_template,
+                    action_config: rule.action_config,
+                    rule_name: rule.name,
+                    caregiver: {
+                      id: caregiver.id,
+                      first_name: caregiver.first_name,
+                      last_name: caregiver.last_name,
+                      phone: caregiver.phone,
+                      email: caregiver.email,
+                    },
+                    trigger_context: {
+                      shift_id: shift.id,
+                      shift_start: shift.start_time,
+                      shift_end: shift.end_time,
+                      shift_start_text: shiftStartText,
+                      shift_end_text: shiftEndText,
+                      shift_address: addressParts.join(", "),
+                      client_id: client?.id || null,
+                      client_first_name: client?.first_name || "",
+                      client_last_name: client?.last_name || "",
+                      client_full_name: fullName,
+                    },
+                  }),
+                },
+              );
+
+              const result = await response.json();
+              if (result.success) {
+                summary.executions++;
+              } else if (result.skipped) {
+                summary.skipped++;
+              } else {
+                summary.errors++;
+                console.error(
+                  `Shift reminder failed for rule ${rule.name}, shift ${shift.id}:`,
+                  result.error,
+                );
+              }
+            } catch (err) {
+              summary.errors++;
+              console.error(
+                `Failed to call execute-automation for shift reminder ${shift.id}:`,
+                err,
+              );
+            }
+
+            // Same rate-limit value the survey reminders use.
+            await sleep(SURVEY_REMINDER_SEND_DELAY_MS);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Shift reminder section failed:", err);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // SECTION 2: RESPONSE DETECTION (cancel sequences on client response)
     // ═══════════════════════════════════════════════════════════════════════════
 

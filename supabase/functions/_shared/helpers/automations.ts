@@ -52,8 +52,16 @@ export function evaluateAutomationConditions(
 }
 
 // --- Automation Merge Field Resolution ---
-// Replaces {{first_name}}, {{last_name}}, {{phone}}, {{email}} in templates.
-// Entity should have snake_case fields (first_name, last_name, phone, email).
+// Replaces {{first_name}}, {{last_name}}, {{phone}}, {{email}} in templates
+// from the entity (caregiver/client). Replaces shift-context fields
+// ({{shift_start_text}}, {{client_full_name}}, etc.) and {{survey_link}}
+// from the trigger context. Entity should have snake_case fields
+// (first_name, last_name, phone, email).
+//
+// Shift merge fields are pre-formatted in the dispatcher so the resolver
+// stays a pure string-replace. The dispatcher (frontend or cron) is
+// responsible for converting ISO timestamps into a human-readable form
+// and assembling client_full_name / shift_address.
 
 export function resolveAutomationMergeFields(
   template: string,
@@ -66,9 +74,18 @@ export function resolveAutomationMergeFields(
     .replace(/\{\{phone\}\}/g, entity.phone || "")
     .replace(/\{\{email\}\}/g, entity.email || "");
 
-  // Resolve trigger-context merge fields (e.g., survey_link)
+  // Resolve trigger-context merge fields.
   if (triggerContext) {
-    result = result.replace(/\{\{survey_link\}\}/g, triggerContext.survey_link || "");
+    const tc = triggerContext;
+    result = result
+      .replace(/\{\{survey_link\}\}/g, tc.survey_link || "")
+      // Shift context — pre-formatted by the dispatcher.
+      .replace(/\{\{shift_start_text\}\}/g, tc.shift_start_text || "")
+      .replace(/\{\{shift_end_text\}\}/g, tc.shift_end_text || "")
+      .replace(/\{\{shift_address\}\}/g, tc.shift_address || "")
+      .replace(/\{\{client_first_name\}\}/g, tc.client_first_name || "")
+      .replace(/\{\{client_last_name\}\}/g, tc.client_last_name || "")
+      .replace(/\{\{client_full_name\}\}/g, tc.client_full_name || "");
   }
 
   return result;

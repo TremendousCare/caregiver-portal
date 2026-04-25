@@ -36,14 +36,28 @@ function createSupabaseMock() {
         calls.push({ table, action, terminal: 'single', payload, filters });
         return Promise.resolve(dequeue(table, action, 'single'));
       },
+      maybeSingle() {
+        calls.push({ table, action, terminal: 'maybeSingle', payload, filters });
+        return Promise.resolve(dequeue(table, action, 'maybeSingle'));
+      },
     };
     return builder;
   }
 
   const supabase = {
     from: vi.fn((table) => ({
+      select: () => makeBuilder(table, 'select', null),
       update: (payload) => makeBuilder(table, 'update', payload),
     })),
+    auth: {
+      // Tests don't await dispatch, but shiftAutomations.js calls
+      // supabase.auth.getSession() if it ever fires. Returning no
+      // session is enough to short-circuit cleanly.
+      getSession: () => Promise.resolve({ data: { session: null } }),
+    },
+    functions: {
+      invoke: () => Promise.resolve({ data: null, error: null }),
+    },
   };
   return { supabase, enqueue, calls };
 }
@@ -63,6 +77,12 @@ beforeEach(() => {
 
 describe('markShiftNoShow', () => {
   it('updates status to no_show and stamps audit metadata', async () => {
+    // updateShift now does a pre-fetch of the old row before mutating
+    // (so dispatchShiftAutomations can diff). Enqueue both responses.
+    mock.enqueue('shifts', 'select', 'maybeSingle', {
+      data: { id: 'shift-1', status: 'assigned' },
+      error: null,
+    });
     mock.enqueue('shifts', 'update', 'single', {
       data: {
         id: 'shift-1',
@@ -94,6 +114,10 @@ describe('markShiftNoShow', () => {
   });
 
   it('accepts a null note (the field is optional)', async () => {
+    mock.enqueue('shifts', 'select', 'maybeSingle', {
+      data: { id: 'shift-1', status: 'assigned' },
+      error: null,
+    });
     mock.enqueue('shifts', 'update', 'single', {
       data: { id: 'shift-1', status: 'no_show' },
       error: null,
