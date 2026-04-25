@@ -511,7 +511,7 @@ export function ShiftDrawer({
                     : offer.caregiverId;
                   const canAssign =
                     offer.status === 'accepted' &&
-                    !isCancelled &&
+                    !isTerminal &&
                     shift.status !== 'assigned' &&
                     shift.status !== 'confirmed' &&
                     shift.status !== 'in_progress' &&
