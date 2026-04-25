@@ -207,7 +207,7 @@ export function ClientDashboard({
     <div>
       <div className={layout.header}>
         <div>
-          <h1 className={layout.pageTitle}>Client Pipeline</h1>
+          <h1 className={layout.pageTitle}>Clients</h1>
           <p className={layout.pageSubtitle}>
             {filterPhase === 'archived'
               ? 'Showing: Archived clients'

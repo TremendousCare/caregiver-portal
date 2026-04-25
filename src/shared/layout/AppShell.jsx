@@ -53,7 +53,7 @@ export function AppShell() {
       },
       {
         id: 'clients',
-        label: 'Client Pipeline',
+        label: 'Clients',
         items: [
           { id: 'clients-dashboard', path: '/clients', icon: '🏠', label: 'Clients', onNavigate: () => setClientFilterPhase('all') },
           { id: 'add-client', path: '/clients/add', icon: '＋', label: 'New Client' },
