@@ -119,6 +119,7 @@ function ClientCard({ client, onClick, isSelected, onToggleSelect, selectionMode
 export function ClientDashboard({
   clients, allClients, filterPhase, searchTerm, setSearchTerm,
   onSelect, onAdd, onBulkEmail, showToast, sidebarWidth,
+  addLabel = '＋ New Client',
 }) {
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(
@@ -218,7 +219,7 @@ export function ClientDashboard({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className={btn.primaryBtn} onClick={onAdd}>
-            ＋ New Client
+            {addLabel}
           </button>
         </div>
       </div>
@@ -359,7 +360,7 @@ export function ClientDashboard({
           <p style={{ fontSize: 14, color: '#7A8BA0', margin: 0 }}>
             {searchTerm
               ? 'Try adjusting your search or clearing the filter.'
-              : 'Click "New Client" to begin building your pipeline.'}
+              : `Click "${addLabel.replace(/^[＋+]\s*/, '')}" to get started.`}
           </p>
         </div>
       ) : (

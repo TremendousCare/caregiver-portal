@@ -434,7 +434,8 @@ function ClientDashboardPage() {
       setSearchTerm={setSearchTerm}
       sidebarWidth={sidebarCollapsed ? 64 : 260}
       onSelect={(id) => navigate(`/clients/${id}`)}
-      onAdd={() => navigate('/clients/add')}
+      onAdd={() => navigate('/clients/add-lead')}
+      addLabel="＋ New Lead"
       onBulkEmail={bulkEmail}
       showToast={showToast}
     />
