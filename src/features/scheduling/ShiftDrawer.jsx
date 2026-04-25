@@ -472,6 +472,45 @@ export function ShiftDrawer({
             </div>
           )}
 
+          {!isTerminal && showNoShowForm && (
+            <div className={s.noShowBox}>
+              <div className={s.noShowTitle}>Mark this shift as a no-show?</div>
+              <p className={s.noShowHint}>
+                Use this when the assigned caregiver did not show up for
+                the shift. The note is optional but helpful for follow-up.
+              </p>
+              <textarea
+                className={s.noShowTextarea}
+                value={noShowNote}
+                onChange={(e) => setNoShowNote(e.target.value)}
+                placeholder="What happened? (optional)"
+                rows={3}
+                maxLength={500}
+                disabled={markingNoShow}
+                autoFocus
+              />
+              <div className={s.cancelActions}>
+                <button
+                  className={btn.secondaryBtn}
+                  onClick={() => {
+                    setShowNoShowForm(false);
+                    setNoShowNote('');
+                  }}
+                  disabled={markingNoShow}
+                >
+                  Never mind
+                </button>
+                <button
+                  className={btn.dangerBtn}
+                  onClick={handleMarkNoShow}
+                  disabled={markingNoShow}
+                >
+                  {markingNoShow ? 'Saving…' : 'Mark no-show'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {isCancelled && (
             <div className={s.cancelledBanner}>
               <strong>Cancelled.</strong>
@@ -569,44 +608,6 @@ export function ShiftDrawer({
             servicePlans={servicePlans}
             errorMessage={error}
           />
-
-          {!isTerminal && showNoShowForm && (
-            <div className={s.noShowBox}>
-              <div className={s.noShowTitle}>Mark this shift as a no-show?</div>
-              <p className={s.noShowHint}>
-                Use this when the assigned caregiver did not show up for
-                the shift. The note is optional but helpful for follow-up.
-              </p>
-              <textarea
-                className={s.noShowTextarea}
-                value={noShowNote}
-                onChange={(e) => setNoShowNote(e.target.value)}
-                placeholder="What happened? (optional)"
-                rows={3}
-                maxLength={500}
-                disabled={markingNoShow}
-              />
-              <div className={s.cancelActions}>
-                <button
-                  className={btn.secondaryBtn}
-                  onClick={() => {
-                    setShowNoShowForm(false);
-                    setNoShowNote('');
-                  }}
-                  disabled={markingNoShow}
-                >
-                  Never mind
-                </button>
-                <button
-                  className={btn.dangerBtn}
-                  onClick={handleMarkNoShow}
-                  disabled={markingNoShow}
-                >
-                  {markingNoShow ? 'Saving…' : 'Mark no-show'}
-                </button>
-              </div>
-            </div>
-          )}
 
           {!isTerminal && showCancelForm && (
             <div className={s.cancelBox}>
