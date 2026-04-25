@@ -212,12 +212,239 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
   );
 }
 
+// ─── CAREGIVER LIST ROW ──────────────────────────────────────
+// Compact alternative to CaregiverCard. Renders one caregiver as a table row
+// with the same data the card surfaces (phase, screening, link-sent, day,
+// progress) so the screening-survey tags remain visible in either view.
+function CaregiverListRow({ caregiver, isSelected, onToggleSelect, onSelect, surveyStatus, urgent }) {
+  const phase = getCurrentPhase(caregiver);
+  const phaseInfo = PHASES.find((p) => p.id === phase);
+  const progressPct = getOverallProgress(caregiver);
+  const days = getDaysSinceApplication(caregiver);
+  const awaitingInterview = isAwaitingInterviewResponse(caregiver);
+  const linkDaysAgo = awaitingInterview ? getDaysSinceInterviewLinkSent(caregiver) : null;
+  const linkAgoLabel = linkDaysAgo == null ? '' : linkDaysAgo === 0 ? 'today' : `${linkDaysAgo}d ago`;
+  const greenLight = isGreenLight(caregiver);
+
+  return (
+    <tr
+      onClick={onSelect}
+      style={{
+        borderBottom: '1px solid #F3F4F6',
+        transition: 'background 0.1s',
+        background: isSelected ? '#F0F4FA' : 'transparent',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#F9FAFB'; }}
+      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+    >
+      <td
+        style={{ padding: '12px 8px', textAlign: 'center' }}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+      >
+        <input
+          type="checkbox"
+          checked={isSelected}
+          readOnly
+          style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#2E4E8D' }}
+        />
+      </td>
+      <td style={{ padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: 'linear-gradient(135deg, #2E4E8D, #1084C3)',
+            color: '#fff', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontWeight: 700, fontSize: 12,
+            flexShrink: 0,
+          }}>
+            {caregiver.firstName?.[0]}{caregiver.lastName?.[0]}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600, color: '#0F1724', fontSize: 14 }}>
+                {caregiver.firstName} {caregiver.lastName}
+              </span>
+              {greenLight && (
+                <span style={{
+                  background: '#DCFCE7', color: '#15803D',
+                  padding: '1px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}>Green Light</span>
+              )}
+              {urgent && !greenLight && (
+                <span style={{
+                  background: '#FEF2F0', color: '#DC3545',
+                  padding: '1px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}>Attention</span>
+              )}
+            </div>
+            {caregiver.perId && (
+              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>PER {caregiver.perId}</div>
+            )}
+          </div>
+        </div>
+      </td>
+      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>
+        {caregiver.phone || '—'}
+      </td>
+      <td style={{ padding: '12px 16px' }}>
+        <span
+          className={progress.phaseBadge}
+          style={{
+            background: `${phaseInfo.color}18`,
+            color: phaseInfo.color,
+            border: `1px solid ${phaseInfo.color}30`,
+          }}
+        >
+          {phaseInfo.icon} {phaseInfo.short}
+        </span>
+      </td>
+      <td style={{ padding: '12px 16px' }}>
+        {surveyStatus === 'disqualified' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #FEF2F2, #FEE2E2)', color: '#DC2626',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #FECACA',
+          }}>🚫 Disqualified</span>
+        )}
+        {surveyStatus === 'flagged' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #FFFBEB, #FEF3C7)', color: '#A16207',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #FDE68A',
+          }}>⚠️ Flagged</span>
+        )}
+        {surveyStatus === 'qualified' && phase === 'intake' && (
+          <span style={{
+            background: 'linear-gradient(135deg, #F0FDF4, #DCFCE7)', color: '#15803D',
+            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+            whiteSpace: 'nowrap', border: '1px solid #BBF7D0',
+          }}>✅ Passed Screening</span>
+        )}
+        {!surveyStatus && <span style={{ color: '#9CA3AF' }}>—</span>}
+        {surveyStatus === 'qualified' && phase !== 'intake' && (
+          <span style={{ color: '#9CA3AF' }}>—</span>
+        )}
+      </td>
+      <td style={{ padding: '12px 16px' }}>
+        {awaitingInterview ? (
+          <span style={{
+            background: '#FFF8ED', color: '#A16207',
+            border: '1px solid #FDE68A', padding: '2px 8px',
+            borderRadius: 8, fontSize: 11, fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }} title="Interview link sent, awaiting response">
+            ⏳ {linkAgoLabel}
+          </span>
+        ) : <span style={{ color: '#9CA3AF' }}>—</span>}
+      </td>
+      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>
+        Day {days}
+      </td>
+      <td style={{ padding: '12px 16px', minWidth: 140 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, height: 6, background: '#F3F4F6', borderRadius: 3, overflow: 'hidden', minWidth: 60 }}>
+            <div style={{
+              height: '100%',
+              width: `${progressPct}%`,
+              background: 'linear-gradient(90deg, #29BEE4, #1084C3)',
+            }} />
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', minWidth: 32, textAlign: 'right' }}>
+            {progressPct}%
+          </span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── VIEW MODE TOGGLE ────────────────────────────────────────
+function ViewModeToggle({ value, onChange }) {
+  const baseBtn = {
+    background: 'transparent',
+    color: '#6B7280',
+    border: 'none',
+    padding: '9px 14px',
+    borderRadius: 10,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    transition: 'background 0.1s, color 0.1s',
+  };
+  const activeBtn = {
+    ...baseBtn,
+    background: '#2E4E8D',
+    color: '#fff',
+  };
+
+  return (
+    <div style={{
+      display: 'inline-flex',
+      background: '#fff',
+      border: '1px solid rgba(0,0,0,0.08)',
+      borderRadius: 14,
+      padding: 4,
+      gap: 2,
+      boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
+    }}>
+      <button
+        type="button"
+        onClick={() => onChange('grid')}
+        style={value === 'grid' ? activeBtn : baseBtn}
+        aria-pressed={value === 'grid'}
+        aria-label="Card view"
+        title="Card view"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+          <rect x="0" y="0" width="6" height="6" rx="1" />
+          <rect x="8" y="0" width="6" height="6" rx="1" />
+          <rect x="0" y="8" width="6" height="6" rx="1" />
+          <rect x="8" y="8" width="6" height="6" rx="1" />
+        </svg>
+        Cards
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('list')}
+        style={value === 'list' ? activeBtn : baseBtn}
+        aria-pressed={value === 'list'}
+        aria-label="List view"
+        title="List view"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+          <rect x="0" y="1" width="14" height="2" rx="0.5" />
+          <rect x="0" y="6" width="14" height="2" rx="0.5" />
+          <rect x="0" y="11" width="14" height="2" rx="0.5" />
+        </svg>
+        List
+      </button>
+    </div>
+  );
+}
+
 // ─── DASHBOARD ───────────────────────────────────────────────
 export function Dashboard({
   caregivers, allCaregivers, filterPhase, searchTerm, setSearchTerm,
   onSelect, onAdd, onImportIndeed, onBulkPhaseOverride, onBulkAddNote, onBulkBoardStatus,
   onBulkArchive, onBulkSms, showToast, sidebarWidth,
 }) {
+  const [viewMode, setViewMode] = useState(() => {
+    const stored = localStorage.getItem('tc_dashboard_view_mode');
+    return stored === 'list' ? 'list' : 'grid';
+  });
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('tc_dashboard_view_mode', mode);
+  };
+
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(() => localStorage.getItem('tc_actions_collapsed') === 'true');
   const [dismissedActionKeys, setDismissedActionKeys] = useState(() => {
@@ -593,20 +820,23 @@ export function Dashboard({
         </div>
       )}
 
-      {/* Search */}
-      <div className={forms.searchBar}>
-        <span className={forms.searchIcon}>🔍</span>
-        <input
-          className={forms.searchInput}
-          placeholder="Search by name, phone, or PER ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-        {searchTerm && (
-          <button className={forms.clearSearch} onClick={() => setSearchTerm('')}>
-            ✕
-          </button>
-        )}
+      {/* Search + View Toggle */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className={forms.searchBar} style={{ flex: '1 1 320px', marginBottom: 0 }}>
+          <span className={forms.searchIcon}>🔍</span>
+          <input
+            className={forms.searchInput}
+            placeholder="Search by name, phone, or PER ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button className={forms.clearSearch} onClick={() => setSearchTerm('')}>
+              ✕
+            </button>
+          )}
+        </div>
+        <ViewModeToggle value={viewMode} onChange={handleViewModeChange} />
       </div>
 
       {/* Caregiver Cards */}
@@ -649,21 +879,70 @@ export function Dashboard({
             </div>
           </div>
 
-          <div className={cards.cardGrid}>
-            {sortedCaregivers.map((cg, idx) => (
-              <div key={cg.id} style={{ animation: `fadeInUp 0.35s cubic-bezier(0.4,0,0.2,1) ${Math.min(idx * 0.04, 0.5)}s both` }}>
-                <CaregiverCard
-                  caregiver={cg}
-                  onClick={() => onSelect(cg.id)}
-                  isSelected={selectedIds.has(cg.id)}
-                  onToggleSelect={() => toggleSelect(cg.id)}
-                  selectionMode={selectionMode}
-                  surveyStatus={surveyStatuses[cg.id]}
-                  urgent={urgentCaregiverIds.has(cg.id)}
-                />
-              </div>
-            ))}
-          </div>
+          {viewMode === 'grid' ? (
+            <div className={cards.cardGrid}>
+              {sortedCaregivers.map((cg, idx) => (
+                <div key={cg.id} style={{ animation: `fadeInUp 0.35s cubic-bezier(0.4,0,0.2,1) ${Math.min(idx * 0.04, 0.5)}s both` }}>
+                  <CaregiverCard
+                    caregiver={cg}
+                    onClick={() => onSelect(cg.id)}
+                    isSelected={selectedIds.has(cg.id)}
+                    onToggleSelect={() => toggleSelect(cg.id)}
+                    selectionMode={selectionMode}
+                    surveyStatus={surveyStatuses[cg.id]}
+                    urgent={urgentCaregiverIds.has(cg.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              background: '#fff', borderRadius: 16, border: '1px solid rgba(0,0,0,0.06)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)', overflow: 'auto',
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+                    <th style={{
+                      padding: '12px 8px', width: 44, textAlign: 'center',
+                      fontWeight: 700, fontSize: 11, textTransform: 'uppercase',
+                      letterSpacing: '0.8px', color: '#6B7280',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === sortedCaregivers.length && sortedCaregivers.length > 0}
+                        onChange={() => {
+                          if (selectedIds.size === sortedCaregivers.length) clearSelection();
+                          else selectAll();
+                        }}
+                        style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#2E4E8D' }}
+                      />
+                    </th>
+                    {['Name', 'Phone', 'Phase', 'Screening', 'Link Sent', 'Day', 'Progress'].map((h) => (
+                      <th key={h} style={{
+                        padding: '12px 16px', textAlign: 'left', fontWeight: 700,
+                        fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.8px',
+                        color: '#6B7280',
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedCaregivers.map((cg) => (
+                    <CaregiverListRow
+                      key={cg.id}
+                      caregiver={cg}
+                      isSelected={selectedIds.has(cg.id)}
+                      onToggleSelect={() => toggleSelect(cg.id)}
+                      onSelect={() => onSelect(cg.id)}
+                      surveyStatus={surveyStatuses[cg.id]}
+                      urgent={urgentCaregiverIds.has(cg.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
