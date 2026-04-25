@@ -3,7 +3,7 @@
 **Date:** 2026-04-25
 **Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
-**Status:** Planning. Phase 0 complete (2026-04-25, PR #207 merged). Phase 1 next.
+**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 in progress on branch `claude/paychex-phase-1-data-model`.
 
 ---
 
@@ -40,11 +40,14 @@ Without Phase 5, the Phase 4 Approval UI's "Submit Run" action produces a struct
 - **Worker `employmentType` for TC**: all caregivers sync as `FULL_TIME`. TC hires every caregiver as full-time even though hours functionally vary by week (some weeks 20h, some 45h). This is a Paychex classification field, not a weekly hours indicator. Future orgs that mix FT/PT/seasonal can override per-caregiver via a `caregivers.paychex_employment_type` column added later (out of scope for v1; one-line additive migration when needed).
 - **Worker `exemptionType` for TC**: all caregivers sync as `NON_EXEMPT` (hourly + OT-eligible).
 - **Worker `workState` for TC**: `CA`. Sourced from `organizations.settings.payroll.default_work_state` so future multi-state orgs can override per-worker via `caregivers.work_state` column added later.
-- **Pay period**: weekly. Specific day-of-week boundaries to be set per org in `organizations.settings.paychex.pay_period`. Tremendous Care defaults: Sunday end-of-day cutoff, Friday pay date.
+- **Pay period**: weekly. Specific day-of-week boundaries to be set per org in `organizations.settings.paychex.pay_period`. Tremendous Care: workweek runs Monday 00:00 → Sunday 23:59 (America/Los_Angeles), payroll is processed Monday morning, caregivers are paid the following **Wednesday** (confirmed by owner 2026-04-25; the earlier draft of this plan said Friday — that was a placeholder, not what TC actually does).
 - **Overtime jurisdiction at launch**: California rules (daily >8h at 1.5x, daily >12h at 2x, weekly >40h at 1.5x, 7th consecutive day rules). Future orgs may need other states; the OT engine takes a jurisdiction parameter from day one even though only `CA` is implemented in v1.
 - **Timezone for OT day boundaries**: `America/Los_Angeles`. Stored as a single constant in `src/lib/payroll/constants.js`. Future orgs that operate in other timezones will read this from `organizations.settings.timezone`.
-- **Mileage**: tracked per-shift on `shifts.mileage`. Reimbursed as a non-taxable line item in Paychex (separate from wages). Rate stored in `organizations.settings.payroll.mileage_rate`. IRS 2026 standard rate ($0.70/mi) is the Tremendous Care default.
+- **Mileage**: tracked per-shift on `shifts.mileage`. Reimbursed as a non-taxable line item in Paychex (separate from wages). Rate stored in `organizations.settings.payroll.mileage_rate`. Tremendous Care reimburses at **$0.725/mi** as of 2026-04-25 (confirmed by owner; the earlier draft used $0.70 as a placeholder for the IRS 2026 standard rate, but TC's actual rate is $0.725).
 - **Tax data storage**: all sensitive PII (SSN, bank account, W-4 elections) is sent directly to Paychex and **never stored locally**. The portal stores only `paychex_worker_id` and onboarding completion timestamps.
+- **No `hire_date` column on `caregivers`**: TC does not have a meaningful hire date — caregivers can sit "active" in the pipeline for weeks before their first shift, and pay starts at the first shift. Forcing a `hire_date` field would require fabricating a value that doesn't reflect reality. Instead, the Phase 2 sync function computes the hire date dynamically from shift data when transitioning a worker from `IN_PROGRESS` to `ACTIVE` (see next bullet).
+- **Two-stage worker lifecycle in Paychex** (confirmed with owner 2026-04-25): pre-hire onboarding is supported. When the back office triggers worker creation (manual button on the caregiver detail view, Phase 2), the Paychex worker is created with `currentStatus.statusType = IN_PROGRESS`, `statusReason = PENDING_HIRE`, and `effectiveDate = today + N days` where `N` defaults to 14 and is overridable per-org via `organizations.settings.payroll.default_pending_hire_date_offset_days`. This `effectiveDate` is a placeholder that lets Phase 6's Paychex-hosted onboarding flow run (W-4, I-9, direct deposit) while the worker is still pre-hire. When the caregiver's first non-cancelled shift transitions to `completed`, an automation (Phase 3+) PATCHes the worker to `currentStatus.statusType = ACTIVE`, `statusReason = HIRED`, `effectiveDate = first_shift.start_time::date` — which is the actual hire date for tax/W-2 purposes. Caregivers who never get a first shift never transition to ACTIVE and never appear in any Paychex bill.
+- **Rehire handling**: rare for TC (owner-confirmed; happens when a previously terminated caregiver comes back). When the Phase 2 sync function detects an existing `caregivers.paychex_worker_id` whose Paychex `currentStatus.statusType = TERMINATED`, it does **not** auto-reactivate. Instead it returns a structured `rehire_detected` error with the worker's last termination date and reason; the back office reactivates the worker manually in Paychex Flex (their UI handles the rehire transitions, separation pay, etc. better than we should try to). Frequency-revisit trigger: if rehire becomes weekly we automate it; until then manual is correct.
 - **Worker reads use the nonpii media type by default**: read flows fetch `application/vnd.paychex.workers.nonpii.v1+json` (or the matching nonpii variant per endpoint). Full-PII variants are used only when a specific operation needs it and the response is logged with PII-masked redaction. Keeps SSNs out of `paychex_api_log` by default.
 - **Approval workflow**: every timesheet must be approved by a user with role `admin` or `member` (back-office) before it can be included in a payroll run. Caregivers themselves cannot approve their own timesheets.
 - **Submission gating**: a payroll run cannot be submitted within 2 hours of the Paychex submission cutoff for that pay date. Hard block with a clear UI message.
@@ -181,15 +184,16 @@ The seed migration sets, for the Tremendous Care row only, a `paychex` object in
     "display_id": "70125496",
     "company_id": "00M9LQF7LUBLSED1THE0",
     "company_display": "70125496 - TREMENDOUS CARE",
-    "pay_period": { "frequency": "weekly", "ends_on": "sunday", "pay_day": "friday" },
+    "pay_period": { "frequency": "weekly", "ends_on": "sunday", "pay_day": "wednesday" },
     "default_employment_type": "FULL_TIME",
     "default_exemption_type": "NON_EXEMPT"
   },
   "payroll": {
-    "mileage_rate": 0.70,
+    "mileage_rate": 0.725,
     "ot_jurisdiction": "CA",
     "timezone": "America/Los_Angeles",
-    "default_work_state": "CA"
+    "default_work_state": "CA",
+    "default_pending_hire_date_offset_days": 14
   },
   "features_enabled": {
     "payroll": true
@@ -318,8 +322,8 @@ Goal: ship the shared Paychex API client and a per-caregiver sync edge function.
 New files:
 - `supabase/functions/_shared/paychex.ts` — OAuth2 client per the responsibilities listed in "Paychex API client" above (token caching, vendor media types, PATCH path asymmetry, idempotency keys, retries with 423 hard-fail, structured logging, dry-run honoring). Reads `PAYCHEX_CLIENT_ID` / `PAYCHEX_CLIENT_SECRET` from `Deno.env`.
 - `supabase/functions/paychex-sync-worker/index.ts` — given `caregiver_id`, the function loads the caregiver, derives `org_id` from the JWT, loads `companyId` from `organizations.settings.paychex.company_id`, calls the worker mapping, then either `POST /companies/{companyId}/workers` (if `caregivers.paychex_worker_id` is null) or `PATCH /workers/{workerId}` (if it is set). On `200`, persists `paychex_worker_id`, `paychex_sync_status='active'`, `paychex_last_synced_at`. On `423`, sets `paychex_sync_status='error'` with `paychex_sync_error='client_account_locked'` and **does not persist the returned `workerId`** (the docs warn it is invalid in this case).
-- `src/lib/paychex/workerMapping.js` — pure function: caregiver row + org settings → Paychex Worker payload (single object, the edge function wraps it in an array for POST per the API). Sets `workerCorrelationId = caregiver.id`, `workerType = 'EMPLOYEE'`, `employmentType` from `organizations.settings.paychex.default_employment_type` (TC: `FULL_TIME`), `currentStatus.{statusType: 'IN_PROGRESS', statusReason: 'PENDING_HIRE', effectiveDate: caregiver.hire_date}`, and the name/birthDate fields. Does **not** include `legalId` (SSN) — that comes from the Phase 6 hosted onboarding flow.
-- `src/lib/paychex/__tests__/workerMapping.test.js` — Vitest coverage for every caregiver field that maps to a Worker field, null/undefined handling, special characters in names, missing hire_date fallback (default to today's date).
+- `src/lib/paychex/workerMapping.js` — pure function: caregiver row + org settings + reference date → Paychex Worker payload (single object, the edge function wraps it in an array for POST per the API). Sets `workerCorrelationId = caregiver.id`, `workerType = 'EMPLOYEE'`, `employmentType` from `organizations.settings.paychex.default_employment_type` (TC: `FULL_TIME`), `exemptionType` from `default_exemption_type` (TC: `NON_EXEMPT`), and `currentStatus.{statusType: 'IN_PROGRESS', statusReason: 'PENDING_HIRE', effectiveDate: <today + organizations.settings.payroll.default_pending_hire_date_offset_days>}` for new workers (per the two-stage lifecycle decision). Name fields come from `caregivers.first_name` / `caregivers.last_name`. Does **not** include `legalId` (SSN) or `birthDate` — those come from the Phase 6 hosted onboarding flow. There is no `caregivers.hire_date` column to read from; the actual hire date is set later by the Phase 3+ promotion automation when the first non-cancelled shift completes.
+- `src/lib/paychex/__tests__/workerMapping.test.js` — Vitest coverage for every caregiver field that maps to a Worker field, null/undefined handling, special characters in names, the `default_pending_hire_date_offset_days` calculation (e.g., reference date 2026-04-25 + 14 days → effectiveDate 2026-05-09), missing optional name fields (no middleName, no preferredName), and the `rehire_detected` branch that fires when a Paychex `currentStatus.statusType = TERMINATED` is seen on PATCH.
 
 UI: a dev-only sync button is **not** added to the caregiver detail view in this phase. Verification happens via direct edge function invocation. UI lives in Phase 6.
 
@@ -461,12 +465,9 @@ Things that will be tempting and must not be done:
 These need owner input before or during the relevant phase. Listed in the order they become blocking.
 
 1. **Paychex Flex manual entry column format**: owner shares a screenshot of the Paychex Flex manual payroll entry screen so Phase 4's CSV export columns match exactly. Affects `src/lib/payroll/csvExport.js`. Not blocking until Phase 4.
-2. **Pay period boundaries**: confirm Sunday end-of-day cutoff and Friday pay date are correct for Tremendous Care today. Goes in the Phase 1 seed migration.
-3. **Mileage rate**: confirm $0.70/mi for 2026 is the rate currently used. If TC reimburses at a different rate, set it accordingly in the seed migration.
-4. **Notification recipients**: which users receive the Monday "payroll ready to review" email? All `admin` + `member` role users in the org by default; owner can override at Phase 4.
-5. **Test caregiver setup**: owner creates the "Test Caregiver — Do Not Pay" record in Paychex Flex before Phase 2 begins. Per the API behavior, we'll then run Phase 2's sync against that caregiver as the first end-to-end exercise.
-6. **`hire_date` field on caregivers**: the worker mapping needs a hire date (`currentStatus.effectiveDate` for IN_PROGRESS create). Confirm what column on `caregivers` holds this today; if there isn't one, mapping defaults to "today" and the back-office user adjusts in Paychex Flex during the IN_PROGRESS → ACTIVE transition.
-7. **Paychex rep status (Phase 5 only)**: track the Payroll and Check API scope request. Phase 5 cannot start until the scope is enabled. The integration ships full value via Phase 4's CSV export without Phase 5.
+2. **Notification recipients**: which users receive the Monday "payroll ready to review" email? All `admin` + `member` role users in the org by default; owner can override at Phase 4.
+3. **Test caregiver setup**: owner creates the "Test Caregiver — Do Not Pay" record in Paychex Flex before Phase 2 begins. Per the API behavior, we'll then run Phase 2's sync against that caregiver as the first end-to-end exercise.
+4. **Paychex rep status (Phase 5 only)**: track the Payroll and Check API scope request. Phase 5 cannot start until the scope is enabled. The integration ships full value via Phase 4's CSV export without Phase 5.
 
 **Resolved during the 2026-04-25 docs audit (no longer open):**
 - ~~Paychex submission cutoff timing~~ — moved to Phase 5 design when that scope is granted.
@@ -477,6 +478,14 @@ These need owner input before or during the relevant phase. Listed in the order 
 - ~~423 handling~~ — never trust `workerId` from 423 response; documented in client and anti-patterns.
 - ~~`employmentType` for TC~~ — all `FULL_TIME` (TC hires every caregiver as full-time even though hours functionally vary).
 
+**Resolved 2026-04-25 in Phase 1 design conversation with owner:**
+- ~~Pay period boundaries~~ — Mon→Sun workweek, Monday processing, **Wednesday** pay date. Seed migration writes this; Phase 4 Settings UI lets the back office change it without a redeploy.
+- ~~Mileage rate~~ — **$0.725/mi**. Seed migration writes this; Phase 4 Settings UI lets the back office change it (e.g., when the IRS standard rate updates).
+- ~~`hire_date` field on caregivers~~ — there isn't one and we are deliberately not adding one. New Paychex workers get `IN_PROGRESS / PENDING_HIRE` with `effectiveDate = today + default_pending_hire_date_offset_days` (default 14, configurable per org). The actual hire date is captured by the Phase 3+ promotion automation when the first non-cancelled shift completes; that PATCHes Paychex to `ACTIVE / HIRED` with the shift date.
+- ~~Pre-shift Paychex onboarding~~ — yes, supported. The two-stage worker lifecycle (IN_PROGRESS → ACTIVE) lets Phase 6's Paychex-hosted W-4/I-9/direct-deposit flow run before the caregiver's first shift.
+- ~~Rehire frequency~~ — rare for TC. Sync function returns a structured `rehire_detected` error and the back office reactivates manually in Paychex Flex; we automate it later if frequency increases.
+- ~~Monday cron timing~~ — Phase 3's timesheet-generation cron runs at Monday 6 AM Pacific. Owner-confirmed acceptable.
+
 ## Immediate next actions
 
 In strict order. Do not proceed past a step until it succeeds.
@@ -485,8 +494,8 @@ In strict order. Do not proceed past a step until it succeeds.
 2. **Owner**: confirm `PAYCHEX_CLIENT_ID` and `PAYCHEX_CLIENT_SECRET` are set in Supabase Edge Functions secrets (Project Settings → Edge Functions → Secrets). **Done.** Initial secret was rotated during Phase 0 verification (the original was rejected by Paychex with `Bad credentials`; the regenerated secret authenticated successfully on first try).
 3. **Claude**: open a PR from `claude/paychex-multi-org-refactor-lpDA8` containing the docs revisions (this plan + the SAAS_RETROFIT_STATUS update). Owner reviews and merges. **Done** (PR #205, merged 2026-04-25).
 4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration. **Done** (PR #207, merged 2026-04-25). Captured `companyId = 00M9LQF7LUBLSED1THE0`, scopes `api-delegation ext-api read:company_people write:company_people`, 83 workers in Paychex. Worker schema observations recorded above under "Phase 0 results."
-5. **Owner**: answer open questions 2, 3, 6 above (pay period boundaries, mileage rate, hire_date column on caregivers). They go into the Phase 1 seed migration. **In progress now.**
-6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply).
+5. **Owner**: answer questions about pay period boundaries, mileage rate, hire-date semantics, pre-shift onboarding, and rehire frequency. **Done 2026-04-25** — answers captured under "Resolved 2026-04-25 in Phase 1 design conversation with owner" above.
+6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. The PR also deletes `supabase/functions/paychex-diagnostic/` (its purpose was to discover the `companyId` that this seed migration now persists permanently) and instructs the owner to remove the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret after merge. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply). **In progress now.**
 7. **Owner**: create the "Test Caregiver — Do Not Pay" record in Paychex Flex (open question 5). Required before step 8 can verify end-to-end.
 8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status.
 9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks.
