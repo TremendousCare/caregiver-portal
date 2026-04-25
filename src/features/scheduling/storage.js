@@ -649,3 +649,164 @@ export const setSchedulingTemplate = async (key, value) => {
     throw e;
   }
 };
+
+
+// ─── clock_events ─────────────────────────────────────────────────
+// Append-only audit log of caregiver clock-in / clock-out events.
+// Auto-recorded rows (source='caregiver_app') come from the
+// caregiver-clock edge function. Manual rows (source='manual_entry')
+// come from office staff fixing a forgotten or incorrect punch from
+// the ShiftDrawer.
+//
+// Edits never overwrite original_occurred_at after the first edit, so
+// we always preserve the very first timestamp the row had — usually
+// the auto-recorded time, but for manual rows whatever the office
+// staff first entered.
+
+export const dbToClockEvent = (row) => ({
+  id: row.id,
+  shiftId: row.shift_id,
+  caregiverId: row.caregiver_id,
+  eventType: row.event_type,
+  occurredAt: row.occurred_at,
+  latitude: row.latitude != null ? Number(row.latitude) : null,
+  longitude: row.longitude != null ? Number(row.longitude) : null,
+  accuracyM: row.accuracy_m != null ? Number(row.accuracy_m) : null,
+  distanceFromClientM:
+    row.distance_from_client_m != null ? Number(row.distance_from_client_m) : null,
+  geofencePassed: row.geofence_passed,
+  overrideReason: row.override_reason,
+  source: row.source || 'caregiver_app',
+  editedAt: row.edited_at,
+  editedBy: row.edited_by,
+  editReason: row.edit_reason,
+  originalOccurredAt: row.original_occurred_at,
+  createdAt: row.created_at,
+});
+
+/**
+ * Load clock events for a shift, optionally scoped to a caregiver.
+ *
+ * Scoping by caregiverId matters because clock_events keeps history
+ * keyed on (shift_id, caregiver_id): if a shift is reassigned, the
+ * previous caregiver's punches stay in the table. The drawer panel
+ * always passes the currently-assigned caregiver so the timeline only
+ * shows that caregiver's events — mixing multiple caregivers'
+ * punches into one summary would produce wrong actual start/end and
+ * expose the wrong rows to edit/delete.
+ */
+export const getClockEventsForShift = async (shiftId, { caregiverId } = {}) => {
+  if (!isSupabaseConfigured() || !shiftId) return [];
+  let query = supabase
+    .from('clock_events')
+    .select('*')
+    .eq('shift_id', shiftId);
+  if (caregiverId) query = query.eq('caregiver_id', caregiverId);
+  const { data, error } = await query.order('occurred_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToClockEvent);
+};
+
+/**
+ * Office-staff manual insert for a forgotten clock punch.
+ *
+ * GPS / geofence fields are NULL by design — there is no location to
+ * evaluate after the fact. The `source='manual_entry'` flag plus
+ * `edited_by` (set to the inserting staff member) make it obvious in
+ * the UI that this row was not auto-recorded.
+ */
+export const insertManualClockEvent = async ({
+  shiftId,
+  caregiverId,
+  eventType,
+  occurredAt,
+  editedBy,
+  editReason,
+}) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!shiftId || !caregiverId || !eventType || !occurredAt) {
+    throw new Error('Missing required fields for manual clock event.');
+  }
+  if (eventType !== 'in' && eventType !== 'out') {
+    throw new Error('eventType must be "in" or "out".');
+  }
+  const { data, error } = await supabase
+    .from('clock_events')
+    .insert({
+      shift_id: shiftId,
+      caregiver_id: caregiverId,
+      event_type: eventType,
+      occurred_at: occurredAt,
+      source: 'manual_entry',
+      edited_by: editedBy ?? null,
+      edit_reason: editReason ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return dbToClockEvent(data);
+};
+
+/**
+ * Office-staff edit of a clock event's time. Preserves the original
+ * timestamp on the first edit (subsequent edits leave
+ * original_occurred_at untouched, so we always know the very first
+ * value the row ever had).
+ *
+ * `editReason` is required by the UI but enforced here too as a
+ * defense-in-depth check.
+ */
+export const updateClockEventTime = async (
+  id,
+  { occurredAt, editedBy, editReason },
+) => {
+  if (!isSupabaseConfigured()) return null;
+  if (!id || !occurredAt) {
+    throw new Error('Missing id or occurredAt for clock event edit.');
+  }
+  if (!editReason || !editReason.trim()) {
+    throw new Error('A reason is required to edit a clock event.');
+  }
+
+  const { data: existing, error: readErr } = await supabase
+    .from('clock_events')
+    .select('occurred_at, original_occurred_at')
+    .eq('id', id)
+    .single();
+  if (readErr) throw readErr;
+
+  const patch = {
+    occurred_at: occurredAt,
+    edited_at: new Date().toISOString(),
+    edited_by: editedBy ?? null,
+    edit_reason: editReason.trim(),
+  };
+  if (!existing.original_occurred_at) {
+    patch.original_occurred_at = existing.occurred_at;
+  }
+
+  const { data, error } = await supabase
+    .from('clock_events')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return dbToClockEvent(data);
+};
+
+/**
+ * Office-staff delete. Only manual_entry rows can be removed — an
+ * auto-recorded caregiver punch is always preserved (edit it instead).
+ */
+export const deleteManualClockEvent = async (id) => {
+  if (!isSupabaseConfigured()) return false;
+  if (!id) throw new Error('Missing clock event id.');
+  const { error } = await supabase
+    .from('clock_events')
+    .delete()
+    .eq('id', id)
+    .eq('source', 'manual_entry');
+  if (error) throw error;
+  return true;
+};

@@ -10,6 +10,7 @@ import {
   dbToAssignment,
   assignmentToDb,
   applyShiftWindowFilters,
+  dbToClockEvent,
 } from '../../features/scheduling/storage';
 
 // Chainable spy that records every method call as { method, args } so a
@@ -392,6 +393,106 @@ describe('applyShiftWindowFilters', () => {
       (c) => c.method === 'lte' && c.args[0] === 'end_time',
     );
     expect(endTimeUpperBound).toBeUndefined();
+  });
+
+  // ─── clock_events ────────────────────────────────────────────
+
+  describe('dbToClockEvent', () => {
+    it('converts a full caregiver_app row to camelCase', () => {
+      const row = {
+        id: 'evt-1',
+        shift_id: 'shift-A',
+        caregiver_id: 'cg-9',
+        event_type: 'in',
+        occurred_at: '2026-05-04T15:03:00.000Z',
+        latitude: '37.7749000',
+        longitude: '-122.4194000',
+        accuracy_m: '12.50',
+        distance_from_client_m: '85.20',
+        geofence_passed: true,
+        override_reason: null,
+        source: 'caregiver_app',
+        edited_at: null,
+        edited_by: null,
+        edit_reason: null,
+        original_occurred_at: null,
+        created_at: '2026-05-04T15:03:01.000Z',
+      };
+      expect(dbToClockEvent(row)).toEqual({
+        id: 'evt-1',
+        shiftId: 'shift-A',
+        caregiverId: 'cg-9',
+        eventType: 'in',
+        occurredAt: '2026-05-04T15:03:00.000Z',
+        latitude: 37.7749,
+        longitude: -122.4194,
+        accuracyM: 12.5,
+        distanceFromClientM: 85.2,
+        geofencePassed: true,
+        overrideReason: null,
+        source: 'caregiver_app',
+        editedAt: null,
+        editedBy: null,
+        editReason: null,
+        originalOccurredAt: null,
+        createdAt: '2026-05-04T15:03:01.000Z',
+      });
+    });
+
+    it('preserves edit metadata for an edited row', () => {
+      const row = {
+        id: 'evt-2',
+        shift_id: 'shift-A',
+        caregiver_id: 'cg-9',
+        event_type: 'out',
+        occurred_at: '2026-05-04T19:00:00.000Z',
+        source: 'caregiver_app',
+        edited_at: '2026-05-04T20:15:00.000Z',
+        edited_by: 'Jessica',
+        edit_reason: 'Caregiver clocked out late by mistake',
+        original_occurred_at: '2026-05-04T19:35:00.000Z',
+        created_at: '2026-05-04T19:35:01.000Z',
+      };
+      const out = dbToClockEvent(row);
+      expect(out.editedBy).toBe('Jessica');
+      expect(out.editReason).toBe('Caregiver clocked out late by mistake');
+      expect(out.originalOccurredAt).toBe('2026-05-04T19:35:00.000Z');
+    });
+
+    it('flags a manual_entry row', () => {
+      const row = {
+        id: 'evt-3',
+        shift_id: 'shift-A',
+        caregiver_id: 'cg-9',
+        event_type: 'in',
+        occurred_at: '2026-05-04T15:00:00.000Z',
+        latitude: null,
+        longitude: null,
+        accuracy_m: null,
+        distance_from_client_m: null,
+        geofence_passed: null,
+        source: 'manual_entry',
+        edited_by: 'Jessica',
+        edit_reason: 'Caregiver forgot to clock in',
+        created_at: '2026-05-04T20:00:00.000Z',
+      };
+      const out = dbToClockEvent(row);
+      expect(out.source).toBe('manual_entry');
+      expect(out.latitude).toBe(null);
+      expect(out.geofencePassed).toBe(null);
+      expect(out.editReason).toBe('Caregiver forgot to clock in');
+    });
+
+    it('defaults source to caregiver_app for legacy rows missing the column', () => {
+      const row = {
+        id: 'evt-4',
+        shift_id: 'shift-A',
+        caregiver_id: 'cg-9',
+        event_type: 'in',
+        occurred_at: '2026-05-04T15:00:00.000Z',
+      };
+      expect(dbToClockEvent(row).source).toBe('caregiver_app');
+    });
   });
 
   it('documented overlap rule: a shift overlaps [start, end] iff start_time <= end AND end_time >= start', () => {

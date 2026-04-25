@@ -17,6 +17,7 @@ import {
 } from './shiftHelpers';
 import { ShiftForm } from './ShiftForm';
 import { ConfirmAssignDialog } from './ConfirmAssignDialog';
+import { ClockEventsPanel } from './ClockEventsPanel';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import btn from '../../styles/buttons.module.css';
 import s from './ShiftDrawer.module.css';
@@ -387,7 +388,7 @@ export function ShiftDrawer({
                   onClick={() => onBroadcast?.(shift)}
                   disabled={saving}
                 >
-                  📣 Broadcast shift
+                  Broadcast shift
                 </button>
               )}
               {draft.status === 'assigned' && (
@@ -491,6 +492,18 @@ export function ShiftDrawer({
                 })}
               </ul>
             </div>
+          )}
+
+          {shift.assignedCaregiverId && (
+            <ClockEventsPanel
+              shiftId={shift.id}
+              caregiverId={shift.assignedCaregiverId}
+              scheduledStart={shift.startTime}
+              scheduledEnd={shift.endTime}
+              currentUserName={currentUserName}
+              timezone={DEFAULT_APP_TIMEZONE}
+              disabled={isCancelled}
+            />
           )}
 
           <ShiftForm
