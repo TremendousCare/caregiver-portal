@@ -441,14 +441,69 @@ function ClientDashboardPage() {
   );
 }
 
+function ActiveClientsPage() {
+  const navigate = useNavigate();
+  const { sidebarCollapsed, showToast } = useApp();
+  const { activeClients, tasksVersion, bulkEmail } = useClients();
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const wonClients = useMemo(
+    () => activeClients.filter((cl) => getClientPhase(cl) === 'won'),
+    [activeClients, tasksVersion]
+  );
+
+  const filtered = useMemo(() => {
+    if (!searchTerm) return wonClients;
+    const q = searchTerm.toLowerCase();
+    return wonClients.filter((cl) =>
+      `${cl.firstName} ${cl.lastName}`.toLowerCase().includes(q) ||
+      cl.phone?.includes(searchTerm) ||
+      cl.email?.toLowerCase().includes(q) ||
+      cl.careRecipientName?.toLowerCase().includes(q)
+    );
+  }, [wonClients, searchTerm]);
+
+  return (
+    <ClientDashboard
+      clients={filtered}
+      allClients={wonClients}
+      filterPhase="won"
+      searchTerm={searchTerm}
+      setSearchTerm={setSearchTerm}
+      sidebarWidth={sidebarCollapsed ? 64 : 260}
+      onSelect={(id) => navigate(`/clients/${id}`)}
+      onAdd={() => navigate('/clients/add')}
+      onBulkEmail={bulkEmail}
+      showToast={showToast}
+    />
+  );
+}
+
 function AddClientPage() {
   const navigate = useNavigate();
   const { addClient } = useClients();
 
   return (
     <AddClient
+      mode="client"
       onAdd={(data) => {
-        const newCl = addClient(data);
+        const newCl = addClient(data, { phase: 'won' });
+        navigate(`/clients/${newCl.id}`);
+      }}
+      onCancel={() => navigate('/clients/active')}
+    />
+  );
+}
+
+function AddLeadPage() {
+  const navigate = useNavigate();
+  const { addClient } = useClients();
+
+  return (
+    <AddClient
+      mode="lead"
+      onAdd={(data) => {
+        const newCl = addClient(data, { phase: 'new_lead' });
         navigate(`/clients/${newCl.id}`);
       }}
       onCancel={() => navigate('/clients')}
@@ -553,7 +608,9 @@ export default function AdminApp() {
                 <Route path="add" element={<AddCaregiverPage />} />
                 <Route path="caregiver/:id" element={<CaregiverDetailPage />} />
                 <Route path="clients" element={<ClientDashboardPage />} />
+                <Route path="clients/active" element={<ActiveClientsPage />} />
                 <Route path="clients/add" element={<AddClientPage />} />
+                <Route path="clients/add-lead" element={<AddLeadPage />} />
                 <Route path="clients/sequences" element={<SequenceSettingsPage />} />
                 <Route path="clients/:id" element={<ClientDetailPage />} />
                 <Route path="schedule" element={<SchedulePage />} />

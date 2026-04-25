@@ -23,7 +23,22 @@ export function ClientSidebarExtra() {
     return (
       <>
         <div className={layout.sidebarSection}>
-          <div className={layout.sidebarLabel}>Pipeline Overview</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 8 }}>
+            <div className={layout.sidebarLabel}>Pipeline Overview</div>
+            <button
+              onClick={() => navigate('/clients/add-lead')}
+              title="Add new lead to pipeline"
+              style={{
+                background: 'transparent', border: 'none', color: '#8BA3C7',
+                cursor: 'pointer', fontSize: 14, padding: '2px 6px', borderRadius: 4,
+                fontFamily: 'inherit', lineHeight: 1,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              ＋ New Lead
+            </button>
+          </div>
           {CLIENT_PHASES.map((p) => {
             const count = activeClients.filter((c) => getClientPhase(c) === p.id).length;
             return (

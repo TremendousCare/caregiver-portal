@@ -21,7 +21,14 @@ function FormField({ label, field, type = 'text', required, placeholder, value, 
   );
 }
 
-export function AddClient({ onAdd, onCancel }) {
+export function AddClient({ onAdd, onCancel, mode = 'lead' }) {
+  const isLead = mode === 'lead';
+  const titleText = isLead ? 'Add New Lead' : 'Add New Client';
+  const subtitleText = isLead
+    ? 'Enter prospect information to begin the sales pipeline'
+    : 'Add an existing or active client directly (skips the sales pipeline)';
+  const submitLabel = isLead ? 'Add to Pipeline' : 'Add Active Client';
+  const notesPlaceholder = isLead ? 'Initial notes about this lead...' : 'Initial notes about this client...';
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -57,8 +64,8 @@ export function AddClient({ onAdd, onCancel }) {
     <div>
       <div className={layout.header}>
         <div>
-          <h1 className={layout.pageTitle}>Add New Client</h1>
-          <p className={layout.pageSubtitle}>Enter client information to begin the sales pipeline</p>
+          <h1 className={layout.pageTitle}>{titleText}</h1>
+          <p className={layout.pageSubtitle}>{subtitleText}</p>
         </div>
       </div>
 
@@ -158,14 +165,14 @@ export function AddClient({ onAdd, onCancel }) {
         <textarea
           className={forms.textarea}
           rows={3}
-          placeholder="Initial notes about this lead..."
+          placeholder={notesPlaceholder}
           value={form.initialNotes}
           onChange={(e) => setForm((f) => ({ ...f, initialNotes: e.target.value }))}
         />
 
         <div className={forms.formActions}>
           <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={onCancel}>Cancel</button>
-          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleSubmit}>Add to Pipeline</button>
+          <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleSubmit}>{submitLabel}</button>
         </div>
       </div>
     </div>
