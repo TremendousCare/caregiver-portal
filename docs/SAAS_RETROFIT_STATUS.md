@@ -9,10 +9,10 @@ This file is the living tracker. Update it in the same PR that advances the retr
 
 ## Current phase
 
-**Phase A — Auth foundation**
-**Status**: In progress
-**Target**: Weeks 1–2 of the retrofit
-**Open PR**: `claude/phase-a-auth-foundation-M94Sk` — introduces `organizations` + `org_memberships` tables, `public.custom_access_token_hook`, and AppContext plumbing (`currentOrgId`/`currentOrgSlug`/`currentOrgRole`). Scaffolding only; no behavior change. Requires manual Supabase Dashboard step to enable the hook after merge.
+**Between Phase A (shipped) and Phase B (not yet started).**
+**Phase A** shipped 2026-04-23 via PR #186 (`claude/phase-a-auth-foundation-M94Sk`); access token hook enabled in Supabase Dashboard; every staff and caregiver JWT now carries `org_id`, `org_slug`, `org_role`. Bake period clean — no auth-related incidents reported.
+**Phase B** is targeted to begin within the week.
+**In flight (counts toward Phase C kickoff)**: Paychex Phase 1.5 — `getOrgSecret(orgId, secretName)` helper, `org_secrets` table, `get_org_secret` RPC, with RingCentral as the conversion proof-of-pattern. Tracked in `docs/plans/2026-04-25-paychex-integration-plan.md`. This pioneers retrofit Phase C's per-org secret pattern without waiting for full Phase C kickoff, because the Paychex worker-sync work needs it.
 
 ---
 
@@ -20,9 +20,9 @@ This file is the living tracker. Update it in the same PR that advances the retr
 
 | Phase | Name | Status | Shipped | Notes |
 |-------|------|--------|---------|-------|
-| A | Auth foundation | In progress | — | `organizations`, `org_memberships`, JWT hook |
-| B | Tenant isolation on every table | Not started | — | `org_id` + RLS, one table at a time |
-| C | Per-org secrets and integrations | Not started | — | Generalize `communication_routes` pattern |
+| A | Auth foundation | Shipped | 2026-04-23 | PR #186; `organizations`, `org_memberships`, JWT hook live |
+| B | Tenant isolation on every table | Not started | — | `org_id` + RLS, one table at a time. Targeted to begin within the week. |
+| C | Per-org secrets and integrations | In flight (partial) | — | `getOrgSecret` + `org_secrets` table piloted via Paychex Phase 1.5 with RingCentral as first consumer |
 | D | Configurable phases, branding, feature toggles | Not started | — | `pipeline_phases`, `organizations.settings` |
 | E | Onboarding, compliance, billing | Not started | — | Signup, BAA, admin console, manual QBO |
 
@@ -46,7 +46,7 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 ## Decisions still open
 
 - SaaS product brand name (separate or shared with Tremendous Care)
-- Vault entries vs `org_secrets` table
+- ~~Vault entries vs `org_secrets` table~~ — locked: `org_secrets` table with `pgcrypto` encryption, accessed via `public.get_org_secret(p_org_id uuid, p_secret_name text)` SECURITY DEFINER RPC. Decision made at Paychex Phase 1.5 kickoff (2026-04-25). Moves to "Decisions locked" once Phase 1.5 ships.
 - Multi-org membership before launch, or defer
 - Concrete `features_enabled` SKUs
 - Pricing tiers
@@ -55,11 +55,10 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 
 ## Shipped PRs
 
-*(None yet. First entry below will be the documentation PR that establishes this plan.)*
-
 | Date | PR | Phase | Summary |
 |------|----|----|---------|
-| — | — | — | — |
+| 2026-04-23 | #186 | A | Auth foundation: `organizations`, `org_memberships`, `custom_access_token_hook`, AppContext plumbing for `currentOrgId`/`currentOrgSlug`/`currentOrgRole`. Hook enabled in Supabase Dashboard post-merge. |
+| 2026-04-25 | #201 | — | Plan documentation for the Paychex Flex W-2 payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). Not a retrofit phase change, but the integration's Phase 1.5 contributes the per-org secret pattern that Phase C will generalize. |
 
 ---
 
