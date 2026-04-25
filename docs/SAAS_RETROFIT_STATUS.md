@@ -46,7 +46,7 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 ## Decisions still open
 
 - SaaS product brand name (separate or shared with Tremendous Care)
-- ~~Vault entries vs `org_secrets` table~~ — locked: `org_secrets` table with `pgcrypto` encryption, accessed via `public.get_org_secret(p_org_id uuid, p_secret_name text)` SECURITY DEFINER RPC. Decision made at Paychex Phase 1.5 kickoff (2026-04-25). Moves to "Decisions locked" once Phase 1.5 ships.
+- ~~Vault entries vs `org_secrets` table~~ — locked: **Supabase Vault holds the secret values**, mirroring the existing `communication_routes` + `get_route_ringcentral_jwt` pattern. A small `org_secrets` table holds the `(org_id, secret_name) → vault_secret_name` mapping for auditability and listing — but no ciphertext. Read access is via `public.get_org_secret(p_org_id uuid, p_secret_name text)` SECURITY DEFINER RPC, service-role only. Set/clear go through admin-only SECURITY DEFINER RPCs. TC env-var fallback is gated inside `get_org_secret` to `org_id = (SELECT id FROM organizations WHERE slug = 'tremendous-care')`. Decision made at Paychex Phase 1.5 kickoff (2026-04-25) after auditing the existing pattern. Moves to "Decisions locked" once Phase 1.5 ships.
 - Multi-org membership before launch, or defer
 - Concrete `features_enabled` SKUs
 - Pricing tiers
