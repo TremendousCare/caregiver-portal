@@ -1,0 +1,407 @@
+/* Caregiver care-plan checklist — mobile-first.
+   Reuses tokens from CaregiverPortal.module.css (navy #2E4E8D, cyan
+   #29BEE4, success #2E7D4A, danger #C53030, neutral #6B7B8F). */
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto 16px;
+  background: #FFFFFF;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitle {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  color: #1A2332;
+  margin: 0;
+}
+
+.versionBadge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2E4E8D;
+  background: #EAF4FB;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.helperBanner {
+  background: #F7F8FB;
+  color: #6B7B8F;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.errorBanner {
+  background: #FFF5F5;
+  color: #C53030;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.muted {
+  color: #6B7B8F;
+  font-size: 14px;
+  margin: 0;
+}
+
+.helper {
+  color: #6B7B8F;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.error {
+  color: #C53030;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ─── Category groups ─── */
+
+.categoryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.categoryHeader {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6B7B8F;
+  margin: 8px 0 0;
+}
+
+.taskList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ─── Individual task card ─── */
+
+.taskItem {
+  border: 1px solid #E5E9F0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.taskOptional {
+  background: #FAFBFD;
+}
+
+.taskHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.taskName {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1A2332;
+}
+
+.priorityCritical {
+  font-size: 10px;
+  font-weight: 700;
+  color: #C53030;
+  background: #FEE2E2;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.priorityOptional {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6B7B8F;
+  background: #F0F3F7;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.taskDescription {
+  font-size: 14px;
+  color: #4A5468;
+  line-height: 1.4;
+}
+
+.safetyNote {
+  background: #FFF8E6;
+  color: #7A4F00;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.safetyIcon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* ─── Rating buttons ─── */
+
+.ratingRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.rateBtn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  background: #FFFFFF;
+  color: #4A5468;
+  border: 1px solid #D7DCE4;
+  border-radius: 8px;
+  padding: 10px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px; /* mobile tap target */
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.rateBtn:hover:not(:disabled) {
+  background: #F7F8FB;
+}
+
+.rateBtnDisabled,
+.rateBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rateSymbol {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rateLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rateBtnActive_done {
+  background: #DCFCE7;
+  color: #166534;
+  border-color: #86EFAC;
+}
+
+.rateBtnActive_partial {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: #FCD34D;
+}
+
+.rateBtnActive_not-done {
+  background: #FEE2E2;
+  color: #991B1B;
+  border-color: #FCA5A5;
+}
+
+/* ─── Per-task note + refusal editor ─── */
+
+.taskNotePreview {
+  font-size: 13px;
+  color: #4A5468;
+  background: #F7F8FB;
+  padding: 8px 10px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.taskActions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inlineEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.refusalLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7B8F;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 16px; /* prevents iOS zoom */
+  padding: 10px 12px;
+  border: 1px solid #D7DCE4;
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: inherit;
+  box-sizing: border-box;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.textarea:focus {
+  outline: 2px solid #29BEE4;
+  outline-offset: 1px;
+  border-color: #29BEE4;
+}
+
+.textarea:disabled {
+  background: #F7F8FB;
+  cursor: not-allowed;
+}
+
+/* ─── Buttons ─── */
+
+.primaryBtn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  background: linear-gradient(135deg, #2E4E8D 0%, #29BEE4 100%);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(41, 190, 228, 0.2);
+  min-height: 40px;
+}
+
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.secondaryBtn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  background: #FFFFFF;
+  color: #2E4E8D;
+  border: 1px solid #D7DCE4;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dangerBtn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  background: #C53030;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.dangerBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.linkBtn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  background: transparent;
+  color: #2E4E8D;
+  border: none;
+  padding: 6px 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.linkBtnDanger {
+  composes: linkBtn;
+  color: #C53030;
+}
+
+/* ─── Refusals list ─── */
+
+.refusalList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: #4A5468;
+}
+
+/* ─── Shift notes ─── */
+
+.shiftNotes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shiftNotesFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
