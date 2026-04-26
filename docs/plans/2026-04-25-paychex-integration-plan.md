@@ -3,7 +3,7 @@
 **Date:** 2026-04-25
 **Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
-**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 complete (PR #211 merged 2026-04-25; migrations applied to production 2026-04-25). Phase 2 in progress on branch `claude/paychex-phase-2-AkZFD`.
+**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 complete (PR #211 merged 2026-04-25; migrations applied to production 2026-04-25). Phase 2 code complete and dry-run-verified end-to-end on branch `claude/paychex-phase-2-AkZFD` (PR #212). **Real Paychex worker writes are blocked on Paychex enabling the worker WRITE entitlement** at the resource level — request open with the Paychex rep (see "Phase 2 results" below). Code merge is unblocked; real-write verification waits on Paychex.
 
 ---
 
@@ -331,6 +331,37 @@ Exit criteria: a designated test caregiver ("Test Caregiver — Do Not Pay") can
 
 Rollback: revert the PR. The edge function ceases to exist; existing caregiver data is unchanged. The `paychex_worker_id` column on `caregivers` from Phase 1 stays — it is just unused. To clean up the test caregiver in Paychex Flex itself, the back-office user deletes it manually via the Paychex UI (Paychex's Worker DELETE endpoint is in the docs but we never need to call it from our side).
 
+#### Phase 2 results (captured 2026-04-26)
+
+PR #212 opened against `main` with 1960/1960 tests passing and a clean build. Code-side verification end-to-end succeeded; **real Paychex worker creation is blocked on a Paychex backend entitlement that the owner has requested.**
+
+Test target:
+- `caregivers.id` for "TestCaregiver DoNotPay" in Supabase: `a7d692bf-f3ec-47a5-93d6-a42de096a47f`. Created via the portal's "+ New Caregiver" UI on 2026-04-26 with no SSN, no email, account-invite disabled (matches the original Phase 0 plan instruction).
+
+Real-call attempt (2026-04-26 ~19:32 UTC):
+- `POST /companies/00M9LQF7LUBLSED1THE0/workers` returned **HTTP 403** with Paychex error code `API-2`:
+  - `"description": "Your application is not authorized to access the resource."`
+  - `"resolution": "Send a valid resource in your request along with ensuring that your application has access to the resource and endpoint."`
+- The shared client correctly classified this as `client_error`, persisted `paychex_sync_status='error'` and a truncated message on the caregivers row, did **not** persist any `workerId` (Paychex didn't return one anyway, but the safety also covers 423 cases), and recorded the full request/response/duration in `paychex_api_log` with `dry_run=false`.
+
+Why we believe this is a Paychex-side entitlement issue (and not a code bug):
+- Paychex App Hub for the Caregiver Portal app shows "Company and worker APIs" toggled ON with **Read and write (GET, POST, PATCH, DELETE)** selected. (Owner verified visually via screenshot.)
+- The OAuth `client_credentials` token continues to return scope `api-delegation ext-api read:company_people write:company_people` (matches Phase 0 capture; nothing changed at the token layer).
+- Reads against the same companyId still work — Phase 0's `GET /companies/{companyId}/workers` returned 83 workers.
+- Only the worker-create write is rejected. Paychex has multiple permission gates and the App Hub toggle alone is insufficient when their backend hasn't enabled the resource-level write entitlement (this same pattern is visible on the still-greyed-out "Payroll and check APIs" row in App Hub, with its "Need Access? Your Paychex representative can help." prompt).
+
+Action open with Paychex rep:
+- Owner has an open request to enable the worker WRITE entitlement at the resource level for the Caregiver Portal app on company `70125496` / `00M9LQF7LUBLSED1THE0`. Same email also covers the long-pending Payroll and Check API scope (Phase 5 prerequisite). Once Paychex confirms, owner re-runs the same browser-console invocation snippet and verifies `paychex_worker_id` populates and a new worker appears in App Hub with `IN_PROGRESS / PENDING_HIRE`.
+
+Dry-run verification (2026-04-26 ~22:33 UTC):
+- With `PAYCHEX_DRY_RUN=true` set in Edge Function secrets and the test caregiver's sync fields reset, the same browser-console invocation returned `200 / { ok: true, mode: "create", paychex_worker_id: null, dry_run: true, sync_status: "active" }` and the audit log captured a `dry_run=true` row with `response_status=200` and `error=null`. **No traffic reached Paychex** during this run, confirmed by App Hub showing no new worker. This validated the auth check, JWT-derived `org_id`, caregiver lookup, org-settings lookup, mapping, idempotency-key generation, audit logging, and status persistence in isolation from the Paychex entitlement issue.
+- `PAYCHEX_DRY_RUN` was deleted from Edge Function secrets after verification so future invocations hit real Paychex once the entitlement lands.
+- Known reporting quirk to address in a Phase 2 polish PR: dry-run currently sets `paychex_sync_status='active'` even though no data was sent. A future change should either leave the status untouched or introduce a distinct `'dry_run'` value so the field accurately reflects "actually present in Paychex" vs "would have been present."
+
+Worker shape observations (post-PR, supplementing Phase 0):
+- The 403 response body is shape-stable across the Paychex error responses: `{ links, errors: [{ code, description, resolution }], content }`. The shared client's structured logging captures all three nested fields verbatim, which is what made this diagnosis fast.
+- No new surprises in the worker payload shape itself — the Phase 0 sample was sufficient to drive the Phase 2 mapping function, and our dry-run payload matches what the plan called for.
+
 ### Phase 3 — Timesheet generation and overtime engine (3 days)
 
 Goal: roll up shifts into draft timesheets with correct CA OT classification. No UI yet.
@@ -496,8 +527,9 @@ In strict order. Do not proceed past a step until it succeeds.
 4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration. **Done** (PR #207, merged 2026-04-25). Captured `companyId = 00M9LQF7LUBLSED1THE0`, scopes `api-delegation ext-api read:company_people write:company_people`, 83 workers in Paychex. Worker schema observations recorded above under "Phase 0 results."
 5. **Owner**: answer questions about pay period boundaries, mileage rate, hire-date semantics, pre-shift onboarding, and rehire frequency. **Done 2026-04-25** — answers captured under "Resolved 2026-04-25 in Phase 1 design conversation with owner" above.
 6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. The PR also deletes `supabase/functions/paychex-diagnostic/` (its purpose was to discover the `companyId` that this seed migration now persists permanently) and instructs the owner to remove the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret after merge. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply). **Done (PR #211).**
-7. **Owner**: create the "Test Caregiver — Do Not Pay" record in Paychex Flex (open question 5). Required before step 8 can verify end-to-end.
-8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status.
+7. **Owner**: create the "Test Caregiver — Do Not Pay" record (open question 5). Required before step 8 can verify end-to-end. **Done 2026-04-26** — owner created the placeholder in Paychex Flex App Hub on 2026-04-25 and a matching `caregivers` row in the portal (id `a7d692bf-f3ec-47a5-93d6-a42de096a47f`) on 2026-04-26 via the "+ New Caregiver" UI.
+8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status. **Code complete (PR #212), dry-run-verified end-to-end 2026-04-26. Real-Paychex worker creation is blocked on Paychex enabling the worker WRITE entitlement at the resource level — owner request open (see "Phase 2 results" subsection above for the `API-2` 403 details and the rep email content).** Once Paychex confirms, owner re-runs the same browser-console snippet and verifies the new worker appears in Paychex Flex.
+8a. **Owner**: contact Paychex rep with the request drafted in the Phase 2 results subsection — asks for the worker WRITE entitlement on the Caregiver Portal app for company `70125496` / `00M9LQF7LUBLSED1THE0`, and (in the same email) the still-pending Payroll and Check API scope for Phase 5.
 9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks.
 10. **Claude**: on a fresh branch, implement Phase 4 (approval UI + CSV export). **At this point the integration is operationally complete.** Back office runs 1-2 cycles end-to-end: review, approve, export CSV, manually enter into Paychex, mark as paid. Catches any UX issues.
 11. **Bake**: 2-4 weeks of weekly payroll runs through the Phase 4 CSV path before considering Phase 5. Confirms numbers match Paychex's processing penny-for-penny in real conditions.
