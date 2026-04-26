@@ -1,0 +1,200 @@
+/* Admin per-shift care plan log — renders inside ShiftDrawer below
+   the clock-events panel. Compact layout that matches the drawer's
+   existing visual rhythm. */
+
+.panel {
+  background: #FAFBFD;
+  border: 1px solid #E5E9F0;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2E4E8D;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #6B7B8F;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.muted {
+  font-size: 12px;
+  color: #6B7B8F;
+}
+
+.errorBanner {
+  background: #FFF5F5;
+  color: #C53030;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.linkBtn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  color: #2E4E8D;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHeader {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6B7B8F;
+  margin: 4px 0 0;
+}
+
+.categoryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.categoryHeader {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6B7B8F;
+  margin: 4px 0 0;
+}
+
+.taskList,
+.refusalList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.taskRow,
+.refusalItem {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  background: #FFFFFF;
+  border: 1px solid #E5E9F0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.icon {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 700;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.taskBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.taskLabel {
+  font-weight: 600;
+  color: #1A2332;
+  word-wrap: break-word;
+}
+
+.taskDetail {
+  font-size: 12px;
+  color: #4A5468;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.timestamp {
+  font-size: 11px;
+  color: #6B7B8F;
+  white-space: nowrap;
+  align-self: start;
+}
+
+/* Tone-specific accent on the icon column. Subtle so the row reads
+   as a list, not a dashboard. */
+.tone_success .icon { color: #166534; }
+.tone_warning .icon { color: #92400E; }
+.tone_danger  .icon { color: #991B1B; }
+.tone_neutral .icon { color: #4A5468; }
+.tone_note    .icon { color: #2E4E8D; }
+
+.tone_danger {
+  background: #FEF2F2;
+  border-color: #FCA5A5;
+}
+
+/* Shift note block — wider styling since the note text can be long. */
+
+.shiftNote {
+  background: #FFFFFF;
+  border: 1px solid #E5E9F0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #1A2332;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.history {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.historySummary {
+  cursor: pointer;
+  color: #2E4E8D;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.historyList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.historyItem {
+  background: #FFFFFF;
+  border-left: 2px solid #D7DCE4;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #4A5468;
+  line-height: 1.4;
+}

@@ -1,0 +1,157 @@
+/* Per-client care plan activity timeline. Renders inside CarePlanPanel
+   between the section list and the version history. */
+
+.panel {
+  background: #FAFBFD;
+  border: 1px solid #E5E9F0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2E4E8D;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #6B7B8F;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.muted {
+  font-size: 13px;
+  color: #6B7B8F;
+}
+
+.errorBanner {
+  background: #FFF5F5;
+  color: #C53030;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.linkBtn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  color: #2E4E8D;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.shiftList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.shiftBlock {
+  background: #FFFFFF;
+  border: 1px solid #E5E9F0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shiftHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.shiftDate {
+  font-weight: 700;
+  color: #1A2332;
+}
+
+.shiftCaregiver {
+  color: #6B7B8F;
+}
+
+.observationList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.observationRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #FAFBFD;
+}
+
+.icon {
+  font-size: 14px;
+  font-weight: 700;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  font-weight: 600;
+  color: #1A2332;
+  word-wrap: break-word;
+}
+
+.detail {
+  font-size: 12px;
+  color: #4A5468;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.timestamp {
+  font-size: 11px;
+  color: #6B7B8F;
+  white-space: nowrap;
+}
+
+/* Tone-specific accent on the icon column. */
+.tone_success .icon { color: #166534; }
+.tone_warning .icon { color: #92400E; }
+.tone_danger  .icon { color: #991B1B; }
+.tone_neutral .icon { color: #4A5468; }
+.tone_note    .icon { color: #2E4E8D; }
+
+.tone_danger {
+  background: #FEF2F2;
+}
