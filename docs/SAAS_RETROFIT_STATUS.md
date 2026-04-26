@@ -9,9 +9,10 @@ This file is the living tracker. Update it in the same PR that advances the retr
 
 ## Current phase
 
-**Between Phase A (shipped) and Phase B (not yet started).**
+**Phase B — Tenant isolation on every table.**
+**Status**: In progress (kickoff 2026-04-26).
 **Phase A** shipped 2026-04-23 via PR #186 (`claude/phase-a-auth-foundation-M94Sk`); access token hook enabled in Supabase Dashboard; every staff and caregiver JWT now carries `org_id`, `org_slug`, `org_role`. Bake period clean — no auth-related incidents reported.
-**Phase B** is targeted to begin within the week.
+**Phase B kickoff scope**: add `org_id uuid REFERENCES organizations(id)` to every tenant-sensitive table, backfill, set `NOT NULL` with a Tremendous-Care default, then tighten RLS one domain at a time. Sliced into ~5 PRs (B1: schema columns + backfill; B2: org-scoped RLS alongside existing policies; B3: edge functions + cron + frontend insert paths; B4: cross-tenant test harness; B5: drop permissive policies, sliced by domain). See `docs/SAAS_RETROFIT.md` → "Phase B" for the per-table pattern.
 **In flight (independent of the retrofit phases)**: Paychex Flex payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). After the 2026-04-25 audit of `developer.paychex.com`, the integration was confirmed to use **partner-level OAuth credentials** that do not require per-org secret storage — Paychex no longer pioneers Phase C. Per-org secret persistence (Vault vs `org_secrets` table) returns to retrofit Phase C kickoff for a coherent decision across RingCentral, DocuSign, Microsoft, and Anthropic.
 
 ---
@@ -21,7 +22,7 @@ This file is the living tracker. Update it in the same PR that advances the retr
 | Phase | Name | Status | Shipped | Notes |
 |-------|------|--------|---------|-------|
 | A | Auth foundation | Shipped | 2026-04-23 | PR #186; `organizations`, `org_memberships`, JWT hook live |
-| B | Tenant isolation on every table | Not started | — | `org_id` + RLS, one table at a time. Targeted to begin within the week. |
+| B | Tenant isolation on every table | In progress | — | `org_id` + RLS, one table at a time. Kickoff 2026-04-26. Sliced into ~5 PRs. |
 | C | Per-org secrets and integrations | Not started | — | Generalize `communication_routes` pattern. Decision (Vault vs `org_secrets` table) deferred to phase kickoff; Paychex does not require this work. |
 | D | Configurable phases, branding, feature toggles | Not started | — | `pipeline_phases`, `organizations.settings` |
 | E | Onboarding, compliance, billing | Not started | — | Signup, BAA, admin console, manual QBO |
@@ -40,6 +41,10 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 - Row-based tenancy, single Supabase project, RLS enforcement
 - Managed SaaS only; subdomain per customer
 - Manual QuickBooks invoicing at launch
+- **Phase B `org_id` column default**: `DEFAULT (SELECT id FROM organizations WHERE slug = 'tremendous-care')` — subselect, not a hardcoded UUID literal. Locked 2026-04-26.
+- **Phase B default lifecycle**: keep through Phases B–D for single-tenant safety; **drop in Phase E** when explicit `org_id` becomes mandatory on every insert path. Locked 2026-04-26.
+- **Phase B RLS posture**: strict / fail-closed. New policies are `USING (org_id = (auth.jwt() ->> 'org_id')::uuid)` — a missing claim denies. Edge functions using `service_role` bypass RLS unchanged; user-JWT edge calls are audited in PR B3. Locked 2026-04-26.
+- **Phase B test harness location**: a real second org (`acme-test` or similar) is provisioned in production `organizations` to validate cross-tenant isolation. No `is_test_org` flag — multi-tenancy is the whole point. Locked 2026-04-26.
 
 ---
 
