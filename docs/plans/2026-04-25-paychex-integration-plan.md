@@ -3,7 +3,7 @@
 **Date:** 2026-04-25
 **Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
-**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 in progress on branch `claude/paychex-phase-1-data-model`.
+**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 complete (PR #211 merged 2026-04-25; migrations applied to production 2026-04-25). Phase 2 in progress on branch `claude/paychex-phase-2-AkZFD`.
 
 ---
 
@@ -295,7 +295,7 @@ PR #207 merged to `main`. The diagnostic was invoked from the Supabase Dashboard
 
 **Cleanup tracked for Phase 1 PR**: the `paychex-diagnostic` function and the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret should both be deleted when Phase 1 ships, since the seed migration captures the `companyId` permanently and the diagnostic has no further purpose. This is noted in the Phase 1 PR description as a follow-up item.
 
-### Phase 1 — Data model (1 day)
+### Phase 1 — Data model (1 day) — COMPLETE 2026-04-25
 
 Goal: every payroll-related table exists with proper org isolation, RLS, and indexes. No application code reads or writes them yet.
 
@@ -495,7 +495,7 @@ In strict order. Do not proceed past a step until it succeeds.
 3. **Claude**: open a PR from `claude/paychex-multi-org-refactor-lpDA8` containing the docs revisions (this plan + the SAAS_RETROFIT_STATUS update). Owner reviews and merges. **Done** (PR #205, merged 2026-04-25).
 4. **Claude**: on a fresh branch off `main` after step 3 merges, implement Phase 0 (Paychex diagnostic edge function). One-PR scope. Owner triggers the function via the Supabase Dashboard once after merge and pastes the JSON output back. The output supplies the `companyId` value for the Phase 1 seed migration. **Done** (PR #207, merged 2026-04-25). Captured `companyId = 00M9LQF7LUBLSED1THE0`, scopes `api-delegation ext-api read:company_people write:company_people`, 83 workers in Paychex. Worker schema observations recorded above under "Phase 0 results."
 5. **Owner**: answer questions about pay period boundaries, mileage rate, hire-date semantics, pre-shift onboarding, and rehire frequency. **Done 2026-04-25** — answers captured under "Resolved 2026-04-25 in Phase 1 design conversation with owner" above.
-6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. The PR also deletes `supabase/functions/paychex-diagnostic/` (its purpose was to discover the `companyId` that this seed migration now persists permanently) and instructs the owner to remove the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret after merge. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply). **In progress now.**
+6. **Claude**: on a fresh branch off `main`, implement Phase 1 (Paychex data model + seed migration). One-PR scope. Reviewed against the multi-tenancy checklist. The PR also deletes `supabase/functions/paychex-diagnostic/` (its purpose was to discover the `companyId` that this seed migration now persists permanently) and instructs the owner to remove the `PAYCHEX_DIAGNOSTIC_TOKEN` Edge Function secret after merge. After merge, owner triggers `Deploy Database Migrations` workflow (dry-run first, then apply). **Done (PR #211).**
 7. **Owner**: create the "Test Caregiver — Do Not Pay" record in Paychex Flex (open question 5). Required before step 8 can verify end-to-end.
 8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status.
 9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks.
