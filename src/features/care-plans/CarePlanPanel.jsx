@@ -15,6 +15,7 @@ import {
 } from './storage';
 import { SectionEditor } from './SectionEditor';
 import { PublishModal } from './PublishModal';
+import { CarePlanActivity } from './CarePlanActivity';
 import { regenerateSnapshot } from './snapshotClient';
 import btn from '../../styles/buttons.module.css';
 import s from './CarePlanPanel.module.css';
@@ -290,6 +291,11 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
                 />
               ))}
           </ul>
+
+          {/* Recent activity — observations the caregiver(s) have logged on
+              shifts for this client. Read-only timeline; corrections happen
+              via the per-shift drawer in the schedule. */}
+          <CarePlanActivity carePlanId={plan.id} />
 
           {versions.length > 0 && (
             <details className={s.history}>

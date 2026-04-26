@@ -684,6 +684,70 @@ export const deleteTask = async (taskId, { userId } = {}) => {
 };
 
 
+// ─── Observations (admin-side reads) ───────────────────────────
+//
+// Caregivers write to care_plan_observations from the PWA. Admin
+// surfaces (ShiftDrawer per-shift log, CarePlanPanel timeline) read
+// them back here. The mapper mirrors src/lib/carePlanShift.js so both
+// sides agree on shape.
+
+export const dbToObservation = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    carePlanId: row.care_plan_id,
+    versionId: row.version_id,
+    taskId: row.task_id ?? null,
+    shiftId: row.shift_id ?? null,
+    caregiverId: row.caregiver_id ?? null,
+    observationType: row.observation_type,
+    rating: row.rating ?? null,
+    note: row.note ?? null,
+    loggedAt: row.logged_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+/**
+ * Fetch every observation for a single shift, oldest-first. Used by
+ * the admin ShiftCarePlanLog view to show what the caregiver did
+ * during this specific visit.
+ */
+export const getObservationsForShift = async (shiftId) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!shiftId) return [];
+  const { data, error } = await supabase
+    .from('care_plan_observations')
+    .select('*')
+    .eq('shift_id', shiftId)
+    .order('logged_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToObservation);
+};
+
+/**
+ * Fetch the most recent N observations for a care plan (across every
+ * shift). Used by the per-client timeline in CarePlanPanel.
+ *
+ * Default limit is 50 — enough to span ~a week of typical activity
+ * without paying for a long scan. Caller can bump it for a deeper
+ * history view; pagination can come later if it's ever needed.
+ */
+export const getObservationsForCarePlan = async (carePlanId, { limit = 50 } = {}) => {
+  if (!isSupabaseConfigured()) return [];
+  if (!carePlanId) return [];
+  const { data, error } = await supabase
+    .from('care_plan_observations')
+    .select('*')
+    .eq('care_plan_id', carePlanId)
+    .order('logged_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map(dbToObservation);
+};
+
+
 // ─── Internal helpers ──────────────────────────────────────────
 
 /**

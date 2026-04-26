@@ -20,6 +20,7 @@ import {
 import { ShiftForm } from './ShiftForm';
 import { ConfirmAssignDialog } from './ConfirmAssignDialog';
 import { ClockEventsPanel } from './ClockEventsPanel';
+import { ShiftCarePlanLog } from '../care-plans/ShiftCarePlanLog';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import btn from '../../styles/buttons.module.css';
 import s from './ShiftDrawer.module.css';
@@ -603,6 +604,13 @@ export function ShiftDrawer({
                 onSaved?.(updated);
               }}
             />
+          )}
+
+          {/* Admin view of what the caregiver logged during this shift —
+              task ratings, refusals, shift notes. Hides itself when
+              there are no observations yet so empty shifts stay tidy. */}
+          {shift.assignedCaregiverId && (
+            <ShiftCarePlanLog shiftId={shift.id} />
           )}
 
           <ShiftForm
