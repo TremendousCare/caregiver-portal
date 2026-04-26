@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { getCurrentPosition, evaluateGeofence, formatDistanceUs } from '../../lib/geofence';
 import { evaluateShiftWindow } from '../../lib/shiftWindow';
 import { callCaregiverClock } from '../../lib/callCaregiverClock';
+import { CarePlanChecklist } from './CarePlanChecklist';
 import s from './CaregiverPortal.module.css';
 
 const OVERRIDE_REASON_MAX_LEN = 250;
@@ -285,6 +286,11 @@ export function CaregiverShiftDetail({ caregiver }) {
           {submitError && <div className={s.error}>{submitError}</div>}
         </section>
       )}
+
+      {/* Care plan checklist — visible from `assigned` through `completed`.
+          Read-only before clock-in, interactive while in_progress, locked
+          after completion. Hides itself entirely for cancelled / no_show. */}
+      <CarePlanChecklist shift={shift} caregiver={caregiver} />
 
       {!action && shift.status === 'completed' && (
         <section className={s.card}>
