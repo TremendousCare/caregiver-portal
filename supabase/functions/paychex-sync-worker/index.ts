@@ -309,22 +309,32 @@ Deno.serve(async (req: Request) => {
         }, cors);
       }
 
-      const updates: Record<string, unknown> = {
-        paychex_sync_status: "active",
-        paychex_last_synced_at: new Date().toISOString(),
-        paychex_sync_error: null,
-      };
-      if (newWorkerId) {
-        updates.paychex_worker_id = newWorkerId;
-      }
-      const { error: updateErr } = await admin
-        .from("caregivers")
-        .update(updates)
-        .eq("id", caregiver.id);
-      if (updateErr) {
-        return jsonResponse(500, {
-          error: `Caregiver state persist failed: ${updateErr.message}`,
-        }, cors);
+      // Dry-run polish (Phase 3 follow-up): when no real call hit
+      // Paychex we deliberately skip the caregivers UPDATE. The
+      // existing CHECK constraint on paychex_sync_status (Phase 1)
+      // doesn't include 'dry_run', and adding it would be a separate
+      // additive migration we don't want to ship inside Phase 3.
+      // Skipping leaves paychex_sync_status / paychex_last_synced_at /
+      // paychex_sync_error truthful — "active" stays "active" only
+      // when an actual worker sits in Paychex.
+      if (!result.dryRun) {
+        const updates: Record<string, unknown> = {
+          paychex_sync_status: "active",
+          paychex_last_synced_at: new Date().toISOString(),
+          paychex_sync_error: null,
+        };
+        if (newWorkerId) {
+          updates.paychex_worker_id = newWorkerId;
+        }
+        const { error: updateErr } = await admin
+          .from("caregivers")
+          .update(updates)
+          .eq("id", caregiver.id);
+        if (updateErr) {
+          return jsonResponse(500, {
+            error: `Caregiver state persist failed: ${updateErr.message}`,
+          }, cors);
+        }
       }
 
       // Fire-and-forget event log so the activity feed reflects it.
@@ -352,7 +362,10 @@ Deno.serve(async (req: Request) => {
         mode: "create",
         paychex_worker_id: newWorkerId,
         dry_run: result.dryRun,
-        sync_status: "active",
+        // sync_status reflects what's persisted on the row, NOT what
+        // a dry-run would have implied. A dry run leaves the prior
+        // status untouched so callers know nothing was actually sent.
+        sync_status: result.dryRun ? (caregiver.paychex_sync_status ?? "not_started") : "active",
       }, cors);
     }
 
@@ -421,19 +434,24 @@ Deno.serve(async (req: Request) => {
       mediaType: WORKER_NONPII_MEDIA_TYPE,
     });
 
-    const updates: Record<string, unknown> = {
-      paychex_sync_status: "active",
-      paychex_last_synced_at: new Date().toISOString(),
-      paychex_sync_error: null,
-    };
-    const { error: updateErr } = await admin
-      .from("caregivers")
-      .update(updates)
-      .eq("id", caregiver.id);
-    if (updateErr) {
-      return jsonResponse(500, {
-        error: `Caregiver state persist failed: ${updateErr.message}`,
-      }, cors);
+    // Dry-run polish: skip the caregivers UPDATE when the call was
+    // intercepted by PAYCHEX_DRY_RUN. See the matching block in the
+    // POST branch above for the rationale.
+    if (!result.dryRun) {
+      const updates: Record<string, unknown> = {
+        paychex_sync_status: "active",
+        paychex_last_synced_at: new Date().toISOString(),
+        paychex_sync_error: null,
+      };
+      const { error: updateErr } = await admin
+        .from("caregivers")
+        .update(updates)
+        .eq("id", caregiver.id);
+      if (updateErr) {
+        return jsonResponse(500, {
+          error: `Caregiver state persist failed: ${updateErr.message}`,
+        }, cors);
+      }
     }
 
     admin
@@ -460,7 +478,7 @@ Deno.serve(async (req: Request) => {
       mode: "update",
       paychex_worker_id: existingWorkerId,
       dry_run: result.dryRun,
-      sync_status: "active",
+      sync_status: result.dryRun ? (caregiver.paychex_sync_status ?? "active") : "active",
     }, cors);
   } catch (err) {
     if (err instanceof PaychexError) {
