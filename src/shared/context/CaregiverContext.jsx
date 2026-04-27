@@ -140,6 +140,7 @@ export function CaregiverProvider({ children }) {
       })
     );
     if (changed) {
+      recentLocalEdits.current.set(cgId, Date.now());
       saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
       if (value) {
         fireEventTriggers('task_completed', changed, { task_id: taskId });
@@ -172,6 +173,7 @@ export function CaregiverProvider({ children }) {
       })
     );
     if (changed) {
+      recentLocalEdits.current.set(cgId, Date.now());
       saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
       for (const [key, val] of Object.entries(taskUpdates)) {
         if (val) fireEventTriggers('task_completed', changed, { task_id: key });
@@ -383,6 +385,7 @@ export function CaregiverProvider({ children }) {
         (k) => k !== 'phaseOverride' && k !== 'phaseTimestamps',
       );
       if (hasOtherUpdates) {
+        recentLocalEdits.current.set(cgId, Date.now());
         saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
       }
       const newPhase = getCurrentPhase(changed);
