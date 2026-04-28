@@ -21,6 +21,7 @@ This file is the living tracker. Update it in the same PR that advances the retr
 
 See `docs/SAAS_RETROFIT.md` → "Phase B" for the per-table pattern.
 **In flight (independent of the retrofit phases)**: Paychex Flex payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). After the 2026-04-25 audit of `developer.paychex.com`, the integration was confirmed to use **partner-level OAuth credentials** that do not require per-org secret storage — Paychex no longer pioneers Phase C. Per-org secret persistence (Vault vs `org_secrets` table) returns to retrofit Phase C kickoff for a coherent decision across RingCentral, DocuSign, Microsoft, and Anthropic.
+**Paychex integration progress**: Phases 0, 1, 2, 3 shipped (PRs #207, #211, #212, #216). Phase 3 cron auto-fired 2026-04-27 producing first real drafts; engine math verified by hand. Phase 4 (Approval UI + CSV export) starting in a fresh chat — handoff doc at `docs/handoff-paychex-phase-4.md`.
 
 ---
 
