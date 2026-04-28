@@ -422,11 +422,11 @@ describe('buildTimesheet — gross_pay & rate handling', () => {
     expect(result.timesheet.gross_pay).toBe(320);
   });
 
-  it('uses modal rate when shifts have multiple distinct rates', () => {
+  it('pays each shift at its own rate when shifts carry distinct rates (Phase 4 PR #2)', () => {
     const shifts = [
-      shift({ id: 's1', date: '2026-04-27', hourlyRate: 25 }),
-      shift({ id: 's2', date: '2026-04-28', hourlyRate: 25 }),
-      shift({ id: 's3', date: '2026-04-29', hourlyRate: 30 }), // outlier
+      shift({ id: 's1', date: '2026-04-27', hourlyRate: 25 }), // 8h @ 25
+      shift({ id: 's2', date: '2026-04-28', hourlyRate: 25 }), // 8h @ 25
+      shift({ id: 's3', date: '2026-04-29', hourlyRate: 30 }), // 8h @ 30
     ];
     const result = buildTimesheet({
       orgId: ORG_ID,
@@ -437,10 +437,34 @@ describe('buildTimesheet — gross_pay & rate handling', () => {
       clockEvents: [],
       orgSettings: TZ_SETTINGS,
     });
-    expect(result.meta.primaryRate).toBe(25);
     expect(result.meta.distinctRates.sort()).toEqual([25, 30]);
-    // 24h reg @ $25 = $600
-    expect(result.timesheet.gross_pay).toBe(600);
+    // 16h reg @ $25 + 8h reg @ $30 = $400 + $240 = $640
+    // No OT/DT in this 24h workweek so the weighted ROP isn't used.
+    expect(result.timesheet.gross_pay).toBe(640);
+    // ROP = (16*25 + 8*30) / 24 = 640 / 24 ≈ 26.6667
+    expect(result.meta.regularRateOfPay).toBeCloseTo(26.6667, 4);
+  });
+
+  it('exposes regular_by_rate aggregated per distinct shift rate', () => {
+    const shifts = [
+      shift({ id: 's1', date: '2026-04-27', hourlyRate: 25, startHour: 9, endHour: 17 }),
+      shift({ id: 's2', date: '2026-04-28', hourlyRate: 25, startHour: 9, endHour: 17 }),
+      shift({ id: 's3', date: '2026-04-29', hourlyRate: 30, startHour: 9, endHour: 17 }),
+    ];
+    const result = buildTimesheet({
+      orgId: ORG_ID,
+      caregiverId: CAREGIVER_ID,
+      weekStart: WEEK_START,
+      weekEnd: WEEK_END,
+      shifts,
+      clockEvents: [],
+      orgSettings: TZ_SETTINGS,
+    });
+    // Two buckets: 16h @ $25 and 8h @ $30
+    const buckets = result.meta.regularByRate;
+    expect(buckets).toHaveLength(2);
+    expect(buckets.find((b) => b.rate === 25).hours).toBe(16);
+    expect(buckets.find((b) => b.rate === 30).hours).toBe(8);
   });
 
   it('returns gross_pay = 0 when no shift has a usable rate', () => {

@@ -29,6 +29,7 @@ const CLEAN_DRAFT = {
   ],
   meta: {
     primaryRate: 25,
+    regularRateOfPay: 25,
     distinctRates: [25],
     mileageRate: 0.725,
     perShift: [
@@ -38,6 +39,7 @@ const CLEAN_DRAFT = {
         missingClockIn: false,
         missingClockOut: false,
         hadGeofenceFailure: false,
+        hourly_rate: 25,
         totalHours: 8,
       },
     ],
@@ -134,21 +136,23 @@ describe('detectExceptions — per-code', () => {
     expect(ex.shift_id).toBe('s1');
   });
 
-  it('flags rate_mismatch as a blocking exception when 2+ distinct rates exist', () => {
+  it('does NOT flag rate_mismatch even when shifts carry multiple distinct rates (Phase 4 PR #2)', () => {
+    // Per-shift rates + CA weighted-average regular rate of pay
+    // replaces the rate_mismatch blocker. Multi-rate workweeks now
+    // process correctly; the back office no longer needs to reconcile
+    // before approval.
     const draft = {
       ...CLEAN_DRAFT,
-      meta: { ...CLEAN_DRAFT.meta, distinctRates: [25, 30] },
+      meta: {
+        ...CLEAN_DRAFT.meta,
+        distinctRates: [25, 30],
+        perShift: [
+          { shift_id: 's1', hourly_rate: 25, totalHours: 8 },
+          { shift_id: 's2', hourly_rate: 30, totalHours: 8 },
+        ],
+      },
     };
     const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
-    const ex = result.find((e) => e.code === 'rate_mismatch');
-    expect(ex).toBeDefined();
-    expect(ex.severity).toBe('block');
-    expect(ex.message).toContain('25');
-    expect(ex.message).toContain('30');
-  });
-
-  it('does NOT flag rate_mismatch when there is only one distinct rate', () => {
-    const result = detectExceptions({ draft: CLEAN_DRAFT, caregiver: SYNCED_CAREGIVER });
     expect(result.find((e) => e.code === 'rate_mismatch')).toBeUndefined();
   });
 
@@ -379,8 +383,8 @@ describe('detectExceptions — combinations', () => {
       meta: {
         ...CLEAN_DRAFT.meta,
         perShift: [
-          { shift_id: 's1', missingClockOut: true, hadGeofenceFailure: false, totalHours: 8 },
-          { shift_id: 's2', missingClockOut: true, hadGeofenceFailure: false, totalHours: 8 },
+          { shift_id: 's1', missingClockOut: true, hadGeofenceFailure: false, hourly_rate: 25, totalHours: 8 },
+          { shift_id: 's2', missingClockOut: true, hadGeofenceFailure: false, hourly_rate: 25, totalHours: 8 },
         ],
       },
     };
@@ -388,22 +392,6 @@ describe('detectExceptions — combinations', () => {
     const missing = result.filter((e) => e.code === 'missing_clock_out');
     expect(missing).toHaveLength(2);
     expect(missing.map((e) => e.shift_id).sort()).toEqual(['s1', 's2']);
-  });
-
-  it('attaches caregiver-level codes once even with many shifts', () => {
-    const draft = {
-      ...CLEAN_DRAFT,
-      meta: {
-        ...CLEAN_DRAFT.meta,
-        distinctRates: [25, 30],
-        perShift: [
-          { shift_id: 's1', totalHours: 8 },
-          { shift_id: 's2', totalHours: 8 },
-        ],
-      },
-    };
-    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
-    expect(result.filter((e) => e.code === 'rate_mismatch')).toHaveLength(1);
   });
 
   it('combines caregiver-level + per-shift codes correctly', () => {
@@ -417,6 +405,7 @@ describe('detectExceptions — combinations', () => {
             shift_id: 's1',
             missingClockOut: true,
             hadGeofenceFailure: true,
+            hourly_rate: 25,
             totalHours: 18,
           },
         ],
@@ -427,11 +416,75 @@ describe('detectExceptions — combinations', () => {
       caregiver: { paychex_worker_id: null, paychex_sync_status: 'pending' },
     });
     const codes = new Set(result.map((e) => e.code));
-    expect(codes.has('rate_mismatch')).toBe(true);
     expect(codes.has('missing_clock_out')).toBe(true);
     expect(codes.has('out_of_geofence')).toBe(true);
     expect(codes.has('shift_too_long')).toBe(true);
     expect(codes.has('caregiver_not_in_paychex')).toBe(true);
+    // rate_mismatch is no longer detected; per-shift rates handle it.
+    expect(codes.has('rate_mismatch')).toBe(false);
+  });
+});
+
+// ─── Phase 4 PR #2: caregiver_missing_rate (per-shift) ────────────
+
+describe('detectExceptions — caregiver_missing_rate (Phase 4 PR #2)', () => {
+  it('flags as block when a shift has hours but no rate', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      meta: {
+        ...CLEAN_DRAFT.meta,
+        perShift: [{ shift_id: 's_norate', hourly_rate: null, totalHours: 8 }],
+      },
+    };
+    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
+    const ex = result.find((e) => e.code === 'caregiver_missing_rate');
+    expect(ex).toBeDefined();
+    expect(ex.severity).toBe('block');
+    expect(ex.shift_id).toBe('s_norate');
+  });
+
+  it('flags one exception per offending shift', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      meta: {
+        ...CLEAN_DRAFT.meta,
+        perShift: [
+          { shift_id: 's1', hourly_rate: null, totalHours: 4 },
+          { shift_id: 's2', hourly_rate: null, totalHours: 4 },
+          { shift_id: 's3', hourly_rate: 25, totalHours: 8 },
+        ],
+      },
+    };
+    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
+    const flagged = result.filter((e) => e.code === 'caregiver_missing_rate');
+    expect(flagged).toHaveLength(2);
+    expect(flagged.map((e) => e.shift_id).sort()).toEqual(['s1', 's2']);
+  });
+
+  it('does NOT flag when a shift has 0 hours and no rate (mileage-only shifts)', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      meta: {
+        ...CLEAN_DRAFT.meta,
+        perShift: [{ shift_id: 's_mile', hourly_rate: null, totalHours: 0 }],
+      },
+    };
+    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
+    expect(result.find((e) => e.code === 'caregiver_missing_rate')).toBeUndefined();
+  });
+
+  it('does NOT flag when rate is 0 (treats 0 as missing — back office fixes via inline edit)', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      meta: {
+        ...CLEAN_DRAFT.meta,
+        perShift: [{ shift_id: 's0', hourly_rate: 0, totalHours: 8 }],
+      },
+    };
+    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
+    const ex = result.find((e) => e.code === 'caregiver_missing_rate');
+    expect(ex).toBeDefined();
+    expect(ex.severity).toBe('block');
   });
 });
 

@@ -18,6 +18,22 @@
 //     after that becomes OT. Hours already classified daily as OT/DT
 //     are NOT double-counted by the weekly rule.
 //
+// Weighted-average regular rate of pay (added Phase 4 PR #2):
+//   When a single workweek contains shifts at distinct hourly rates,
+//   CA labor law (DLSE Manual §49.1.2 + DLSE Opinion Letter
+//   2002.12.09-2) requires the OT premium to be calculated against a
+//   blended "regular rate of pay" (ROP) — total straight-time pay
+//   divided by total non-OT hours worked. The OT premium per OT hour
+//   is then 0.5 × ROP; the DT premium per DT hour is 1.0 × ROP. When
+//   every shift carries the same rate the math reduces to the
+//   single-rate calculation.
+//
+//   `computeRegularRateOfPay` exposes this calculation as a pure
+//   helper so timesheetBuilder.js (and any future jurisdiction-specific
+//   variant) can call it without re-deriving the formula. Callers that
+//   only have a single rate may skip the helper and short-circuit on
+//   that rate directly.
+//
 // The engine takes a `jurisdiction` parameter from day one even though
 // only `CA` is implemented. Other values throw a clear error so a
 // future migration to multi-state is a code change, not a silent
@@ -26,6 +42,7 @@
 // Plan reference:
 //   docs/plans/2026-04-25-paychex-integration-plan.md
 //   ("CA overtime rules", "Phase 3 — Timesheet generation and overtime engine").
+//   docs/handoff-paychex-phase-4.md ("Per-shift rates — deferred to Phase 4").
 
 import {
   CA_DAILY_DOUBLE_TIME_THRESHOLD_HOURS,
@@ -418,5 +435,107 @@ export function classifyHours({
     doubleTime: doubleTimeTotal,
     byShift,
     byDay,
+  };
+}
+
+/**
+ * CA weighted-average regular rate of pay (ROP) for a workweek.
+ *
+ * Formula (per DLSE Manual §49.1.2 + DLSE Opinion Letter 2002.12.09-2):
+ *
+ *   ROP = total_straight_time_pay / total_non_OT_hours_worked
+ *
+ * Where:
+ *   - total_straight_time_pay = Σ (hours_worked_i × rate_i)
+ *     summed across every shift in the workweek (no OT/DT premium).
+ *     "Straight time" here means every hour at its own rate, regardless
+ *     of whether the OT engine later classifies that hour as regular,
+ *     OT, or DT — DLSE counts ALL worked hours' base earnings in the
+ *     numerator.
+ *   - total_non_OT_hours_worked = Σ hours_worked_i across every shift.
+ *     DLSE explicitly counts every worked hour (including the hours
+ *     that classify as OT/DT) in the denominator. The intuition: the
+ *     "regular rate" is the average per-hour wage the employee
+ *     actually earns at base rates, before any OT premium.
+ *
+ * The premium for an OT hour is then 0.5 × ROP (the half-time premium
+ * — the OT hour's straight-time component is already in the numerator
+ * sum). The premium for a DT hour is 1.0 × ROP (the full-time
+ * premium). Total OT pay = (rate_at_that_hour) × hours + 0.5 × ROP ×
+ * OT_hours. Total DT pay = (rate_at_that_hour) × hours + 1.0 × ROP ×
+ * DT_hours.
+ *
+ * For Paychex SPI export the practical translation is:
+ *   - Hourly rows: emit one per distinct base rate, at that rate.
+ *   - Overtime row: hours = Σ OT hours, rate = ROP × 1.5.
+ *     (Paychex pre-multiplies and pays out hours × rate, which equals
+ *      the straight-time + 0.5 × ROP premium math from above when the
+ *      Hourly rows already capture each shift's base contribution at
+ *      its own rate. We pay OT at ROP × 1.5 to fold the base + premium
+ *      into one Paychex row, since Paychex doesn't model the DLSE
+ *      decomposition. The straight-time portion of OT hours is NOT
+ *      separately put on an Hourly row to avoid double-counting.)
+ *   - Doubletime row: hours = Σ DT hours, rate = ROP × 2.
+ *
+ * @param {object} args
+ * @param {Array<{hours: number, rate: number|null}>} args.byShiftWithRates
+ *   One entry per shift in the workweek. `hours` is the shift's total
+ *   worked hours (regardless of classification); `rate` is the shift's
+ *   `hourly_rate`. Shifts with null/undefined/non-positive rate are
+ *   excluded — they contribute neither to the numerator nor the
+ *   denominator. Shifts with 0 hours are dropped.
+ *
+ * @returns {{
+ *   regularRateOfPay: number | null,
+ *   distinctRates: number[],
+ *   totalStraightTimePay: number,
+ *   totalHoursWorked: number,
+ * }}
+ *   `regularRateOfPay` is null when no shift has a usable rate (the
+ *   caller cannot compute gross pay anyway). `distinctRates` is sorted
+ *   ascending and useful for "are shifts uniformly rated?" checks
+ *   (length 0/1 → caller may skip the weighted calc).
+ */
+export function computeRegularRateOfPay({ byShiftWithRates }) {
+  if (!Array.isArray(byShiftWithRates)) {
+    throw new Error('overtimeRules: byShiftWithRates must be an array');
+  }
+
+  const usable = byShiftWithRates.filter((s) => {
+    const h = Number(s?.hours);
+    const r = Number(s?.rate);
+    return Number.isFinite(h) && h > 0 && Number.isFinite(r) && r > 0;
+  });
+
+  if (usable.length === 0) {
+    return {
+      regularRateOfPay: null,
+      distinctRates: [],
+      totalStraightTimePay: 0,
+      totalHoursWorked: 0,
+    };
+  }
+
+  let totalStraightTimePay = 0;
+  let totalHoursWorked = 0;
+  const distinct = new Set();
+  for (const s of usable) {
+    const h = Number(s.hours);
+    const r = Number(s.rate);
+    totalStraightTimePay += h * r;
+    totalHoursWorked += h;
+    distinct.add(r);
+  }
+
+  // Round to 4 decimals — Paychex Rate column accepts up to 4. Rounding
+  // here keeps downstream Hours × Rate multiplication agreeing to the
+  // cent without requiring a second round-trip through floating point.
+  const rop = Math.round((totalStraightTimePay / totalHoursWorked) * 10000) / 10000;
+
+  return {
+    regularRateOfPay: rop,
+    distinctRates: Array.from(distinct).sort((a, b) => a - b),
+    totalStraightTimePay: round2(totalStraightTimePay),
+    totalHoursWorked: round2(totalHoursWorked),
   };
 }

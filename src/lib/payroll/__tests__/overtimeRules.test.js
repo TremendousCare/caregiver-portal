@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyHours } from '../overtimeRules.js';
+import { classifyHours, computeRegularRateOfPay } from '../overtimeRules.js';
 
 // ─── Test fixtures ─────────────────────────────────────────────────
 //
@@ -738,5 +738,184 @@ describe('classifyHours — defaults', () => {
       weekStart: WEEK_START,
     });
     expect(result).toMatchObject({ regular: 8, overtime: 1, doubleTime: 0 });
+  });
+});
+
+// ─── Weighted-average regular rate of pay (Phase 4 PR #2) ─────────
+//
+// CA Labor Code §510 + DLSE Manual §49.1.2 + DLSE Opinion Letter
+// 2002.12.09-2: when shifts in a single workweek carry different
+// rates, the OT premium is calculated against a blended "regular
+// rate of pay" (ROP) — total straight-time pay divided by total
+// non-OT hours worked. The OT half-time premium per OT hour is then
+// 0.5 × ROP; DT premium is 1.0 × ROP. Each test below cites the
+// arithmetic so a future maintainer can sanity-check by hand.
+
+describe('computeRegularRateOfPay — argument validation', () => {
+  it('throws when byShiftWithRates is not an array', () => {
+    expect(() => computeRegularRateOfPay({ byShiftWithRates: null })).toThrow(/array/);
+    expect(() => computeRegularRateOfPay({ byShiftWithRates: 'nope' })).toThrow(/array/);
+  });
+});
+
+describe('computeRegularRateOfPay — single rate (degenerate case)', () => {
+  it('returns the shift rate when every shift carries the same rate', () => {
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: 25 },
+        { hours: 8, rate: 25 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBe(25);
+    expect(result.distinctRates).toEqual([25]);
+    expect(result.totalHoursWorked).toBe(16);
+    expect(result.totalStraightTimePay).toBe(400);
+  });
+
+  it('returns the rate of the only shift', () => {
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [{ hours: 10, rate: 22 }],
+    });
+    expect(result.regularRateOfPay).toBe(22);
+    expect(result.distinctRates).toEqual([22]);
+  });
+});
+
+describe('computeRegularRateOfPay — two-rate week', () => {
+  it('blends 8h@$20 + 16h@$22 → ROP = (8*20 + 16*22) / 24 = 21.3333', () => {
+    // straight-time pay = 160 + 352 = 512.  ROP = 512 / 24 ≈ 21.3333.
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: 20 },
+        { hours: 16, rate: 22 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBeCloseTo(21.3333, 4);
+    expect(result.distinctRates).toEqual([20, 22]);
+    expect(result.totalHoursWorked).toBe(24);
+    expect(result.totalStraightTimePay).toBe(512);
+  });
+
+  it('blends 16h@$25 + 8h@$30 → ROP = (16*25 + 8*30) / 24 = 26.6667', () => {
+    // straight-time pay = 400 + 240 = 640.  ROP = 640 / 24 ≈ 26.6667.
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 16, rate: 25 },
+        { hours: 8, rate: 30 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBeCloseTo(26.6667, 4);
+  });
+});
+
+describe('computeRegularRateOfPay — DLSE example (the canonical exam question)', () => {
+  it('30h@$10 + 15h@$12 → ROP = (300 + 180) / 45 = 10.6667 (matches DLSE manual)', () => {
+    // DLSE Manual §49.1.2 worked example: employee works 30h at $10/hr
+    // and 15h at $12/hr in the same workweek. Total straight-time =
+    // $300 + $180 = $480. Total worked hours = 45. ROP = $480 / 45 =
+    // $10.6667. The 5 hours of weekly OT (45 - 40) gets a 0.5× ROP
+    // half-time premium of $5.3333/hr on top of straight time.
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 30, rate: 10 },
+        { hours: 15, rate: 12 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBeCloseTo(10.6667, 4);
+    expect(result.totalStraightTimePay).toBe(480);
+    expect(result.totalHoursWorked).toBe(45);
+  });
+});
+
+describe('computeRegularRateOfPay — null / unusable rates', () => {
+  it('returns null ROP when no shift has a usable rate', () => {
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: null },
+        { hours: 8, rate: undefined },
+      ],
+    });
+    expect(result.regularRateOfPay).toBeNull();
+    expect(result.distinctRates).toEqual([]);
+  });
+
+  it('drops shifts with null rate from the calculation but keeps usable ones', () => {
+    // Worker did 8h with no logged rate (back-office data gap) plus
+    // 16h at $20. The DLSE rule is computed against the hours that
+    // ARE on the books at a known rate. The rate-missing shift surfaces
+    // separately via the `caregiver_missing_rate` exception so the back
+    // office can resolve it before approval.
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: null },
+        { hours: 16, rate: 20 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBe(20);
+    expect(result.totalHoursWorked).toBe(16);
+    expect(result.totalStraightTimePay).toBe(320);
+  });
+
+  it('drops shifts with non-positive rate', () => {
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: 0 },
+        { hours: 8, rate: -5 },
+        { hours: 8, rate: 25 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBe(25);
+    expect(result.totalHoursWorked).toBe(8);
+  });
+
+  it('drops shifts with non-positive hours', () => {
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 0, rate: 25 },
+        { hours: -1, rate: 25 },
+        { hours: 8, rate: 25 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBe(25);
+    expect(result.totalHoursWorked).toBe(8);
+  });
+});
+
+describe('computeRegularRateOfPay — three-rate week (sanity)', () => {
+  it('handles 8h@$18 + 8h@$22 + 8h@$30 → ROP = 23.3333', () => {
+    // straight-time = 144 + 176 + 240 = 560.  ROP = 560 / 24 = 23.3333.
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 8, rate: 18 },
+        { hours: 8, rate: 22 },
+        { hours: 8, rate: 30 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBeCloseTo(23.3333, 4);
+    expect(result.distinctRates).toEqual([18, 22, 30]);
+  });
+});
+
+describe('computeRegularRateOfPay — premium math', () => {
+  it('half-time premium is 0.5 × ROP per OT hour (DLSE half-time encoding)', () => {
+    // The DLSE method uses 0.5 × ROP for the OT premium, layered on
+    // top of straight-time pay (each hour at its own rate). This
+    // helper exposes ROP; the TC SPI export instead encodes the OT
+    // total as OT_hours × ROP × 1.5 (full OT rate including base) so
+    // that one Paychex Overtime row covers OT pay completely. Both
+    // encodings yield identical totals for single-rate weeks; for
+    // multi-rate weeks they can differ slightly. The choice here is
+    // dictated by TC's existing back-office paystub convention
+    // (rate × hours = full pay) — see handoff "Rate convention".
+    const result = computeRegularRateOfPay({
+      byShiftWithRates: [
+        { hours: 30, rate: 20 },
+        { hours: 20, rate: 25 },
+      ],
+    });
+    expect(result.regularRateOfPay).toBe(22);
+    expect(0.5 * result.regularRateOfPay).toBe(11);
+    expect(1.5 * result.regularRateOfPay).toBe(33);
+    expect(2 * result.regularRateOfPay).toBe(44);
   });
 });
