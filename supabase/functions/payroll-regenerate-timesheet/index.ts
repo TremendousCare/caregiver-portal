@@ -354,11 +354,20 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── INSERT the fresh draft ──
+  // Persist the per-rate breakdown + weighted ROP straight from the
+  // engine's meta. The export function reads these instead of
+  // re-running the engine. `regularByRate` is null/empty for shifts
+  // with no rate; the export's legacy fallback (hourly_rate field)
+  // covers that case.
   const tsRow = {
     ...draft.timesheet,
     status: blocked ? "blocked" : "draft",
     block_reason: blockReason,
     notes: exceptions.length > 0 ? JSON.stringify({ exceptions }) : null,
+    regular_by_rate: Array.isArray(draft.meta?.regularByRate) && draft.meta.regularByRate.length > 0
+      ? draft.meta.regularByRate
+      : null,
+    regular_rate_of_pay: draft.meta?.regularRateOfPay ?? null,
     last_edited_by: userEmail || "unknown",
     last_edited_at: new Date().toISOString(),
     last_edit_reason: reason || "Regenerate timesheet",

@@ -382,6 +382,17 @@ async function generateForOrg(
       // Preserve the exception payload in `notes` until the Phase 4
       // UI surfaces a dedicated structure. JSON keeps it parseable.
       notes: exceptions.length > 0 ? JSON.stringify({ exceptions }) : null,
+      // Persist the per-shift-rate aggregation + CA weighted ROP so
+      // the export function reads them off the row instead of
+      // re-running the engine. Phase 4 PR #2 added the columns;
+      // pre-existing drafts keep them null and the export falls back
+      // to the legacy single-rate path. `regularByRate` is null when
+      // no shift had a usable rate (caregiver_missing_rate exception
+      // surfaces it).
+      regular_by_rate: Array.isArray(draft.meta?.regularByRate) && draft.meta.regularByRate.length > 0
+        ? draft.meta.regularByRate
+        : null,
+      regular_rate_of_pay: draft.meta?.regularRateOfPay ?? null,
     };
 
     if (options.dryRun) {
