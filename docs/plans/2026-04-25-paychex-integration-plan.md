@@ -378,6 +378,36 @@ Exit criteria: cron runs and produces correct draft timesheets for real TC shift
 
 Rollback: disable the cron in Supabase. Drafts in `timesheets` can be ignored or marked `rejected` manually.
 
+#### Phase 3 results (captured 2026-04-27)
+
+PR #216 merged to `main` 2026-04-27. The `Deploy Database Migrations` workflow registered the `payroll-generate-timesheets` pg_cron job (`0 13 * * 1`, ≈ 6 AM PT during PDT, 5 AM PT during PST). The cron fired automatically Monday 2026-04-27 at 13:00:02 UTC and produced its first real-shift drafts unprompted — verifying the schedule, the per-org iteration, the engine, and the persistence path end-to-end on the first scheduled invocation.
+
+**Cron's first auto-run (workweek 2026-04-20 → 2026-04-26):**
+
+| caregiver_id | status | reg | OT | DT | mileage | gross | block_reason |
+|---|---|---|---|---|---|---|---|
+| `9ef3d469…dbf4f7` | `draft` | 8.00 | 0.37 | 0 | 0 | $0.00 | — |
+| `ac335ae3…553ec8` | `blocked` | 8.00 | 4.00 | 6.01 | 0 | $0.00 | `missing_clock_out` |
+
+Both rows had `gross_pay = 0` because the shifts they reference still had `hourly_rate = NULL`. After the owner set rates on the second caregiver's shifts and re-ran (DELETE + invoke with `{}`), the engine produced `$520.40` gross at $20/hr, broken down 8 reg + 4 OT @ $30 + 6.01 DT @ $40 — math verified by hand. The first caregiver's shifts still need rates set in TC's data (a Phase 4 inline-edit will solve this UX); not a Phase 3 bug.
+
+**What Phase 3 verified end-to-end:**
+- Cron registered and fires on schedule without manual triggering.
+- Idempotency works: re-invoking against the same `(org_id, pay_period_start)` skips with `timesheets_skipped_existing` and never duplicates.
+- Engine math matches by hand: CA daily OT (>8h, >12h), 7th-consecutive-day rule (caught organically when the test caregiver had two 18h shifts due to a missing clock-out), and the engine produced `0.37` OT correctly for an 8h22m shift.
+- Exception detection identified real issues with specific shift IDs: first run flagged 2× `missing_clock_out` and `caregiver_not_in_paychex`. Second run, after partial fixes, correctly flagged `rate_mismatch` (caregiver had multiple distinct rates within the week). Final run, after rate uniformization, correctly flagged the remaining `missing_clock_out` block.
+- All `timesheet_generated` events written to the `events` table with `org_id` and `timesheet_id` as top-level payload keys (mechanical for the Phase B `events.org_id` backfill).
+- Pay period boundaries, timezone, jurisdiction, and mileage rate all read correctly from `organizations.settings.payroll`. No values hardcoded in source.
+
+**Test coverage**: 92 new Vitest cases across `overtimeRules.test.js` (42), `timesheetBuilder.test.js` (28), `exceptions.test.js` (22). Full suite: 2127/2127 passing. Build clean.
+
+**Bundled in PR #216**: dry-run reporting fix on `paychex-sync-worker` — the function previously set `paychex_sync_status='active'` even when no real Paychex call occurred (`PAYCHEX_DRY_RUN=true`). It now skips the caregivers UPDATE entirely on dry runs so the field accurately reflects "actually present in Paychex." Avoids touching the Phase 1 CHECK constraint by not introducing a new enum value; can revisit if a distinct `'dry_run'` status becomes useful later.
+
+**Production data quality observations to address in Phase 4 UI**:
+- Some caregiver shifts have `hourly_rate = NULL`, producing `gross_pay = 0` on their timesheets. The Phase 4 ThisWeekView's inline rate-edit handles this directly.
+- Some completed shifts have no clock-out events. Caregiver portal flow should make this harder to do, but back office also needs an inline "scheduled-end is correct" affirmation in the Phase 4 UI to clear the block without forcing a clock_event insert.
+- Caregivers with multiple distinct hourly rates within a single week trigger `rate_mismatch` (a block). This is a deliberate v1 limitation; Phase 4 introduces per-shift-rate support that computes gross pay per-shift and uses CA's weighted-average regular rate of pay for OT premiums. Until then, the block forces explicit acknowledgment.
+
 ### Phase 4 — Approval UI and CSV export (4 days)
 
 Goal: the Accounting > Payroll page goes live. Back office can review, edit, approve, and **export** timesheets as a CSV ready to upload or paste into Paychex Flex's existing manual entry interface. **This phase delivers the full operational value of the integration without requiring Paychex's Payroll API scope.**
@@ -530,7 +560,7 @@ In strict order. Do not proceed past a step until it succeeds.
 7. **Owner**: create the "Test Caregiver — Do Not Pay" record (open question 5). Required before step 8 can verify end-to-end. **Done 2026-04-26** — owner created the placeholder in Paychex Flex App Hub on 2026-04-25 and a matching `caregivers` row in the portal (id `a7d692bf-f3ec-47a5-93d6-a42de096a47f`) on 2026-04-26 via the "+ New Caregiver" UI.
 8. **Claude**: on a fresh branch, implement Phase 2 (Paychex client + worker sync). One-PR scope. After merge and deploy, owner invokes `paychex-sync-worker` against the test caregiver. Verify the Worker record appears in Paychex Flex with `IN_PROGRESS` / `PENDING_HIRE` status. **Code complete (PR #212), dry-run-verified end-to-end 2026-04-26. Real-Paychex worker creation is blocked on Paychex enabling the worker WRITE entitlement at the resource level — owner request open (see "Phase 2 results" subsection above for the `API-2` 403 details and the rep email content).** Once Paychex confirms, owner re-runs the same browser-console snippet and verifies the new worker appears in Paychex Flex.
 8a. **Owner**: contact Paychex rep with the request drafted in the Phase 2 results subsection — asks for the worker WRITE entitlement on the Caregiver Portal app for company `70125496` / `00M9LQF7LUBLSED1THE0`, and (in the same email) the still-pending Payroll and Check API scope for Phase 5.
-9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks.
+9. **Claude**: on a fresh branch, implement Phase 3 (timesheet generation + OT engine). Run the cron in shadow mode for 1-2 weeks; owner spot-checks produced drafts against actual TC payroll for those weeks. **Done (PR #216, merged 2026-04-27).** Cron's first scheduled run at 13:00 UTC the same day produced two real drafts; engine math verified by hand against $520.40 gross. See "Phase 3 results" subsection above. Bake period in progress; Phase 4 can begin in parallel since the next cron firing is a week out and Phase 4's UI surfaces / fixes the data quality issues observed.
 10. **Claude**: on a fresh branch, implement Phase 4 (approval UI + CSV export). **At this point the integration is operationally complete.** Back office runs 1-2 cycles end-to-end: review, approve, export CSV, manually enter into Paychex, mark as paid. Catches any UX issues.
 11. **Bake**: 2-4 weeks of weekly payroll runs through the Phase 4 CSV path before considering Phase 5. Confirms numbers match Paychex's processing penny-for-penny in real conditions.
 12. **Owner (only if Paychex enables the scope)**: confirm Paychex Payroll API scope is enabled.
