@@ -1,8 +1,9 @@
 # Paychex Phase 4 — Handoff
 
 **Created:** 2026-04-27
+**Last updated:** 2026-04-28 (Phase 4 PR #1 results captured)
 **Author:** previous Claude session
-**For:** the next Claude session that picks up Phase 4
+**For:** the next Claude session that picks up Phase 4 (now PR #2)
 **Phase:** 4 — Approval UI and CSV export
 
 This doc exists so Phase 4 can start in a fresh context window without re-litigating decisions made across the 100+ messages that produced Phases 0–3. **Read it top to bottom before writing any code.** Then read the files in "Files to read first" below.
@@ -12,10 +13,11 @@ This doc exists so Phase 4 can start in a fresh context window without re-litiga
 ## Status
 
 - **Phases 0, 1, 2, 3 shipped.** PRs #207, #211, #212, #216, all merged to `main`.
-- **Phase 3 cron auto-fired 2026-04-27 at 13:00 UTC** and produced its first real drafts unprompted. Engine math verified by hand against $520.40 gross. Bake period started.
-- **Phase 4 not started.** This is what you're picking up.
-- **Phase 5 is gated on Paychex enabling the Payroll & Check API scope** — not on the critical path. Phase 4's CSV export delivers full operational value without it.
-- **Phase 2 real worker writes are blocked on Paychex enabling the worker WRITE entitlement.** Same Paychex-rep-side blocker as Phase 5. Does NOT block Phase 4 — Phase 4 doesn't call Paychex.
+- **Phase 3 cron auto-fired 2026-04-27 at 13:00 UTC** and produced its first real drafts unprompted. Engine math verified by hand against $520.40 gross. Bake period in progress.
+- **Phase 4 PR #1 SHIPPED 2026-04-28 (PR #224).** Backend foundation + read-only This Week view live on `main`. Migration applied via the `Deploy Database Migrations` workflow; edge functions auto-deployed on merge. Backfill function (`paychex-backfill-employee-ids`) deployed but **not yet invoked** — deferred until Paychex enables the worker WRITE entitlement and the back office syncs the rest of the roster (one-shot invocation will populate everyone at once). 2162/2162 tests passing on `main`.
+- **Phase 4 PR #2 next.** Inline edits + approval + Generate Run + CSV export. This is what a fresh-context Claude should pick up.
+- **Phase 5 is gated on Paychex enabling the Payroll & Check API scope** — not on the critical path. Phase 4 PR #2's CSV export delivers full operational value without it.
+- **Phase 2 real worker writes are blocked on Paychex enabling the worker WRITE entitlement.** Same Paychex-rep-side blocker as Phase 5. The owner sent a fresh request on 2026-04-28 covering both entitlements + a Phase 6 onboarding-link scope question. Does NOT block Phase 4 PR #2 — PR #2 doesn't call Paychex.
 
 ## Files to read first, in order
 
@@ -153,6 +155,33 @@ The plan estimates Phase 4 as 4 days as one PR. Owner agreed in 2026-04-27 conve
 - Down migration drops `paychex_employee_id` and reverts the seed (jsonb subtraction).
 - Hide the Accounting sidebar entry behind a feature flag override.
 - Edge function deletion via Supabase Dashboard.
+
+#### PR #1 results (captured 2026-04-28)
+
+PR #224 merged to `main` 2026-04-28. The `Deploy Database Migrations` workflow applied `20260428000000_payroll_phase_4_pr1.sql` cleanly; `Deploy Edge Functions` deployed `paychex-backfill-employee-ids` and the updated `_shared/paychex.ts` (now with `listCompanyWorkers`).
+
+**What landed (use as reference for PR #2, do NOT redo):**
+
+- `src/lib/payroll/csvExport.js` — `generatePaychexCsv(timesheets, orgSettings)` returns the six-column SPI "Hours Only Flexible" CSV. Pre-multiplies OT (1.5x) / DT (2x) per the verified TC paystub convention. Mileage row uses `organizations.settings.payroll.mileage_rate`. **PR #2's CSV download wires this up.** 22 Vitest cases covering header / single caregiver / multi-row / DT defensive skip / mileage / multi-caregiver / empty / escaping / rounding.
+- `src/lib/payroll/exceptions.js` + `constants.js` — two new block codes: `dt_pay_component_missing` and `caregiver_missing_paychex_employee_id`. `detectExceptions` now takes optional `orgSettings`; legacy callers that don't pass it skip the DT-config check (back-compat).
+- `caregivers.paychex_employee_id` column live; partial unique index is org-scoped on `(org_id, paychex_employee_id)` per Codex review fix in commit `178c9bc`.
+- `organizations.settings.payroll.pay_components` seeded for TC: `{ regular: "Hourly", overtime: "Overtime", double_time: null, mileage: "Mileage" }`. PR #3 adds the Settings UI to edit these.
+- `paychex-backfill-employee-ids` edge function deployed but **not yet invoked** — owner deferred until Paychex enables the worker WRITE entitlement. Function authenticates via JWT (`org_id` claim from Phase A access-token hook + `user_roles` staff check); the Supabase Dashboard "Invoke" button won't work because service-role tokens don't carry `org_id`. Invoke from a browser console while logged in to caregiver-portal.vercel.app:
+  ```js
+  const { data: { session } } = await supabase.auth.getSession();
+  await fetch('https://zocrnurvazyxdpyqimgj.functions.supabase.co/paychex-backfill-employee-ids', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dry_run: true }),
+  }).then(r => r.json());
+  ```
+- `currentOrgSettings` exposed via `AppContext` (`src/shared/context/AppContext.jsx`); load happens during `handleUserReady` alongside the role lookup. `refreshOrgSettings()` callback added for PR #3's Settings UI to invalidate after writes. **PR #2's UI reads pay_components / mileage_rate via this path.**
+- Sidebar gate in `AppShell.jsx`: Accounting entry visible only when staff role + `features_enabled.payroll === true`. Page itself shows polite empty state for direct navigation when gates fail.
+- `src/features/accounting/` directory now exists with `AccountingPage.jsx`, `PayrollTab.jsx`, `payroll/ThisWeekView.jsx`, `payroll/TimesheetRow.jsx`, `payroll/ExceptionBadge.jsx` (+ matching `*.module.css` files), and `storage.js`. **PR #2 extends these** — don't recreate the directory.
+
+**Codex review:** two P1 findings on initial commit, both addressed in commit `178c9bc` before merge — backfill function and unique index were originally global (pre-Phase B); now both org-scoped.
+
+**Backfill not yet run.** The owner explicitly chose to defer until Paychex enables the worker WRITE entitlement and the back office syncs the rest of the roster. PR #2 must therefore tolerate the case where the only TC caregiver with a populated `paychex_employee_id` is the test caregiver (and even that's null today since the function hasn't been invoked). The new `caregiver_missing_paychex_employee_id` block exception will fire on every CSV-export attempt for unsynced caregivers, which is correct.
 
 ### PR #2 — Edits + approval + Generate Run + CSV export
 
