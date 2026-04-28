@@ -196,6 +196,17 @@ const CLIENT_EXTRA_FIELD_MAP: Record<string, string> = {
 
   contact_name: "contact_name",
   contactName: "contact_name",
+
+  // Gravity Forms / Care Consultation Form common keys
+  zip_postal_code: "zip",
+  zipcode: "zip",
+  postalcode: "zip",
+  who_is_care_needed_for: "relationship",
+  care_needed_for: "relationship",
+  care_for_relationship: "relationship",
+  im_interested_in_home_care_services_for: "relationship",
+  i_m_interested_in_home_care_services_for: "relationship",
+  interested_in_home_care_services_for: "relationship",
 };
 
 // ─── Phone Normalization ─────────────────────────────────────────
