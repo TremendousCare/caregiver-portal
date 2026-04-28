@@ -28,13 +28,29 @@
 //   Mileage row  : Rate = $0.725 (organizations.settings.payroll.mileage_rate)
 //                  Hours = miles_driven
 //
-// Per-shift rates: Phase 4 PR #1 still consumes the modal-rate output
-// of `timesheetBuilder.js`, which produces a single `gross_pay` total
-// at the primary rate. PR #2 will introduce per-shift rates and the
-// CA weighted-average regular rate of pay; until then this exporter
-// emits at most one Hourly / Overtime / Doubletime row per worker.
-// The `rate_mismatch` exception still blocks export when distinct
-// rates exist within a week.
+// Per-shift rates (Phase 4 PR #2):
+//   When a workweek's shifts carry distinct hourly rates, the exporter
+//   emits one Hourly row per (worker, distinct rate) — e.g. 8h @ $20
+//   and 16h @ $22 in regular hours produces:
+//     Hourly,8.00,20    and    Hourly,16.00,22
+//   Paychex sums them into a single check by Worker ID + Pay Component.
+//
+//   For Overtime / Doubletime rows in a multi-rate week, CA labor law
+//   (DLSE Manual §49.1.2) requires the OT premium to be calculated
+//   against the weekly weighted-average regular rate of pay (ROP), not
+//   any one shift's rate. The exporter emits a single Overtime row at
+//   ROP × 1.5 and a single Doubletime row at ROP × 2. When all shifts
+//   carry the same rate, ROP === that rate, so the math reduces to TC's
+//   existing single-rate convention (verified against TC paystubs).
+//
+//   Caller contract: the timesheet object MUST carry either
+//     - `regular_by_rate: [{rate, hours}]` + `regular_rate_of_pay:
+//       number` (the multi-rate / Phase 4 PR #2 path), OR
+//     - `hourly_rate: number` (the legacy single-rate path; produces
+//       one Hourly row at that rate with the full regular_hours total).
+//   The caller (front-end / payroll-export-run edge function) computes
+//   these from `timesheet_shifts` joined with `shifts.hourly_rate` —
+//   see `src/features/accounting/storage.js`.
 //
 // Skip / block behavior:
 //   - Skip the Mileage row when org's pay_components.mileage is null
@@ -151,15 +167,26 @@ function resolveOrgConfig(orgSettings) {
  *
  * Contract:
  *   timesheet — must include:
- *     - paychex_employee_id (string)         REQUIRED
- *     - regular_hours, overtime_hours, double_time_hours (numbers)
- *     - mileage_total (number)
- *     - hourly_rate (number)                 REQUIRED for any hours row
+ *     - paychex_employee_id (string)                              REQUIRED
+ *     - overtime_hours, double_time_hours, mileage_total (numbers)
  *
- *   Phase 4 PR #1 reads `hourly_rate` off the timesheet itself: the
- *   timesheetBuilder writes `meta.primaryRate` but doesn't currently
- *   persist it on the timesheet row. Callers MUST pass it explicitly
- *   on the timesheet object until PR #2 surfaces it from the DB.
+ *   For the regular hours, EITHER:
+ *     (a) `regular_by_rate: [{ rate, hours }]` — multi-rate path
+ *         (Phase 4 PR #2). Emits one Hourly row per entry. Used when
+ *         the timesheet carries shifts at distinct rates.
+ *     (b) `hourly_rate: number` + `regular_hours: number` — legacy
+ *         single-rate path. Emits one Hourly row.
+ *
+ *   For OT / DT premium rows, ALSO required when overtime_hours or
+ *   double_time_hours > 0:
+ *     - `regular_rate_of_pay: number` — the CA weighted-average ROP
+ *       computed by `computeRegularRateOfPay(...)`. The OT row's rate
+ *       is ROP × 1.5; the DT row's rate is ROP × 2. When all shifts
+ *       carry the same rate, ROP === that rate so the math matches the
+ *       single-rate convention Paychex previously saw.
+ *     - For (b)/legacy callers without ROP: falls back to
+ *       `hourly_rate × multiplier`, which is correct only for
+ *       single-rate weeks.
  */
 function buildRowsForTimesheet(timesheet, orgConfig) {
   const employeeId = timesheet.paychex_employee_id;
@@ -170,42 +197,86 @@ function buildRowsForTimesheet(timesheet, orgConfig) {
     );
   }
 
-  const reg = Number(timesheet.regular_hours) || 0;
   const ot = Number(timesheet.overtime_hours) || 0;
   const dt = Number(timesheet.double_time_hours) || 0;
   const mileage = Number(timesheet.mileage_total) || 0;
-  // `Number(null) === 0` and `0` is finite, so explicitly require a
-  // present, finite, positive hourly_rate before any hours row emits.
-  const baseRateRaw = timesheet.hourly_rate;
-  const baseRate = Number(baseRateRaw);
-  const baseRateValid =
-    baseRateRaw != null && Number.isFinite(baseRate) && baseRate > 0;
+
+  // ── Resolve the regular-hours bucket: per-rate or single-rate ──
+  // Multi-rate path: caller passed { regular_by_rate: [{rate, hours}] }.
+  // Single-rate path: caller passed `hourly_rate` and `regular_hours`.
+  const perRate = Array.isArray(timesheet.regular_by_rate)
+    ? timesheet.regular_by_rate
+        .map((r) => ({
+          rate: Number(r?.rate),
+          hours: Number(r?.hours),
+        }))
+        .filter((r) =>
+          Number.isFinite(r.rate) && r.rate > 0
+          && Number.isFinite(r.hours) && r.hours > 0,
+        )
+    : null;
+
+  const legacyReg = Number(timesheet.regular_hours) || 0;
+  const legacyRateRaw = timesheet.hourly_rate;
+  const legacyRate = Number(legacyRateRaw);
+  const legacyRateValid =
+    legacyRateRaw != null && Number.isFinite(legacyRate) && legacyRate > 0;
+
+  const usingPerRate = Array.isArray(perRate) && perRate.length > 0;
+  const totalReg = usingPerRate
+    ? perRate.reduce((s, r) => s + r.hours, 0)
+    : legacyReg;
+
+  // ROP for OT / DT premium rows. Prefer caller-provided ROP. Fall back
+  // to legacy `hourly_rate` when present (single-rate weeks).
+  const ropRaw = timesheet.regular_rate_of_pay;
+  const rop = Number(ropRaw);
+  const ropValid = ropRaw != null && Number.isFinite(rop) && rop > 0;
+  const premiumBaseRate = ropValid
+    ? rop
+    : (legacyRateValid ? legacyRate : null);
 
   const rows = [];
 
-  if (reg > 0) {
+  // ── Hourly rows ──
+  if (totalReg > 0) {
     if (!orgConfig.payComponents.regular) {
       throw new Error(
         'csvExport: regular hours present but organizations.settings.payroll.'
           + 'pay_components.regular is not configured.',
       );
     }
-    if (!baseRateValid) {
-      throw new Error(
-        `csvExport: timesheet for caregiver ${timesheet.caregiver_id ?? '<unknown>'} has `
-          + 'regular hours but no positive hourly_rate. Set the rate before exporting.',
-      );
+    if (usingPerRate) {
+      for (const r of perRate) {
+        rows.push([
+          orgConfig.companyId,
+          employeeId,
+          orgConfig.payComponents.regular,
+          formatHours(r.hours),
+          formatRate(r.rate),
+          '',
+        ]);
+      }
+    } else {
+      if (!legacyRateValid) {
+        throw new Error(
+          `csvExport: timesheet for caregiver ${timesheet.caregiver_id ?? '<unknown>'} has `
+            + 'regular hours but no positive hourly_rate (or regular_by_rate). Set the rate '
+            + 'before exporting.',
+        );
+      }
+      rows.push([
+        orgConfig.companyId,
+        employeeId,
+        orgConfig.payComponents.regular,
+        formatHours(legacyReg),
+        formatRate(legacyRate),
+        '',
+      ]);
     }
-    rows.push([
-      orgConfig.companyId,
-      employeeId,
-      orgConfig.payComponents.regular,
-      formatHours(reg),
-      formatRate(baseRate),
-      '',
-    ]);
   }
 
+  // ── Overtime row (single row, premium rate = ROP × 1.5) ──
   if (ot > 0) {
     if (!orgConfig.payComponents.overtime) {
       throw new Error(
@@ -213,10 +284,11 @@ function buildRowsForTimesheet(timesheet, orgConfig) {
           + 'pay_components.overtime is not configured.',
       );
     }
-    if (!baseRateValid) {
+    if (premiumBaseRate == null) {
       throw new Error(
         `csvExport: timesheet for caregiver ${timesheet.caregiver_id ?? '<unknown>'} has `
-          + 'overtime hours but no positive hourly_rate. Set the rate before exporting.',
+          + 'overtime hours but no regular_rate_of_pay (or hourly_rate fallback). Set the rate '
+          + 'before exporting.',
       );
     }
     rows.push([
@@ -224,27 +296,29 @@ function buildRowsForTimesheet(timesheet, orgConfig) {
       employeeId,
       orgConfig.payComponents.overtime,
       formatHours(ot),
-      formatRate(baseRate * OT_MULTIPLIER),
+      formatRate(premiumBaseRate * OT_MULTIPLIER),
       '',
     ]);
   }
 
+  // ── Doubletime row (single row, premium rate = ROP × 2) ──
   if (dt > 0) {
     // Defensive: the dt_pay_component_missing exception should already
     // have blocked this timesheet upstream. Skip silently rather than
     // emit a row with a null Pay Component.
-    if (orgConfig.payComponents.double_time && baseRateValid) {
+    if (orgConfig.payComponents.double_time && premiumBaseRate != null) {
       rows.push([
         orgConfig.companyId,
         employeeId,
         orgConfig.payComponents.double_time,
         formatHours(dt),
-        formatRate(baseRate * DT_MULTIPLIER),
+        formatRate(premiumBaseRate * DT_MULTIPLIER),
         '',
       ]);
     }
   }
 
+  // ── Mileage row ──
   if (mileage > 0) {
     // Skip the mileage row when the org hasn't named its Paychex
     // Mileage Earning. Caregiver still gets paid for hours; the

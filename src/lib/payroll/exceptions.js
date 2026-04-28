@@ -21,8 +21,6 @@
 //       (a shift was scheduled-only with no clock-out)
 //   - out_of_geofence                          warn
 //       (caregiver clocked outside the geofence)
-//   - rate_mismatch                            block
-//       (multiple distinct rates within a single timesheet)
 //   - blocked_caregiver                        block
 //       (caregivers.payroll_blocked = true / sync error)
 //   - shift_too_long                           warn
@@ -36,6 +34,16 @@
 //   - caregiver_missing_paychex_employee_id    block (Phase 4 PR #1)
 //       (caregiver has hours but no SHORT paychex_employee_id — the
 //        Paychex Flex SPI CSV cannot identify the worker without it)
+//   - caregiver_missing_rate                   block (Phase 4 PR #2)
+//       (a shift has hours but no hourly_rate; gross_pay would be
+//        understated. Inline rate edit clears the block.)
+//
+// Removed Phase 4 PR #2:
+//   - `rate_mismatch` was a hard block when shifts within a workweek
+//     carried distinct rates. Replaced by per-shift rate handling +
+//     CA weighted-average regular-rate-of-pay calculation in
+//     overtimeRules.js / timesheetBuilder.js. Multiple rates within
+//     a workweek is now legal and correctly paid.
 //
 // Severity is deliberate. `caregiver_not_in_paychex` is `warn` because
 // Paychex's worker WRITE entitlement is gated at their backend during
@@ -134,16 +142,26 @@ export function detectExceptions({ draft, caregiver, orgSettings }) {
     });
   }
 
-  // ── 3. Rate mismatch (block) ─────────────────────────────────────
-  const distinctRates = Array.isArray(meta.distinctRates) ? meta.distinctRates : [];
-  if (distinctRates.length > 1) {
-    out.push({
-      severity: EXCEPTION_SEVERITY.BLOCK,
-      code: EXCEPTION_CODE.RATE_MISMATCH,
-      message:
-        `Caregiver's shifts this week carry ${distinctRates.length} distinct hourly rates `
-          + `(${distinctRates.join(', ')}). Reconcile before approving so gross pay is accurate.`,
-    });
+  // ── 3. Per-shift missing rate (block) ────────────────────────────
+  // A shift with positive hours but no `hourly_rate` would understate
+  // gross pay. The Phase 4 PR #2 inline rate edit clears the block by
+  // setting the missing rate. Per-shift granularity surfaces exactly
+  // which shift needs attention (vs. the old `rate_mismatch` which
+  // bundled the whole week).
+  for (const ps of perShift) {
+    const hours = Number(ps?.totalHours) || 0;
+    const rate = ps?.hourly_rate;
+    const rateValid = typeof rate === 'number' && Number.isFinite(rate) && rate > 0;
+    if (hours > 0 && !rateValid) {
+      out.push({
+        severity: EXCEPTION_SEVERITY.BLOCK,
+        code: EXCEPTION_CODE.CAREGIVER_MISSING_RATE,
+        message:
+          'Shift has worked hours but no hourly rate. Set a rate via inline edit '
+            + 'before approving so gross pay is accurate.',
+        shift_id: ps.shift_id,
+      });
+    }
   }
 
   // ── 3a. Caregiver missing Paychex SHORT employeeId (block) ───────

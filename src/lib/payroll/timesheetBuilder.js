@@ -28,10 +28,14 @@
 //    v1 limitation; future per-class hour columns would replace the
 //    dominant-class encoding.
 //
-//  - Gross pay uses the shift's `hourly_rate`. When shifts within the
-//    week carry different non-null rates, we still produce a draft
-//    using the modal rate, and the exceptions module flags
-//    `rate_mismatch`. Back office reconciles before approval.
+//  - Gross pay is per-shift: each shift contributes
+//        Σ (regular_seg × shift_rate) + OT premium (CA weighted ROP)
+//          + DT premium (CA weighted ROP)
+//    so a workweek with mixed rates pays correctly without forcing the
+//    back office to reconcile to a single rate. The CA weighted ROP is
+//    used for the 0.5×/1.0× premium portions per DLSE Opinion Letter
+//    2002.12.09-2; when every shift carries the same rate the math
+//    reduces to base × hours × multiplier. Phase 4 PR #2.
 //
 //  - When the week has no shifts and no mileage, the builder returns
 //    null. The caller skips empty weeks entirely (no DB row created).
@@ -39,9 +43,10 @@
 // Plan reference:
 //   docs/plans/2026-04-25-paychex-integration-plan.md
 //   ("Phase 3 — Timesheet generation and overtime engine").
+//   docs/handoff-paychex-phase-4.md ("Per-shift rates — deferred to Phase 4").
 
 import { HOUR_CLASSIFICATION } from './constants.js';
-import { classifyHours } from './overtimeRules.js';
+import { classifyHours, computeRegularRateOfPay } from './overtimeRules.js';
 import {
   utcMsToWallClockParts,
   wallClockToUtcMs,
@@ -340,25 +345,75 @@ export function buildTimesheet({
   const totalMileage = timesheetShiftRows.reduce((s, x) => s + x.mileage, 0);
   if (totalShiftHours === 0 && totalMileage === 0) return null;
 
-  // Gross pay using the modal rate. Shifts with no rate contribute 0
-  // to gross; the rate_mismatch / null-rate cases surface in
-  // exceptions.js so they don't go unnoticed.
+  // Gross pay using per-shift rates + CA weighted-average regular rate
+  // of pay. Each shift contributes:
+  //   - Σ (regular_seg × shift_rate)  for its regular hours
+  //   - Σ (overtime_seg × shift_rate × 1.5) for its OT hours, computed
+  //     against the CA weighted ROP rather than the shift's own rate
+  //     when rates vary across the week (DLSE rule). When every shift
+  //     carries the same rate the math reduces to base × 1.5.
+  //   - Σ (double_time_seg × shift_rate × 2) for its DT hours, same
+  //     ROP-blended rule.
+  //
+  // Implementation note: rather than per-segment rate × multiplier, we
+  // pay OT/DT at ROP × multiplier because the SPI export rolls every
+  // OT hour into one Paychex row at ROP × 1.5 (Paychex doesn't model
+  // the DLSE base+premium decomposition). The two encodings produce
+  // the same total cash; the latter matches what the CSV will tell
+  // Paychex to actually pay out.
+  const ropResult = computeRegularRateOfPay({
+    byShiftWithRates: resolved
+      .map((r) => {
+        const cls = byShiftMap.get(r.shift.id);
+        const hours = cls ? cls.totalHours : 0;
+        const rate =
+          typeof r.shift.hourly_rate === 'number'
+            && Number.isFinite(r.shift.hourly_rate)
+            ? r.shift.hourly_rate
+            : null;
+        return { hours, rate };
+      })
+      .filter((s) => s.hours > 0 && s.rate != null),
+  });
+  const regularRateOfPay = ropResult.regularRateOfPay;
+  const distinctRates = ropResult.distinctRates;
   const primaryRate = pickPrimaryRate(inWeekShifts);
-  const distinctRates = Array.from(
-    new Set(
-      inWeekShifts
-        .map((s) => s.hourly_rate)
-        .filter((r) => typeof r === 'number' && Number.isFinite(r)),
-    ),
-  );
 
-  const grossPay = primaryRate == null
+  const perShiftWithRate = resolved.map((r) => {
+    const cls = byShiftMap.get(r.shift.id);
+    const reg = cls ? cls.regular : 0;
+    const ot = cls ? cls.overtime : 0;
+    const dt = cls ? cls.doubleTime : 0;
+    const rate =
+      typeof r.shift.hourly_rate === 'number'
+        && Number.isFinite(r.shift.hourly_rate)
+        ? r.shift.hourly_rate
+        : null;
+    return { shiftId: r.shift.id, regular: reg, overtime: ot, doubleTime: dt, rate };
+  });
+
+  // Sum the regular component at each shift's own rate. Shifts with
+  // no rate contribute 0; the missing-rate condition surfaces in the
+  // caller's exception detector via `meta.shiftsMissingRates` below.
+  let regularGross = 0;
+  for (const ps of perShiftWithRate) {
+    if (ps.rate == null) continue;
+    regularGross += ps.regular * ps.rate;
+  }
+
+  // OT/DT premiums use the weighted ROP. When ROP is null (no shift
+  // had a usable rate), gross = 0 and the caller gets to surface that
+  // via `caregiver_missing_rate` style exceptions.
+  let otGross = 0;
+  let dtGross = 0;
+  if (regularRateOfPay != null) {
+    otGross = otResult.overtime * regularRateOfPay * 1.5;
+    dtGross = otResult.doubleTime * regularRateOfPay * 2;
+  }
+
+  const grossPay = regularRateOfPay == null
     ? 0
-    : round2(
-        otResult.regular * primaryRate
-          + otResult.overtime * primaryRate * 1.5
-          + otResult.doubleTime * primaryRate * 2,
-      );
+    : round2(regularGross + otGross + dtGross);
 
   const mileageReimbursement = round2(totalMileage * mileageRate);
 
@@ -376,8 +431,25 @@ export function buildTimesheet({
     gross_pay: grossPay,
   };
 
+  // Aggregate regular hours per distinct shift rate so the SPI exporter
+  // can emit one Hourly row per (worker, rate). Shifts with no rate are
+  // silently dropped; their hours still count toward classification but
+  // produce no Hourly row (the caller sets a rate before export).
+  const regularHoursByRate = new Map();
+  for (const ps of perShiftWithRate) {
+    if (ps.rate == null) continue;
+    if (ps.regular <= 0) continue;
+    const prev = regularHoursByRate.get(ps.rate) ?? 0;
+    regularHoursByRate.set(ps.rate, prev + ps.regular);
+  }
+  const regularByRate = Array.from(regularHoursByRate.entries())
+    .map(([rate, hours]) => ({ rate, hours: round2(hours) }))
+    .sort((a, b) => a.rate - b.rate);
+
   const meta = {
     primaryRate,
+    regularRateOfPay,
+    regularByRate,
     distinctRates,
     mileageRate,
     timezone,

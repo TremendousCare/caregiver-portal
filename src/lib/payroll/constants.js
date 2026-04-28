@@ -72,7 +72,6 @@ export const CA_WEEKLY_REGULAR_HOURS = 40;
 export const EXCEPTION_CODE = Object.freeze({
   MISSING_CLOCK_OUT: 'missing_clock_out',
   OUT_OF_GEOFENCE: 'out_of_geofence',
-  RATE_MISMATCH: 'rate_mismatch',
   BLOCKED_CAREGIVER: 'blocked_caregiver',
   SHIFT_TOO_LONG: 'shift_too_long',
   CAREGIVER_NOT_IN_PAYCHEX: 'caregiver_not_in_paychex',
@@ -89,6 +88,11 @@ export const EXCEPTION_CODE = Object.freeze({
   //   populates it, we cannot generate a CSV row for this caregiver.
   DT_PAY_COMPONENT_MISSING: 'dt_pay_component_missing',
   CAREGIVER_MISSING_PAYCHEX_EMPLOYEE_ID: 'caregiver_missing_paychex_employee_id',
+  // Phase 4 PR #2 — per-shift granularity replaces `rate_mismatch`.
+  // A shift with worked hours but no hourly_rate set; inline rate edit
+  // clears the block. Per-shift instead of per-week so the back office
+  // sees exactly which shift needs attention.
+  CAREGIVER_MISSING_RATE: 'caregiver_missing_rate',
 });
 
 /**

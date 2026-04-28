@@ -264,6 +264,161 @@ describe('generatePaychexCsv — CSV escaping', () => {
   });
 });
 
+// ─── Per-shift rates (Phase 4 PR #2) ───────────────────────────────
+
+describe('generatePaychexCsv — per-shift rates: regular_by_rate path', () => {
+  it('emits one Hourly row per distinct rate (8h@$20 + 16h@$22)', () => {
+    const ts = {
+      caregiver_id: 'cg_split',
+      paychex_employee_id: '54',
+      regular_by_rate: [
+        { rate: 20, hours: 8 },
+        { rate: 22, hours: 16 },
+      ],
+      regular_rate_of_pay: 21.3333, // weighted ROP for 8/16 split
+      overtime_hours: 0,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    const lines = csv.trim().split('\r\n');
+    expect(lines.length).toBe(3); // header + 2 Hourly rows
+    expect(lines[1]).toBe('70125496,54,Hourly,8.00,20,');
+    expect(lines[2]).toBe('70125496,54,Hourly,16.00,22,');
+  });
+
+  it('uses regular_rate_of_pay × 1.5 for the Overtime row', () => {
+    // 30h @ $20 + 20h @ $25 with 10h reclassified weekly to OT.
+    // ROP = (30*20 + 20*25) / 50 = 1100 / 50 = 22.
+    // OT row rate = 22 × 1.5 = 33.
+    const ts = {
+      caregiver_id: 'cg_mix',
+      paychex_employee_id: '54',
+      regular_by_rate: [
+        { rate: 20, hours: 30 },
+        { rate: 25, hours: 10 },
+      ],
+      regular_rate_of_pay: 22,
+      overtime_hours: 10,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    expect(csv).toContain('Hourly,30.00,20,');
+    expect(csv).toContain('Hourly,10.00,25,');
+    expect(csv).toContain('Overtime,10.00,33,');
+  });
+
+  it('uses regular_rate_of_pay × 2 for the Doubletime row', () => {
+    const settings = {
+      ...TC_ORG_SETTINGS,
+      payroll: {
+        ...TC_ORG_SETTINGS.payroll,
+        pay_components: {
+          ...TC_ORG_SETTINGS.payroll.pay_components,
+          double_time: 'Doubletime',
+        },
+      },
+    };
+    const ts = {
+      caregiver_id: 'cg_dt',
+      paychex_employee_id: '54',
+      regular_by_rate: [
+        { rate: 18, hours: 8 },
+        { rate: 22, hours: 8 },
+        { rate: 30, hours: 8 },
+      ],
+      // ROP = (8*18 + 8*22 + 8*30) / 24 = 560/24 ≈ 23.3333
+      regular_rate_of_pay: 23.3333,
+      overtime_hours: 4,
+      double_time_hours: 2,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], settings);
+    // Overtime rate = 23.3333 × 1.5 ≈ 35
+    expect(csv).toContain('Overtime,4.00,35,');
+    // Doubletime rate = 23.3333 × 2 ≈ 46.6666
+    expect(csv).toContain('Doubletime,2.00,46.6666,');
+  });
+
+  it('produces a single Hourly row (single-rate degenerate case via per-rate)', () => {
+    const ts = {
+      caregiver_id: 'cg_one',
+      paychex_employee_id: '54',
+      regular_by_rate: [{ rate: 25, hours: 40 }],
+      regular_rate_of_pay: 25,
+      overtime_hours: 0,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    const lines = csv.trim().split('\r\n');
+    expect(lines.length).toBe(2);
+    expect(lines[1]).toBe('70125496,54,Hourly,40.00,25,');
+  });
+
+  it('legacy single-rate path (hourly_rate + regular_hours) still works', () => {
+    // Back-compat: if a caller doesn't supply regular_by_rate, fall
+    // through to the legacy single-rate path. Used by callers that
+    // built CSVs before Phase 4 PR #2.
+    const csv = generatePaychexCsv([CLEAN_TIMESHEET], TC_ORG_SETTINGS);
+    expect(csv).toContain('Hourly,40.00,20,');
+  });
+
+  it('throws when overtime present but no ROP and no fallback hourly_rate', () => {
+    const ts = {
+      caregiver_id: 'cg_orphan',
+      paychex_employee_id: '54',
+      regular_by_rate: [{ rate: 20, hours: 30 }],
+      // no regular_rate_of_pay, no hourly_rate
+      overtime_hours: 5,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    expect(() => generatePaychexCsv([ts], TC_ORG_SETTINGS)).toThrow(/regular_rate_of_pay/);
+  });
+
+  it('drops zero-hour entries from regular_by_rate without erroring', () => {
+    const ts = {
+      caregiver_id: 'cg_z',
+      paychex_employee_id: '54',
+      regular_by_rate: [
+        { rate: 20, hours: 8 },
+        { rate: 25, hours: 0 }, // dropped
+      ],
+      regular_rate_of_pay: 20,
+      overtime_hours: 0,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    const lines = csv.trim().split('\r\n');
+    expect(lines.length).toBe(2);
+    expect(lines[1]).toContain('Hourly,8.00,20,');
+  });
+
+  it('stable row order: regular_by_rate entries emit in input order', () => {
+    const ts = {
+      caregiver_id: 'cg_order',
+      paychex_employee_id: '54',
+      regular_by_rate: [
+        { rate: 30, hours: 4 },
+        { rate: 20, hours: 8 },
+        { rate: 25, hours: 12 },
+      ],
+      regular_rate_of_pay: 25,
+      overtime_hours: 0,
+      double_time_hours: 0,
+      mileage_total: 0,
+    };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    const lines = csv.trim().split('\r\n').slice(1);
+    expect(lines[0]).toContain(',Hourly,4.00,30,');
+    expect(lines[1]).toContain(',Hourly,8.00,20,');
+    expect(lines[2]).toContain(',Hourly,12.00,25,');
+  });
+});
+
 // ─── Internal helpers (smoke) ──────────────────────────────────────
 
 describe('csvExport _internal helpers', () => {
