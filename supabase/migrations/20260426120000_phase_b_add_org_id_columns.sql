@@ -25,16 +25,34 @@
 --                                     Already have org_id, RLS, and index.
 --
 -- Default value strategy (locked in docs/SAAS_RETROFIT.md → Decisions locked,
--- 2026-04-26): subselect on slug, not a hardcoded UUID literal. Subselect
--- runs once per insert against a 1-row table with a unique index on slug —
--- sub-millisecond and resilient to any future identity reissue. The default
--- is dropped in Phase E once explicit org_id becomes mandatory on every
--- insert path.
+-- 2026-04-26, revised the same day after PR review): a STABLE helper function
+-- public.default_org_id(), not a hardcoded UUID literal and not a raw
+-- subquery. PostgreSQL forbids subqueries inside column DEFAULT clauses
+-- (CREATE TABLE / ALTER TABLE … SET DEFAULT require a variable-free
+-- expression), so the original "subselect default" plan was infeasible. A
+-- STABLE function call is allowed in DEFAULT clauses, runs against a 1-row
+-- table with a unique index on slug, and remains resilient to any future
+-- Tremendous Care identity reissue. The function and the per-table defaults
+-- are both dropped in Phase E once explicit org_id becomes mandatory on
+-- every insert path.
 --
 -- Index note: CREATE INDEX (not CONCURRENTLY) is used because Supabase
 -- migrations run in a single transaction. Tremendous Care's current scale
 -- makes the brief AccessExclusiveLock per table negligible. Revisit at
 -- multi-customer scale.
+
+-- Helper function used as the column DEFAULT for every tenant-sensitive
+-- table. STABLE so PG can cache the result within a single statement.
+-- Returns NULL only if the Tremendous Care row has been deleted, which the
+-- per-table NOT NULL constraint will then catch — desired fail-loud
+-- behavior. Dropped in Phase E.
+CREATE OR REPLACE FUNCTION public.default_org_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT id FROM public.organizations WHERE slug = 'tremendous-care'
+$$;
 
 DO $$
 DECLARE
@@ -133,8 +151,8 @@ BEGIN
       tbl
     );
     EXECUTE format(
-      'ALTER TABLE public.%I ALTER COLUMN org_id SET DEFAULT (SELECT id FROM public.organizations WHERE slug = %L)',
-      tbl, 'tremendous-care'
+      'ALTER TABLE public.%I ALTER COLUMN org_id SET DEFAULT public.default_org_id()',
+      tbl
     );
 
     -- 4. Index on org_id. Required for the RLS predicates that ship in B2

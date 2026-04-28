@@ -47,4 +47,8 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Drop the helper function last — every column DEFAULT that referenced it
+-- has just been removed by the column drops above.
+DROP FUNCTION IF EXISTS public.default_org_id();
+
 COMMIT;

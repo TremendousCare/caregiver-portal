@@ -41,8 +41,8 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 - Row-based tenancy, single Supabase project, RLS enforcement
 - Managed SaaS only; subdomain per customer
 - Manual QuickBooks invoicing at launch
-- **Phase B `org_id` column default**: `DEFAULT (SELECT id FROM organizations WHERE slug = 'tremendous-care')` — subselect, not a hardcoded UUID literal. Locked 2026-04-26.
-- **Phase B default lifecycle**: keep through Phases B–D for single-tenant safety; **drop in Phase E** when explicit `org_id` becomes mandatory on every insert path. Locked 2026-04-26.
+- **Phase B `org_id` column default**: `DEFAULT public.default_org_id()` — a `STABLE` SQL helper returning the Tremendous Care id, not a hardcoded UUID literal and not a raw subquery (PG forbids subqueries in column DEFAULT clauses). Locked 2026-04-26, revised same day after PR review.
+- **Phase B default lifecycle**: keep through Phases B–D for single-tenant safety; **drop the per-table defaults *and* the `public.default_org_id()` helper in Phase E** when explicit `org_id` becomes mandatory on every insert path. Locked 2026-04-26.
 - **Phase B RLS posture**: strict / fail-closed. New policies are `USING (org_id = (auth.jwt() ->> 'org_id')::uuid)` — a missing claim denies. Edge functions using `service_role` bypass RLS unchanged; user-JWT edge calls are audited in PR B3. Locked 2026-04-26.
 - **Phase B test harness location**: a real second org (`acme-test` or similar) is provisioned in production `organizations` to validate cross-tenant isolation. No `is_test_org` flag — multi-tenancy is the whole point. Locked 2026-04-26.
 
