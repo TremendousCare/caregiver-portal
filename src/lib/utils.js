@@ -87,6 +87,50 @@ export const getDaysSinceInterviewLinkSent = (caregiver) => {
   return Math.floor((Date.now() - ts) / 86400000);
 };
 
+// ─── Pending HCA (interview evaluation done, HCA not verified) ─
+// Same label-matching strategy as the intake helpers above — the
+// interview checklist is agency-customizable, so we match by keyword
+// rather than hard-coded IDs.
+
+const findInterviewTaskId = (predicate) => {
+  const tasks = getPhaseTasks()?.interview;
+  if (!Array.isArray(tasks)) return null;
+  const match = tasks.find((t) => predicate((t.label || '').toLowerCase()));
+  return match?.id || null;
+};
+
+const findInterviewEvaluationTaskId = () =>
+  findInterviewTaskId((l) => /interview/.test(l) && /evaluation/.test(l));
+
+const findVerifyHcaTaskId = () =>
+  findInterviewTaskId((l) => /\bhca\b/.test(l) && /(verify|verified|verification|cleared|confirm)/.test(l));
+
+export const getInterviewEvaluationCompletedAt = (caregiver) => {
+  const id = findInterviewEvaluationTaskId();
+  if (!id) return null;
+  const task = caregiver?.tasks?.[id];
+  if (!isTaskDone(task)) return null;
+  const ts = typeof task === 'object' ? task?.completedAt : null;
+  if (!ts) return null;
+  const t = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+export const isAwaitingHcaVerification = (caregiver) => {
+  if (!caregiver || getCurrentPhase(caregiver) !== 'interview') return false;
+  const evalId = findInterviewEvaluationTaskId();
+  if (!evalId || !isTaskDone(caregiver.tasks?.[evalId])) return false;
+  const hcaId = findVerifyHcaTaskId();
+  if (hcaId && isTaskDone(caregiver.tasks?.[hcaId])) return false;
+  return true;
+};
+
+export const getDaysSinceInterviewEvaluation = (caregiver) => {
+  const ts = getInterviewEvaluationCompletedAt(caregiver);
+  if (ts == null) return null;
+  return Math.floor((Date.now() - ts) / 86400000);
+};
+
 // ─── Days Calculations ───────────────────────────────────────
 
 export const getDaysInPhase = (caregiver) => {

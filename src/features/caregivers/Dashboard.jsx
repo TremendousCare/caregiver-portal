@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PHASES, DEFAULT_BOARD_COLUMNS } from '../../lib/constants';
-import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress, sortCaregiversForDashboard, isAwaitingInterviewResponse, getDaysSinceInterviewLinkSent } from '../../lib/utils';
+import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, isGreenLight, getPhaseProgress, sortCaregiversForDashboard, isAwaitingInterviewResponse, getDaysSinceInterviewLinkSent, isAwaitingHcaVerification, getDaysSinceInterviewEvaluation } from '../../lib/utils';
 import { generateActionItems } from '../../lib/actionItemEngine';
 import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
@@ -52,6 +52,8 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
               <div className={layout.exportItemDesc}>
                 {filterPhase === 'intake_pending'
                   ? 'Pending Interview caregivers only'
+                  : filterPhase === 'interview_pending_hca'
+                  ? 'Pending HCA caregivers only'
                   : `${PHASES.find((p) => p.id === filterPhase)?.label} caregivers only`}
               </div>
             </button>
@@ -96,6 +98,9 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
   const awaitingInterview = isAwaitingInterviewResponse(caregiver);
   const linkDaysAgo = awaitingInterview ? getDaysSinceInterviewLinkSent(caregiver) : null;
   const linkAgoLabel = linkDaysAgo == null ? '' : linkDaysAgo === 0 ? 'today' : `${linkDaysAgo}d ago`;
+  const awaitingHca = isAwaitingHcaVerification(caregiver);
+  const evalDaysAgo = awaitingHca ? getDaysSinceInterviewEvaluation(caregiver) : null;
+  const evalAgoLabel = evalDaysAgo == null ? '' : evalDaysAgo === 0 ? 'today' : `${evalDaysAgo}d ago`;
 
   return (
     <button
@@ -186,6 +191,23 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
               ⏳ Link sent{linkAgoLabel ? ` · ${linkAgoLabel}` : ''}
             </span>
           )}
+          {awaitingHca && (
+            <span
+              style={{
+                background: '#FFF8ED',
+                color: '#A16207',
+                border: '1px solid #FDE68A',
+                padding: '2px 8px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+              title="Interview evaluation complete, awaiting HCA verification"
+            >
+              ⏳ Pending HCA{evalAgoLabel ? ` · ${evalAgoLabel}` : ''}
+            </span>
+          )}
         </span>
         <span className={cards.cgDays}>Day {days}</span>
       </div>
@@ -224,6 +246,9 @@ function CaregiverListRow({ caregiver, isSelected, onToggleSelect, onSelect, sur
   const awaitingInterview = isAwaitingInterviewResponse(caregiver);
   const linkDaysAgo = awaitingInterview ? getDaysSinceInterviewLinkSent(caregiver) : null;
   const linkAgoLabel = linkDaysAgo == null ? '' : linkDaysAgo === 0 ? 'today' : `${linkDaysAgo}d ago`;
+  const awaitingHca = isAwaitingHcaVerification(caregiver);
+  const evalDaysAgo = awaitingHca ? getDaysSinceInterviewEvaluation(caregiver) : null;
+  const evalAgoLabel = evalDaysAgo == null ? '' : evalDaysAgo === 0 ? 'today' : `${evalDaysAgo}d ago`;
   const greenLight = isGreenLight(caregiver);
 
   return (
@@ -337,6 +362,15 @@ function CaregiverListRow({ caregiver, isSelected, onToggleSelect, onSelect, sur
             whiteSpace: 'nowrap',
           }} title="Interview link sent, awaiting response">
             ⏳ {linkAgoLabel}
+          </span>
+        ) : awaitingHca ? (
+          <span style={{
+            background: '#FFF8ED', color: '#A16207',
+            border: '1px solid #FDE68A', padding: '2px 8px',
+            borderRadius: 8, fontSize: 11, fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }} title="Interview evaluation complete, awaiting HCA verification">
+            ⏳ Pending HCA{evalAgoLabel ? ` · ${evalAgoLabel}` : ''}
           </span>
         ) : <span style={{ color: '#9CA3AF' }}>—</span>}
       </td>
@@ -639,6 +673,8 @@ export function Dashboard({
               ? 'Showing: Archived caregivers'
               : filterPhase === 'intake_pending'
               ? 'Showing: Pending Interview — link sent, awaiting response'
+              : filterPhase === 'interview_pending_hca'
+              ? 'Showing: Pending HCA — interview evaluation complete, awaiting HCA verification'
               : filterPhase !== 'all'
               ? `Showing: ${PHASES.find((p) => p.id === filterPhase)?.label}`
               : 'All active caregivers in the pipeline'}

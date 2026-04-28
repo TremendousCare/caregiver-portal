@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { PHASES } from '../../lib/constants';
-import { getCurrentPhase, isAwaitingInterviewResponse } from '../../lib/utils';
+import { getCurrentPhase, isAwaitingInterviewResponse, isAwaitingHcaVerification } from '../../lib/utils';
 import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import layout from '../../styles/layout.module.css';
@@ -18,6 +18,7 @@ export function CaregiverSidebarExtra() {
   };
 
   const pendingInterviewCount = onboardingCaregivers.filter(isAwaitingInterviewResponse).length;
+  const pendingHcaCount = onboardingCaregivers.filter(isAwaitingHcaVerification).length;
 
   if (!collapsed) {
     return (
@@ -27,6 +28,8 @@ export function CaregiverSidebarExtra() {
           {PHASES.map((p) => {
             const count = p.id === 'intake'
               ? onboardingCaregivers.filter((c) => getCurrentPhase(c) === 'intake' && !isAwaitingInterviewResponse(c)).length
+              : p.id === 'interview'
+              ? onboardingCaregivers.filter((c) => getCurrentPhase(c) === 'interview' && !isAwaitingHcaVerification(c)).length
               : onboardingCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
             return (
               <div key={p.id}>
@@ -52,6 +55,22 @@ export function CaregiverSidebarExtra() {
                   >
                     <span style={{ flex: 1, textAlign: 'left' }}>Pending Interview</span>
                     <span className={layout.badge}>{pendingInterviewCount}</span>
+                  </button>
+                )}
+                {p.id === 'interview' && pendingHcaCount > 0 && (
+                  <button
+                    className={layout.pipelineItem}
+                    style={{
+                      paddingLeft: 32,
+                      fontSize: 12,
+                      opacity: 0.85,
+                      ...(filterPhase === 'interview_pending_hca' ? { background: 'rgba(41,190,228,0.12)', opacity: 1 } : {}),
+                    }}
+                    onClick={() => goToDashboard('interview_pending_hca')}
+                    title="Interview evaluation complete, awaiting HCA verification"
+                  >
+                    <span style={{ flex: 1, textAlign: 'left' }}>Pending HCA</span>
+                    <span className={layout.badge}>{pendingHcaCount}</span>
                   </button>
                 )}
               </div>
@@ -83,6 +102,8 @@ export function CaregiverSidebarExtra() {
       {PHASES.map((p) => {
         const count = p.id === 'intake'
           ? onboardingCaregivers.filter((c) => getCurrentPhase(c) === 'intake' && !isAwaitingInterviewResponse(c)).length
+          : p.id === 'interview'
+          ? onboardingCaregivers.filter((c) => getCurrentPhase(c) === 'interview' && !isAwaitingHcaVerification(c)).length
           : onboardingCaregivers.filter((c) => getCurrentPhase(c) === p.id).length;
         return (
           <button
