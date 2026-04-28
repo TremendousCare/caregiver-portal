@@ -26,6 +26,9 @@ const {
   isAwaitingInterviewResponse,
   getInterviewLinkSentAt,
   getDaysSinceInterviewLinkSent,
+  isAwaitingHcaVerification,
+  getInterviewEvaluationCompletedAt,
+  getDaysSinceInterviewEvaluation,
 } = await import('../utils');
 
 // ─── isTaskDone ─────────────────────────────────────────────────
@@ -530,5 +533,126 @@ describe('getDaysSinceInterviewLinkSent', () => {
 
   it('returns null when link was not sent', () => {
     expect(getDaysSinceInterviewLinkSent({ tasks: {} })).toBeNull();
+  });
+});
+
+// ─── Pending HCA (interview evaluation done, HCA not verified) ────
+//
+// Mirrors the customized interview checklist used by Tremendous Care
+// in production: "Completed Interview Evaluation" → "Verify HCA" →
+// "Send Onboarding Docs" → "Send Required Uploaded Items Tasks".
+
+describe('isAwaitingHcaVerification', () => {
+  const INTERVIEW_CUSTOM = [
+    { id: 'interview_evaluation', label: 'Completed Interview Evaluation', critical: true },
+    { id: 'verify_hca', label: 'Verify HCA', critical: true },
+    { id: 'send_onboarding_docs', label: 'Send Onboarding Docs', critical: true },
+    { id: 'send_uploads', label: 'Send Required Uploaded Items Tasks', critical: true },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, interview: INTERVIEW_CUSTOM };
+  });
+
+  it('returns false when interview evaluation is not completed', () => {
+    const cg = { phaseOverride: 'interview', tasks: {} };
+    expect(isAwaitingHcaVerification(cg)).toBe(false);
+  });
+
+  it('returns true when evaluation is done but HCA not verified', () => {
+    const cg = {
+      phaseOverride: 'interview',
+      tasks: {
+        interview_evaluation: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingHcaVerification(cg)).toBe(true);
+  });
+
+  it('returns false once HCA is verified', () => {
+    const cg = {
+      phaseOverride: 'interview',
+      tasks: {
+        interview_evaluation: { completed: true, completedAt: Date.now() },
+        verify_hca: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingHcaVerification(cg)).toBe(false);
+  });
+
+  it('returns false when caregiver is not in the interview phase', () => {
+    const cg = {
+      phaseOverride: 'intake',
+      tasks: {
+        interview_evaluation: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingHcaVerification(cg)).toBe(false);
+  });
+
+  it('accepts legacy boolean task values', () => {
+    const cg = {
+      phaseOverride: 'interview',
+      tasks: { interview_evaluation: true },
+    };
+    expect(isAwaitingHcaVerification(cg)).toBe(true);
+  });
+
+  it('returns false when checklist has no matching evaluation task', () => {
+    mockedPhaseTasks.value = DEFAULT_PHASE_TASKS;
+    const cg = { phaseOverride: 'interview', tasks: {} };
+    expect(isAwaitingHcaVerification(cg)).toBe(false);
+  });
+
+  it('returns false for null/undefined caregiver', () => {
+    expect(isAwaitingHcaVerification(null)).toBe(false);
+    expect(isAwaitingHcaVerification(undefined)).toBe(false);
+  });
+});
+
+describe('getInterviewEvaluationCompletedAt', () => {
+  const INTERVIEW_CUSTOM = [
+    { id: 'interview_evaluation', label: 'Completed Interview Evaluation' },
+    { id: 'verify_hca', label: 'Verify HCA' },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, interview: INTERVIEW_CUSTOM };
+  });
+
+  it('returns the timestamp when the evaluation was completed', () => {
+    const ts = Date.now() - 4 * 86400000;
+    const cg = { tasks: { interview_evaluation: { completed: true, completedAt: ts } } };
+    expect(getInterviewEvaluationCompletedAt(cg)).toBe(ts);
+  });
+
+  it('returns null when task is incomplete', () => {
+    expect(getInterviewEvaluationCompletedAt({ tasks: {} })).toBeNull();
+  });
+
+  it('returns null when task is a bare boolean (no timestamp)', () => {
+    const cg = { tasks: { interview_evaluation: true } };
+    expect(getInterviewEvaluationCompletedAt(cg)).toBeNull();
+  });
+});
+
+describe('getDaysSinceInterviewEvaluation', () => {
+  const INTERVIEW_CUSTOM = [
+    { id: 'interview_evaluation', label: 'Completed Interview Evaluation' },
+    { id: 'verify_hca', label: 'Verify HCA' },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, interview: INTERVIEW_CUSTOM };
+  });
+
+  it('returns the whole number of days since the evaluation completed', () => {
+    const ts = Date.now() - 5 * 86400000 - 60 * 1000;
+    const cg = { tasks: { interview_evaluation: { completed: true, completedAt: ts } } };
+    expect(getDaysSinceInterviewEvaluation(cg)).toBe(5);
+  });
+
+  it('returns null when evaluation is not complete', () => {
+    expect(getDaysSinceInterviewEvaluation({ tasks: {} })).toBeNull();
   });
 });

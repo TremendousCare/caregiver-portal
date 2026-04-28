@@ -120,6 +120,8 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
     ? 'All'
     : filterPhase === 'intake_pending'
     ? 'Pending_Interview'
+    : filterPhase === 'interview_pending_hca'
+    ? 'Pending_HCA'
     : PHASES.find((p) => p.id === filterPhase)?.short || filterPhase;
   const date = new Date().toISOString().split('T')[0];
   const filename = `TremendousCare_Pipeline_${phaseLabel}_${date}.csv`;

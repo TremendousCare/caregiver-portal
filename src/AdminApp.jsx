@@ -24,7 +24,7 @@ import { SequenceSettings } from './features/clients/SequenceSettings';
 import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AdminSettings } from './components/AdminSettings';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
-import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse } from './lib/utils';
+import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingHcaVerification } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import btn from './styles/buttons.module.css';
 
@@ -51,6 +51,10 @@ function DashboardPage() {
           ? getCurrentPhase(cg) === 'intake' && isAwaitingInterviewResponse(cg)
           : filterPhase === 'intake'
           ? getCurrentPhase(cg) === 'intake' && !isAwaitingInterviewResponse(cg)
+          : filterPhase === 'interview_pending_hca'
+          ? getCurrentPhase(cg) === 'interview' && isAwaitingHcaVerification(cg)
+          : filterPhase === 'interview'
+          ? getCurrentPhase(cg) === 'interview' && !isAwaitingHcaVerification(cg)
           : getCurrentPhase(cg) === filterPhase);
       const matchSearch =
         !searchTerm ||
