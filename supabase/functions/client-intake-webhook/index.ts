@@ -1,14 +1,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ═══════════════════════════════════════════════════════════════
-// Client Intake Webhook v9 — Queue-based intake endpoint
+// Client Intake Webhook v10 — Queue-based intake endpoint
 //
 // Receives POST from WordPress (Forminator/CF7), Google Ads,
-// Meta lead ads, or any external source. Validates an API key,
-// INSERTs raw payload into intake_queue, and returns 200.
+// Meta lead ads, or any external source. Validates either an
+// API key (header/query/body) OR a Meta App Secret HMAC signature
+// (X-Hub-Signature-256), then INSERTs raw payload into intake_queue
+// and returns 200.
 //
 // All field mapping, dedup, record creation, and automations
 // are handled asynchronously by the intake-processor function.
+// For Meta Lead Ads, the processor fetches the actual lead via
+// Graph API using FACEBOOK_PAGE_ACCESS_TOKEN.
 //
 // Deploy: npx supabase functions deploy client-intake-webhook --no-verify-jwt
 // ═══════════════════════════════════════════════════════════════
@@ -56,6 +60,46 @@ async function validateApiKey(
   };
 }
 
+// ─── Meta (Facebook) Signature Verification ─────────────────
+// Meta signs every webhook POST with HMAC-SHA256 over the raw body
+// using the App Secret. The signature is sent as
+//   X-Hub-Signature-256: sha256=<hex>
+// Reference: https://developers.facebook.com/docs/graph-api/webhooks/getting-started
+
+async function verifyMetaSignature(
+  rawBody: string,
+  signatureHeader: string | null
+): Promise<boolean> {
+  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
+  const appSecret = Deno.env.get("FACEBOOK_APP_SECRET");
+  if (!appSecret) {
+    console.error("FACEBOOK_APP_SECRET not set — cannot verify Meta webhook");
+    return false;
+  }
+  const expected = signatureHeader.slice("sha256=".length).toLowerCase();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(appSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sigBuf = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(rawBody)
+  );
+  const actual = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  if (actual.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < actual.length; i++) {
+    diff |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 // ─── Main Handler ───────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -90,7 +134,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ status: "ok", service: "client-intake-webhook", version: 9 }),
+      JSON.stringify({ status: "ok", service: "client-intake-webhook", version: 10 }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -104,6 +148,68 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // ── Meta (Facebook) Lead Ads branch ──
+    // Detected by presence of X-Hub-Signature-256 header. We read the
+    // raw body, verify the HMAC, parse it, and queue one entry per
+    // leadgen change. The processor will fetch field data via Graph API.
+    const metaSig = req.headers.get("x-hub-signature-256");
+    if (metaSig) {
+      const rawBody = await req.text();
+      const valid = await verifyMetaSignature(rawBody, metaSig);
+      if (!valid) {
+        console.warn("Meta signature verification failed");
+        return new Response(
+          JSON.stringify({ error: "Invalid Meta signature", code: "INVALID_SIGNATURE" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      let metaBody: any;
+      try {
+        metaBody = JSON.parse(rawBody);
+      } catch {
+        return new Response(
+          JSON.stringify({ error: "Invalid Meta JSON body", code: "INVALID_BODY" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const entries = Array.isArray(metaBody?.entry) ? metaBody.entry : [];
+      let queued = 0;
+      for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+          if (change?.field !== "leadgen" || !change?.value) continue;
+          const value = change.value;
+          // Preserve the page_id from the entry so we can route in the future
+          const payload = {
+            ...value,
+            page_id: value.page_id || entry.id || null,
+          };
+          const { error: queueErr } = await supabase
+            .from("intake_queue")
+            .insert({
+              source: "facebook_lead_ads",
+              entity_type: "client",
+              raw_payload: payload,
+              api_key_label: "Meta Lead Ads",
+              status: "pending",
+            });
+          if (queueErr) {
+            console.error("Meta leadgen queue insert error:", queueErr);
+          } else {
+            queued++;
+          }
+        }
+      }
+
+      // Per Meta docs, always respond 200 to acknowledge receipt
+      return new Response(
+        JSON.stringify({ status: "ok", queued }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Parse body (JSON, form-urlencoded, or multipart)
     let body: Record<string, any>;
     try {
