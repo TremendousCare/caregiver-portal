@@ -20,6 +20,10 @@ export const getClientPhase = (client) => {
   return client.phase || 'new_lead';
 };
 
+export const PIPELINE_PHASE_IDS = ['new_lead', 'initial_contact', 'consultation', 'assessment', 'proposal'];
+
+export const isClientPipelinePhase = (phaseId) => PIPELINE_PHASE_IDS.includes(phaseId);
+
 // ─── Phase Progress ─────────────────────────────────────────
 
 export const getClientPhaseProgress = (client, phaseId) => {

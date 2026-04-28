@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { getClientPhase } from './utils';
-import { LOST_REASONS } from './constants';
+import { getClientPhase, isClientPipelinePhase } from './utils';
+import { CLIENT_PHASES, LOST_REASONS } from './constants';
 
 import { ClientHeader } from './client/ClientHeader';
 import { ClientNextSteps } from './client/ClientNextSteps';
@@ -113,6 +113,40 @@ function DeleteDialog({ isOpen, clientName, onDelete, onCancel }) {
   );
 }
 
+function PhaseSelectorCard({ client, onUpdateClient, onPhaseChange }) {
+  const currentPhase = getClientPhase(client);
+
+  return (
+    <div className={cards.alertCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <strong>Client Phase</strong>
+        <select
+          className={forms.fieldInput}
+          style={{ minWidth: 220, maxWidth: 320, marginBottom: 0 }}
+          value={currentPhase}
+          onChange={(e) => {
+            const val = e.target.value;
+            onUpdateClient(client.id, {
+              phase: val,
+              phaseTimestamps: {
+                ...client.phaseTimestamps,
+                [val]: client.phaseTimestamps?.[val] || Date.now(),
+              },
+            });
+            onPhaseChange(val);
+          }}
+        >
+          {CLIENT_PHASES.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.icon} {p.label}{p.id === currentPhase ? ' (current)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN CLIENT DETAIL CONTAINER ────────────────────────────
 export function ClientDetail({
   client, allClients, currentUser,
@@ -124,6 +158,8 @@ export function ClientDetail({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showScripts, setShowScripts] = useState(null);
+  const currentPhase = getClientPhase(client);
+  const isPipelinePhase = isClientPipelinePhase(currentPhase);
 
   return (
     <div>
@@ -166,12 +202,20 @@ export function ClientDetail({
         onUpdateClient={onUpdateClient}
       />
 
-      <ClientProgressOverview
-        client={client}
-        activePhase={activePhase}
-        onPhaseChange={setActivePhase}
-        onUpdateClient={onUpdateClient}
-      />
+      {isPipelinePhase ? (
+        <ClientProgressOverview
+          client={client}
+          activePhase={activePhase}
+          onPhaseChange={setActivePhase}
+          onUpdateClient={onUpdateClient}
+        />
+      ) : (
+        <PhaseSelectorCard
+          client={client}
+          onUpdateClient={onUpdateClient}
+          onPhaseChange={setActivePhase}
+        />
+      )}
 
       <ClientSequences
         client={client}
@@ -196,15 +240,17 @@ export function ClientDetail({
         showToast={showToast}
       />
 
-      <ClientPhaseDetail
-        client={client}
-        activePhase={activePhase}
-        showScripts={showScripts}
-        onToggleScripts={setShowScripts}
-        onUpdateTask={onUpdateTask}
-        onUpdateTasksBulk={onUpdateTasksBulk}
-        onRefreshTasks={onRefreshTasks}
-      />
+      {isPipelinePhase && (
+        <ClientPhaseDetail
+          client={client}
+          activePhase={activePhase}
+          showScripts={showScripts}
+          onToggleScripts={setShowScripts}
+          onUpdateTask={onUpdateTask}
+          onUpdateTasksBulk={onUpdateTasksBulk}
+          onRefreshTasks={onRefreshTasks}
+        />
+      )}
 
       <ClientActivityLog
         client={client}
