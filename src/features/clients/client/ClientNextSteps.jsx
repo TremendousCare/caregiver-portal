@@ -92,20 +92,9 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
 
   // ─── Terminal Phase Renders ────────────────────────────────
 
+  // Won clients are now in the "active" section — no banner or pipeline UI.
   if (phase === 'won') {
-    return (
-      <div style={styles.container}>
-        <div style={styles.successBanner}>
-          <div style={styles.successIcon}>&#x1F389;</div>
-          <div>
-            <div style={styles.successTitle}>Client Won!</div>
-            <div style={styles.successText}>
-              This client has been converted. Review the Won phase tasks to complete onboarding.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (phase === 'lost') {
