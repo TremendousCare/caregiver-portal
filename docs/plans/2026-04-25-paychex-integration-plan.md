@@ -3,7 +3,7 @@
 **Date:** 2026-04-25
 **Branch:** `claude/paychex-multi-org-refactor-lpDA8`
 **Related docs:** `docs/SAAS_RETROFIT.md`, `docs/SAAS_RETROFIT_STATUS.md`, `CLAUDE.md`
-**Status:** Phase 0 complete (PR #207 merged 2026-04-25; Phase 0 results captured by PR #209 merged 2026-04-25). Phase 1 complete (PR #211 merged 2026-04-25; migrations applied to production 2026-04-25). Phase 2 code complete and dry-run-verified end-to-end on branch `claude/paychex-phase-2-AkZFD` (PR #212). **Real Paychex worker writes are blocked on Paychex enabling the worker WRITE entitlement** at the resource level — request open with the Paychex rep (see "Phase 2 results" below). Code merge is unblocked; real-write verification waits on Paychex.
+**Status:** Phase 0 complete (PR #207 merged 2026-04-25). Phase 1 complete (PR #211 merged 2026-04-25). Phase 2 code complete (PR #212 merged 2026-04-26); **real Paychex worker writes are blocked on Paychex enabling the worker WRITE entitlement** at the resource level. Phase 3 complete (PR #216 merged 2026-04-27); cron auto-fired the same day and produced its first real drafts unprompted, math verified by hand against $520.40 gross. **Phase 4 PR #1 complete (PR #224 merged 2026-04-28)**: backend foundation (`csvExport.js`, exceptions extension, `paychex-backfill-employee-ids` edge function, `caregivers.paychex_employee_id` column, TC `pay_components` seed) + read-only Accounting → Payroll → This Week view live on `main`. Backfill edge function deployed but not yet invoked — deferred until Paychex enables WRITE and the back office syncs the rest of the roster. Phase 4 PR #2 (edits + approval + Generate Run + CSV export) is the next active work; see `docs/handoff-paychex-phase-4.md` for the durable PR #2 spec. Phase 5 still gated on the Paychex Payroll & Check API scope; not on the critical path.
 
 ---
 
@@ -408,7 +408,7 @@ Both rows had `gross_pay = 0` because the shifts they reference still had `hourl
 - Some completed shifts have no clock-out events. Caregiver portal flow should make this harder to do, but back office also needs an inline "scheduled-end is correct" affirmation in the Phase 4 UI to clear the block without forcing a clock_event insert.
 - Caregivers with multiple distinct hourly rates within a single week trigger `rate_mismatch` (a block). This is a deliberate v1 limitation; Phase 4 introduces per-shift-rate support that computes gross pay per-shift and uses CA's weighted-average regular rate of pay for OT premiums. Until then, the block forces explicit acknowledgment.
 
-### Phase 4 — Approval UI and CSV export (4 days)
+### Phase 4 — Approval UI and CSV export (split into 3 PRs)
 
 Goal: the Accounting > Payroll page goes live. Back office can review, edit, approve, and **export** timesheets as a CSV ready to upload or paste into Paychex Flex's existing manual entry interface. **This phase delivers the full operational value of the integration without requiring Paychex's Payroll API scope.**
 
@@ -441,6 +441,29 @@ Notification: a Monday 7 AM Pacific cron job sends an email and writes an `event
 Exit criteria: a back-office user can complete a full week's review, approval, and CSV export flow on a Vercel preview deploy. CSV opens cleanly in Paychex Flex's import or matches its manual entry format exactly. Empty state, single-caregiver state, and 50+-caregiver state all render and perform acceptably. Approval and export write events to the `events` table.
 
 Rollback: hide the sidebar entry behind a feature flag override. Route stays accessible to debug. Data is unchanged.
+
+#### Phase 4 PR #1 results (captured 2026-04-28)
+
+PR #224 merged to `main` 2026-04-28. The plan's Phase 4 work was split into three smaller PRs for production safety + reviewability; PR #1 covers the backend foundation + read-only This Week view. PR #2 (edits + approval + Generate Run + CSV export) and PR #3 (Payroll Runs + Mark as Paid + Settings) are the remaining work; the durable spec lives in `docs/handoff-paychex-phase-4.md`.
+
+**What landed:**
+
+- **Migration `20260428000000_payroll_phase_4_pr1.sql`** applied via the `Deploy Database Migrations` workflow. Adds `caregivers.paychex_employee_id text` (additive, nullable) with an org-scoped partial unique index on `(org_id, paychex_employee_id)`. Seeds `organizations.settings.payroll.pay_components` for TC: `{ regular: "Hourly", overtime: "Overtime", double_time: null, mileage: "Mileage" }` (owner-confirmed Paychex Earning names; `double_time: null` deliberately, since TC has not yet configured a DT Earning in Paychex Flex).
+- **`src/lib/payroll/csvExport.js`** — pure function generating six-column SPI "Hours Only Flexible" CSV. Pre-multiplies OT (1.5x) / DT (2x) per the verified TC paystub convention; mileage row uses `organizations.settings.payroll.mileage_rate`. 22 Vitest cases. PR #2's "Generate Payroll Run" wires this up.
+- **Two new exception codes** in `src/lib/payroll/exceptions.js` (+ `constants.js`): `dt_pay_component_missing` and `caregiver_missing_paychex_employee_id`. `detectExceptions` now takes optional `orgSettings` for back-compat. Cron updated to pass it. 6+ new Vitest cases.
+- **Backfill edge function** `paychex-backfill-employee-ids` deployed via `Deploy Edge Functions` workflow. Paginates `GET /companies/{companyId}/workers`, matches Paychex workers to `caregivers` via `workerCorrelationId` or `paychex_worker_id`, and populates `paychex_employee_id` (org-scoped). **Not yet invoked** — owner deferred until Paychex enables the worker WRITE entitlement and the back office syncs the rest of the roster (one re-run will catch everyone). Adds a `listCompanyWorkers` helper to `_shared/paychex.ts`.
+- **Read-only Accounting UI**: `/accounting` route → `AccountingPage` → `PayrollTab` → `ThisWeekView`. Surfaces whatever drafts the Phase 3 cron most recently produced for the prior Mon→Sun workweek. Sticky-footer running totals (caregiver count, hours, gross). Expandable per-row shift detail. Color-coded exception badges. Sidebar entry between Scheduling and Boards, gated on staff role + `features_enabled.payroll === true`.
+- **`currentOrgSettings` exposed via `AppContext`** — loaded at login alongside the role lookup. `refreshOrgSettings()` hook for PR #3's Settings UI to invalidate after writes. Sidebar gate and ThisWeekView both consume it.
+
+**Codex review:** two P1 findings on the initial commit, both addressed in commit `178c9bc` before merge:
+- Backfill function originally lacked `org_id` filtering on its caregivers SELECT and UPDATE — a stale comment ("Until Phase B adds caregivers.org_id") had the function operating pre-Phase-B-style. Phase B (PR #218) had already added the column. Both queries now scoped by `org_id`.
+- The new unique index was originally global; should have been org-scoped because Paychex employeeIds are only unique within a Paychex company. Re-keyed to `(org_id, paychex_employee_id)` partial unique.
+
+**Tests:** 2162/2162 passing on `main` (76 test files, +28 new payroll cases). Build clean.
+
+**Verification gaps remaining:**
+- Backfill function not yet invoked. Recommended: run with `dry_run: true` from a browser console (caregiver-portal.vercel.app DevTools) just as a wiring smoke-test before PR #2 ships. Service-role tokens don't carry `org_id`, so the Supabase Dashboard "Invoke" button won't work — must use a real user JWT. The existing test caregiver (`a7d692bf-f3ec-47a5-93d6-a42de096a47f`) is the only TC caregiver synced today, so the backfill would populate exactly one row.
+- Read-only ThisWeekView confirmed builds and renders empty/data states locally; back-office spot-check of the live render against the Phase 3 drafts is pending owner verification on production.
 
 ### Phase 5 — Direct API submission and webhook (3 days, OPTIONAL — gated on Payroll API scope)
 
