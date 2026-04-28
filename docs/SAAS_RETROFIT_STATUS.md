@@ -12,7 +12,14 @@ This file is the living tracker. Update it in the same PR that advances the retr
 **Phase B — Tenant isolation on every table.**
 **Status**: In progress (kickoff 2026-04-26).
 **Phase A** shipped 2026-04-23 via PR #186 (`claude/phase-a-auth-foundation-M94Sk`); access token hook enabled in Supabase Dashboard; every staff and caregiver JWT now carries `org_id`, `org_slug`, `org_role`. Bake period clean — no auth-related incidents reported.
-**Phase B kickoff scope**: add `org_id uuid REFERENCES organizations(id)` to every tenant-sensitive table, backfill, set `NOT NULL` with a Tremendous-Care default, then tighten RLS one domain at a time. Sliced into ~5 PRs (B1: schema columns + backfill; B2: org-scoped RLS alongside existing policies; B3: edge functions + cron + frontend insert paths; B4: cross-tenant test harness; B5: drop permissive policies, sliced by domain). See `docs/SAAS_RETROFIT.md` → "Phase B" for the per-table pattern.
+**Phase B progress** (sliced into ~5 PRs):
+- ✅ **B1 shipped 2026-04-28 via PR #218** — `org_id` column + backfill + index on 42 tenant-sensitive tables, plus `public.default_org_id()` helper for the column DEFAULT. Pure additive schema; no behavior change.
+- ⏳ **B2 next** — add org-scoped RLS policies alongside the existing permissive ones. Targeted to open after a short B1 verification window (1–3 days) on `main`.
+- ⏳ B3 — update edge functions, cron jobs, and frontend insert paths to set `org_id` explicitly.
+- ⏳ B4 — cross-tenant test harness: provision a real second org (e.g., `acme-test`) and verify isolation.
+- ⏳ B5 — drop the permissive policies, sliced by domain. This is the only PR that flips real enforcement; each slice bakes 5–7 days before the next.
+
+See `docs/SAAS_RETROFIT.md` → "Phase B" for the per-table pattern.
 **In flight (independent of the retrofit phases)**: Paychex Flex payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). After the 2026-04-25 audit of `developer.paychex.com`, the integration was confirmed to use **partner-level OAuth credentials** that do not require per-org secret storage — Paychex no longer pioneers Phase C. Per-org secret persistence (Vault vs `org_secrets` table) returns to retrofit Phase C kickoff for a coherent decision across RingCentral, DocuSign, Microsoft, and Anthropic.
 
 ---
@@ -22,7 +29,7 @@ This file is the living tracker. Update it in the same PR that advances the retr
 | Phase | Name | Status | Shipped | Notes |
 |-------|------|--------|---------|-------|
 | A | Auth foundation | Shipped | 2026-04-23 | PR #186; `organizations`, `org_memberships`, JWT hook live |
-| B | Tenant isolation on every table | In progress | — | `org_id` + RLS, one table at a time. Kickoff 2026-04-26. Sliced into ~5 PRs. |
+| B | Tenant isolation on every table | In progress | — | `org_id` + RLS, one table at a time. Kickoff 2026-04-26. B1 (columns + backfill) shipped 2026-04-28 via PR #218; B2 (RLS) next. |
 | C | Per-org secrets and integrations | Not started | — | Generalize `communication_routes` pattern. Decision (Vault vs `org_secrets` table) deferred to phase kickoff; Paychex does not require this work. |
 | D | Configurable phases, branding, feature toggles | Not started | — | `pipeline_phases`, `organizations.settings` |
 | E | Onboarding, compliance, billing | Not started | — | Signup, BAA, admin console, manual QBO |
@@ -64,6 +71,8 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 |------|----|----|---------|
 | 2026-04-23 | #186 | A | Auth foundation: `organizations`, `org_memberships`, `custom_access_token_hook`, AppContext plumbing for `currentOrgId`/`currentOrgSlug`/`currentOrgRole`. Hook enabled in Supabase Dashboard post-merge. |
 | 2026-04-25 | #201 | — | Plan documentation for the Paychex Flex W-2 payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). Not a retrofit phase change. (Initially scoped to pioneer Phase C via a `getOrgSecret` helper; revised on 2026-04-25 after the API audit confirmed Paychex auth is partner-level and does not need per-org secret storage.) |
+| 2026-04-26 | #217 | B (kickoff) | Phase B kickoff docs: flipped status to In progress, locked 4 architectural decisions (`org_id` default via `public.default_org_id()` helper, default lifecycle through Phase E, strict RLS posture, real-second-org test harness), planned PR slicing. |
+| 2026-04-28 | #218 | B1 | Added `org_id uuid REFERENCES organizations(id)` to 42 tenant-sensitive tables: backfilled to Tremendous Care, set `NOT NULL` with `DEFAULT public.default_org_id()`, indexed `org_id` on each. Pure additive schema; no RLS, query, or behavior changes. Codex caught a Postgres-forbids-subquery-in-DEFAULT bug pre-merge; fixed via STABLE helper function. |
 
 ---
 
