@@ -263,6 +263,17 @@ const CLIENT_FIELD_MAP = {
   email_fb: 'email',
   phone_number_fb: 'phone',
   zip_code: 'zip',
+
+  // Gravity Forms / Care Consultation Form common keys
+  zip_postal_code: 'zip',
+  zipcode: 'zip',
+  postalcode: 'zip',
+  who_is_care_needed_for: 'relationship',
+  care_needed_for: 'relationship',
+  care_for_relationship: 'relationship',
+  im_interested_in_home_care_services_for: 'relationship',
+  i_m_interested_in_home_care_services_for: 'relationship',
+  interested_in_home_care_services_for: 'relationship',
 };
 
 // ─── normalizePhone ──────────────────────────────────────────

@@ -556,6 +556,14 @@ describe('mapClientFields', () => {
     expect(result.clientData.relationship).toBe('Son');
   });
 
+  it('maps care consultation relationship aliases', () => {
+    const result = mapClientFields({
+      first_name: 'John',
+      i_m_interested_in_home_care_services_for: 'A Parent',
+    });
+    expect(result.clientData.relationship).toBe('A Parent');
+  });
+
   it('maps hours_needed', () => {
     const result = mapClientFields({
       first_name: 'John',
@@ -660,6 +668,14 @@ describe('mapClientFields', () => {
     expect(result.clientData.city).toBe('Los Angeles');
     expect(result.clientData.state).toBe('CA');
     expect(result.clientData.zip).toBe('90001');
+  });
+
+  it('maps zip_postal_code alias to zip', () => {
+    const result = mapClientFields({
+      first_name: 'John',
+      zip_postal_code: '92618',
+    });
+    expect(result.clientData.zip).toBe('92618');
   });
 
   // ── textarea-1 maps to care_needs for clients ──
