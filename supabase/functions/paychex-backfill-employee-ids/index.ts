@@ -237,14 +237,15 @@ Deno.serve(async (req: Request) => {
     }, cors);
   }
 
-  // ── Load caregivers needing backfill ──
-  // Until Phase B adds caregivers.org_id, we cannot org-scope the
-  // caregivers fetch directly. The staff role check is the cross-tenant
-  // gate; TC is the only org today. Once Phase B lands, add
-  // `.eq("org_id", orgId)`.
+  // ── Load caregivers needing backfill (org-scoped) ──
+  // caregivers.org_id was added in Phase B (migration
+  // 20260426120000_phase_b_add_org_id_columns.sql). Filtering here
+  // keeps the backfill from ever surfacing or mutating another org's
+  // caregiver rows even if a forged `paychex_worker_id` matched.
   const { data: cgData, error: cgErr } = await admin
     .from("caregivers")
     .select("id, paychex_worker_id, paychex_employee_id")
+    .eq("org_id", orgId)
     .is("paychex_employee_id", null);
   if (cgErr) {
     return jsonResponse(500, { error: `caregivers query failed: ${cgErr.message}` }, cors);
@@ -345,10 +346,15 @@ Deno.serve(async (req: Request) => {
 
   if (!dryRun) {
     for (const m of matches) {
+      // Org-scoped UPDATE — every match was already pulled from a
+      // SELECT filtered on org_id, so the row's org is known. The
+      // explicit filter is a defense-in-depth guard in case a
+      // service-role caller invokes the function programmatically.
       const { error: updateErr } = await admin
         .from("caregivers")
         .update({ paychex_employee_id: m.employeeId })
         .eq("id", m.caregiver_id)
+        .eq("org_id", orgId)
         .is("paychex_employee_id", null);
       if (updateErr) {
         updateErrors.push({ caregiver_id: m.caregiver_id, message: updateErr.message });

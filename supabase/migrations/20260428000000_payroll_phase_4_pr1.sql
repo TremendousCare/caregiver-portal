@@ -45,12 +45,17 @@
 
 ALTER TABLE caregivers ADD COLUMN IF NOT EXISTS paychex_employee_id text;
 
--- Partial unique index — within an org's Paychex company, each
--- short employeeId is unique. Until Phase B adds caregivers.org_id,
--- TC is the only org so a global partial index serves the same purpose
--- and prevents accidental duplicates from the backfill.
+-- Org-scoped partial unique index. Paychex employeeIds are short
+-- per-company integers (e.g. "54", "67") and are only unique within a
+-- Paychex company. Phase B (migration 20260426120000) added
+-- caregivers.org_id, so the uniqueness constraint must include it —
+-- otherwise two orgs both legitimately holding employee `54` would
+-- collide. DROP-then-CREATE is defensive: in case an earlier draft of
+-- this migration applied a global index on the same name in any
+-- environment, this re-runs cleanly to the correct shape.
+DROP INDEX IF EXISTS public.idx_caregivers_paychex_employee_id;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_caregivers_paychex_employee_id
-  ON caregivers (paychex_employee_id)
+  ON caregivers (org_id, paychex_employee_id)
   WHERE paychex_employee_id IS NOT NULL;
 
 -- Append pay_components into the existing payroll object in TC's
