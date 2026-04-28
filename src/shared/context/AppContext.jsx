@@ -14,6 +14,13 @@ export function AppProvider({ children }) {
   const [currentOrgId, setCurrentOrgId] = useState(null);
   const [currentOrgSlug, setCurrentOrgSlug] = useState(null);
   const [currentOrgRole, setCurrentOrgRole] = useState(null);
+  // Per-org settings jsonb. Phase 4 PR #1 introduces this so the
+  // sidebar can gate Accounting on features_enabled.payroll, and the
+  // payroll UI can read pay_components / mileage_rate without going
+  // back to the DB on every render. Loaded once at login alongside
+  // the role lookup. Refreshable via refreshOrgSettings() after
+  // Settings UI edits ship in PR #3.
+  const [currentOrgSettings, setCurrentOrgSettings] = useState(null);
 
   // ─── Load action item rules cache on mount ───
   useEffect(() => {
@@ -57,6 +64,18 @@ export function AppProvider({ children }) {
         setCurrentOrgId(claims.orgId);
         setCurrentOrgSlug(claims.orgSlug);
         setCurrentOrgRole(claims.orgRole);
+
+        // Load org settings (jsonb) once. Failure here is non-fatal —
+        // the rest of the app works without it; payroll UI just
+        // doesn't render until a refresh.
+        if (claims.orgId) {
+          const { data: orgRow } = await supabase
+            .from('organizations')
+            .select('settings')
+            .eq('id', claims.orgId)
+            .maybeSingle();
+          setCurrentOrgSettings((orgRow && orgRow.settings) || {});
+        }
 
         // Is this a caregiver account? (Only visible if linked via user_id
         // and the RLS policy caregivers_read_own matches auth.uid().)
@@ -110,8 +129,21 @@ export function AppProvider({ children }) {
     setCurrentOrgId(null);
     setCurrentOrgSlug(null);
     setCurrentOrgRole(null);
+    setCurrentOrgSettings(null);
     window.location.reload();
   }, []);
+
+  // Reload org settings — used after Settings UI writes (Phase 4 PR #3)
+  // to keep the in-memory copy in sync without forcing a logout.
+  const refreshOrgSettings = useCallback(async () => {
+    if (!currentOrgId || !isSupabaseConfigured()) return;
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('settings')
+      .eq('id', currentOrgId)
+      .maybeSingle();
+    setCurrentOrgSettings((orgRow && orgRow.settings) || {});
+  }, [currentOrgId]);
 
   return (
     <AppContext.Provider value={{
@@ -120,6 +152,7 @@ export function AppProvider({ children }) {
       mobileMenuOpen, setMobileMenuOpen,
       currentUser, currentUserName, currentUserEmail, currentUserMailbox, isAdmin,
       currentOrgId, currentOrgSlug, currentOrgRole,
+      currentOrgSettings, refreshOrgSettings,
       handleUserReady, handleLogout,
     }}>
       {children}

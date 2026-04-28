@@ -592,6 +592,36 @@ export async function getWorker(
   });
 }
 
+/**
+ * GET /companies/{companyId}/workers — paginated list of workers for
+ * a Paychex company. Defaults to the nonpii variant so SSNs never
+ * enter paychex_api_log.
+ *
+ * Paychex's pagination is offset/limit. Phase 0 confirmed 83 workers
+ * total for TC; the default limit of 100 is plenty for one call but
+ * the caller can paginate explicitly when needed.
+ */
+export async function listCompanyWorkers(
+  ctx: PaychexClientContext,
+  args: {
+    companyId: string;
+    offset?: number;
+    limit?: number;
+    mediaType?: string;
+  },
+): Promise<PaychexCallResult> {
+  const offset = Number.isFinite(args.offset) ? args.offset : 0;
+  const limit = Number.isFinite(args.limit) ? args.limit : 100;
+  const path =
+    `/companies/${encodeURIComponent(args.companyId)}/workers` +
+    `?offset=${offset}&limit=${limit}`;
+  return paychexCall(ctx, {
+    path,
+    method: "GET",
+    mediaType: args.mediaType ?? WORKER_NONPII_MEDIA_TYPE,
+  });
+}
+
 // ─── Misc helpers re-exported for callers ──────────────────────────
 
 export function makeServiceClient(): SupabaseClient {

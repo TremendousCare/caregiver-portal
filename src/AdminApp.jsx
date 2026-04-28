@@ -22,6 +22,7 @@ import { AddClient } from './features/clients/AddClient';
 import { ClientDetail } from './features/clients/ClientDetail';
 import { SequenceSettings } from './features/clients/SequenceSettings';
 import { SchedulePage } from './features/scheduling/SchedulePage';
+import { AccountingPage } from './features/accounting/AccountingPage';
 import { AdminSettings } from './components/AdminSettings';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingHcaVerification } from './lib/utils';
@@ -619,6 +620,7 @@ export default function AdminApp() {
                 <Route path="clients/sequences" element={<SequenceSettingsPage />} />
                 <Route path="clients/:id" element={<ClientDetailPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
+                <Route path="accounting" element={<AccountingPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>

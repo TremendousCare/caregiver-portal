@@ -17,18 +17,37 @@
 // (any block-severity code present), and to populate `block_reason`.
 //
 // Codes per the plan:
-//   - missing_clock_out      block  (a shift was scheduled-only with no clock-out)
-//   - out_of_geofence        warn   (caregiver clocked outside the geofence)
-//   - rate_mismatch          block  (multiple distinct rates within a single timesheet)
-//   - blocked_caregiver      block  (caregivers.payroll_blocked = true / sync error)
-//   - shift_too_long         warn   (a single shift > LONG_SHIFT_WARNING_HOURS)
-//   - caregiver_not_in_paychex  warn  (no paychex_worker_id yet — entitlement gap)
+//   - missing_clock_out                        block
+//       (a shift was scheduled-only with no clock-out)
+//   - out_of_geofence                          warn
+//       (caregiver clocked outside the geofence)
+//   - rate_mismatch                            block
+//       (multiple distinct rates within a single timesheet)
+//   - blocked_caregiver                        block
+//       (caregivers.payroll_blocked = true / sync error)
+//   - shift_too_long                           warn
+//       (a single shift > LONG_SHIFT_WARNING_HOURS)
+//   - caregiver_not_in_paychex                 warn
+//       (no paychex_worker_id yet — entitlement gap)
+//   - dt_pay_component_missing                 block (Phase 4 PR #1)
+//       (DT hours exist but the org has no Paychex Earning name
+//        configured for double-time — CSV export would emit an
+//        unmappable row)
+//   - caregiver_missing_paychex_employee_id    block (Phase 4 PR #1)
+//       (caregiver has hours but no SHORT paychex_employee_id — the
+//        Paychex Flex SPI CSV cannot identify the worker without it)
 //
 // Severity is deliberate. `caregiver_not_in_paychex` is `warn` because
 // Paychex's worker WRITE entitlement is gated at their backend during
 // Phase 2 rollout — blocking the whole pipeline on it would mean every
 // new caregiver halts payroll until Paychex enables the entitlement.
 // The exception still surfaces; back office decides per case.
+//
+// `caregiver_missing_paychex_employee_id` is a separate, hard-block
+// code: even when the caregiver IS synced (paychex_worker_id present),
+// the CSV export cannot run without the short employeeId that Paychex
+// returns in the worker GET response and the backfill function
+// captures.
 //
 // Plan reference:
 //   docs/plans/2026-04-25-paychex-integration-plan.md
@@ -51,9 +70,16 @@ import {
  * @param {object} args.caregiver
  *   Minimal caregiver descriptor:
  *     - paychex_worker_id        (string | null)
+ *     - paychex_employee_id      (string | null)  // short SPI Worker ID
  *     - paychex_sync_status      (string | null)
  *     - payroll_blocked          (boolean | undefined; future column)
  *     - payroll_block_reason     (string | undefined)
+ *
+ * @param {object} [args.orgSettings]
+ *   Optional `organizations.settings` jsonb. When provided, drives the
+ *   `dt_pay_component_missing` check using
+ *   `payroll.pay_components.double_time`. Omitted = legacy callers that
+ *   pre-date Phase 4; those callers won't get the DT-config exception.
  *
  * @returns {Array<{
  *   severity: 'block' | 'warn',
@@ -62,7 +88,7 @@ import {
  *   shift_id?: string,
  * }>}
  */
-export function detectExceptions({ draft, caregiver }) {
+export function detectExceptions({ draft, caregiver, orgSettings }) {
   if (!draft || !draft.timesheet || !Array.isArray(draft.timesheet_shifts)) {
     throw new Error(
       'exceptions: draft must be the return shape of buildTimesheet (timesheet + timesheet_shifts + meta)',
@@ -118,6 +144,64 @@ export function detectExceptions({ draft, caregiver }) {
         `Caregiver's shifts this week carry ${distinctRates.length} distinct hourly rates `
           + `(${distinctRates.join(', ')}). Reconcile before approving so gross pay is accurate.`,
     });
+  }
+
+  // ── 3a. Caregiver missing Paychex SHORT employeeId (block) ───────
+  // Distinct from `caregiver_not_in_paychex`: a caregiver who's been
+  // synced (paychex_worker_id present) may still lack the short
+  // employeeId until the Phase 4 backfill function captures it. The
+  // CSV export's "Worker ID" column is the SHORT id; without it the
+  // SPI import would fail or attach hours to the wrong worker.
+  // Treat as block whenever the timesheet has any payable amount.
+  const hasPayableAmount =
+    (Number(draft.timesheet?.regular_hours) || 0) > 0
+    || (Number(draft.timesheet?.overtime_hours) || 0) > 0
+    || (Number(draft.timesheet?.double_time_hours) || 0) > 0
+    || (Number(draft.timesheet?.mileage_total) || 0) > 0;
+  if (
+    hasPayableAmount
+    && (caregiver.paychex_employee_id == null
+      || (typeof caregiver.paychex_employee_id === 'string'
+        && caregiver.paychex_employee_id.trim() === ''))
+  ) {
+    out.push({
+      severity: EXCEPTION_SEVERITY.BLOCK,
+      code: EXCEPTION_CODE.CAREGIVER_MISSING_PAYCHEX_EMPLOYEE_ID,
+      message:
+        'Caregiver has no Paychex employee ID (the short SPI Worker ID). '
+          + 'Run paychex-backfill-employee-ids or set the value manually before exporting.',
+    });
+  }
+
+  // ── 3b. Double-time pay component not configured (block) ─────────
+  // The CSV export emits one row per (worker, pay_component). If the
+  // timesheet carries DT hours but the org hasn't told Paychex Flex
+  // the name of its Doubletime Earning, we have nothing to put in the
+  // Pay Component column for those hours and the row would be
+  // unmappable. Block until the owner either configures the Earning
+  // (Paychex Flex Settings → Earnings, then update
+  // organizations.settings.payroll.pay_components.double_time) or
+  // zeroes out the DT hours via inline edit in the Phase 4 PR #2 UI.
+  // Skip the DT-config check entirely when the caller didn't supply
+  // orgSettings — preserves the pre-Phase-4 contract for callers that
+  // only care about per-shift / per-caregiver checks.
+  const dtHours = Number(draft.timesheet?.double_time_hours) || 0;
+  if (dtHours > 0 && orgSettings) {
+    const payComponents =
+      (orgSettings.payroll && orgSettings.payroll.pay_components) || {};
+    const dtName = payComponents.double_time;
+    const dtConfigured = typeof dtName === 'string' && dtName.trim() !== '';
+    if (!dtConfigured) {
+      out.push({
+        severity: EXCEPTION_SEVERITY.BLOCK,
+        code: EXCEPTION_CODE.DT_PAY_COMPONENT_MISSING,
+        message:
+          `Timesheet has ${dtHours} double-time hours but no Paychex Earning is configured `
+            + 'for double-time. Add the Earning in Paychex Flex Settings → Earnings and set '
+            + 'organizations.settings.payroll.pay_components.double_time to its name, OR zero '
+            + 'out the DT hours via inline edit before exporting.',
+      });
+    }
   }
 
   // ── 4. Per-shift exceptions ──────────────────────────────────────
