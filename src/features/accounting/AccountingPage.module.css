@@ -1,0 +1,62 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1400px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F1724;
+  margin: 0 0 4px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #7A8BA0;
+  margin: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #E1E7EF;
+}
+
+.tabBtn {
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  color: #5A6B80;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabBtnActive {
+  color: #2E4E8D;
+  border-bottom-color: #2E4E8D;
+}
+
+.notice {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: #5A6B80;
+  font-size: 14px;
+}

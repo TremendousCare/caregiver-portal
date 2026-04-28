@@ -1,0 +1,112 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.payPeriod {
+  font-size: 14px;
+  color: #0F1724;
+}
+
+.subtle {
+  font-size: 12px;
+  color: #7A8BA0;
+  margin-top: 2px;
+}
+
+.errorBanner {
+  background: #FDECEA;
+  color: #B71C1C;
+  border: 1px solid #F5C2C0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.empty {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: #5A6B80;
+  font-size: 14px;
+}
+
+.tableWrap {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  overflow: hidden;
+  /* Allow horizontal scroll on narrow viewports without breaking the
+     sticky footer's alignment. */
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 880px;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: #F4F7FB;
+  color: #5A6B80;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 14px;
+  border-bottom: 1px solid #DDE5EF;
+  z-index: 1;
+}
+
+.thLeft {
+  text-align: left;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tfoot {
+  position: sticky;
+  bottom: 0;
+  background: #F4F7FB;
+  border-top: 2px solid #DDE5EF;
+}
+
+.tfoot td {
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F1724;
+  border-top: 2px solid #DDE5EF;
+  background: #F4F7FB;
+}
+
+.totalLabel {
+  text-align: left;
+}
+
+.blockedCount {
+  color: #B71C1C;
+  font-weight: 600;
+}
+
+.numCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -1,0 +1,178 @@
+.row {
+  background: #fff;
+  transition: background 0.1s;
+}
+
+.row:hover {
+  background: #F4F7FB;
+}
+
+.rowBlocked {
+  background: #FDF2F0;
+}
+
+.rowBlocked:hover {
+  background: #FAE5E1;
+}
+
+.row td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #EAEFF6;
+  vertical-align: top;
+  font-size: 13px;
+  color: #0F1724;
+}
+
+.expandCell {
+  width: 32px;
+}
+
+.expandBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #5A6B80;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.expandBtn:hover {
+  color: #0F1724;
+}
+
+.nameCell {
+  min-width: 220px;
+}
+
+.name {
+  font-weight: 600;
+  color: #0F1724;
+}
+
+.subtle {
+  color: #7A8BA0;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.numCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.statusCell {
+  white-space: nowrap;
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #E8EEF7;
+  color: #2E4E8D;
+  border: 1px solid #C8D6E8;
+}
+
+.status_draft {
+  background: #E8EEF7;
+  color: #2E4E8D;
+  border-color: #C8D6E8;
+}
+
+.status_blocked {
+  background: #FDECEA;
+  color: #B71C1C;
+  border-color: #F5C2C0;
+}
+
+.status_approved {
+  background: #E1F4E5;
+  color: #1B5E20;
+  border-color: #BFE3C7;
+}
+
+.status_exported,
+.status_submitted {
+  background: #E0F2F7;
+  color: #00566B;
+  border-color: #BFE0EA;
+}
+
+.status_paid {
+  background: #DEFAEC;
+  color: #0F5132;
+  border-color: #B8EBC8;
+}
+
+.status_rejected {
+  background: #FCE9E9;
+  color: #9C2A2A;
+  border-color: #F0BFBF;
+}
+
+.exceptionsCell {
+  max-width: 260px;
+}
+
+/* ─── Expanded detail row ─── */
+
+.detailRow {
+  background: #F8FAFD;
+}
+
+.detailCell {
+  padding: 14px 18px 18px 46px;
+  border-bottom: 1px solid #EAEFF6;
+}
+
+.detailTable {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.detailTable th {
+  text-align: left;
+  padding: 6px 10px;
+  background: #ECF1F8;
+  color: #5A6B80;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #DDE5EF;
+}
+
+.detailTable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #EAEFF6;
+  color: #0F1724;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #5A6B80;
+}
+
+.blockReason {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: #FDECEA;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #9C2A2A;
+}
+
+.blockReason code {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

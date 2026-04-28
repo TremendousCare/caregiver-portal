@@ -101,6 +101,7 @@ interface ClockEventRow {
 interface CaregiverRow {
   id: string;
   paychex_worker_id: string | null;
+  paychex_employee_id: string | null;
   paychex_sync_status: string | null;
 }
 
@@ -282,7 +283,7 @@ async function generateForOrg(
     const batch = caregiverIds.slice(i, i + 500);
     const { data: cgData, error: cgErr } = await supabase
       .from("caregivers")
-      .select("id, paychex_worker_id, paychex_sync_status")
+      .select("id, paychex_worker_id, paychex_employee_id, paychex_sync_status")
       .in("id", batch);
     if (cgErr) {
       result.errors.push({
@@ -356,12 +357,13 @@ async function generateForOrg(
     const caregiver = caregiversById.get(caregiverId) ?? {
       id: caregiverId,
       paychex_worker_id: null,
+      paychex_employee_id: null,
       paychex_sync_status: null,
     };
 
     let exceptions: Array<{ severity: string; code: string; message: string; shift_id?: string }>;
     try {
-      exceptions = detectExceptions({ draft, caregiver });
+      exceptions = detectExceptions({ draft, caregiver, orgSettings: settings });
     } catch (err) {
       result.errors.push({
         caregiver_id: caregiverId,

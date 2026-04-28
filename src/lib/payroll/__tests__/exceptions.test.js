@@ -46,7 +46,30 @@ const CLEAN_DRAFT = {
 
 const SYNCED_CAREGIVER = {
   paychex_worker_id: 'pw_001',
+  paychex_employee_id: '54',
   paychex_sync_status: 'active',
+};
+
+const TC_SETTINGS_WITH_DT = {
+  payroll: {
+    pay_components: {
+      regular: 'Hourly',
+      overtime: 'Overtime',
+      double_time: 'Doubletime',
+      mileage: 'Mileage',
+    },
+  },
+};
+
+const TC_SETTINGS_WITHOUT_DT = {
+  payroll: {
+    pay_components: {
+      regular: 'Hourly',
+      overtime: 'Overtime',
+      double_time: null,
+      mileage: 'Mileage',
+    },
+  },
 };
 
 // ─── Argument validation ──────────────────────────────────────────
@@ -194,9 +217,156 @@ describe('detectExceptions — per-code', () => {
   it('does NOT flag caregiver_not_in_paychex when worker id is set', () => {
     const result = detectExceptions({
       draft: CLEAN_DRAFT,
-      caregiver: { paychex_worker_id: 'pw_999', paychex_sync_status: 'active' },
+      caregiver: { paychex_worker_id: 'pw_999', paychex_employee_id: '54', paychex_sync_status: 'active' },
     });
     expect(result.find((e) => e.code === 'caregiver_not_in_paychex')).toBeUndefined();
+  });
+});
+
+// ─── Phase 4 PR #1: missing paychex_employee_id ───────────────────
+
+describe('detectExceptions — caregiver_missing_paychex_employee_id', () => {
+  it('flags as block when timesheet has hours but caregiver has no employee_id', () => {
+    const result = detectExceptions({
+      draft: CLEAN_DRAFT,
+      caregiver: { ...SYNCED_CAREGIVER, paychex_employee_id: null },
+    });
+    const ex = result.find((e) => e.code === 'caregiver_missing_paychex_employee_id');
+    expect(ex).toBeDefined();
+    expect(ex.severity).toBe('block');
+  });
+
+  it('flags as block even when paychex_worker_id is present (distinct identifier)', () => {
+    const result = detectExceptions({
+      draft: CLEAN_DRAFT,
+      caregiver: {
+        paychex_worker_id: 'pw_001',
+        paychex_employee_id: null,
+        paychex_sync_status: 'active',
+      },
+    });
+    const ex = result.find((e) => e.code === 'caregiver_missing_paychex_employee_id');
+    expect(ex).toBeDefined();
+    expect(ex.severity).toBe('block');
+  });
+
+  it('flags as block when employee_id is empty string', () => {
+    const result = detectExceptions({
+      draft: CLEAN_DRAFT,
+      caregiver: { ...SYNCED_CAREGIVER, paychex_employee_id: '   ' },
+    });
+    expect(
+      result.find((e) => e.code === 'caregiver_missing_paychex_employee_id'),
+    ).toBeDefined();
+  });
+
+  it('does NOT flag when employee_id is present', () => {
+    const result = detectExceptions({ draft: CLEAN_DRAFT, caregiver: SYNCED_CAREGIVER });
+    expect(
+      result.find((e) => e.code === 'caregiver_missing_paychex_employee_id'),
+    ).toBeUndefined();
+  });
+
+  it('does NOT flag on a zero-payable timesheet (no hours, no mileage)', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: {
+        ...CLEAN_DRAFT.timesheet,
+        regular_hours: 0,
+        overtime_hours: 0,
+        double_time_hours: 0,
+        mileage_total: 0,
+      },
+    };
+    const result = detectExceptions({
+      draft,
+      caregiver: { ...SYNCED_CAREGIVER, paychex_employee_id: null },
+    });
+    expect(
+      result.find((e) => e.code === 'caregiver_missing_paychex_employee_id'),
+    ).toBeUndefined();
+  });
+
+  it('flags on a mileage-only timesheet (no hours, mileage > 0)', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: {
+        ...CLEAN_DRAFT.timesheet,
+        regular_hours: 0,
+        mileage_total: 12,
+      },
+    };
+    const result = detectExceptions({
+      draft,
+      caregiver: { ...SYNCED_CAREGIVER, paychex_employee_id: null },
+    });
+    expect(
+      result.find((e) => e.code === 'caregiver_missing_paychex_employee_id'),
+    ).toBeDefined();
+  });
+});
+
+// ─── Phase 4 PR #1: dt_pay_component_missing ──────────────────────
+
+describe('detectExceptions — dt_pay_component_missing', () => {
+  it('flags as block when DT hours > 0 and pay_components.double_time is null', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: { ...CLEAN_DRAFT.timesheet, double_time_hours: 4 },
+    };
+    const result = detectExceptions({
+      draft,
+      caregiver: SYNCED_CAREGIVER,
+      orgSettings: TC_SETTINGS_WITHOUT_DT,
+    });
+    const ex = result.find((e) => e.code === 'dt_pay_component_missing');
+    expect(ex).toBeDefined();
+    expect(ex.severity).toBe('block');
+    expect(ex.message).toContain('4');
+  });
+
+  it('does NOT flag when DT hours > 0 and pay_components.double_time IS configured', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: { ...CLEAN_DRAFT.timesheet, double_time_hours: 4 },
+    };
+    const result = detectExceptions({
+      draft,
+      caregiver: SYNCED_CAREGIVER,
+      orgSettings: TC_SETTINGS_WITH_DT,
+    });
+    expect(result.find((e) => e.code === 'dt_pay_component_missing')).toBeUndefined();
+  });
+
+  it('does NOT flag when DT hours = 0 even if double_time is null', () => {
+    const result = detectExceptions({
+      draft: CLEAN_DRAFT,
+      caregiver: SYNCED_CAREGIVER,
+      orgSettings: TC_SETTINGS_WITHOUT_DT,
+    });
+    expect(result.find((e) => e.code === 'dt_pay_component_missing')).toBeUndefined();
+  });
+
+  it('does NOT flag when orgSettings is omitted (legacy callers)', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: { ...CLEAN_DRAFT.timesheet, double_time_hours: 4 },
+    };
+    const result = detectExceptions({ draft, caregiver: SYNCED_CAREGIVER });
+    expect(result.find((e) => e.code === 'dt_pay_component_missing')).toBeUndefined();
+  });
+
+  it('flags when orgSettings.payroll.pay_components.double_time is empty string', () => {
+    const draft = {
+      ...CLEAN_DRAFT,
+      timesheet: { ...CLEAN_DRAFT.timesheet, double_time_hours: 4 },
+    };
+    const result = detectExceptions({
+      draft,
+      caregiver: SYNCED_CAREGIVER,
+      orgSettings: { payroll: { pay_components: { double_time: '   ' } } },
+    });
+    expect(result.find((e) => e.code === 'dt_pay_component_missing')).toBeDefined();
   });
 });
 

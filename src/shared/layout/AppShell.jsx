@@ -12,12 +12,21 @@ import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
 import layout from '../../styles/layout.module.css';
 
 export function AppShell() {
-  const { toast } = useApp();
+  const { toast, isAdmin, currentOrgRole, currentOrgSettings } = useApp();
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
   const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
 
   const loaded = caregiversLoaded && clientsLoaded;
+
+  // Phase 4 PR #1 — Accounting visibility gate. Show only when:
+  //   - the user is staff (admin or member), AND
+  //   - the org has features_enabled.payroll === true.
+  // The route still renders if a user navigates directly; the page
+  // itself shows a polite empty state in that case.
+  const isStaff = isAdmin || currentOrgRole === 'admin' || currentOrgRole === 'member';
+  const accountingVisible =
+    isStaff && currentOrgSettings?.features_enabled?.payroll === true;
 
   // ─── Sidebar section configs ───
   // Each module registers its section here. Future modules (Scheduling, Billing)
@@ -61,6 +70,13 @@ export function AppShell() {
           { id: 'schedule', path: '/schedule', icon: '📅', label: 'Calendar' },
         ],
       },
+      ...(accountingVisible ? [{
+        id: 'accounting',
+        label: 'Accounting',
+        items: [
+          { id: 'accounting-payroll', path: '/accounting', icon: '💰', label: 'Payroll' },
+        ],
+      }] : []),
       {
         id: 'boards',
         label: 'Boards',
@@ -72,7 +88,7 @@ export function AppShell() {
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];
-  }, [setFilterPhase, setClientFilterPhase, boards]);
+  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible]);
 
   return (
     <div className={layout.app}>

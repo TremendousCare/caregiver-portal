@@ -76,6 +76,19 @@ export const EXCEPTION_CODE = Object.freeze({
   BLOCKED_CAREGIVER: 'blocked_caregiver',
   SHIFT_TOO_LONG: 'shift_too_long',
   CAREGIVER_NOT_IN_PAYCHEX: 'caregiver_not_in_paychex',
+  // Phase 4 PR #1 — surfaces gaps that block CSV export to Paychex Flex.
+  // `dt_pay_component_missing`: timesheet has DT hours but the org has
+  //   not configured the Paychex Earning name for double-time. Hard
+  //   block until the owner either adds the Earning in Paychex Flex
+  //   Settings → Earnings (and updates organizations.settings.payroll.
+  //   pay_components.double_time with its name) or zeroes out the DT
+  //   hours via inline edit.
+  // `caregiver_missing_paychex_employee_id`: caregiver has a timesheet
+  //   but no `paychex_employee_id` (the SHORT integer that goes in the
+  //   SPI CSV's Worker ID column). Until the backfill function
+  //   populates it, we cannot generate a CSV row for this caregiver.
+  DT_PAY_COMPONENT_MISSING: 'dt_pay_component_missing',
+  CAREGIVER_MISSING_PAYCHEX_EMPLOYEE_ID: 'caregiver_missing_paychex_employee_id',
 });
 
 /**
