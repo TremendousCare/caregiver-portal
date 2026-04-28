@@ -116,11 +116,15 @@ function ClientCard({ client, onClick, isSelected, onToggleSelect, selectionMode
 }
 
 // ─── CLIENT DASHBOARD ────────────────────────────────────────
+// viewMode 'pipeline' (default) shows the lead pipeline; 'active' shows won clients.
 export function ClientDashboard({
-  clients, allClients, filterPhase, searchTerm, setSearchTerm,
+  viewMode = 'pipeline',
+  clients, allClients, wonThisMonthSource,
+  filterPhase, searchTerm, setSearchTerm,
   onSelect, onAdd, onBulkEmail, showToast, sidebarWidth,
   addLabel = '＋ New Client',
 }) {
+  const isActiveView = viewMode === 'active';
   const [showAllActions, setShowAllActions] = useState(false);
   const [actionsCollapsed, setActionsCollapsed] = useState(
     () => localStorage.getItem('tc_client_actions_collapsed') === 'true'
@@ -160,10 +164,11 @@ export function ClientDashboard({
   const totalActive = allClients.length;
   const overdueCount = allClients.filter(isClientOverdue).length;
 
-  // Won this month
+  // Pipeline view excludes won from allClients, so use the explicit source.
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const wonThisMonth = allClients.filter((c) => {
+  const wonThisMonthList = wonThisMonthSource ?? allClients;
+  const wonThisMonth = wonThisMonthList.filter((c) => {
     const phase = getClientPhase(c);
     const wonTs = c.phaseTimestamps?.won;
     return phase === 'won' && wonTs && wonTs >= monthStart;
@@ -208,13 +213,15 @@ export function ClientDashboard({
     <div>
       <div className={layout.header}>
         <div>
-          <h1 className={layout.pageTitle}>Clients</h1>
+          <h1 className={layout.pageTitle}>{isActiveView ? 'Active Clients' : 'Lead Pipeline'}</h1>
           <p className={layout.pageSubtitle}>
-            {filterPhase === 'archived'
+            {isActiveView
+              ? 'Clients you have won — onboarding and ongoing care'
+              : filterPhase === 'archived'
               ? 'Showing: Archived clients'
               : filterPhase !== 'all'
               ? `Showing: ${CLIENT_PHASES.find((p) => p.id === filterPhase)?.label}`
-              : 'All active clients in the pipeline'}
+              : 'Active leads moving through the conversion pipeline'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -224,14 +231,22 @@ export function ClientDashboard({
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — different cards for pipeline vs active view */}
       <div className={cards.statsRow}>
-        {[
-          { label: 'Active Leads', value: totalActive, accent: '#2E4E8D', icon: '👥' },
-          { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
-          { label: 'Won This Month', value: wonThisMonth, accent: '#16A34A', icon: '✅' },
-          { label: 'Overdue', value: overdueCount, accent: '#DC3545', icon: '⚠️' },
-        ].map((s, i) => (
+        {(isActiveView
+          ? [
+              { label: 'Active Clients', value: totalActive, accent: '#16A34A', icon: '✅' },
+              { label: 'New This Month', value: wonThisMonth, accent: '#2E4E8D', icon: '🆕' },
+              { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
+              { label: 'Overdue', value: overdueCount, accent: '#DC3545', icon: '⚠️' },
+            ]
+          : [
+              { label: 'Pipeline Leads', value: totalActive, accent: '#2E4E8D', icon: '👥' },
+              { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
+              { label: 'Won This Month', value: wonThisMonth, accent: '#16A34A', icon: '✅' },
+              { label: 'Overdue', value: overdueCount, accent: '#DC3545', icon: '⚠️' },
+            ]
+        ).map((s, i) => (
           <div key={s.label} style={{ animation: `fadeInUp 0.4s cubic-bezier(0.4,0,0.2,1) ${i * 0.07}s both` }}>
             <StatCard {...s} />
           </div>

@@ -166,15 +166,12 @@ export function ClientDetail({
         onUpdateClient={onUpdateClient}
       />
 
-      {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
-      {getClientPhase(client) !== 'won' && (
-        <ClientProgressOverview
-          client={client}
-          activePhase={activePhase}
-          onPhaseChange={setActivePhase}
-          onUpdateClient={onUpdateClient}
-        />
-      )}
+      <ClientProgressOverview
+        client={client}
+        activePhase={activePhase}
+        onPhaseChange={setActivePhase}
+        onUpdateClient={onUpdateClient}
+      />
 
       <ClientSequences
         client={client}

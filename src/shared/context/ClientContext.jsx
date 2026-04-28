@@ -350,8 +350,17 @@ export function ClientProvider({ children }) {
   }, [currentUserName]);
 
   // ─── Derived data (memoized) ───
+  // pipelineClients excludes won (= active) and lost; wonClients is the active roster.
   const activeClients = useMemo(
     () => clients.filter((cl) => !cl.archived && getClientPhase(cl) !== 'lost'),
+    [clients, tasksVersion]
+  );
+  const pipelineClients = useMemo(
+    () => clients.filter((cl) => {
+      if (cl.archived) return false;
+      const p = getClientPhase(cl);
+      return p !== 'lost' && p !== 'won';
+    }),
     [clients, tasksVersion]
   );
   const archivedClients = useMemo(
@@ -370,7 +379,7 @@ export function ClientProvider({ children }) {
   return (
     <ClientContext.Provider value={{
       clients, loaded, tasksVersion,
-      activeClients, archivedClients, wonClients, lostClients,
+      activeClients, pipelineClients, archivedClients, wonClients, lostClients,
       filterPhase, setFilterPhase,
       addClient, updateClient, updatePhase, updateTask, updateTasksBulk,
       addNote, archiveClient, unarchiveClient, deleteClient, refreshClientTasks, bulkEmail,

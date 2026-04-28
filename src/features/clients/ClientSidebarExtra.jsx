@@ -5,10 +5,13 @@ import { useApp } from '../../shared/context/AppContext';
 import { useClients } from '../../shared/context/ClientContext';
 import layout from '../../styles/layout.module.css';
 
+// Phases that belong to the lead pipeline (excludes terminal won/lost/nurture).
+const PIPELINE_PHASE_IDS = new Set(['new_lead', 'initial_contact', 'consultation', 'assessment', 'proposal']);
+
 // ─── Pipeline Overview + Key Metrics (rendered inside Sidebar's Clients section) ───
 export function ClientSidebarExtra() {
   const { sidebarCollapsed } = useApp();
-  const { activeClients, archivedClients, filterPhase, setFilterPhase } = useClients();
+  const { pipelineClients, wonClients, archivedClients, filterPhase, setFilterPhase } = useClients();
   const navigate = useNavigate();
   const collapsed = sidebarCollapsed;
 
@@ -18,14 +21,14 @@ export function ClientSidebarExtra() {
   };
 
   if (!collapsed) {
-    const overdueCount = activeClients.filter(isClientOverdue).length;
+    const overdueCount = pipelineClients.filter(isClientOverdue).length;
 
     return (
       <>
         <div className={layout.sidebarSection}>
           <div className={layout.sidebarLabel}>Pipeline Overview</div>
-          {CLIENT_PHASES.map((p) => {
-            const count = activeClients.filter((c) => getClientPhase(c) === p.id).length;
+          {CLIENT_PHASES.filter((p) => PIPELINE_PHASE_IDS.has(p.id)).map((p) => {
+            const count = pipelineClients.filter((c) => getClientPhase(c) === p.id).length;
             return (
               <button
                 key={p.id}
@@ -58,7 +61,8 @@ export function ClientSidebarExtra() {
         <div className={layout.sidebarSection}>
           <div className={layout.sidebarLabel}>Key Metrics</div>
           {[
-            `Active Leads: ${activeClients.length}`,
+            `Pipeline Leads: ${pipelineClients.length}`,
+            `Active Clients: ${wonClients.length}`,
             `Overdue: ${overdueCount}`,
           ].map((text, i) => (
             <div key={i} style={{ padding: '7px 14px', marginBottom: 2, fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4, fontWeight: 500 }}>
@@ -70,11 +74,11 @@ export function ClientSidebarExtra() {
     );
   }
 
-  // Collapsed view — compact phase icons
+  // Collapsed view — compact phase icons (pipeline phases only)
   return (
     <div style={{ padding: '12px 6px', borderTop: '1px solid #2A2A2A', marginTop: 4 }}>
-      {CLIENT_PHASES.map((p) => {
-        const count = activeClients.filter((c) => getClientPhase(c) === p.id).length;
+      {CLIENT_PHASES.filter((p) => PIPELINE_PHASE_IDS.has(p.id)).map((p) => {
+        const count = pipelineClients.filter((c) => getClientPhase(c) === p.id).length;
         return (
           <button
             key={p.id}

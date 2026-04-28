@@ -11,17 +11,23 @@ export function ClientProgressOverview({ client, activePhase, onPhaseChange, onU
   const days = getDaysSinceCreated(client);
   const currentPhase = getClientPhase(client);
   const currentPhaseInfo = CLIENT_PHASES.find((p) => p.id === currentPhase);
+  // Won = active client. Pipeline progress bar + phase tabs are pipeline-only.
+  const isActiveClient = currentPhase === 'won';
 
   return (
     <div className={progress.progressOverview}>
-      <div className={progress.progressHeader}>
-        <span className={progress.progressTitle}>Client Pipeline Progress</span>
-        <span className={progress.progressPct}>{overallPct}%</span>
-        <span className={progress.progressDays}>Day {days}</span>
-      </div>
-      <div className={progress.progressTrack}>
-        <div className={progress.progressFill} style={{ width: `${overallPct}%` }} />
-      </div>
+      {!isActiveClient && (
+        <>
+          <div className={progress.progressHeader}>
+            <span className={progress.progressTitle}>Client Pipeline Progress</span>
+            <span className={progress.progressPct}>{overallPct}%</span>
+            <span className={progress.progressDays}>Day {days}</span>
+          </div>
+          <div className={progress.progressTrack}>
+            <div className={progress.progressFill} style={{ width: `${overallPct}%` }} />
+          </div>
+        </>
+      )}
 
       {/* Phase Selector */}
       <div className={progress.phaseOverrideRow}>
@@ -63,24 +69,26 @@ export function ClientProgressOverview({ client, activePhase, onPhaseChange, onU
         </div>
       </div>
 
-      {/* Pipeline Phase Tabs (active phases with progress) */}
-      <div className={progress.phaseNav}>
-        {PIPELINE_PHASES.map((p) => {
-          const { pct } = getClientPhaseProgress(client, p.id);
-          return (
-            <button
-              key={p.id}
-              className={progress.phaseTab}
-              style={activePhase === p.id ? { background: `${p.color}18`, borderColor: p.color, color: p.color } : {}}
-              onClick={() => onPhaseChange(p.id)}
-            >
-              <span>{p.icon}</span>
-              <span className={progress.phaseTabLabel}>{p.short}</span>
-              <span className={progress.phaseTabPct}>{pct}%</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Pipeline Phase Tabs — hidden for active (won) clients */}
+      {!isActiveClient && (
+        <div className={progress.phaseNav}>
+          {PIPELINE_PHASES.map((p) => {
+            const { pct } = getClientPhaseProgress(client, p.id);
+            return (
+              <button
+                key={p.id}
+                className={progress.phaseTab}
+                style={activePhase === p.id ? { background: `${p.color}18`, borderColor: p.color, color: p.color } : {}}
+                onClick={() => onPhaseChange(p.id)}
+              >
+                <span>{p.icon}</span>
+                <span className={progress.phaseTabLabel}>{p.short}</span>
+                <span className={progress.phaseTabPct}>{pct}%</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Status Badges (won/lost/nurture) */}
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>

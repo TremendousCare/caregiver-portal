@@ -413,11 +413,14 @@ function CaregiverDetailPage() {
 function ClientDashboardPage() {
   const navigate = useNavigate();
   const { sidebarCollapsed, showToast } = useApp();
-  const { activeClients, archivedClients, filterPhase, tasksVersion, bulkEmail } = useClients();
+  const {
+    pipelineClients, archivedClients, wonClients,
+    filterPhase, tasksVersion, bulkEmail,
+  } = useClients();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filtered = useMemo(() => {
-    const base = filterPhase === 'archived' ? archivedClients : activeClients;
+    const base = filterPhase === 'archived' ? archivedClients : pipelineClients;
     return base.filter((cl) => {
       const matchPhase = filterPhase === 'all' || filterPhase === 'archived' || getClientPhase(cl) === filterPhase;
       const matchSearch =
@@ -428,12 +431,14 @@ function ClientDashboardPage() {
         cl.careRecipientName?.toLowerCase().includes(searchTerm.toLowerCase());
       return searchTerm ? matchSearch : matchPhase && matchSearch;
     });
-  }, [activeClients, archivedClients, filterPhase, searchTerm, tasksVersion]);
+  }, [pipelineClients, archivedClients, filterPhase, searchTerm, tasksVersion]);
 
   return (
     <ClientDashboard
+      viewMode="pipeline"
       clients={filtered}
-      allClients={filterPhase === 'archived' ? archivedClients : activeClients}
+      allClients={filterPhase === 'archived' ? archivedClients : pipelineClients}
+      wonThisMonthSource={wonClients}
       filterPhase={filterPhase}
       searchTerm={searchTerm}
       setSearchTerm={setSearchTerm}
@@ -450,13 +455,8 @@ function ClientDashboardPage() {
 function ActiveClientsPage() {
   const navigate = useNavigate();
   const { sidebarCollapsed, showToast } = useApp();
-  const { activeClients, tasksVersion, bulkEmail } = useClients();
+  const { wonClients, bulkEmail } = useClients();
   const [searchTerm, setSearchTerm] = useState('');
-
-  const wonClients = useMemo(
-    () => activeClients.filter((cl) => getClientPhase(cl) === 'won'),
-    [activeClients, tasksVersion]
-  );
 
   const filtered = useMemo(() => {
     if (!searchTerm) return wonClients;
@@ -471,6 +471,7 @@ function ActiveClientsPage() {
 
   return (
     <ClientDashboard
+      viewMode="active"
       clients={filtered}
       allClients={wonClients}
       filterPhase="won"
