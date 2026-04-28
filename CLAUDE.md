@@ -86,6 +86,18 @@ Phases are not parallelizable. Do not start Phase B work before Phase A is shipp
 
 ---
 
+## Strategic Context: Agent Platform Vision
+
+Beyond the multi-tenant retrofit, the long-term product vision is a **vertically-integrated home-care operating system** where specialized AI agents (scheduling, recruiting, intake, care coordination, and more) autonomously deliver completed business outcomes for home-care agencies. We replace legacy CRMs by being a system of *action* rather than a system of record.
+
+- **Vision document**: `docs/AGENT_PLATFORM_VISION.md`
+
+**Current status**: Vision only. **No implementation in flight.** Agent-platform work does not begin until SaaS retrofit Phases A–E are shipped and baked. The current AI chat (`supabase/functions/ai-chat/`) is a single monolithic recruiting agent; the long-term plan is to promote "agent" to first-class data and run multiple agents on a shared runtime.
+
+If a contributor proposes work that touches the agent runtime, agent identity, multi-agent dispatch, marketplace, or per-task billing infrastructure, **stop and re-read the vision doc** — and confirm with the owner whether prerequisites are met before writing code.
+
+---
+
 ## Project Overview
 
 - **Supabase Project ID**: `zocrnurvazyxdpyqimgj`
