@@ -683,12 +683,99 @@ async function fireSequences(
 
 // ─── Process a Single Entry ──────────────────────────────────────
 
+// ─── Meta Lead Ads: fetch lead via Graph API ─────────────────
+// The webhook only delivers a leadgen_id; the actual form fields
+// must be fetched from the Graph API using a Page Access Token.
+// Returns a flat {fieldName: value} map merged with the raw payload,
+// or { __test_ping: true } if the lead can't be fetched (e.g. when
+// Meta sends a "Test" event with a placeholder leadgen_id).
+
+async function enrichFacebookLead(
+  raw: Record<string, any>
+): Promise<Record<string, any>> {
+  const leadgenId = raw.leadgen_id;
+  if (!leadgenId) return { ...raw, __test_ping: true };
+
+  const token = Deno.env.get("FACEBOOK_PAGE_ACCESS_TOKEN");
+  if (!token) {
+    console.error("FACEBOOK_PAGE_ACCESS_TOKEN not set — cannot enrich lead");
+    throw new Error("FACEBOOK_PAGE_ACCESS_TOKEN missing");
+  }
+
+  const url =
+    `https://graph.facebook.com/v19.0/${encodeURIComponent(leadgenId)}` +
+    `?fields=id,created_time,field_data,form_id,ad_id,adset_id,campaign_id` +
+    `&access_token=${encodeURIComponent(token)}`;
+
+  const resp = await fetch(url);
+  const text = await resp.text();
+  if (!resp.ok) {
+    // 400/404 with placeholder leadgen_id — treat as test ping rather than error
+    if (resp.status === 400 || resp.status === 404) {
+      console.log(`FB lead ${leadgenId} not retrievable (${resp.status}) — likely test ping`);
+      return { ...raw, __test_ping: true };
+    }
+    console.error(`FB lead fetch failed: ${resp.status} ${text}`);
+    throw new Error(`FB lead fetch ${resp.status}: ${text.slice(0, 200)}`);
+  }
+
+  let lead: any;
+  try {
+    lead = JSON.parse(text);
+  } catch {
+    throw new Error(`FB lead returned non-JSON: ${text.slice(0, 200)}`);
+  }
+
+  const flat: Record<string, any> = { ...raw };
+  for (const fd of lead.field_data || []) {
+    if (!fd?.name) continue;
+    const values = Array.isArray(fd.values) ? fd.values : [];
+    if (values.length === 0) continue;
+    flat[fd.name] = values.length === 1 ? values[0] : values.join(", ");
+  }
+  if (lead.created_time) flat._fb_created_time = lead.created_time;
+  if (lead.form_id) flat._fb_form_id = lead.form_id;
+  if (lead.ad_id) flat._fb_ad_id = lead.ad_id;
+  return flat;
+}
+
 async function processEntry(
   supabase: any,
   entry: any
 ): Promise<{ status: string; resultId?: string }> {
   const entityType: string = entry.entity_type;
-  const raw: Record<string, any> = entry.raw_payload || {};
+  let raw: Record<string, any> = entry.raw_payload || {};
+
+  // 0. Meta Lead Ads enrichment — fetch real field data from Graph API
+  if (entry.source === "facebook_lead_ads") {
+    try {
+      raw = await enrichFacebookLead(raw);
+    } catch (err) {
+      console.error(`Entry ${entry.id}: FB enrichment failed`, err);
+      await supabase
+        .from("intake_queue")
+        .update({
+          status: "error",
+          attempts: (entry.attempts || 0) + 1,
+          error_detail: `FB enrichment: ${err.message || "unknown"}`,
+        })
+        .eq("id", entry.id);
+      return { status: "error" };
+    }
+
+    if (raw.__test_ping) {
+      console.log(`Entry ${entry.id}: FB test ping, skipping`);
+      await supabase
+        .from("intake_queue")
+        .update({
+          status: "processed",
+          processed_at: new Date().toISOString(),
+          error_detail: "test ping - facebook leadgen_id not retrievable",
+        })
+        .eq("id", entry.id);
+      return { status: "test_ping" };
+    }
+  }
 
   // 1. Map fields
   const { data, noteSubject, noteMessage, unmappedFields } = mapFields(
