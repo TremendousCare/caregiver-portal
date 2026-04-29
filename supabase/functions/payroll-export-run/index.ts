@@ -51,6 +51,7 @@ import {
   evaluateExportEligibility,
   TIMESHEET_STATUS,
 } from "../../../src/lib/payroll/approvalStateMachine.js";
+import { computeRegularRateOfPay } from "../../../src/lib/payroll/overtimeRules.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -300,6 +301,102 @@ Deno.serve(async (req: Request) => {
     ? body.pay_date
     : new Date().toISOString().slice(0, 10);
 
+  // ── Backfill regular_by_rate / ROP for legacy (pre-PR-2) rows ──
+  // Phase 4 PR #2 added two persisted columns the cron + regenerate
+  // populate at draft time:
+  //   - regular_by_rate (jsonb [{rate, hours}, ...])
+  //   - regular_rate_of_pay (numeric)
+  // Drafts written before this PR shipped have BOTH null. Without a
+  // backfill, csvExport's legacy single-rate path requires a
+  // top-level `hourly_rate` we can't derive from the row alone — so
+  // a legacy row would 422 the entire run. Fix: for any timesheet
+  // missing both columns, look up its shifts (via the
+  // timesheet_shifts junction joined to shifts.hourly_rate), then
+  // run computeRegularRateOfPay just like the cron would. The result
+  // populates the multi-rate path identically to a freshly-regenerated
+  // draft. One extra read per legacy row only — PR-2 drafts skip the
+  // lookup entirely.
+  const legacyTimesheetIds = fetched
+    .filter((t) =>
+      !Array.isArray(t.regular_by_rate)
+        && (t.regular_rate_of_pay == null || !Number.isFinite(Number(t.regular_rate_of_pay))),
+    )
+    .map((t) => t.id);
+  const backfillByTimesheetId = new Map<
+    string,
+    { regular_by_rate: Array<{ rate: number; hours: number }>; regular_rate_of_pay: number }
+  >();
+  if (legacyTimesheetIds.length > 0) {
+    const { data: linkData, error: linkErr } = await admin
+      .from("timesheet_shifts")
+      .select("timesheet_id, shift_id, hours_worked, hour_classification, shifts!inner(hourly_rate, org_id)")
+      .in("timesheet_id", legacyTimesheetIds);
+    if (linkErr) {
+      return jsonResponse(500, {
+        error: `Legacy timesheet shift lookup failed: ${linkErr.message}`,
+      }, cors);
+    }
+    type LinkRow = {
+      timesheet_id: string;
+      shift_id: string;
+      hours_worked: number | null;
+      hour_classification: string;
+      shifts: { hourly_rate: number | null; org_id: string };
+    };
+    const byTs = new Map<string, LinkRow[]>();
+    for (const row of (linkData ?? []) as LinkRow[]) {
+      // Defense in depth: refuse to use any joined shift not in the
+      // caller's org. The `org_id` filter on `shifts` in storage RLS
+      // already covers this; verify explicitly so a future RLS bug
+      // can't cause a cross-tenant rate read.
+      if (row.shifts?.org_id !== orgId) continue;
+      if (!byTs.has(row.timesheet_id)) byTs.set(row.timesheet_id, []);
+      byTs.get(row.timesheet_id)!.push(row);
+    }
+    for (const [tsId, links] of byTs) {
+      const ropResult = computeRegularRateOfPay({
+        byShiftWithRates: links.map((l) => ({
+          hours: Number(l.hours_worked) || 0,
+          rate: l.shifts?.hourly_rate != null ? Number(l.shifts.hourly_rate) : null,
+        })),
+      });
+      // Aggregate per-rate buckets: legacy timesheet_shifts only stores
+      // the dominant hour_classification per shift (a 12h shift with
+      // 8h reg + 4h OT is recorded as a single regular row). Without
+      // a per-class breakdown we can't accurately split into Reg / OT
+      // / DT buckets — so fold ALL shifts into the rate buckets and
+      // let the row's stored `regular_hours` total truncate to the
+      // correct number on the CSV. This is an approximation that
+      // matches what TC's back office did manually for years; PR-2
+      // drafts get the exact split.
+      const byRate = new Map<number, number>();
+      for (const l of links) {
+        const h = Number(l.hours_worked) || 0;
+        const r = l.shifts?.hourly_rate;
+        if (h <= 0 || r == null || !Number.isFinite(Number(r)) || Number(r) <= 0) continue;
+        // Only count regular-classified hours toward Hourly buckets;
+        // OT-classified shifts contribute via the ROP × 1.5 OT row.
+        if (l.hour_classification !== "regular") continue;
+        const prev = byRate.get(Number(r)) ?? 0;
+        byRate.set(Number(r), prev + h);
+      }
+      const regularByRate = Array.from(byRate.entries())
+        .map(([rate, hours]) => ({ rate, hours: Math.round(hours * 100) / 100 }))
+        .sort((a, b) => a.rate - b.rate);
+      // ROP can be null when no shift had a usable rate; that case is
+      // already covered by the caregiver_missing_rate exception so the
+      // row would have been blocked from approval. Skip backfill in
+      // that case and let the eventual csvExport throw with the right
+      // error.
+      if (regularByRate.length > 0 && ropResult.regularRateOfPay != null) {
+        backfillByTimesheetId.set(tsId, {
+          regular_by_rate: regularByRate,
+          regular_rate_of_pay: ropResult.regularRateOfPay,
+        });
+      }
+    }
+  }
+
   // ── Build the CSV-shaped timesheet inputs ──
   // Each entry needs: paychex_employee_id, regular_by_rate (or
   // hourly_rate fallback), regular_rate_of_pay, overtime_hours,
@@ -337,15 +434,25 @@ Deno.serve(async (req: Request) => {
     const dt = Number(t.double_time_hours) || 0;
     const mileage = Number(t.mileage_total) || 0;
 
+    // Resolve per-rate input. PR-2 rows: read straight from the row.
+    // Legacy rows: use the on-the-fly backfill we just computed above.
+    const persistedByRate = Array.isArray(t.regular_by_rate) ? t.regular_by_rate : null;
+    const persistedRop = t.regular_rate_of_pay ?? null;
+    const backfill = backfillByTimesheetId.get(t.id) ?? null;
+    const resolvedByRate = persistedByRate ?? backfill?.regular_by_rate ?? null;
+    const resolvedRop = persistedRop ?? backfill?.regular_rate_of_pay ?? null;
+
     csvInputs.push({
       caregiver_id: t.caregiver_id,
       paychex_employee_id: employeeId,
-      regular_by_rate: Array.isArray(t.regular_by_rate) ? t.regular_by_rate : null,
-      regular_rate_of_pay: t.regular_rate_of_pay ?? null,
-      // Legacy fallback for pre-PR-2 rows that have no regular_by_rate.
-      // The export still works: csvExport reads `hourly_rate` if
-      // regular_by_rate is missing. For PR-2 rows this is unused.
-      hourly_rate: t.regular_rate_of_pay ?? null,
+      regular_by_rate: resolvedByRate,
+      regular_rate_of_pay: resolvedRop,
+      // Legacy fallback for the truly degenerate case (no per-rate
+      // backfill possible because the underlying shifts had no rates):
+      // pass the ROP as `hourly_rate` so csvExport's single-rate path
+      // can still emit one row. csvExport otherwise prefers
+      // regular_by_rate when present.
+      hourly_rate: resolvedRop,
       regular_hours: reg,
       overtime_hours: ot,
       double_time_hours: dt,
@@ -456,10 +563,27 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Mark each timesheet as exported (real runs only) ──
+  // Optimistic concurrency: the UPDATE filter `status = approved`
+  // matches zero rows if anyone (or another concurrent export call)
+  // modified the row after we read it. supabase-js does NOT raise an
+  // error in that case — it silently updates zero rows. Without the
+  // .select() return-rows check below, the function would create the
+  // payroll_runs row, leave the timesheet at `approved`, and return
+  // success — letting the same row export again next call.
+  //
+  // Strategy: use `.select("id")` after `.update()`, treat any row
+  // that doesn't come back as a concurrent-modification failure, and
+  // if ANY row failed, roll the whole export back: delete the
+  // payroll_runs row + delete the uploaded CSV, then return 409.
+  // Some rows may already have flipped to `exported`; revert those
+  // back to `approved` to preserve the invariant that an `exported`
+  // row's csv_export_url points to a real run.
   if (!dryRun) {
     const exportedAt = new Date().toISOString();
+    const flipped: string[] = [];
+    const skipped: Array<{ id: string; reason: string }> = [];
     for (const t of fetched) {
-      const { error: tsUpdateErr } = await admin
+      const { data: updatedRows, error: tsUpdateErr } = await admin
         .from("timesheets")
         .update({
           status: TIMESHEET_STATUS.EXPORTED,
@@ -467,15 +591,57 @@ Deno.serve(async (req: Request) => {
         })
         .eq("id", t.id)
         .eq("org_id", orgId)
-        .eq("status", TIMESHEET_STATUS.APPROVED); // optimistic concurrency
+        .eq("status", TIMESHEET_STATUS.APPROVED)
+        .select("id");
       if (tsUpdateErr) {
-        // Soft-fail per row to avoid leaving the run half-marked. The
-        // payroll_runs row is the source of truth; back office can
-        // reconcile from PayrollRunsView (PR #3).
-        console.warn(
-          `[payroll-export-run] timesheet ${t.id} status update failed: ${tsUpdateErr.message}`,
-        );
+        skipped.push({ id: t.id, reason: tsUpdateErr.message });
+        continue;
       }
+      if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+        skipped.push({
+          id: t.id,
+          reason:
+            "Status was no longer 'approved' at update time (concurrent modification?).",
+        });
+        continue;
+      }
+      flipped.push(t.id);
+    }
+
+    if (skipped.length > 0) {
+      // Roll back: revert any row we already flipped, delete the
+      // payroll_runs row, delete the uploaded CSV. The signed URL we
+      // already minted will simply 404 once the object is gone, which
+      // is fine — the frontend treats a 409 as a hard failure.
+      for (const flippedId of flipped) {
+        await admin
+          .from("timesheets")
+          .update({
+            status: TIMESHEET_STATUS.APPROVED,
+            exported_at: null,
+          })
+          .eq("id", flippedId)
+          .eq("org_id", orgId)
+          .eq("status", TIMESHEET_STATUS.EXPORTED);
+      }
+      if (payrollRunId) {
+        await admin
+          .from("payroll_runs")
+          .delete()
+          .eq("id", payrollRunId)
+          .eq("org_id", orgId);
+      }
+      await admin.storage
+        .from(STORAGE_BUCKET)
+        .remove([objectPath]);
+      return jsonResponse(409, {
+        ok: false,
+        error:
+          "One or more timesheets were not in 'approved' status when the export tried to "
+            + "flip them. The run was rolled back; refresh the page and try again.",
+        code: "concurrent_modification",
+        skipped,
+      }, cors);
     }
 
     // Audit event (org-level; no caregiver entity).
