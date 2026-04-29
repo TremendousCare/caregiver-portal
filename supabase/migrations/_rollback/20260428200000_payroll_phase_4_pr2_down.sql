@@ -27,3 +27,7 @@ ALTER TABLE timesheets DROP COLUMN IF EXISTS last_edited_by;
 
 -- ── 3. Export filename on payroll_runs ───────────────────────────
 ALTER TABLE payroll_runs DROP COLUMN IF EXISTS export_filename;
+
+-- ── 4. Persisted per-rate breakdown on timesheets ────────────────
+ALTER TABLE timesheets DROP COLUMN IF EXISTS regular_rate_of_pay;
+ALTER TABLE timesheets DROP COLUMN IF EXISTS regular_by_rate;

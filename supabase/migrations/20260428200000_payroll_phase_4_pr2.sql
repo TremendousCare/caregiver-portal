@@ -1,7 +1,8 @@
 -- Paychex integration Phase 4 PR #2: storage bucket for CSV exports +
--- audit columns for inline timesheet edits.
+-- audit columns for inline timesheet edits + persisted per-rate
+-- breakdown for the SPI export.
 --
--- Three additive changes:
+-- Four additive changes:
 --
 -- 1) Private Supabase Storage bucket `payroll-exports` for the SPI
 --    "Hours Only Flexible" CSVs the `payroll-export-run` edge function
@@ -23,6 +24,17 @@
 --    of the exported CSV (e.g. `2026-04-20_run_abc123.csv`) so the
 --    PR #3 PayrollRunsView can label "Download CSV" buttons by the
 --    file the back office originally pulled.
+--
+-- 4) `timesheets.regular_by_rate` (jsonb) + `timesheets.regular_rate_of_pay`
+--    (numeric). Persists the per-shift-rate aggregation and CA
+--    weighted-average ROP that the OT engine computes at draft time.
+--    The export function reads these straight off the row instead of
+--    re-running buildTimesheet; cron + regenerate populate them on
+--    insert. `regular_by_rate` shape: `[{rate: number, hours: number}, …]`
+--    or `null` for legacy rows. Populated as drafts are
+--    (re)generated; pre-existing drafts read `null` and the export
+--    falls back to the legacy single-rate path via `hourly_rate`
+--    fields the cron also persists (added below).
 --
 -- All changes are idempotent. Re-running the migration is safe.
 --
@@ -92,3 +104,17 @@ ALTER TABLE timesheets
 -- ── 3. Export filename on payroll_runs ────────────────────────────
 ALTER TABLE payroll_runs
   ADD COLUMN IF NOT EXISTS export_filename text;
+
+-- ── 4. Persisted per-rate breakdown on timesheets ────────────────
+-- regular_by_rate: jsonb array of {rate, hours} entries, one per
+--   distinct shift hourly_rate within the workweek's regular hours.
+--   Computed by timesheetBuilder.js (Phase 4 PR #2) at draft time.
+--   Null for pre-PR-2 rows; export falls back to single-rate via the
+--   row-level hourly_rate fallback.
+-- regular_rate_of_pay: the CA weighted-average regular rate of pay
+--   computed by overtimeRules.computeRegularRateOfPay. Used as the
+--   base for OT (×1.5) / DT (×2) row rates in the SPI CSV.
+ALTER TABLE timesheets
+  ADD COLUMN IF NOT EXISTS regular_by_rate jsonb;
+ALTER TABLE timesheets
+  ADD COLUMN IF NOT EXISTS regular_rate_of_pay numeric(10,4);

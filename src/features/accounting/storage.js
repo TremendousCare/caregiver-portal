@@ -27,6 +27,19 @@ export const dbToTimesheet = (row) => ({
   mileageTotal: row.mileage_total != null ? Number(row.mileage_total) : 0,
   mileageReimbursement: row.mileage_reimbursement != null ? Number(row.mileage_reimbursement) : 0,
   grossPay: row.gross_pay != null ? Number(row.gross_pay) : 0,
+  // Phase 4 PR #2: per-shift-rate aggregation + CA weighted ROP. Used
+  // by the export function and by the per-row "rate breakdown"
+  // popover in ThisWeekView. Null on pre-PR-2 drafts; UI falls back
+  // to a single rate inferred from the underlying shifts in that case.
+  regularByRate: Array.isArray(row.regular_by_rate)
+    ? row.regular_by_rate.map((r) => ({
+        rate: Number(r?.rate),
+        hours: Number(r?.hours),
+      }))
+    : null,
+  regularRateOfPay: row.regular_rate_of_pay != null
+    ? Number(row.regular_rate_of_pay)
+    : null,
   approvedBy: row.approved_by,
   approvedAt: row.approved_at,
   exportedAt: row.exported_at,
@@ -34,6 +47,10 @@ export const dbToTimesheet = (row) => ({
   paychexCheckId: row.paychex_check_id,
   blockReason: row.block_reason,
   notes: row.notes,
+  // Phase 4 PR #2 inline-edit audit columns.
+  lastEditedBy: row.last_edited_by ?? null,
+  lastEditedAt: row.last_edited_at ?? null,
+  lastEditReason: row.last_edit_reason ?? null,
   createdAt: row.created_at,
 });
 
@@ -118,6 +135,41 @@ export async function getTimesheetsForPeriod({ orgId, payPeriodStart }) {
 }
 
 /**
+ * Fetch full shift records for a list of shift_ids so the
+ * expand panel can show clock-in/out times, hourly_rate, and mileage
+ * inline. Org-scoped.
+ *
+ * Returns Map<shiftId, { id, startTime, endTime, hourlyRate, mileage,
+ * status }>.
+ */
+export async function getShiftDetails({ orgId, shiftIds }) {
+  if (!isSupabaseConfigured() || !orgId || !Array.isArray(shiftIds) || shiftIds.length === 0) {
+    return new Map();
+  }
+  const { data, error } = await supabase
+    .from('shifts')
+    .select('id, start_time, end_time, hourly_rate, mileage, status')
+    .eq('org_id', orgId)
+    .in('id', shiftIds);
+  if (error) {
+    console.error('[accounting/storage] getShiftDetails failed:', error.message);
+    return new Map();
+  }
+  const map = new Map();
+  for (const row of data ?? []) {
+    map.set(row.id, {
+      id: row.id,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
+      mileage: row.mileage != null ? Number(row.mileage) : 0,
+      status: row.status,
+    });
+  }
+  return map;
+}
+
+/**
  * Fetch the caregiver records referenced by the given timesheets so
  * the UI can render names + Paychex sync state.
  *
@@ -166,4 +218,94 @@ export function parseExceptionsFromNotes(notes) {
   } catch {
     return [];
   }
+}
+
+// ─── Edge function invocations (Phase 4 PR #2) ───────────────────
+//
+// Each helper wraps a single call to one of the payroll-* edge
+// functions. Errors bubble up as thrown Errors with a usable message
+// so the UI can `try/catch` and toast.
+
+async function invokeOrThrow(functionName, body) {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase is not configured.');
+  }
+  const { data, error } = await supabase.functions.invoke(functionName, { body });
+  if (error) {
+    // supabase-js wraps the response in a FunctionError that doesn't
+    // always carry the JSON body. Try to pull the original message.
+    const message = error?.context?.responseJson?.error
+      || error?.message
+      || 'Unknown error';
+    throw new Error(message);
+  }
+  if (data && data.ok === false) {
+    throw new Error(data.error || 'Action failed.');
+  }
+  return data;
+}
+
+export function approveTimesheet(timesheetId) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'approve',
+    timesheet_id: timesheetId,
+  });
+}
+
+export function approveTimesheetsBulk(timesheetIds) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'approve_bulk',
+    timesheet_ids: timesheetIds,
+  });
+}
+
+export function unapproveTimesheet(timesheetId) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'unapprove',
+    timesheet_id: timesheetId,
+  });
+}
+
+export function editTimesheetTotals({ timesheetId, edits, reason }) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'edit_timesheet',
+    timesheet_id: timesheetId,
+    edits,
+    reason,
+  });
+}
+
+export function editShiftRate({ timesheetId, shiftId, hourlyRate, reason }) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'edit_shift_rate',
+    timesheet_id: timesheetId,
+    shift_id: shiftId,
+    hourly_rate: hourlyRate,
+    reason,
+  });
+}
+
+export function editShiftMileage({ timesheetId, shiftId, mileage, reason }) {
+  return invokeOrThrow('payroll-timesheet-actions', {
+    action: 'edit_shift_mileage',
+    timesheet_id: timesheetId,
+    shift_id: shiftId,
+    mileage,
+    reason,
+  });
+}
+
+export function regenerateTimesheet({ timesheetId, reason }) {
+  return invokeOrThrow('payroll-regenerate-timesheet', {
+    timesheet_id: timesheetId,
+    reason: reason || '',
+  });
+}
+
+export function exportPayrollRun({ timesheetIds, payDate, dryRun = false }) {
+  return invokeOrThrow('payroll-export-run', {
+    timesheet_ids: timesheetIds,
+    pay_date: payDate,
+    dry_run: dryRun,
+  });
 }

@@ -110,3 +110,66 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ─── Phase 4 PR #2: header actions + env indicator ─── */
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.envIndicator {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.envProd {
+  background: #FCE9E9;
+  color: #9C2A2A;
+  border: 1px solid #F0BFBF;
+}
+
+.envDryRun {
+  background: #E1F4E5;
+  color: #1B5E20;
+  border: 1px solid #BFE3C7;
+}
+
+.btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #C8D6E8;
+  background: #fff;
+  color: #2E4E8D;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #ECF1F8;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: #1B5E20;
+  color: #fff;
+  border-color: #1B5E20;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #154918;
+  border-color: #154918;
+}
