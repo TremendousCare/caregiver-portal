@@ -128,11 +128,19 @@ Rollback plan:
 
 **Goal**: Add `org_id` to every tenant-sensitive table, backfill, then tighten RLS one table at a time.
 
-- For each target table:
+Sliced into ~5 sequential PRs. Status as of 2026-04-30:
+- **B1 (shipped 2026-04-28, PR #218)** — `org_id` column + backfill + index on 42 tables; `public.default_org_id()` STABLE helper.
+- **B2a (shipped 2026-04-30, PR #235)** — membership integrity backfill + `AFTER INSERT ON auth.users` trigger.
+- **B2b (shipped 2026-04-30, PR #236 + hotfix #237)** — 160 org-scoped permissive RLS policies on 40 in-scope tables. Skips `email_accounts` and `email_routing` (zero-policy / service-role-only). Bake to ~2026-05-05/07.
+- **B3 (next)** — edge function + cron + insert-path audit; explicit `org_id` on every event-bus write.
+- **B4** — provision a real second org and run a cross-tenant isolation test.
+- **B5** — drop the permissive policies one domain at a time, 5–7 days bake per slice. Only PR that flips real enforcement.
+
+The original per-table playbook (still authoritative for B5 slicing):
   1. Add `org_id uuid REFERENCES organizations(id)` (nullable).
   2. Backfill with `<tremendous_care_uuid>` for every existing row.
   3. Set `NOT NULL` with a default of `<tremendous_care_uuid>` during transition.
-  4. Add a new RLS policy: `USING (org_id = (auth.jwt() ->> 'org_id')::uuid)`.
+  4. Add a new RLS policy: `USING (org_id = nullif(auth.jwt() ->> 'org_id', '')::uuid)`.
   5. Keep the existing permissive policy in place during bake (policies OR together).
   6. After bake, drop the permissive policy.
 
@@ -236,8 +244,10 @@ Tracked here (authoritative) and mirrored in `docs/SAAS_RETROFIT_STATUS.md` for 
 - **Refactor vs rebuild**: refactor.
 - **Phase B `org_id` column default** (locked 2026-04-26, revised 2026-04-26 after PR review): `DEFAULT public.default_org_id()` — a `STABLE` SQL function that returns `(SELECT id FROM organizations WHERE slug = 'tremendous-care')`. The original plan to inline the subselect was infeasible: PostgreSQL forbids subqueries inside column DEFAULT clauses (the expression must be variable-free). Function calls *are* allowed and `STABLE` lets PG cache within a statement. Same outcome as the original intent — keeps Tremendous Care's id out of 40+ migration files and resilient to any future identity reissue — without the planner restriction.
 - **Phase B default lifecycle** (locked 2026-04-26): the `org_id` default stays through Phases B, C, and D as a single-tenant safety net so any code path that forgets to pass `org_id` still lands rows in Tremendous Care. **In Phase E** both the per-table defaults and the `public.default_org_id()` helper are dropped, and explicit `org_id` becomes mandatory on every insert path. A Phase E follow-up task tracks this.
-- **Phase B RLS posture** (locked 2026-04-26): strict / fail-closed. New policies are `USING (org_id = (auth.jwt() ->> 'org_id')::uuid)` — a missing or unparseable claim denies access. `service_role` queries bypass RLS as usual. Edge functions that call Supabase with the user's JWT (rather than service_role) are audited in PR B3 to confirm none break under the strict policy.
+- **Phase B RLS posture** (locked 2026-04-26, revised 2026-04-30 during B2b): strict / fail-closed. New policies are `USING (org_id = nullif(auth.jwt() ->> 'org_id', '')::uuid)` — a missing or empty claim coerces to NULL and denies; a non-empty malformed claim raises on the cast and denies. The `nullif(..., '')` defensive coercion was added because an empty-string claim would otherwise raise a confusing cast error before the equality check. `service_role` queries bypass RLS as usual. Edge functions that call Supabase with the user's JWT (rather than service_role) are audited in PR B3 to confirm none break under the strict policy.
 - **Phase B test-harness placement** (locked 2026-04-26): a real second org (e.g., `acme-test`) is provisioned in the production `organizations` table to validate cross-tenant isolation. No `is_test_org` flag and no separate Supabase project — a second org row in production is precisely what multi-tenancy means, and the whole point of Phase B is making cross-tenant data invisible by default.
+- **B2b policy naming and filter pattern** (locked 2026-04-30 after hotfix PR #237): every B2b policy is named `tenant_isolation_<table>_<select|insert|update|delete>`. Every WHERE clause that targets B2b policies — sanity checks, rollback scripts, verification SQL, and any future B5 cleanup — uses the suffix-anchored regex `^tenant_isolation_.*_(select|insert|update|delete)$`, **never** a prefix-only `LIKE 'tenant_isolation\_%'`. Reason: the Paychex payroll work shipped four pre-existing `tenant_isolation_*` policies (`tenant_isolation_payroll_runs`, `_timesheets`, `_timesheet_shifts`, `_payroll_exports_read` on `storage.objects`) without per-command suffixes. The broader filter caught them on the first deploy attempt (count came back 164 instead of 160 → guard fired → transaction rolled back, production unmodified). The same broad filter shipped in the rollback script, so a manual rollback would have **dropped the Paychex policies**. Vitest specs assert the regex form so a regression cannot ship.
+- **B2b skipped tables** (locked 2026-04-30): `email_accounts` and `email_routing` are intentionally NOT covered by B2b. Both have RLS enabled with **zero policies** today (service-role-only). Adding a permissive `org_id` policy would *open* access to staff. They remain service-role-only until a future PR provides explicit staff UI for them.
 
 ---
 
