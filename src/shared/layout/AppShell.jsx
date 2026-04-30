@@ -19,14 +19,16 @@ export function AppShell() {
 
   const loaded = caregiversLoaded && clientsLoaded;
 
-  // Phase 4 PR #1 — Accounting visibility gate. Show only when:
+  // Accounting visibility gate. Show when:
   //   - the user is staff (admin or member), AND
-  //   - the org has features_enabled.payroll === true.
+  //   - the org has at least one Accounting sub-feature enabled
+  //     (features_enabled.payroll OR features_enabled.invoicing).
   // The route still renders if a user navigates directly; the page
   // itself shows a polite empty state in that case.
   const isStaff = isAdmin || currentOrgRole === 'admin' || currentOrgRole === 'member';
-  const accountingVisible =
-    isStaff && currentOrgSettings?.features_enabled?.payroll === true;
+  const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
+  const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
+  const accountingVisible = isStaff && (payrollEnabled || invoicingEnabled);
 
   // ─── Sidebar section configs ───
   // Each module registers its section here. Future modules (Scheduling, Billing)
@@ -74,7 +76,19 @@ export function AppShell() {
         id: 'accounting',
         label: 'Accounting',
         items: [
-          { id: 'accounting-payroll', path: '/accounting', icon: '💰', label: 'Payroll' },
+          // Single entry into the Accounting page; sub-tabs (Payroll,
+          // Invoicing) are switched in-page. The icon and label adapt
+          // based on which features are enabled.
+          {
+            id: 'accounting-main',
+            path: '/accounting',
+            icon: invoicingEnabled && !payrollEnabled ? '🧾' : '💰',
+            label: payrollEnabled && invoicingEnabled
+              ? 'Payroll & Invoicing'
+              : payrollEnabled
+                ? 'Payroll'
+                : 'Invoicing',
+          },
         ],
       }] : []),
       {

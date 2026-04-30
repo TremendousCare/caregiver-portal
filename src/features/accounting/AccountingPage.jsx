@@ -1,30 +1,46 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../../shared/context/AppContext';
 import { PayrollTab } from './payroll/PayrollTab';
+import { InvoicingTab } from './invoicing/InvoicingTab';
 import s from './AccountingPage.module.css';
 
-const TABS = [
-  { id: 'payroll', label: 'Payroll' },
-  // Future tabs (out of scope for Phase 4): Invoicing, Expenses,
-  // Reports, Tax Documents.
-];
-
 /**
- * Top-level Accounting page. Phase 4 PR #1 exposes only the Payroll
- * sub-tab and that sub-tab only includes a read-only This Week view.
+ * Top-level Accounting page. Hosts independent sub-tabs:
+ *   - Payroll (gated by features_enabled.payroll)
+ *   - Invoicing (gated by features_enabled.invoicing) — Phase 1 read-only
  *
- * The page is gated by AppShell's sidebar entry on:
- *   - user role: admin or member
- *   - org features_enabled.payroll === true
- * If a user navigates directly to /accounting without those, we still
- * render a polite empty state rather than throwing.
+ * The page is gated by AppShell's sidebar entry on staff role + at
+ * least one Accounting feature flag. If a user navigates directly to
+ * /accounting without those, we still render a polite empty state
+ * rather than throwing.
+ *
+ * Future tabs (out of scope today): Expenses, Reports, Tax Documents.
  */
 export function AccountingPage() {
   const { isAdmin, currentOrgRole, currentOrgSettings } = useApp();
-  const [activeTab] = useState('payroll');
-
   const isStaff = isAdmin || currentOrgRole === 'admin' || currentOrgRole === 'member';
   const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
+  const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
+
+  const tabs = useMemo(() => {
+    const out = [];
+    if (payrollEnabled) out.push({ id: 'payroll', label: 'Payroll' });
+    if (invoicingEnabled) out.push({ id: 'invoicing', label: 'Invoicing' });
+    return out;
+  }, [payrollEnabled, invoicingEnabled]);
+
+  // Default to the first enabled tab. The `?tab=` query param can deep-
+  // link directly to a sub-tab (e.g., from a future briefing card or
+  // email link); falls back to the first enabled tab if invalid.
+  const [searchParams] = useSearchParams();
+  const queryTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(
+    () => (tabs.some((t) => t.id === queryTab) ? queryTab : tabs[0]?.id) ?? null,
+  );
+  const effectiveActiveTab = tabs.some((t) => t.id === activeTab)
+    ? activeTab
+    : (tabs[0]?.id ?? null);
 
   if (!isStaff) {
     return (
@@ -37,12 +53,12 @@ export function AccountingPage() {
     );
   }
 
-  if (!payrollEnabled) {
+  if (tabs.length === 0) {
     return (
       <div className={s.page}>
         <h1 className={s.title}>Accounting</h1>
         <div className={s.notice}>
-          Payroll is not enabled for this organization.
+          No Accounting features are enabled for this organization.
         </div>
       </div>
     );
@@ -54,27 +70,33 @@ export function AccountingPage() {
         <div>
           <h1 className={s.title}>Accounting</h1>
           <p className={s.subtitle}>
-            Payroll review and export. Phase 4 PR #1 — read-only.
+            {payrollEnabled && invoicingEnabled
+              ? 'Payroll review, exports, and client invoicing.'
+              : payrollEnabled
+                ? 'Payroll review and export.'
+                : 'Client invoicing.'}
           </p>
         </div>
       </div>
 
       <div className={s.tabs} role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
-            aria-selected={activeTab === t.id}
-            className={`${s.tabBtn} ${activeTab === t.id ? s.tabBtnActive : ''}`}
-            disabled
+            aria-selected={effectiveActiveTab === t.id}
+            className={`${s.tabBtn} ${effectiveActiveTab === t.id ? s.tabBtnActive : ''}`}
+            onClick={() => setActiveTab(t.id)}
+            disabled={tabs.length === 1}
           >
             {t.label}
           </button>
         ))}
       </div>
 
-      {activeTab === 'payroll' && <PayrollTab />}
+      {effectiveActiveTab === 'payroll' && <PayrollTab />}
+      {effectiveActiveTab === 'invoicing' && <InvoicingTab />}
     </div>
   );
 }

@@ -24,6 +24,7 @@ This file is the living tracker. Update it in the same PR that advances the retr
 See `docs/SAAS_RETROFIT.md` → "Phase B" for the per-table pattern.
 **In flight (independent of the retrofit phases)**: Paychex Flex payroll integration (`docs/plans/2026-04-25-paychex-integration-plan.md`). After the 2026-04-25 audit of `developer.paychex.com`, the integration was confirmed to use **partner-level OAuth credentials** that do not require per-org secret storage — Paychex no longer pioneers Phase C. Per-org secret persistence (Vault vs `org_secrets` table) returns to retrofit Phase C kickoff for a coherent decision across RingCentral, DocuSign, Microsoft, and Anthropic.
 **Paychex integration progress**: Phases 0, 1, 2, 3 shipped (PRs #207, #211, #212, #216). Phase 3 cron auto-fired 2026-04-27 producing first real drafts; engine math verified by hand. Phase 4 (Approval UI + CSV export) starting in a fresh chat — handoff doc at `docs/handoff-paychex-phase-4.md`.
+**Invoicing module progress** (independent of the retrofit phases, started 2026-04-30): Phase 1 foundation in flight on branch `claude/add-invoicing-section-N7KLB` — schema (`invoices`, `invoice_shifts`, `invoice_runs`, plus three additive columns on `clients`), pure-function math engine + tests, read-only "This Week" preview tab in Accounting, `features_enabled.invoicing` flag turned on for Tremendous Care. Replaces the previously-locked "manual QuickBooks invoicing at launch" decision (now revised in Decisions locked, see `docs/INVOICING.md`). Phases 2 (cron + draft persistence + approval), 3 (QBO CSV export), and 4 (native payment tracking) unstarted.
 
 ---
 
@@ -50,7 +51,7 @@ Authoritative list lives in `docs/SAAS_RETROFIT.md` under "Decisions locked." Su
 - One user = one org at launch
 - Row-based tenancy, single Supabase project, RLS enforcement
 - Managed SaaS only; subdomain per customer
-- Manual QuickBooks invoicing at launch
+- ~~Manual QuickBooks invoicing at launch~~ (revised 2026-04-30): native portal invoicing with QuickBooks CSV export. See `docs/INVOICING.md`; full rationale in `docs/SAAS_RETROFIT.md` → Decisions locked → "Billing".
 - **Phase B `org_id` column default**: `DEFAULT public.default_org_id()` — a `STABLE` SQL helper returning the Tremendous Care id, not a hardcoded UUID literal and not a raw subquery (PG forbids subqueries in column DEFAULT clauses). Locked 2026-04-26, revised same day after PR review.
 - **Phase B default lifecycle**: keep through Phases B–D for single-tenant safety; **drop the per-table defaults *and* the `public.default_org_id()` helper in Phase E** when explicit `org_id` becomes mandatory on every insert path. Locked 2026-04-26.
 - **Phase B RLS posture**: strict / fail-closed. New policies are `USING (org_id = (auth.jwt() ->> 'org_id')::uuid)` — a missing claim denies. Edge functions using `service_role` bypass RLS unchanged; user-JWT edge calls are audited in PR B3. Locked 2026-04-26.
