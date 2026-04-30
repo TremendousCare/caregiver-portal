@@ -9,8 +9,13 @@ import {
   RC_API_URL,
 } from "../helpers/ringcentral.ts";
 
+export type SmsEntityType = "caregiver" | "client";
+
 /**
- * Send SMS via RingCentral and log a note to the caregiver record.
+ * Send SMS via RingCentral and log a note to the matched entity record.
+ *
+ * `entityType` selects which table to read/write (caregivers or clients).
+ * Defaults to "caregiver" so existing call sites stay byte-identical.
  *
  * The optional `category` argument routes the send through a specific
  * communication_routes entry (phone number + vault-stored JWT). When
@@ -19,20 +24,24 @@ import {
  */
 export async function sendSMS(
   supabase: any,
-  caregiverId: string,
+  entityId: string,
   message: string,
   normalizedPhone: string,
   actor: string,
   category?: string | null,
+  entityType: SmsEntityType = "caregiver",
 ): Promise<OperationResult> {
-  // Fetch caregiver for note appending
-  const { data: cg, error: fetchErr } = await supabase
-    .from("caregivers")
+  const tableName = entityType === "client" ? "clients" : "caregivers";
+  const entityLabel = entityType === "client" ? "Client" : "Caregiver";
+
+  // Fetch the entity record so we can append a note after sending.
+  const { data: entity, error: fetchErr } = await supabase
+    .from(tableName)
     .select("*")
-    .eq("id", caregiverId)
+    .eq("id", entityId)
     .single();
-  if (fetchErr || !cg)
-    return { success: false, message: "", error: "Caregiver not found." };
+  if (fetchErr || !entity)
+    return { success: false, message: "", error: `${entityLabel} not found.` };
 
   // Resolve phone number + JWT based on whether a category was specified.
   // When category is omitted, this falls through to the legacy env-var
@@ -109,13 +118,13 @@ export async function sendSMS(
       actor,
     );
     await supabase
-      .from("caregivers")
-      .update({ notes: [...(cg.notes || []), smsNote] })
-      .eq("id", caregiverId);
+      .from(tableName)
+      .update({ notes: [...(entity.notes || []), smsNote] })
+      .eq("id", entityId);
 
     return {
       success: true,
-      message: `SMS sent to ${cg.first_name} ${cg.last_name} at ${normalizedPhone} (from ${fromNumber}${category ? `, route: ${category}` : ""}). Message logged to their record.`,
+      message: `SMS sent to ${entity.first_name} ${entity.last_name} at ${normalizedPhone} (from ${fromNumber}${category ? `, route: ${category}` : ""}). Message logged to their record.`,
     };
   } catch (err) {
     console.error("RC SMS error:", err);
