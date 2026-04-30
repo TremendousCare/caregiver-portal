@@ -14,7 +14,8 @@ This file is the living tracker. Update it in the same PR that advances the retr
 **Phase A** shipped 2026-04-23 via PR #186 (`claude/phase-a-auth-foundation-M94Sk`); access token hook enabled in Supabase Dashboard; every staff and caregiver JWT now carries `org_id`, `org_slug`, `org_role`. Bake period clean — no auth-related incidents reported.
 **Phase B progress** (sliced into ~5 PRs):
 - ✅ **B1 shipped 2026-04-28 via PR #218** — `org_id` column + backfill + index on 42 tenant-sensitive tables, plus `public.default_org_id()` helper for the column DEFAULT. Pure additive schema; no behavior change.
-- ⏳ **B2 next** — add org-scoped RLS policies alongside the existing permissive ones. Targeted to open after a short B1 verification window (1–3 days) on `main`.
+- ⏳ **B2a in flight (2026-04-30)** — membership integrity. Backfills `org_memberships` for the 4 active users created since Phase A's one-time backfill (1 staff admin + 2 PWA caregivers + 1 unknown) and installs an `AFTER INSERT ON auth.users` trigger so every future signup gets a membership pointing to `tremendous-care`. Closes the leak that would otherwise lock new users out at B5 enforcement.
+- ⏳ **B2b next** — add org-scoped RLS policies alongside the existing permissive ones. Opens after B2a bakes 24–48h.
 - ⏳ B3 — update edge functions, cron jobs, and frontend insert paths to set `org_id` explicitly.
 - ⏳ B4 — cross-tenant test harness: provision a real second org (e.g., `acme-test`) and verify isolation.
 - ⏳ B5 — drop the permissive policies, sliced by domain. This is the only PR that flips real enforcement; each slice bakes 5–7 days before the next.
