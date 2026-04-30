@@ -282,6 +282,23 @@ export function ClientProvider({ children }) {
     if (changed) saveClient(changed).catch(() => showToast('Failed to save \u2014 check your connection'));
   }, [showToast, currentUserName]);
 
+  // Optimistic, client-only variant of addNote \u2014 mirrors CaregiverContext.
+  // Used when the server (e.g. the bulk-sms edge function) has already
+  // written the authoritative note. Calling addNote here would cause a
+  // duplicate entry in the timeline. The optimistic note will be replaced
+  // by the real server note on the next full clients refetch.
+  const addNoteLocalOnly = useCallback((clientId, noteData) => {
+    const note = typeof noteData === 'string'
+      ? { text: noteData, timestamp: Date.now(), author: currentUserName, type: 'note' }
+      : { ...noteData, timestamp: Date.now(), author: noteData.author || currentUserName };
+    setClients((prev) =>
+      prev.map((cl) => {
+        if (cl.id !== clientId) return cl;
+        return { ...cl, notes: [...(cl.notes || []), note] };
+      })
+    );
+  }, [currentUserName]);
+
   const archiveClient = useCallback((clientId, reason, detail) => {
     let changed;
     setClients((prev) =>
@@ -373,7 +390,7 @@ export function ClientProvider({ children }) {
       activeClients, archivedClients, wonClients, lostClients,
       filterPhase, setFilterPhase,
       addClient, updateClient, updatePhase, updateTask, updateTasksBulk,
-      addNote, archiveClient, unarchiveClient, deleteClient, refreshClientTasks, bulkEmail,
+      addNote, addNoteLocalOnly, archiveClient, unarchiveClient, deleteClient, refreshClientTasks, bulkEmail,
     }}>
       {children}
     </ClientContext.Provider>

@@ -4,7 +4,9 @@ import {
   MESSAGE_TEMPLATE_CATEGORY_LABELS,
   isValidCategory,
   buildCaregiverMergeFields,
+  buildEntityMergeFields,
   renderCaregiverTemplate,
+  renderEntityTemplate,
   validateTemplateDraft,
   groupTemplatesByCategory,
   searchTemplates,
@@ -65,6 +67,51 @@ describe('buildCaregiverMergeFields', () => {
   it('tolerates null/undefined caregiver', () => {
     expect(buildCaregiverMergeFields(null)).toEqual({ firstName: '', lastName: '', fullName: '' });
     expect(buildCaregiverMergeFields(undefined)).toEqual({ firstName: '', lastName: '', fullName: '' });
+  });
+
+  it('also accepts snake_case fields (clients land here from the API)', () => {
+    const fields = buildCaregiverMergeFields({ first_name: 'Lee', last_name: 'Park' });
+    expect(fields).toEqual({ firstName: 'Lee', lastName: 'Park', fullName: 'Lee Park' });
+  });
+});
+
+// ─── Entity merge fields (works for caregivers and clients) ─────
+
+describe('buildEntityMergeFields', () => {
+  it('returns the same shape for a caregiver as the legacy helper', () => {
+    const cg = { firstName: 'Maria', lastName: 'Garcia' };
+    expect(buildEntityMergeFields(cg)).toEqual(buildCaregiverMergeFields(cg));
+  });
+
+  it('handles a client object with snake_case fields', () => {
+    const client = { id: 'cl-1', first_name: 'Pat', last_name: 'Reed', phone: '555' };
+    expect(buildEntityMergeFields(client)).toEqual({
+      firstName: 'Pat',
+      lastName: 'Reed',
+      fullName: 'Pat Reed',
+    });
+  });
+
+  it('returns empty strings for a missing entity', () => {
+    expect(buildEntityMergeFields(null)).toEqual({ firstName: '', lastName: '', fullName: '' });
+  });
+});
+
+describe('renderEntityTemplate', () => {
+  it('substitutes caregiver placeholders just like the legacy helper', () => {
+    const cg = { firstName: 'Maria', lastName: 'Garcia' };
+    expect(renderEntityTemplate('Hi {{firstName}}!', cg)).toBe('Hi Maria!');
+    expect(renderEntityTemplate('{{fullName}}', cg)).toBe('Maria Garcia');
+  });
+
+  it('renders client templates from snake_case fields', () => {
+    const client = { id: 'cl-1', first_name: 'Pat', last_name: 'Reed' };
+    expect(renderEntityTemplate('Hello {{firstName}} {{lastName}}', client)).toBe('Hello Pat Reed');
+  });
+
+  it('returns empty string for null/undefined template', () => {
+    expect(renderEntityTemplate(null, { firstName: 'Maria' })).toBe('');
+    expect(renderEntityTemplate(undefined, { firstName: 'Maria' })).toBe('');
   });
 });
 

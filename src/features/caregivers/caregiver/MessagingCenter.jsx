@@ -17,11 +17,13 @@ const CHANNELS = [
  * Messaging Center — top-level container for the Messages tab.
  * Shows channel filter tabs and renders the appropriate sub-view.
  *
- * Phase 1: SMS conversation view + inline reply
- * Phase 2: Email thread view (coming soon)
- * Phase 3: Call log view (coming soon)
+ * Works for both caregivers and clients via the `entity` + `entityType`
+ * props. The legacy `caregiver` prop is still accepted for backwards
+ * compatibility with existing call sites.
  */
 export function MessagingCenter({
+  entity,
+  entityType = 'caregiver',
   caregiver,
   smsMessages,
   emailMessages,
@@ -33,6 +35,7 @@ export function MessagingCenter({
   onAddNote,
   showToast,
 }) {
+  const recipient = entity || caregiver;
   const [activeChannel, setActiveChannel] = useState('texts');
 
   const counts = {
@@ -58,7 +61,8 @@ export function MessagingCenter({
           <>
             <SMSConversationView messages={smsMessages} />
             <SMSComposeBar
-              caregiver={caregiver}
+              entity={recipient}
+              entityType={entityType}
               currentUser={currentUser}
               showToast={showToast}
             />
@@ -76,7 +80,8 @@ export function MessagingCenter({
             )}
             <EmailThreadView emails={emailMessages} />
             <EmailComposeForm
-              caregiver={caregiver}
+              entity={recipient}
+              entityType={entityType}
               currentUser={currentUser}
               onAddNote={onAddNote}
               showToast={showToast}
@@ -94,7 +99,8 @@ export function MessagingCenter({
           <>
             <SMSConversationView messages={smsMessages} />
             <SMSComposeBar
-              caregiver={caregiver}
+              entity={recipient}
+              entityType={entityType}
               currentUser={currentUser}
               showToast={showToast}
             />

@@ -3,13 +3,42 @@ import { supabase } from '../../../lib/supabase';
 import { useApp } from '../../../shared/context/AppContext';
 
 /**
+ * Normalize a phone number for the get-communications client lookup.
+ * Mirrors ClientActivityLog: digits-only, last 10 digits.
+ */
+function normalizePhoneForLookup(phone) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  return digits.slice(-10);
+}
+
+/**
+ * Build the request body for the get-communications edge function.
+ * Caregivers look up by `caregiver_id`; clients look up by `phone`.
+ */
+function buildCommsLookupBody(entity, entityType) {
+  if (entityType === 'client') {
+    const phone = normalizePhoneForLookup(entity?.phone);
+    return phone ? { phone, days_back: 90 } : null;
+  }
+  if (!entity?.id) return null;
+  return { caregiver_id: entity.id, days_back: 90 };
+}
+
+/**
  * Shared hook for fetching and merging communication timeline data.
- * Used by both ActivityLog and MessagingCenter.
+ * Used by ActivityLog, MessagingCenter, and (in PR 3) the client Messages tab.
  *
  * Fetches RingCentral data (SMS + calls) and Outlook data (emails),
  * merges with portal notes, and deduplicates entries that appear in both sources.
+ *
+ * Backwards compatible: callers that pass a single `caregiver` argument get
+ * caregiver lookups exactly as before.
  */
-export function useCommsTimeline(caregiver) {
+export function useCommsTimeline(entityArg, entityType = 'caregiver') {
+  const entity = entityArg || null;
+  const isClient = entityType === 'client';
   const { currentUserMailbox } = useApp();
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
@@ -27,11 +56,16 @@ export function useCommsTimeline(caregiver) {
 
   // Fetch RingCentral communication data
   useEffect(() => {
-    if (!caregiver?.id || !supabase) return;
+    if (!entity || !supabase) return;
+    const lookupBody = buildCommsLookupBody(entity, entityType);
+    if (!lookupBody) {
+      setRcData({ sms: [], calls: [] });
+      return;
+    }
     let cancelled = false;
     setRcLoading(true);
     supabase.functions.invoke('get-communications', {
-      body: { caregiver_id: caregiver.id, days_back: 90 },
+      body: lookupBody,
     }).then(({ data, error }) => {
       if (cancelled) return;
       if (error || !data) {
@@ -49,18 +83,18 @@ export function useCommsTimeline(caregiver) {
       if (!cancelled) setRcLoading(false);
     });
     return () => { cancelled = true; };
-  }, [caregiver?.id]);
+  }, [entity?.id, entity?.phone, entityType]);
 
-  // Fetch Outlook email history for this caregiver
+  // Fetch Outlook email history for this entity
   useEffect(() => {
-    if (!caregiver?.email || !supabase) return;
+    if (!entity?.email || !supabase) return;
     let cancelled = false;
     setEmailLoading(true);
     supabase.functions.invoke('outlook-integration', {
       body: {
         action: 'search_emails',
         admin_email: currentUserMailbox || null,
-        email_address: caregiver.email,
+        email_address: entity.email,
         days_back: 90,
         limit: 25,
       },
@@ -75,7 +109,7 @@ export function useCommsTimeline(caregiver) {
           id: `outlook-${e.id}`,
           type: 'email',
           source: 'outlook',
-          direction: e.from?.toLowerCase() === caregiver.email?.toLowerCase() ? 'inbound' : 'outbound',
+          direction: e.from?.toLowerCase() === entity.email?.toLowerCase() ? 'inbound' : 'outbound',
           subject: e.subject,
           text: `Email — Subject: ${e.subject}\n\n${e.preview || ''}`,
           fullBody: null, // lazy-loaded on thread expand
@@ -96,11 +130,11 @@ export function useCommsTimeline(caregiver) {
       if (!cancelled) setEmailLoading(false);
     });
     return () => { cancelled = true; };
-  }, [caregiver?.email, currentUserMailbox]);
+  }, [entity?.email, currentUserMailbox]);
 
   // Merge portal notes + RC data into unified timeline (newest first)
   const mergedTimeline = useMemo(() => {
-    const portalEntries = (caregiver.notes || []).map((n, i) => ({
+    const portalEntries = (entity?.notes || []).map((n, i) => ({
       ...n,
       id: `portal-${i}`,
       source: n.source || 'portal',
@@ -147,7 +181,7 @@ export function useCommsTimeline(caregiver) {
     return [...portalEntries, ...deduped, ...dedupedOutlook].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
-  }, [caregiver.notes, rcData, outlookEmails]);
+  }, [entity?.notes, rcData, outlookEmails]);
 
   // SMS messages sorted chronologically (oldest first) for chat view
   const smsMessages = useMemo(() => {
@@ -177,10 +211,12 @@ export function useCommsTimeline(caregiver) {
   }, [smsMessages]);
 
   const refreshComms = () => {
-    if (!caregiver?.id || !supabase) return;
+    if (!entity || !supabase) return;
+    const lookupBody = buildCommsLookupBody(entity, entityType);
+    if (!lookupBody) return;
     setRcLoading(true);
     supabase.functions.invoke('get-communications', {
-      body: { caregiver_id: caregiver.id, days_back: 90 },
+      body: lookupBody,
     }).then(({ data, error }) => {
       if (error || !data) {
         setRcData({ sms: [], calls: [] });
