@@ -68,6 +68,18 @@ describe('Phase B2b org-scoped RLS migration', () => {
     expect(sql).toMatch(/RAISE EXCEPTION/);
   });
 
+  it('uses a suffix-anchored regex for the sanity check, not a broad LIKE', () => {
+    // The Paychex payroll work shipped 4 pre-existing tenant_isolation_*
+    // policies that would otherwise inflate the count. The sanity guard must
+    // match B2b's naming exactly (table_<command> suffix), not the prefix.
+    expect(sql).toMatch(
+      /polname ~ '\^tenant_isolation_\.\*_\(select\|insert\|update\|delete\)\$'/
+    );
+    // And must NOT use the broad prefix-only filter that caused the original
+    // false-positive count of 164.
+    expect(sql).not.toMatch(/polname LIKE 'tenant_isolation\\_%' ESCAPE '\\\\'/);
+  });
+
   it('does not modify or drop any existing policy or function', () => {
     // The retrofit's prime directive: additive only. B2b must not touch
     // is_staff(), current_user_caregiver_id(), or any pre-existing policy.

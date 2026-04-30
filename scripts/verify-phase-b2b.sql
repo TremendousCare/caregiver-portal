@@ -4,15 +4,24 @@
 -- the Deploy Database Migrations workflow completes. Each query has its
 -- expected output documented inline. If anything is unexpected, do not
 -- advance to PR B3.
+--
+-- IMPORTANT: every WHERE clause that targets B2b policies uses the regex
+--   polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$'
+-- not a broader LIKE 'tenant_isolation\_%'. The narrower filter excludes
+-- four pre-existing tenant_isolation_* policies that ship from the Paychex
+-- payroll work (tenant_isolation_payroll_runs, tenant_isolation_timesheets,
+-- tenant_isolation_timesheet_shifts, tenant_isolation_payroll_exports_read
+-- on storage.objects). They are NOT B2b policies.
 
--- ── 1. Exactly 160 tenant_isolation_* policies exist ─────────────────────
+-- ── 1. Exactly 160 B2b policies exist ────────────────────────────────────
 -- Expected: count = 160 (40 tables × 4 commands).
-SELECT count(*) AS tenant_isolation_policy_count
+SELECT count(*) AS b2b_policy_count
 FROM pg_policy
-WHERE polname LIKE 'tenant_isolation\_%' ESCAPE '\';
+WHERE polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$';
 
 -- ── 2. Every targeted table has all four policies ────────────────────────
--- Expected: 40 rows, every cmd_count = 4.
+-- Expected: zero rows. Any row returned means a table is missing one or more
+-- of its four policies.
 WITH targets AS (
   SELECT unnest(ARRAY[
     'caregivers','clients','caregiver_assignments','caregiver_documents',
@@ -35,23 +44,21 @@ SELECT
 FROM targets t
 LEFT JOIN pg_policy p
   ON p.polrelid = ('public.'||t.table_name)::regclass
- AND p.polname LIKE 'tenant_isolation\_%' ESCAPE '\'
+ AND p.polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$'
 GROUP BY t.table_name
 HAVING count(p.polname) <> 4
 ORDER BY t.table_name;
--- Expected: zero rows. Any row returned means a table is missing one or more
--- of its four policies.
 
--- ── 3. email_accounts and email_routing have NO tenant_isolation_* policy
+-- ── 3. email_accounts and email_routing have NO B2b policies ─────────────
 -- Expected: zero rows. Both intentionally skipped (service-role-only).
 SELECT c.relname, p.polname
 FROM pg_policy p
 JOIN pg_class c ON c.oid = p.polrelid
 WHERE c.relname IN ('email_accounts','email_routing')
-  AND p.polname LIKE 'tenant_isolation\_%' ESCAPE '\';
+  AND p.polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$';
 
 -- ── 4. The strict predicate is in place ──────────────────────────────────
--- Expected: every row's qual matches the predicate text. Spot-check a few
+-- Expected: every using_clause matches the predicate text. Spot-check a few
 -- tables. If you see a different predicate, do not advance.
 SELECT
   c.relname AS table_name,
@@ -60,7 +67,7 @@ SELECT
   pg_get_expr(p.polwithcheck, p.polrelid) AS with_check_clause
 FROM pg_policy p
 JOIN pg_class c ON c.oid = p.polrelid
-WHERE p.polname LIKE 'tenant_isolation\_%' ESCAPE '\'
+WHERE p.polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$'
   AND c.relname IN ('caregivers','shifts','events','communication_routes')
 ORDER BY c.relname, p.polname;
 
@@ -73,27 +80,32 @@ SELECT c.relname, p.polname
 FROM pg_policy p
 JOIN pg_class c ON c.oid = p.polrelid
 WHERE c.relname IN ('caregivers','shifts','clients','events')
-  AND p.polname NOT LIKE 'tenant_isolation\_%' ESCAPE '\'
+  AND p.polname !~ '^tenant_isolation_.*_(select|insert|update|delete)$'
 ORDER BY c.relname, p.polname;
 
 -- ── 6. The new policies are permissive (not restrictive) ────────────────
--- Expected: every row polpermissive = true. A restrictive policy would AND
--- with existing policies and lock users out.
+-- Expected: restrictive_count = 0. A restrictive policy would AND with
+-- existing policies and lock users out.
 SELECT count(*) FILTER (WHERE polpermissive = false) AS restrictive_count
 FROM pg_policy
-WHERE polname LIKE 'tenant_isolation\_%' ESCAPE '\';
--- Expected: restrictive_count = 0.
+WHERE polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$';
 
--- ── 7. Smoke test: a Tremendous Care row passes the new SELECT predicate
--- Expected: returns 1. Confirms the predicate evaluates correctly against
--- a real row when the JWT claim is present. (Run this from a session
--- impersonating a TC staff user, or just confirm conceptually that
--- (auth.jwt() ->> 'org_id') matches caregivers.org_id for any TC row.)
--- This is meant to be eyeballed, not strictly executed in the SQL editor
--- because the editor runs as service_role which bypasses RLS.
+-- ── 7. The Paychex tenant_isolation_* policies are still present ─────────
+-- Expected: 4 rows — the broader LIKE filter (which would have dropped these)
+-- has been correctly excluded by the suffix-anchored regex.
+SELECT c.relname, p.polname
+FROM pg_policy p
+JOIN pg_class c ON c.oid = p.polrelid
+WHERE p.polname LIKE 'tenant_isolation\_%' ESCAPE '\'
+  AND p.polname !~ '^tenant_isolation_.*_(select|insert|update|delete)$'
+ORDER BY c.relname, p.polname;
+
+-- ── 8. Browser-side smoke test ──────────────────────────────────────────
+-- The SQL editor runs as service_role which bypasses RLS, so it cannot
+-- exercise the new policy paths. Run the following from the application
+-- (browser console while logged in as a staff user):
 --
--- Instead, run the following from the application (browser console while
--- logged in as a staff user):
 --   const { data, error } = await supabase.from('caregivers').select('id').limit(1);
 --   console.log({ data, error });
+--
 -- Expected: data has 1 row, no error.
