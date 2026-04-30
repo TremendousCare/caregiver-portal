@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveMergeFields } from "../_shared/helpers/mergeFields.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -27,20 +28,8 @@ function normalizePhoneNumber(phone: string): string | null {
   return null;
 }
 
-function resolveMergeFields(
-  template: string,
-  cg: { first_name: string; last_name: string; phone?: string; email?: string; phase_override?: string },
-): string {
-  return template
-    .replace(/\{\{first_name\}\}/gi, cg.first_name || "")
-    .replace(/\{\{last_name\}\}/gi, cg.last_name || "")
-    .replace(/\{\{phone\}\}/gi, cg.phone || "")
-    .replace(/\{\{email\}\}/gi, cg.email || "")
-    .replace(/\{\{phase\}\}/gi, cg.phase_override || "");
-}
-
-function fullName(cg: { first_name: string; last_name: string }): string {
-  return `${cg.first_name || ""} ${cg.last_name || ""}`.trim();
+function fullName(entity: { first_name: string; last_name: string }): string {
+  return `${entity.first_name || ""} ${entity.last_name || ""}`.trim();
 }
 
 async function getRingCentralAccessToken(jwt: string): Promise<string> {
@@ -148,11 +137,28 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { caregiver_ids, message, current_user, category } = await req.json();
+    const { caregiver_ids, client_ids, message, current_user, category } =
+      await req.json();
 
-    if (!caregiver_ids?.length) {
+    // Exactly one of caregiver_ids / client_ids must be supplied.
+    // Old callers send only caregiver_ids → byte-identical behavior.
+    // New client-side callers send only client_ids.
+    const hasCaregivers = Array.isArray(caregiver_ids) && caregiver_ids.length > 0;
+    const hasClients = Array.isArray(client_ids) && client_ids.length > 0;
+
+    if (hasCaregivers && hasClients) {
       return new Response(
-        JSON.stringify({ error: "caregiver_ids is required and must be non-empty" }),
+        JSON.stringify({
+          error: "Specify either caregiver_ids or client_ids, not both",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    if (!hasCaregivers && !hasClients) {
+      return new Response(
+        JSON.stringify({
+          error: "caregiver_ids or client_ids is required and must be non-empty",
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -163,43 +169,49 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const entityType: "caregiver" | "client" = hasClients ? "client" : "caregiver";
+    const tableName = entityType === "client" ? "clients" : "caregivers";
+    const ids: string[] = hasClients ? client_ids : caregiver_ids;
+    // Caregivers expose `phase_override`; clients expose `phase` directly.
+    const phaseColumn = entityType === "client" ? "phase" : "phase_override";
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Fetch caregivers in one query. If the `sms_opted_out` column
+    // Fetch the target rows in one query. If the `sms_opted_out` column
     // does not exist yet (migration hasn't been applied but the edge
     // function auto-deployed on merge), retry without it. In that
     // window the opt-out gate becomes a no-op — behavior matches
     // pre-migration exactly — and bulk-sms stays functional.
     const fullCols =
-      "id, first_name, last_name, phone, email, phase_override, notes, sms_opted_out";
+      `id, first_name, last_name, phone, email, ${phaseColumn}, notes, sms_opted_out`;
     const fallbackCols =
-      "id, first_name, last_name, phone, email, phase_override, notes";
-    let caregivers: any[] | null = null;
+      `id, first_name, last_name, phone, email, ${phaseColumn}, notes`;
+    let entities: any[] | null = null;
     let fetchErr: { message?: string } | null = null;
-    ({ data: caregivers, error: fetchErr } = await supabase
-      .from("caregivers")
+    ({ data: entities, error: fetchErr } = await supabase
+      .from(tableName)
       .select(fullCols)
-      .in("id", caregiver_ids));
+      .in("id", ids));
     if (
       fetchErr &&
       String(fetchErr.message || "").includes("sms_opted_out")
     ) {
-      ({ data: caregivers, error: fetchErr } = await supabase
-        .from("caregivers")
+      ({ data: entities, error: fetchErr } = await supabase
+        .from(tableName)
         .select(fallbackCols)
-        .in("id", caregiver_ids));
+        .in("id", ids));
     }
 
     if (fetchErr) {
       return new Response(
-        JSON.stringify({ error: `Failed to fetch caregivers: ${fetchErr.message}` }),
+        JSON.stringify({ error: `Failed to fetch ${tableName}: ${fetchErr.message}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    if (!caregivers || caregivers.length === 0) {
+    if (!entities || entities.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No caregivers found for the given IDs" }),
+        JSON.stringify({ error: `No ${tableName} found for the given IDs` }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -231,7 +243,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Process each caregiver sequentially
+    // Process each recipient sequentially
     const results: Array<{
       id: string;
       name: string;
@@ -239,25 +251,30 @@ Deno.serve(async (req: Request) => {
       reason?: string;
     }> = [];
 
-    for (const cg of caregivers) {
-      const normalizedPhone = normalizePhoneNumber(cg.phone);
+    for (const entity of entities) {
+      const normalizedPhone = normalizePhoneNumber(entity.phone);
 
       // Skip: no valid phone
-      if (!cg.phone || !normalizedPhone) {
-        results.push({ id: cg.id, name: fullName(cg), status: "skipped", reason: "no valid phone number" });
+      if (!entity.phone || !normalizedPhone) {
+        results.push({ id: entity.id, name: fullName(entity), status: "skipped", reason: "no valid phone number" });
         continue;
       }
 
-      // Skip: caregiver has opted out of SMS (TCPA compliance).
+      // Skip: recipient has opted out of SMS (TCPA compliance).
       // Every outbound SMS path must honor the opt-out flag; manual
       // sends are no exception.
-      if (cg.sms_opted_out === true) {
-        results.push({ id: cg.id, name: fullName(cg), status: "skipped", reason: "caregiver has opted out of SMS" });
+      if (entity.sms_opted_out === true) {
+        results.push({
+          id: entity.id,
+          name: fullName(entity),
+          status: "skipped",
+          reason: `${entityType} has opted out of SMS`,
+        });
         continue;
       }
 
       // Resolve merge fields
-      const resolvedMessage = resolveMergeFields(message, cg);
+      const resolvedMessage = resolveMergeFields(message, entity);
 
       try {
         // Send SMS
@@ -280,7 +297,7 @@ Deno.serve(async (req: Request) => {
         if (!smsResponse.ok) {
           const errText = await smsResponse.text();
           if (smsResponse.status === 429) {
-            results.push({ id: cg.id, name: fullName(cg), status: "failed", reason: "Rate limit reached" });
+            results.push({ id: entity.id, name: fullName(entity), status: "failed", reason: "Rate limit reached" });
             // Wait longer on rate limit
             await new Promise((r) => setTimeout(r, 2000));
             continue;
@@ -288,7 +305,7 @@ Deno.serve(async (req: Request) => {
           throw new Error(`RC API ${smsResponse.status}: ${errText}`);
         }
 
-        // Log note on caregiver record. When routed by category, record
+        // Log note on the entity record. When routed by category, record
         // which route was used in the outcome field for audit trail.
         const smsNote = {
           text: resolvedMessage,
@@ -300,16 +317,16 @@ Deno.serve(async (req: Request) => {
           timestamp: Date.now(),
           author: current_user || "Bulk SMS",
         };
-        const existingNotes = Array.isArray(cg.notes) ? cg.notes : [];
+        const existingNotes = Array.isArray(entity.notes) ? entity.notes : [];
         await supabase
-          .from("caregivers")
+          .from(tableName)
           .update({ notes: [...existingNotes, smsNote] })
-          .eq("id", cg.id);
+          .eq("id", entity.id);
 
-        results.push({ id: cg.id, name: fullName(cg), status: "sent" });
+        results.push({ id: entity.id, name: fullName(entity), status: "sent" });
       } catch (err) {
-        console.error(`[bulk-sms] Failed for ${fullName(cg)}:`, err);
-        results.push({ id: cg.id, name: fullName(cg), status: "failed", reason: (err as Error).message });
+        console.error(`[bulk-sms] Failed for ${fullName(entity)}:`, err);
+        results.push({ id: entity.id, name: fullName(entity), status: "failed", reason: (err as Error).message });
       }
 
       // Rate limiting: 200ms between sends
@@ -324,7 +341,7 @@ Deno.serve(async (req: Request) => {
     };
 
     console.log(
-      `[bulk-sms] Complete${category ? ` (route: ${category})` : ""}: ${summary.sent} sent, ${summary.skipped} skipped, ${summary.failed} failed`,
+      `[bulk-sms] Complete (entity: ${entityType}${category ? `, route: ${category}` : ""}): ${summary.sent} sent, ${summary.skipped} skipped, ${summary.failed} failed`,
     );
 
     return new Response(JSON.stringify(summary), {
