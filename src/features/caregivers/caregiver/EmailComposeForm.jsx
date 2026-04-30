@@ -7,15 +7,32 @@ import styles from './messaging.module.css';
  * Email compose form for the Messaging Center.
  * Hidden behind a "Compose Email" button — expands when clicked.
  * Sends via the existing outlook-integration Edge Function.
+ *
+ * Works for both caregivers and clients. The Outlook function only
+ * needs an email address, so the entity type doesn't affect the send
+ * itself — it's just used by the optimistic note write.
  */
-export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast }) {
+export function EmailComposeForm({
+  entity,
+  entityType = 'caregiver',
+  caregiver,
+  currentUser,
+  onAddNote,
+  showToast,
+}) {
+  const recipient = entity || caregiver;
   const { currentUserMailbox } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
 
-  const hasEmail = !!caregiver.email;
+  const firstName = recipient?.first_name || recipient?.firstName || '';
+  const lastName = recipient?.last_name || recipient?.lastName || '';
+  const fullName = `${firstName} ${lastName}`.trim();
+  const email = recipient?.email;
+
+  const hasEmail = !!email;
   const canSend = subject.trim().length > 0 && body.trim().length > 0 && !sending && hasEmail;
 
   const handleSend = async () => {
@@ -30,8 +47,8 @@ export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast 
         body: {
           action: 'send_email',
           admin_email: currentUserMailbox || null,
-          to_email: caregiver.email,
-          to_name: `${caregiver.first_name || ''} ${caregiver.last_name || ''}`.trim() || null,
+          to_email: email,
+          to_name: fullName || null,
           subject: trimmedSubject,
           body: trimmedBody,
         },
@@ -40,16 +57,18 @@ export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast 
       if (error) throw error;
 
       // Log as a note so it appears in the thread view immediately
-      onAddNote(caregiver.id, {
-        text: `Email sent \u2014 Subject: ${trimmedSubject}\n\n${trimmedBody.length > 300 ? trimmedBody.substring(0, 300) + '...' : trimmedBody}`,
-        type: 'email',
-        direction: 'outbound',
-        outcome: `sent via Outlook to ${caregiver.email}`,
-        source: 'portal',
-        fullBody: trimmedBody,
-        subject: trimmedSubject,
-        toEmail: caregiver.email,
-      });
+      if (typeof onAddNote === 'function' && recipient?.id) {
+        onAddNote(recipient.id, {
+          text: `Email sent — Subject: ${trimmedSubject}\n\n${trimmedBody.length > 300 ? trimmedBody.substring(0, 300) + '...' : trimmedBody}`,
+          type: 'email',
+          direction: 'outbound',
+          outcome: `sent via Outlook to ${email}`,
+          source: 'portal',
+          fullBody: trimmedBody,
+          subject: trimmedSubject,
+          toEmail: email,
+        });
+      }
 
       setSubject('');
       setBody('');
@@ -94,7 +113,7 @@ export function EmailComposeForm({ caregiver, currentUser, onAddNote, showToast 
       <div className={styles.composeEmailField}>
         <label className={styles.composeEmailLabel}>To</label>
         <div className={styles.composeEmailRecipient}>
-          {caregiver.first_name} {caregiver.last_name} &lt;{caregiver.email}&gt;
+          {firstName} {lastName} &lt;{email}&gt;
         </div>
       </div>
 

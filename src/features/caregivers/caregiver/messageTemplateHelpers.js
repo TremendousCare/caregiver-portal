@@ -42,10 +42,20 @@ export function isValidCategory(category) {
  * context — this runs in the composer where there's no shift.
  */
 export function buildCaregiverMergeFields(caregiver) {
-  const firstName = caregiver?.firstName || '';
-  const lastName = caregiver?.lastName || '';
+  const firstName = caregiver?.firstName || caregiver?.first_name || '';
+  const lastName = caregiver?.lastName || caregiver?.last_name || '';
   const fullName = `${firstName} ${lastName}`.trim();
   return { firstName, lastName, fullName };
+}
+
+/**
+ * Build merge-field values for any entity (caregiver or client).
+ * Both tables expose first_name / last_name with identical semantics,
+ * so the same {firstName, lastName, fullName} keys work for either.
+ * Tolerant of camelCase or snake_case input.
+ */
+export function buildEntityMergeFields(entity) {
+  return buildCaregiverMergeFields(entity);
 }
 
 /**
@@ -55,6 +65,15 @@ export function buildCaregiverMergeFields(caregiver) {
 export function renderCaregiverTemplate(templateBody, caregiver) {
   const fields = buildCaregiverMergeFields(caregiver);
   return renderTemplate(templateBody, fields);
+}
+
+/**
+ * Render a template body for any entity (caregiver or client). The
+ * client picker calls this; the caregiver picker uses the alias above
+ * to keep its call sites unchanged.
+ */
+export function renderEntityTemplate(templateBody, entity) {
+  return renderTemplate(templateBody, buildEntityMergeFields(entity));
 }
 
 // ─── Validation ─────────────────────────────────────────────────
@@ -93,15 +112,45 @@ export function validateTemplateDraft(draft) {
  * Load active (non-archived) templates ordered by category then name.
  * Staff call this from the composer; admins call listAllTemplates()
  * from the Settings UI to also see archived rows.
+ *
+ * `entityScope` filters by the message_templates.entity_scope column
+ * (added in migration 20260430000000):
+ *   - 'caregiver' → returns rows where entity_scope IS NULL OR = 'caregiver'
+ *   - 'client'    → returns rows where entity_scope IS NULL OR = 'client'
+ *   - undefined   → returns all rows (admin Settings UI)
+ *
+ * NULL scope means "applies to both" — existing templates default to
+ * NULL so they continue to show in the caregiver picker and become
+ * available to the client picker automatically.
  */
-export async function listActiveTemplates() {
-  const { data, error } = await supabase
+export async function listActiveTemplates({ entityScope } = {}) {
+  let query = supabase
     .from('message_templates')
-    .select('id, name, category, body, is_archived, updated_at')
+    .select('id, name, category, body, is_archived, entity_scope, updated_at')
     .eq('is_archived', false)
     .order('category', { ascending: true })
     .order('name', { ascending: true });
-  if (error) throw error;
+
+  if (entityScope === 'caregiver' || entityScope === 'client') {
+    query = query.or(`entity_scope.is.null,entity_scope.eq.${entityScope}`);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    // Fall back to the pre-migration column set if entity_scope hasn't
+    // been deployed yet — keeps the picker working in the gap.
+    if (String(error.message || '').includes('entity_scope')) {
+      const { data: fallback, error: fallbackErr } = await supabase
+        .from('message_templates')
+        .select('id, name, category, body, is_archived, updated_at')
+        .eq('is_archived', false)
+        .order('category', { ascending: true })
+        .order('name', { ascending: true });
+      if (fallbackErr) throw fallbackErr;
+      return fallback || [];
+    }
+    throw error;
+  }
   return data || [];
 }
 

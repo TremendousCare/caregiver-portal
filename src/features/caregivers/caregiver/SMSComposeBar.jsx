@@ -1,43 +1,53 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { useCaregivers } from '../../../shared/context/CaregiverContext';
+import { useClients } from '../../../shared/context/ClientContext';
+import { useSpeechRecognition } from '../../../shared/hooks/useSpeechRecognition';
 import styles from './messaging.module.css';
 import {
   listActiveTemplates,
-  renderCaregiverTemplate,
+  renderEntityTemplate,
   groupTemplatesByCategory,
   searchTemplates,
 } from './messageTemplateHelpers';
 
 const MAX_CHARS = 1000;
 
-const SpeechRecognition = typeof window !== 'undefined'
-  ? window.SpeechRecognition || window.webkitSpeechRecognition
-  : null;
-
 /**
  * Inline SMS compose bar at the bottom of the conversation view.
- * Sends via the existing bulk-sms Edge Function with a single caregiver ID.
+ * Sends via the existing bulk-sms Edge Function with a single recipient.
+ *
+ * Works for both caregivers and clients. The `entityType` prop selects
+ * which side of the API to use ("caregiver" → caregiver_ids, "client"
+ * → client_ids) and which optimistic-update context to write to.
  *
  * Routing: when 2+ active communication routes are configured with phone + JWT,
- * a "Send from:" chip appears below the input. The initial selection uses a
- * smart default based on the caregiver's employment status (onboarding →
- * Onboarding route, otherwise → default route). Users can override via the
- * chip to pick any configured route. When 0 or 1 routes exist, the chip is
- * hidden and the edge function falls through to its legacy env-var path.
+ * a "Send from:" chip appears below the input. Caregivers in onboarding default
+ * to the onboarding route; clients (and other caregivers) default to the
+ * is_default route. Users can override via the chip to pick any configured
+ * route. When 0 or 1 routes exist, the chip is hidden and the edge function
+ * falls through to its legacy env-var path.
  *
  * Note logging: the bulk-sms Edge Function writes the authoritative note
- * to the caregiver's record on the server. This component only does a
+ * to the recipient's record on the server. This component only does a
  * local-only optimistic update (via addNoteLocalOnly) so the bubble
  * appears immediately in the UI — it does NOT write a second note to
  * the database.
  */
-export function SMSComposeBar({ caregiver, currentUser, showToast }) {
-  const { addNoteLocalOnly } = useCaregivers();
+export function SMSComposeBar({ entity, entityType = 'caregiver', currentUser, showToast, caregiver }) {
+  // Backwards-compatible alias: callers that still pass `caregiver` keep working.
+  const recipient = entity || caregiver;
+  const isClient = entityType === 'client';
+  const caregiverCtx = useCaregivers();
+  const clientCtx = useClients();
+  const addNoteLocalOnly = isClient
+    ? clientCtx?.addNoteLocalOnly
+    : caregiverCtx?.addNoteLocalOnly;
+
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef(null);
+  const { supported: speechSupported, listening: isListening, toggle: toggleListening } =
+    useSpeechRecognition({ onTranscript: setMessage });
 
   // ── Route selector state ──
   const [routes, setRoutes] = useState([]);
@@ -51,20 +61,11 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
   const [templateSearch, setTemplateSearch] = useState('');
   const templatePickerRef = useRef(null);
 
-  const hasPhone = !!caregiver.phone;
-  const smsOptedOut = caregiver.smsOptedOut === true || caregiver.sms_opted_out === true;
+  const hasPhone = !!recipient?.phone;
+  const smsOptedOut = recipient?.smsOptedOut === true || recipient?.sms_opted_out === true;
   const charCount = message.length;
   const canSend =
     message.trim().length > 0 && charCount <= MAX_CHARS && !sending && hasPhone && !smsOptedOut;
-
-  // Cleanup speech recognition on unmount
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, []);
 
   // Load active communication routes once on mount
   useEffect(() => {
@@ -98,23 +99,25 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
   // Compute smart default. Rules:
   //   - Caregiver in onboarding (no employmentStatus or === 'onboarding')
   //     → prefer the 'onboarding' route if it exists and is configured.
-  //   - Otherwise → use the is_default route if configured.
+  //   - Otherwise (active caregivers, all clients) → use the is_default route if configured.
   //   - Last resort → first configured route (alphabetical by sort_order).
   //   - If nothing is configured, return null (edge function uses legacy path).
   const smartDefaultCategory = useMemo(() => {
     if (!routes.length) return null;
-    const isOnboarding = !caregiver.employmentStatus || caregiver.employmentStatus === 'onboarding';
-    if (isOnboarding) {
-      const onboarding = routes.find(
-        (r) => r.category === 'onboarding' && isRouteConfigured(r),
-      );
-      if (onboarding) return onboarding.category;
+    if (!isClient) {
+      const isOnboarding = !recipient?.employmentStatus || recipient.employmentStatus === 'onboarding';
+      if (isOnboarding) {
+        const onboarding = routes.find(
+          (r) => r.category === 'onboarding' && isRouteConfigured(r),
+        );
+        if (onboarding) return onboarding.category;
+      }
     }
     const def = routes.find((r) => r.is_default && isRouteConfigured(r));
     if (def) return def.category;
     const firstConfigured = routes.find((r) => isRouteConfigured(r));
     return firstConfigured?.category || null;
-  }, [routes, caregiver.employmentStatus, isRouteConfigured]);
+  }, [routes, recipient?.employmentStatus, isClient, isRouteConfigured]);
 
   // Seed selectedCategory when the smart default first resolves, without
   // overriding an explicit user selection on subsequent re-renders.
@@ -136,14 +139,14 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [showRoutePicker]);
 
-  // Load active message templates once on mount. If admins add or
-  // edit templates while the composer is open, staff pick up the
-  // changes on the next page load — same pattern as routes above.
+  // Load active message templates once on mount, scoped to the entity type.
+  // NULL-scope templates appear in both pickers; explicit caregiver/client
+  // scope filters to the matching audience.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await listActiveTemplates();
+        const data = await listActiveTemplates({ entityScope: entityType });
         if (!cancelled) setTemplates(data);
       } catch (err) {
         console.warn('[SMSComposeBar] Failed to load message templates:', err);
@@ -151,7 +154,7 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [entityType]);
 
   // Close the template picker on outside click + Escape key.
   useEffect(() => {
@@ -182,12 +185,12 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
 
   const handleSelectTemplate = useCallback(
     (template) => {
-      const rendered = renderCaregiverTemplate(template.body, caregiver);
+      const rendered = renderEntityTemplate(template.body, recipient);
       setMessage(rendered);
       setShowTemplatePicker(false);
       setTemplateSearch('');
     },
-    [caregiver],
+    [recipient],
   );
 
   // Only show the selector when the user has something to choose between.
@@ -199,42 +202,6 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
   const showRouteSelector = configuredRoutes.length >= 2;
   const selectedRoute = routes.find((r) => r.category === selectedCategory) || null;
 
-  const toggleListening = useCallback(() => {
-    if (!SpeechRecognition) return;
-
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event) => {
-      let transcript = '';
-      for (let i = 0; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-      setMessage(transcript);
-    };
-
-    recognition.onerror = (event) => {
-      console.warn('Speech recognition error:', event.error);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
-  }, [isListening]);
-
   const handleSend = async () => {
     if (!canSend) return;
 
@@ -243,14 +210,17 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
 
     try {
       const body = {
-        caregiver_ids: [caregiver.id],
         message: text,
         current_user: currentUser?.email || currentUser?.displayName || 'system',
       };
+      // bulk-sms accepts either caregiver_ids or client_ids (mutually exclusive).
+      // Picking the right key ensures the edge function reads/writes the correct table.
+      if (isClient) body.client_ids = [recipient.id];
+      else body.caregiver_ids = [recipient.id];
+
       // Only pass `category` when the selector is shown (2+ configured routes)
       // AND a selection is active. Single-route or no-route setups fall
-      // through to the edge function's legacy env-var path — byte-identical
-      // to pre-Step-6 behavior.
+      // through to the edge function's legacy env-var path.
       if (showRouteSelector && selectedCategory) {
         body.category = selectedCategory;
       }
@@ -263,13 +233,15 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
       // The Edge Function has already written the authoritative note
       // server-side — we intentionally do NOT persist here to avoid a
       // duplicate entry in the timeline. The optimistic note is replaced
-      // by the real server note on the next full caregivers refetch.
-      addNoteLocalOnly(caregiver.id, {
-        text,
-        type: 'text',
-        direction: 'outbound',
-        source: 'portal',
-      });
+      // by the real server note on the next full refetch.
+      if (typeof addNoteLocalOnly === 'function') {
+        addNoteLocalOnly(recipient.id, {
+          text,
+          type: 'text',
+          direction: 'outbound',
+          source: 'portal',
+        });
+      }
 
       setMessage('');
       if (showToast) showToast('Message sent', 'success');
@@ -301,7 +273,7 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
       <div className={styles.composeDisabledMsg} style={{
         background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA',
       }}>
-        🚫 This caregiver has opted out of SMS. Outbound texts are blocked for compliance.
+        🚫 This {isClient ? 'client' : 'caregiver'} has opted out of SMS. Outbound texts are blocked for compliance.
         Re-subscribe from the Profile Information card if they request it.
       </div>
     );
@@ -333,9 +305,9 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
               disabled={sending}
               title="Change which number this message sends from"
             >
-              <span className={styles.routeChipIcon}>{'\uD83D\uDCF1'}</span>
+              <span className={styles.routeChipIcon}>{'📱'}</span>
               <span>Send from: <strong>{selectedRoute?.label || '—'}</strong></span>
-              <span className={styles.routeChipArrow}>{'\u25BE'}</span>
+              <span className={styles.routeChipArrow}>{'▾'}</span>
             </button>
             {showRoutePicker && (
               <div className={styles.routePickerMenu} role="menu">
@@ -373,7 +345,7 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
           </div>
         )}
       </div>
-      {SpeechRecognition && (
+      {speechSupported && (
         <button
           className={`${styles.micBtn}${isListening ? ` ${styles.micBtnActive}` : ''}`}
           onClick={toggleListening}
@@ -381,7 +353,7 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
           type="button"
           disabled={sending}
         >
-          {'\uD83C\uDF99'}
+          {'🎙'}
         </button>
       )}
       <div className={styles.templatePicker} ref={templatePickerRef}>
@@ -425,7 +397,7 @@ export function SMSComposeBar({ caregiver, currentUser, showToast }) {
                   <div key={group.category} className={styles.templatePickerGroup}>
                     <div className={styles.templatePickerGroupLabel}>{group.label}</div>
                     {group.templates.map((t) => {
-                      const preview = renderCaregiverTemplate(t.body, caregiver);
+                      const preview = renderEntityTemplate(t.body, recipient);
                       return (
                         <button
                           key={t.id}
