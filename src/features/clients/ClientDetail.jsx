@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { getClientPhase } from './utils';
 import { LOST_REASONS } from './constants';
 
@@ -12,6 +12,9 @@ import { ClientActivityLog } from './client/ClientActivityLog';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
+import { DetailTabBar } from '../caregivers/caregiver/DetailTabBar';
+import { MessagingCenter } from '../caregivers/caregiver/MessagingCenter';
+import { useCommsTimeline } from '../caregivers/caregiver/useCommsTimeline';
 import cl from './client/client.module.css';
 import cards from '../../styles/cards.module.css';
 import forms from '../../styles/forms.module.css';
@@ -124,6 +127,20 @@ export function ClientDetail({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showScripts, setShowScripts] = useState(null);
+  const [detailTab, setDetailTab] = useState('overview');
+
+  // Comms timeline drives both the Messages tab content and the
+  // "needs response" badge on the tab itself.
+  const {
+    smsMessages, emailMessages, callEntries,
+    rcLoading, emailLoading, accessToken, needsResponse,
+  } = useCommsTimeline(client, 'client');
+
+  const tabs = useMemo(() => ([
+    { key: 'overview', label: 'Overview' },
+    { key: 'messages', label: 'Messages', badge: needsResponse },
+    { key: 'schedule', label: 'Schedule' },
+  ]), [needsResponse]);
 
   return (
     <div>
@@ -154,66 +171,94 @@ export function ClientDetail({
         onCancel={() => setShowDeleteDialog(false)}
       />
 
-      <ClientNextSteps
-        client={client}
-        onUpdateTask={onUpdateTask}
-        onAddNote={onAddNote}
-        currentUser={currentUser}
+      <DetailTabBar
+        activeTab={detailTab}
+        onChange={setDetailTab}
+        tabs={tabs}
       />
 
-      <ClientProfileCard
-        client={client}
-        onUpdateClient={onUpdateClient}
-      />
+      {detailTab === 'overview' && (
+        <>
+          <ClientNextSteps
+            client={client}
+            onUpdateTask={onUpdateTask}
+            onAddNote={onAddNote}
+            currentUser={currentUser}
+          />
 
-      {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
-      {getClientPhase(client) !== 'won' && (
-        <ClientProgressOverview
-          client={client}
-          activePhase={activePhase}
-          onPhaseChange={setActivePhase}
-          onUpdateClient={onUpdateClient}
+          <ClientProfileCard
+            client={client}
+            onUpdateClient={onUpdateClient}
+          />
+
+          {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
+          {getClientPhase(client) !== 'won' && (
+            <ClientProgressOverview
+              client={client}
+              activePhase={activePhase}
+              onPhaseChange={setActivePhase}
+              onUpdateClient={onUpdateClient}
+            />
+          )}
+
+          <ClientSequences
+            client={client}
+            currentUser={currentUser}
+            showToast={showToast}
+          />
+
+          <CarePlanPanel
+            client={client}
+            currentUser={currentUser}
+            showToast={showToast}
+          />
+
+          <ServicePlansPanel
+            client={client}
+            currentUser={currentUser}
+            showToast={showToast}
+          />
+
+          <ClientPhaseDetail
+            client={client}
+            activePhase={activePhase}
+            showScripts={showScripts}
+            onToggleScripts={setShowScripts}
+            onUpdateTask={onUpdateTask}
+            onUpdateTasksBulk={onUpdateTasksBulk}
+            onRefreshTasks={onRefreshTasks}
+          />
+
+          <ClientActivityLog
+            client={client}
+            currentUser={currentUser}
+            onAddNote={onAddNote}
+          />
+        </>
+      )}
+
+      {detailTab === 'messages' && (
+        <MessagingCenter
+          entity={client}
+          entityType="client"
+          smsMessages={smsMessages}
+          emailMessages={emailMessages}
+          callEntries={callEntries}
+          rcLoading={rcLoading}
+          emailLoading={emailLoading}
+          accessToken={accessToken}
+          currentUser={currentUser}
+          onAddNote={onAddNote}
+          showToast={showToast}
         />
       )}
 
-      <ClientSequences
-        client={client}
-        currentUser={currentUser}
-        showToast={showToast}
-      />
-
-      <CarePlanPanel
-        client={client}
-        currentUser={currentUser}
-        showToast={showToast}
-      />
-
-      <ServicePlansPanel
-        client={client}
-        currentUser={currentUser}
-        showToast={showToast}
-      />
-
-      <ClientSchedulePanel
-        client={client}
-        showToast={showToast}
-      />
-
-      <ClientPhaseDetail
-        client={client}
-        activePhase={activePhase}
-        showScripts={showScripts}
-        onToggleScripts={setShowScripts}
-        onUpdateTask={onUpdateTask}
-        onUpdateTasksBulk={onUpdateTasksBulk}
-        onRefreshTasks={onRefreshTasks}
-      />
-
-      <ClientActivityLog
-        client={client}
-        currentUser={currentUser}
-        onAddNote={onAddNote}
-      />
+      {detailTab === 'schedule' && (
+        <ClientSchedulePanel
+          client={client}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
