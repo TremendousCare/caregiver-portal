@@ -139,8 +139,15 @@ BEGIN
   END LOOP;
 END $$;
 
--- Sanity check: assert the expected number of tenant_isolation_* policies
--- exists. 40 tables * 4 commands = 160. Aborts the deploy on any drift.
+-- Sanity check: assert the expected number of B2b policies exists.
+-- 40 tables * 4 commands = 160. Aborts the deploy on any drift.
+--
+-- The filter is suffix-anchored to '_(select|insert|update|delete)$' so it
+-- counts ONLY B2b's own policies. The Paychex payroll work shipped four
+-- pre-existing tenant_isolation_* policies (tenant_isolation_payroll_runs,
+-- tenant_isolation_timesheets, tenant_isolation_timesheet_shifts,
+-- tenant_isolation_payroll_exports_read on storage.objects) — none of
+-- which carry a per-command suffix, so the regex correctly excludes them.
 DO $$
 DECLARE
   v_count int;
@@ -148,7 +155,7 @@ BEGIN
   SELECT count(*)
     INTO v_count
   FROM pg_policy
-  WHERE polname LIKE 'tenant_isolation\_%' ESCAPE '\';
+  WHERE polname ~ '^tenant_isolation_.*_(select|insert|update|delete)$';
 
   IF v_count <> 160 THEN
     RAISE EXCEPTION
