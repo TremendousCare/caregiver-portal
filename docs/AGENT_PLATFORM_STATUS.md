@@ -11,9 +11,9 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(planned, gated on Phase 0.3 bake)*
+**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(ready to start)*
 
-**Status**: Phase 0.3 shipped 2026-05-01 via PR #247. Bake on `main` for ≥ 7 days before kicking off 0.4. Daily Layer C smoke runs against real Anthropic on every PR keep the parity bar honest during the bake.
+**Status**: Phase 0.3 shipped 2026-05-01 via PR #247. **No mandatory pre-bake before 0.4.** Decision (2026-05-01, owner): inter-phase bakes are evidence-driven, not calendar-driven. Phase 0.3 has zero production callers (the runtime sits in `_shared/operations/` and no edge function imports it yet), so a calendar-only bake before 0.4 has nothing to verify. Bakes still apply where they buy real insurance — specifically, **after** 0.4 ships before removing the `*_legacy.ts` rollback siblings, and **before** any phase that exposes new behavior to caregivers (Phase 2 sub-phases each bake ≥ 14 days as designed).
 
 **What 0.3 delivered (2026-05-01)**: `_shared/operations/agentRuntime.ts` (orchestrator) + `agentRuntime/manifest.ts` (typed loader, requires `orgId` — fixed during review per Codex P1 because `agents.unique = (org_id, slug)`) + `agentRuntime/anthropic.ts` (retry helper) + `agentRuntime/handlers.ts` (chat / planner / router internal handlers). Three test files: `agentRuntime.test.js` (Layer A unit, 62 specs), `agentRuntimeParity.test.js` (Layer B byte-equal parity, 22 specs across 11 fixtures), `agentRuntimeLive.test.js` (Layer C live Anthropic smoke, 3 specs, gated on `ANTHROPIC_API_KEY` and now configured in repo secrets). 87 runtime specs total.
 
@@ -23,7 +23,13 @@ This file is the living tracker. Update it in the same PR that advances the plat
 - SaaS retrofit Phase B is in progress (B2b baked, B3 next). Phase 0.x is intentionally safe to run in parallel.
 - Owner is implementing the Microsoft 365 Bookings webhook integration (per `docs/AGENT_PLATFORM_PROCESS.md` → "Microsoft 365 Bookings integration spec"); needed by Phase 2.2.
 
-**Gate to Phase 0.4 kickoff**: Phase 0.3 baked ≥ 7 days on `main` (target: 2026-05-08 or later) with Layer C green on every PR.
+**Pre-merge readiness checklist for Phase 0.4** (replaces the prior calendar-bake gate):
+1. Edge functions deploy cleanly in Deno (Layer A/B run in Node — Layer C is the only check that exercises the real edge runtime).
+2. Manual smoke test post-deploy: chatbot UI responds (recruiting agent), inbound SMS gets classified (router), planner cron drops a suggestion at next 14:00 UTC tick.
+3. `agent_id` populates on every new row in `events` / `action_outcomes` / `ai_suggestions` / `context_memory` (the 20 unstamped post-0.2 rows we saw in audit should stop accumulating).
+4. Token cost within ±10% of pre-cutover baseline.
+5. `*_legacy.ts` rollback siblings ship in the PR with a feature flag (env var or `app_settings`) controlling which path runs — flip-without-redeploy required.
+
 **Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
 **Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
 
@@ -36,7 +42,7 @@ This file is the living tracker. Update it in the same PR that advances the plat
 | 0.1 | `agents` + `agent_versions` tables, seed 3 agents, RLS | **Shipped** | 2026-04-30 (PR #240) | 3 agents seeded for Tremendous Care, 8 RLS policies, 36 Vitest specs. |
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
 | 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
-| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | Not started — gate: 0.3 baked ≥ 7 days | — | Behavior parity verified; bake ≥ 7 days; nightly drift check. |
+| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Ready to start** | — | No pre-bake required (0.3 had zero production callers — bakes are evidence-driven not calendar-driven). Pre-merge readiness checklist above. Post-merge: bake ≥ 7 days before removing `*_legacy.ts` siblings; nightly drift check via Layer C on PRs. |
 | 0.5 | Settings UI for manifest editing | Not started | — | Kill switch + shadow mode + prompt + allowlist edits, no deploy. |
 | 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
@@ -74,6 +80,7 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 - **Trust is earned in stages by data.** Promotion v2: per-transition thresholds + fixed-window success rate + minimum sample size + auto-demote on harm.
 - **Kill switch + shadow mode per (agent × org), without a deploy.**
 - **Phase 0–1 run in parallel with SaaS Phase B–D.** Phase 2 gates on SaaS Phase B5 baked on AI-tier tables. Multi-tenant rollout gates on SaaS Phases C–D.
+- **Inter-phase bakes are evidence-driven, not calendar-driven** (locked 2026-05-01). When a phase has zero production callers (e.g. Phase 0.3 — pure additive scaffolding) a calendar-only bake has nothing to verify and is skipped. Bakes still apply where they buy real insurance: after a phase that changes production behavior, before removing rollback siblings, and before any phase that exposes new behavior to caregivers (Phase 2 sub-phases each retain ≥ 14-day shadow bakes per the original plan). Layer C nightly smoke against real Anthropic on every PR is the continuous tripwire that replaces calendar-based confidence.
 
 ---
 
