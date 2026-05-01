@@ -110,7 +110,7 @@ If a contributor proposes work that touches the agent runtime, agent identity, m
 - **Tasks format**: Flat `{taskId: {completed, completedAt, completedBy}}` — never nested
 - **AI chat** edge function is in `supabase/functions/ai-chat/` and auto-deploys via GitHub Actions like all other functions. No manual CLI deploys needed.
 - **All Edge Functions are in git** under `supabase/functions/` and auto-deploy on merge to `main`. The `_shared/` directory contains shared helpers imported by multiple functions.
-- **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2), payroll-generate-timesheets (Mondays 13:00 UTC, job 3 — generates draft timesheets for the prior Mon→Sun workweek per Phase 3 of the Paychex integration)
+- **pg_cron jobs**: automation-cron (every 30min, job 1), outcome-analyzer (every 4h, job 2), payroll-generate-timesheets (Mondays 13:00 UTC, job 3 — generates draft timesheets for the prior Mon→Sun workweek per Phase 3 of the Paychex integration), poll-bookings-appointments (every 5min — pulls Microsoft Bookings appointments per org and reconciles into `caregiver_interviews`; polling is the only viable path because Graph does not support webhook subscriptions for the bookingAppointment resource)
 
 ---
 

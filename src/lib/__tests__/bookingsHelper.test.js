@@ -17,7 +17,6 @@ import {
   matchCustomerToCaregiver,
   graphDateTimeToIso,
   normalizeGraphAppointment,
-  parseGraphNotifications,
 } from '../../../supabase/functions/_shared/helpers/bookings.ts';
 
 describe('getBookingUrlFromOrgSettings', () => {
@@ -299,85 +298,3 @@ describe('normalizeGraphAppointment', () => {
   });
 });
 
-describe('parseGraphNotifications', () => {
-  it('parses a well-formed Graph notification batch', () => {
-    const body = {
-      value: [
-        {
-          subscriptionId: 'sub-1',
-          clientState: 'shared-secret',
-          changeType: 'created',
-          resource: '/solutions/bookingBusinesses/foo@bar.com/appointments/appt-1',
-          resourceData: { id: 'appt-1', '@odata.type': 'bookingAppointment' },
-        },
-        {
-          subscriptionId: 'sub-1',
-          clientState: 'shared-secret',
-          changeType: 'updated',
-          resource: '/solutions/bookingBusinesses/foo@bar.com/appointments/appt-2',
-          resourceData: { id: 'appt-2' },
-        },
-      ],
-    };
-    const out = parseGraphNotifications(body);
-    expect(out).toHaveLength(2);
-    expect(out[0]).toEqual({
-      subscriptionId: 'sub-1',
-      clientState: 'shared-secret',
-      changeType: 'created',
-      resource: '/solutions/bookingBusinesses/foo@bar.com/appointments/appt-1',
-      appointmentId: 'appt-1',
-    });
-  });
-
-  it('falls back to extracting appointment id from resource path', () => {
-    const out = parseGraphNotifications({
-      value: [
-        {
-          subscriptionId: 'sub-1',
-          clientState: 'x',
-          changeType: 'deleted',
-          resource: '/solutions/bookingBusinesses/foo@bar.com/appointments/appt-99',
-          // no resourceData.id
-        },
-      ],
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0].appointmentId).toBe('appt-99');
-    expect(out[0].changeType).toBe('deleted');
-  });
-
-  it('drops entries missing subscriptionId or appointmentId', () => {
-    const out = parseGraphNotifications({
-      value: [
-        { clientState: 'x', resource: '/foo', resourceData: { id: 'a' } }, // no sub
-        { subscriptionId: 'sub-1', clientState: 'x', resource: '/no/match' }, // no appt id
-        { subscriptionId: 'sub-1', clientState: 'x', resource: '/x/appointments/good', resourceData: { id: 'good' } },
-      ],
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0].appointmentId).toBe('good');
-  });
-
-  it('returns empty array for malformed bodies', () => {
-    expect(parseGraphNotifications(null)).toEqual([]);
-    expect(parseGraphNotifications(undefined)).toEqual([]);
-    expect(parseGraphNotifications({})).toEqual([]);
-    expect(parseGraphNotifications({ value: 'not-an-array' })).toEqual([]);
-    expect(parseGraphNotifications({ value: [null, 'string', 42] })).toEqual([]);
-  });
-
-  it('decodes URL-encoded appointment ids in the resource path', () => {
-    const out = parseGraphNotifications({
-      value: [
-        {
-          subscriptionId: 'sub-1',
-          clientState: 'x',
-          changeType: 'created',
-          resource: '/solutions/bookingBusinesses/foo/appointments/AAMk%2Bencoded',
-        },
-      ],
-    });
-    expect(out[0].appointmentId).toBe('AAMk+encoded');
-  });
-});
