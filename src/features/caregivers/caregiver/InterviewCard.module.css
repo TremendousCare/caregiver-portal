@@ -1,0 +1,153 @@
+/* ═══════════════════════════════════════════════════════════════
+   Interview Card — Microsoft Bookings appointment state
+   Compact card for the caregiver detail page.
+   ═══════════════════════════════════════════════════════════════ */
+
+.card {
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.cardBooked {
+  background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%);
+  border-color: #BBF7D0;
+}
+
+.cardCancelled {
+  background: linear-gradient(135deg, #FEF2F2 0%, #FEF2F2 100%);
+  border-color: #FECACA;
+}
+
+.cardCompleted {
+  background: #F9FAFB;
+  border-color: #E2E8F0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.headerIcon {
+  font-size: 16px;
+}
+
+.headerTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  flex: 1;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badgeBooked {
+  background: rgba(21, 128, 61, 0.1);
+  color: #15803D;
+}
+
+.badgeCancelled {
+  background: rgba(220, 38, 38, 0.1);
+  color: #DC2626;
+}
+
+.badgeCompleted {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+}
+
+.badgeNeutral {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tc-text-primary);
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  line-height: 1.4;
+}
+
+.actionsRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btnPrimary {
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
+  color: #fff;
+}
+
+.btnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+
+.btnSecondary {
+  background: #fff;
+  color: var(--tc-text-muted);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.btnSecondary:hover {
+  background: #F8F9FA;
+  color: var(--tc-text-primary);
+}
+
+.btnDanger {
+  background: #fff;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.btnDanger:hover {
+  background: #FEF2F2;
+}
+
+.btnDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  font-size: 13px;
+  color: var(--tc-text-muted);
+  font-style: italic;
+}

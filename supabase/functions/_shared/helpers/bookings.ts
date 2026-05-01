@@ -175,6 +175,125 @@ export function graphDateTimeToIso(
   return hasOffset ? raw : `${raw}Z`;
 }
 
+// ─── Interview card state derivation ─────────────────────────────────────
+// Pure derivation of the UI state shown on the caregiver detail Interview
+// card from the latest caregiver_interviews row. Kept here (not in the
+// frontend) so both the React component and its test suite import the
+// same implementation, and so an edge function can reuse the logic if
+// needed later (e.g. AI context layer summarizing interview state).
+//
+// Inputs are deliberately permissive: the caller passes the latest row
+// (or null) plus a "now" timestamp so the test can pin time. We do NOT
+// look at task IDs or phase here — task IDs are admin-configurable and
+// would couple this helper to a specific TC pipeline shape.
+
+export type InterviewCardState =
+  | "not_yet_booked"  // no row at all
+  | "booked"           // row, status=booked, start_at >= now
+  | "cancelled"        // row, status=cancelled (most recent state)
+  | "completed";       // row, status=booked, start_at < now (presumed past-occurred)
+
+export interface InterviewRowLike {
+  status?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+}
+
+// `now` is required to keep the function pure and time-pinnable in tests.
+export function deriveInterviewCardState(
+  row: InterviewRowLike | null | undefined,
+  now: number,
+): InterviewCardState {
+  if (!row) return "not_yet_booked";
+
+  if (row.status === "cancelled") return "cancelled";
+
+  // Only treat past-dated booked rows as completed. Anything else with a
+  // valid future start is still booked. Rows with an unparseable start_at
+  // fall through to booked rather than completed — the cron just polled
+  // them, so they exist for a reason; "booked" is the safe default.
+  const startMs = row.start_at ? Date.parse(row.start_at) : Number.NaN;
+  if (Number.isFinite(startMs) && startMs < now) {
+    return "completed";
+  }
+  return "booked";
+}
+
+// ─── interview_not_scheduled evaluator ───────────────────────────────────
+// Decides whether the follow-up automation should fire for one caregiver.
+//
+// Anchors on the actual booking-URL SMS send (option (b) — see Step 5 PR
+// discussion) rather than a phase change or task completion. This is
+// task-ID-agnostic: any automation that resolved {{booking_url}} into
+// trigger_context counts as "the link went out". Renaming the rule, the
+// task, or the merge field doesn't break this — the moment that matters
+// is when the URL actually reached the caregiver.
+//
+// Inputs (all required so the function stays pure and testable):
+//   lastSendAt          — ISO timestamp of the most recent successful
+//                         booking-URL SMS to this caregiver (null if
+//                         none has ever gone out).
+//   latestInterviewRow  — most recent caregiver_interviews row, or null.
+//                         Only the status field is consulted.
+//   daysGap             — config.days_after_send from the rule (must be ≥ 1).
+//   alreadyFiredFollowUp — true if THIS rule has already fired a successful
+//                         send for this caregiver (idempotency gate; the
+//                         caller derives this from automation_log).
+//   now                 — ms timestamp; pinnable in tests.
+
+export interface InterviewFollowUpInput {
+  lastSendAt: string | null;
+  latestInterviewRow: { status?: string | null } | null | undefined;
+  daysGap: number;
+  alreadyFiredFollowUp: boolean;
+  now: number;
+}
+
+export type InterviewFollowUpDecision =
+  | { fire: false; reason: string }
+  | { fire: true };
+
+export function shouldFireInterviewFollowUp(
+  input: InterviewFollowUpInput,
+): InterviewFollowUpDecision {
+  const { lastSendAt, latestInterviewRow, daysGap, alreadyFiredFollowUp, now } = input;
+
+  if (!Number.isFinite(daysGap) || daysGap < 1) {
+    return { fire: false, reason: "invalid_days_gap" };
+  }
+  if (alreadyFiredFollowUp) {
+    return { fire: false, reason: "already_fired" };
+  }
+  if (!lastSendAt) {
+    return { fire: false, reason: "no_link_send_recorded" };
+  }
+  const sentMs = Date.parse(lastSendAt);
+  if (!Number.isFinite(sentMs)) {
+    return { fire: false, reason: "unparseable_send_timestamp" };
+  }
+  const ageMs = now - sentMs;
+  const requiredMs = daysGap * 24 * 60 * 60 * 1000;
+  if (ageMs < requiredMs) {
+    return { fire: false, reason: "too_soon" };
+  }
+
+  // Active booking blocks follow-up. Cancelled / missing rows do not.
+  // We deliberately do NOT block on status='completed' — if a caregiver
+  // already had an interview there is no reason to nag them about
+  // booking one (but in practice the booked-then-completed case implies
+  // they responded to the original send long before the gap elapses).
+  const status = latestInterviewRow?.status;
+  if (status === "booked") {
+    return { fire: false, reason: "currently_booked" };
+  }
+  if (status === "completed") {
+    return { fire: false, reason: "interview_completed" };
+  }
+  // status === 'cancelled' or row is null/undefined → fire.
+
+  return { fire: true };
+}
+
 export function normalizeGraphAppointment(
   appt: GraphAppointment,
 ): NormalizedAppointment {

@@ -23,6 +23,10 @@
 //                         entry (Microsoft Graph does NOT support webhook
 //                         subscriptions for bookingAppointment resources, so
 //                         polling is the only viable path).
+//   cancel_appointment  — POST /cancel against Graph for one appointment.
+//                         Optimistically marks the local mirror row
+//                         status='cancelled' so the UI updates instantly;
+//                         the next 5-minute poll reconciles either way.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -89,6 +93,27 @@ async function graphGet(token: string, path: string): Promise<any> {
     throw new Error(`Graph GET ${path} failed: ${resp.status} - ${await resp.text()}`);
   }
   return resp.json();
+}
+
+// POST without expecting a JSON body back. Graph's /cancel endpoint
+// returns 204 No Content on success. Treat any 2xx as success and
+// surface the response text on failure for debugging.
+async function graphPost(
+  token: string,
+  path: string,
+  body: Record<string, unknown> | null,
+): Promise<void> {
+  const resp = await fetch(`${GRAPH}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    throw new Error(`Graph POST ${path} failed: ${resp.status} - ${await resp.text()}`);
+  }
 }
 
 // ─── Formatting Helpers ───────────────────────────────────────────────────
@@ -531,6 +556,46 @@ async function pollAppointments(token: string): Promise<any> {
   return { total: results.length, results };
 }
 
+// ─── Cancel ──────────────────────────────────────────────────────────────
+// POST /solutions/bookingBusinesses/{id}/appointments/{id}/cancel
+// Microsoft sends the cancellation email to the customer. We optimistically
+// mark the local mirror so the caregiver detail card updates without
+// waiting for the next 5-minute poll; the poll will then confirm.
+async function cancelAppointment(token: string, body: any): Promise<any> {
+  const businessId = body.business_id;
+  const appointmentId = body.appointment_id;
+  if (!businessId || !appointmentId) {
+    throw new Error("cancel_appointment requires business_id and appointment_id");
+  }
+  const cancellationMessage =
+    typeof body.cancellation_message === "string" && body.cancellation_message.trim()
+      ? body.cancellation_message
+      : "This appointment has been cancelled.";
+
+  await graphPost(
+    token,
+    `/solutions/bookingBusinesses/${encodeURIComponent(businessId)}/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+    { cancellationMessage },
+  );
+
+  // Optimistic local mirror update. RLS-bypassing service-role client
+  // because this runs from the edge function. The unique constraint
+  // (org_id, graph_appointment_id) means we can update by graph_appointment_id
+  // alone — the next poll will overwrite with Graph's authoritative state.
+  if (supabase) {
+    const { error } = await supabase
+      .from("caregiver_interviews")
+      .update({ status: "cancelled" })
+      .eq("graph_appointment_id", appointmentId);
+    if (error) {
+      console.error("Optimistic cancel mirror update failed:", error);
+      // Don't throw — Graph cancel succeeded; the poll will reconcile.
+    }
+  }
+
+  return { ok: true, appointment_id: appointmentId, status: "cancelled" };
+}
+
 // ─── Request Handler ──────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -566,6 +631,8 @@ Deno.serve(async (req) => {
       result = await getAppointment(token, body);
     } else if (action === "poll_appointments") {
       result = await pollAppointments(token);
+    } else if (action === "cancel_appointment") {
+      result = await cancelAppointment(token, body);
     } else {
       return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
         status: 400,

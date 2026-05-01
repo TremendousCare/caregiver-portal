@@ -17,6 +17,8 @@ import {
   matchCustomerToCaregiver,
   graphDateTimeToIso,
   normalizeGraphAppointment,
+  deriveInterviewCardState,
+  shouldFireInterviewFollowUp,
 } from '../../../supabase/functions/_shared/helpers/bookings.ts';
 
 describe('getBookingUrlFromOrgSettings', () => {
@@ -295,6 +297,130 @@ describe('normalizeGraphAppointment', () => {
       staffMemberIds: ['ok', null, 42, 'also-ok'],
     });
     expect(result.staff_member_ids).toEqual(['ok', 'also-ok']);
+  });
+});
+
+describe('deriveInterviewCardState', () => {
+  // Pin a stable "now" for every case so the helper's purity is honored.
+  const NOW = Date.parse('2026-05-10T12:00:00Z');
+
+  it('returns not_yet_booked when row is null', () => {
+    expect(deriveInterviewCardState(null, NOW)).toBe('not_yet_booked');
+  });
+
+  it('returns not_yet_booked when row is undefined', () => {
+    expect(deriveInterviewCardState(undefined, NOW)).toBe('not_yet_booked');
+  });
+
+  it('returns booked for a future appointment with status=booked', () => {
+    const row = { status: 'booked', start_at: '2026-05-20T15:00:00Z' };
+    expect(deriveInterviewCardState(row, NOW)).toBe('booked');
+  });
+
+  it('returns completed for a past appointment with status=booked', () => {
+    const row = { status: 'booked', start_at: '2026-05-01T15:00:00Z' };
+    expect(deriveInterviewCardState(row, NOW)).toBe('completed');
+  });
+
+  it('returns cancelled regardless of date', () => {
+    const future = { status: 'cancelled', start_at: '2026-05-20T15:00:00Z' };
+    const past = { status: 'cancelled', start_at: '2026-05-01T15:00:00Z' };
+    expect(deriveInterviewCardState(future, NOW)).toBe('cancelled');
+    expect(deriveInterviewCardState(past, NOW)).toBe('cancelled');
+  });
+
+  it('treats missing/unparseable start_at as booked, not completed', () => {
+    expect(deriveInterviewCardState({ status: 'booked', start_at: null }, NOW))
+      .toBe('booked');
+    expect(deriveInterviewCardState({ status: 'booked', start_at: 'not-a-date' }, NOW))
+      .toBe('booked');
+  });
+
+  it('does not couple to task IDs or phase — only the row matters', () => {
+    // The whole point: regardless of upstream task naming, state is
+    // derived from the mirrored Graph row. Here we just verify the
+    // function takes nothing else.
+    expect(deriveInterviewCardState.length).toBe(2);
+  });
+});
+
+describe('shouldFireInterviewFollowUp', () => {
+  const NOW = Date.parse('2026-05-10T12:00:00Z');
+  const FOUR_DAYS_AGO = '2026-05-06T12:00:00Z';
+  const ONE_DAY_AGO = '2026-05-09T12:00:00Z';
+
+  const base = {
+    lastSendAt: FOUR_DAYS_AGO,
+    latestInterviewRow: null,
+    daysGap: 3,
+    alreadyFiredFollowUp: false,
+    now: NOW,
+  };
+
+  it('fires when send was long enough ago and there is no booking', () => {
+    expect(shouldFireInterviewFollowUp(base)).toEqual({ fire: true });
+  });
+
+  it('fires when latest row is cancelled (no current booking)', () => {
+    const out = shouldFireInterviewFollowUp({
+      ...base,
+      latestInterviewRow: { status: 'cancelled' },
+    });
+    expect(out).toEqual({ fire: true });
+  });
+
+  it('does not fire when no link has ever been sent', () => {
+    const out = shouldFireInterviewFollowUp({ ...base, lastSendAt: null });
+    expect(out).toEqual({ fire: false, reason: 'no_link_send_recorded' });
+  });
+
+  it('does not fire when the gap has not elapsed', () => {
+    const out = shouldFireInterviewFollowUp({ ...base, lastSendAt: ONE_DAY_AGO });
+    expect(out).toEqual({ fire: false, reason: 'too_soon' });
+  });
+
+  it('does not fire when the caregiver currently has a booked interview', () => {
+    const out = shouldFireInterviewFollowUp({
+      ...base,
+      latestInterviewRow: { status: 'booked' },
+    });
+    expect(out).toEqual({ fire: false, reason: 'currently_booked' });
+  });
+
+  it('does not fire when the interview already happened', () => {
+    const out = shouldFireInterviewFollowUp({
+      ...base,
+      latestInterviewRow: { status: 'completed' },
+    });
+    expect(out).toEqual({ fire: false, reason: 'interview_completed' });
+  });
+
+  it('does not fire if this rule has already nudged this caregiver', () => {
+    const out = shouldFireInterviewFollowUp({ ...base, alreadyFiredFollowUp: true });
+    expect(out).toEqual({ fire: false, reason: 'already_fired' });
+  });
+
+  it('rejects invalid daysGap config', () => {
+    expect(shouldFireInterviewFollowUp({ ...base, daysGap: 0 }))
+      .toEqual({ fire: false, reason: 'invalid_days_gap' });
+    expect(shouldFireInterviewFollowUp({ ...base, daysGap: -1 }))
+      .toEqual({ fire: false, reason: 'invalid_days_gap' });
+    expect(shouldFireInterviewFollowUp({ ...base, daysGap: NaN }))
+      .toEqual({ fire: false, reason: 'invalid_days_gap' });
+  });
+
+  it('rejects unparseable send timestamps without throwing', () => {
+    const out = shouldFireInterviewFollowUp({ ...base, lastSendAt: 'not-a-date' });
+    expect(out).toEqual({ fire: false, reason: 'unparseable_send_timestamp' });
+  });
+
+  it('boundary: exactly daysGap elapsed fires, fractionally less does not', () => {
+    const exactly = new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString();
+    expect(shouldFireInterviewFollowUp({ ...base, lastSendAt: exactly }))
+      .toEqual({ fire: true });
+    const oneSecondShort = new Date(NOW - 3 * 24 * 60 * 60 * 1000 + 1000).toISOString();
+    expect(shouldFireInterviewFollowUp({ ...base, lastSendAt: oneSecondShort }))
+      .toEqual({ fire: false, reason: 'too_soon' });
   });
 });
 

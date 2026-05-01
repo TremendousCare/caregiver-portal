@@ -15,6 +15,10 @@ import {
   isWithinSendWindow as isRecurringWithinSendWindow,
   resolveAvailabilityCheckInConditions,
 } from "../_shared/helpers/availabilityCheckIn.ts";
+import {
+  shouldFireInterviewFollowUp,
+  getBookingUrlFromOrgSettings,
+} from "../_shared/helpers/bookings.ts";
 
 /**
  * Generate a unique survey token (mirrors frontend generateSurveyToken).
@@ -917,6 +921,239 @@ Deno.serve(async (req) => {
       }
     } catch (err) {
       console.error("Shift reminder section failed:", err);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTION 1.9: INTERVIEW_NOT_SCHEDULED (booking-link follow-up)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Fires when a caregiver was sent the Microsoft Bookings link N days ago
+    // (via any automation that resolved {{booking_url}} into trigger_context)
+    // and still has no active booking. Anchors on the actual SMS send time
+    // recorded in automation_log — not on phase changes or task completions —
+    // so it survives any rename / restructure of the upstream task or rule.
+    //
+    // Per-rule conditions:
+    //   days_after_send  — required, integer ≥ 1. How many days after the
+    //                      booking-URL went out before nudging.
+    //   phase            — optional. If set, only nudges caregivers whose
+    //                      current computed phase matches.
+    //
+    // Idempotency: at most one successful follow-up per (rule, caregiver).
+    // Tracked via automation_log entries for this rule.
+
+    try {
+      const { data: followUpRules, error: followUpRulesErr } = await supabase
+        .from("automation_rules")
+        .select("*")
+        .eq("enabled", true)
+        .eq("trigger_type", "interview_not_scheduled");
+
+      if (followUpRulesErr) {
+        console.error("Failed to fetch interview_not_scheduled rules:", followUpRulesErr);
+      } else if (followUpRules && followUpRules.length > 0) {
+        const nowMs = Date.now();
+
+        for (const rule of followUpRules) {
+          summary.rules_processed++;
+
+          const daysGap = Number(rule.conditions?.days_after_send);
+          if (!Number.isFinite(daysGap) || daysGap < 1) {
+            console.warn(`Rule ${rule.id} (${rule.name}) has invalid days_after_send:`, rule.conditions);
+            continue;
+          }
+
+          // Step 1: find every successful booking-URL send across all
+          // automation_log rows. trigger_context.booking_url is set by
+          // execute-automation only when the resolved template included
+          // {{booking_url}} — see execute-automation/index.ts:503-512.
+          // We pull the most recent send per caregiver in JS (Postgres
+          // window functions through PostgREST are awkward), capped at a
+          // generous lookback so we don't scan unbounded history.
+          const lookbackMs = (daysGap + 60) * 24 * 60 * 60 * 1000;
+          const lookbackIso = new Date(nowMs - lookbackMs).toISOString();
+          const { data: sendLogs, error: sendLogsErr } = await supabase
+            .from("automation_log")
+            .select("caregiver_id, created_at, trigger_context")
+            .eq("status", "success")
+            .gte("created_at", lookbackIso)
+            .not("trigger_context->>booking_url", "is", null)
+            .order("created_at", { ascending: false });
+          if (sendLogsErr) {
+            console.error(`Failed to fetch booking-URL sends for rule ${rule.id}:`, sendLogsErr);
+            summary.errors++;
+            continue;
+          }
+
+          // Most recent send per caregiver.
+          const lastSendByCg = new Map<string, string>();
+          for (const log of sendLogs || []) {
+            const cgId = (log as any).caregiver_id;
+            if (!cgId) continue;
+            if (!lastSendByCg.has(cgId)) {
+              lastSendByCg.set(cgId, (log as any).created_at);
+            }
+          }
+          if (lastSendByCg.size === 0) continue;
+
+          // Step 2: which of those caregivers has this rule already nudged?
+          const candidateIds = Array.from(lastSendByCg.keys());
+          const { data: priorFollowUps } = await supabase
+            .from("automation_log")
+            .select("caregiver_id")
+            .eq("rule_id", rule.id)
+            .eq("status", "success")
+            .in("caregiver_id", candidateIds);
+          const alreadyFired = new Set(
+            (priorFollowUps || []).map((r: any) => r.caregiver_id).filter(Boolean),
+          );
+
+          // Step 3: pull caregiver records (need phase, sms_opted_out,
+          // archived). archived/opted-out caregivers are filtered now to
+          // avoid wasted execute-automation calls.
+          const { data: caregivers, error: cgErr } = await supabase
+            .from("caregivers")
+            .select("id, first_name, last_name, phone, email, archived, sms_opted_out, phase_override, phase_timestamps, org_id")
+            .in("id", candidateIds);
+          if (cgErr) {
+            console.error(`Failed to fetch caregivers for rule ${rule.id}:`, cgErr);
+            summary.errors++;
+            continue;
+          }
+          const cgMap = new Map((caregivers || []).map((c: any) => [c.id, c]));
+
+          // Step 4: pull latest interview row per caregiver. Single query
+          // sorted desc; first hit per caregiver wins.
+          const { data: interviewRows } = await supabase
+            .from("caregiver_interviews")
+            .select("caregiver_id, status, start_at")
+            .in("caregiver_id", candidateIds)
+            .order("start_at", { ascending: false, nullsFirst: false });
+          const latestInterview = new Map<string, { status: string | null }>();
+          for (const r of interviewRows || []) {
+            const cgId = (r as any).caregiver_id;
+            if (!cgId) continue;
+            if (!latestInterview.has(cgId)) {
+              latestInterview.set(cgId, { status: (r as any).status ?? null });
+            }
+          }
+
+          // Step 5: for each candidate, gate via the pure helper, then
+          // dispatch through execute-automation if eligible. Per-org
+          // booking_url is resolved once per caregiver since each org
+          // has at most one configured URL.
+          //
+          // The TCPA SMS-opt-out gate intentionally lives in
+          // execute-automation (inside the `case "send_sms"` block),
+          // where it correctly applies only to SMS sends. We skip
+          // sms_opted_out caregivers here ONLY when the rule's action
+          // is send_sms — pre-filtering email sends would silently
+          // suppress nudges that opt-out should never have blocked.
+          const isSmsRule = rule.action_type === "send_sms";
+
+          for (const cgId of candidateIds) {
+            const caregiver = cgMap.get(cgId);
+            if (!caregiver) continue;
+            if (caregiver.archived) {
+              summary.skipped++;
+              continue;
+            }
+            if (isSmsRule && caregiver.sms_opted_out) {
+              summary.skipped++;
+              continue;
+            }
+
+            // Optional phase filter — admin-configurable, defaults to off.
+            // Phase is computed from phase_override / phase_timestamps the
+            // same way the survey-reminder section does. We delegate to
+            // ruleAppliesToCaregiver since it already handles that.
+            if (rule.conditions?.phase && !ruleAppliesToCaregiver(caregiver, rule.conditions)) {
+              summary.skipped++;
+              continue;
+            }
+
+            const decision = shouldFireInterviewFollowUp({
+              lastSendAt: lastSendByCg.get(cgId) || null,
+              latestInterviewRow: latestInterview.get(cgId) || null,
+              daysGap,
+              alreadyFiredFollowUp: alreadyFired.has(cgId),
+              now: nowMs,
+            });
+            if (!decision.fire) {
+              summary.skipped++;
+              continue;
+            }
+
+            // Resolve {{booking_url}} from the caregiver's org so the
+            // template can include the link without re-querying mid-send.
+            // execute-automation also resolves this server-side, but
+            // pre-populating trigger_context lets the log row preserve
+            // the URL even if the org settings change later.
+            let bookingUrl = "";
+            if (caregiver.org_id) {
+              const { data: orgRow } = await supabase
+                .from("organizations")
+                .select("settings")
+                .eq("id", caregiver.org_id)
+                .maybeSingle();
+              bookingUrl = getBookingUrlFromOrgSettings(orgRow?.settings) || "";
+            }
+
+            try {
+              const response = await fetch(
+                `${SUPABASE_URL}/functions/v1/execute-automation`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                  },
+                  body: JSON.stringify({
+                    rule_id: rule.id,
+                    caregiver_id: caregiver.id,
+                    action_type: rule.action_type,
+                    message_template: rule.message_template,
+                    action_config: rule.action_config,
+                    rule_name: rule.name,
+                    caregiver: {
+                      id: caregiver.id,
+                      first_name: caregiver.first_name,
+                      last_name: caregiver.last_name,
+                      phone: caregiver.phone,
+                      email: caregiver.email,
+                    },
+                    trigger_context: {
+                      booking_url: bookingUrl,
+                      original_send_at: lastSendByCg.get(cgId) || null,
+                      days_since_send: daysGap,
+                    },
+                  }),
+                },
+              );
+              const result = await response.json();
+              if (result.success) summary.executions++;
+              else if (result.skipped) summary.skipped++;
+              else {
+                summary.errors++;
+                console.error(
+                  `interview_not_scheduled failed for rule ${rule.name}, caregiver ${caregiver.id}:`,
+                  result.error,
+                );
+              }
+            } catch (err) {
+              summary.errors++;
+              console.error(
+                `Failed to call execute-automation for interview follow-up (rule ${rule.id}, caregiver ${caregiver.id}):`,
+                err,
+              );
+            }
+
+            // Same RC-friendly rate-limit other sections use.
+            await sleep(SURVEY_REMINDER_SEND_DELAY_MS);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("interview_not_scheduled section failed:", err);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
