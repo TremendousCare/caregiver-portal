@@ -1041,10 +1041,23 @@ Deno.serve(async (req) => {
           // dispatch through execute-automation if eligible. Per-org
           // booking_url is resolved once per caregiver since each org
           // has at most one configured URL.
+          //
+          // The TCPA SMS-opt-out gate intentionally lives in
+          // execute-automation (inside the `case "send_sms"` block),
+          // where it correctly applies only to SMS sends. We skip
+          // sms_opted_out caregivers here ONLY when the rule's action
+          // is send_sms — pre-filtering email sends would silently
+          // suppress nudges that opt-out should never have blocked.
+          const isSmsRule = rule.action_type === "send_sms";
+
           for (const cgId of candidateIds) {
             const caregiver = cgMap.get(cgId);
             if (!caregiver) continue;
-            if (caregiver.archived || caregiver.sms_opted_out) {
+            if (caregiver.archived) {
+              summary.skipped++;
+              continue;
+            }
+            if (isSmsRule && caregiver.sms_opted_out) {
               summary.skipped++;
               continue;
             }
