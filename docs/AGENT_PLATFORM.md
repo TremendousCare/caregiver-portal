@@ -156,15 +156,23 @@ The existing `autonomy_config` rows continue to work via a compatibility shim wh
 
 ## Phased rollout — overview
 
+Revised 2026-04-30 after process discovery (`docs/AGENT_PLATFORM_PROCESS.md`):
+- **Recruiting is the wedge**, not intake. The recruiting agent already runs in production (the AI chat). The team uses the chat. Months of `ai_suggestions` data have accumulated under "implicit shadow mode" — suggestions firing without operator action — which is gold for calibration.
+- **Phase 1.5 (retrospective grading UI)** inserted between trust-and-safety primitives and the first agent transformation, because that backlog of ungraded suggestions is exactly the calibration set Phase 2's autonomy work needs.
+- **Phase 2 is now "Recruiting Agent: Autonomous Funnel Orchestration"** — transforming the existing copilot into a per-caregiver orchestrator that drives the application → orientation funnel autonomously, inserting humans only at the three locked gates (interview, doc review, orientation).
+- **Intake (client lead management)** moves to Phase 3, **Scheduling** to Phase 4, etc.
+
 | Phase | Name | Gate | New agents in production |
 |---|---|---|---|
-| **0** | Foundation refactor | None — parallel to SaaS Phase B/C/D | None |
+| **0** | Foundation refactor | None — parallel to SaaS Phase B/C/D | None (existing 3 migrate onto runtime) |
 | **1** | Trust & safety primitives | Phase 0 baked | None |
-| **2** | Intake agent (the wedge) | SaaS Phase B5 baked + Phase 1 baked | +1 (Intake) |
-| **3** | Scheduling agent | Phase 2 baked ≥30 days | +1 (Scheduling) |
-| **4** | Inter-agent dispatch | Phase 3 baked | None new (enables hand-offs) |
-| **5** | Care coordination agent | Phase 4 baked | +1 (Care Coordination) |
-| **6** | Marketplace, billing, voice, mobile | SaaS Phase E + Phase 5 baked | Self-serve unlocked |
+| **1.5** | Retrospective grading UI | Phase 1.4 shipped | None |
+| **2** | Recruiting Agent: Autonomous Funnel Orchestration | SaaS Phase B5 baked + Phase 1.5 baked | +0 (existing recruiting agent transforms) |
+| **3** | Intake (client lead management) agent | Phase 2 stages 1–6 graduated to L1+ | +1 (Intake) |
+| **4** | Scheduling agent | Phase 3 baked ≥30 days | +1 (Scheduling) |
+| **5** | Inter-agent dispatch (`agent_requests` queue) | Phase 4 baked | None new (enables hand-offs) |
+| **6** | Care coordination agent | Phase 5 baked | +1 (Care Coordination) |
+| **7** | Marketplace, billing, voice, mobile | SaaS Phase E + Phase 6 baked | Self-serve unlocked |
 
 Bake at least 7–14 days on `main` between phases. Phases are sequential, not parallel. Do not start phase N+1 before phase N has shipped and baked.
 
@@ -320,24 +328,168 @@ Bake at least 7–14 days on `main` between phases. Phases are sequential, not p
 
 ---
 
-## Phase 2 — Intake agent (the wedge)
+## Phase 1.5 — Retrospective grading UI
 
-**Goal**: Ship the first new production agent. Move new client leads through inquiry → assessment → start-of-care faster and more reliably than the team does today, with verified outcomes.
+**Goal**: Convert the months of accumulated `ai_suggestions` (currently ungraded — "implicit shadow mode") into a calibration set for Phase 2's autonomy work.
 
-**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1 baked ≥ 14 days. RLS enforces tenant isolation; permissive policies dropped on AI-tier tables.
+**Gate**: Phase 1.4 shipped. Still no new agents in production.
 
-### Why intake over scheduling
+**Why this exists**: the proactive_planner and inbound_router agents have been firing suggestions into `ai_suggestions` for months, but operators don't act on them. As of process discovery (2026-04-30): 3,847 stamped suggestions, 0 graded. That backlog is gold for calibration if we can grade it. Without grading, Phase 1.2's promotion-v2 algorithm has no data to drive autonomy decisions on the recruiting funnel agent in Phase 2.
 
-Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
+### Sliced into one PR (small)
 
-- **Highest internal pain.** The team is struggling here today. Internal pain is the cleanest place to ship — the people grading the agent are the people feeling the gap.
-- **Smaller blast radius.** A bad scheduling agent affects clock-ins and shift coverage (downstream of pay, compliance, client SLAs). A bad intake agent affects lead conversion (recoverable, manual fallback well-understood).
+#### 1.5.1 — `ai_suggestion_grades` table + grading UI
+
+- New table `ai_suggestion_grades`:
+  ```
+  id              uuid PK
+  org_id          uuid (default_org_id())
+  suggestion_id   uuid REFERENCES ai_suggestions(id) ON DELETE CASCADE
+  verdict         text CHECK (verdict IN ('good', 'bad', 'harmful'))
+  rationale       text
+  graded_by       text
+  graded_at       timestamptz default now()
+  ```
+- RLS strict / fail-closed (`tenant_isolation_ai_suggestion_grades_*`).
+- New admin-only Settings page `/settings/agents/grading`:
+  - Filterable list of `ai_suggestions` (by agent, source_type, action_type, date, ungraded-only).
+  - Each row shows: title, drafted content, action params, intent, autonomy level, status — and three buttons (good / bad / harmful) plus a free-text rationale.
+  - Verdict writes a row to `ai_suggestion_grades`. Re-grading supersedes the prior verdict (additive — old grades stay for audit).
+  - Bulk-grade pattern: select N rows, apply the same verdict (with rationale).
+- Phase 1.2's autonomy-v2 algorithm reads grades alongside live approvals as input. A "harmful" verdict counts as an immediate one-level demote on the corresponding action.
+- Optional: keyboard shortcuts (g/b/h) for fast review.
+
+**Exit criteria**: grading page renders, owner can grade ≥ 50 suggestions in an afternoon, verdicts persist, autonomy-v2 algorithm reads them.
+
+**Rollback**: hide the page; the table stays (additive).
+
+---
+
+## Phase 2 — Recruiting Agent: Autonomous Funnel Orchestration
+
+**Goal**: Transform the existing recruiting agent from copilot into autonomous funnel orchestrator. Drive every caregiver from CSV upload to verified orientation completion within the time targets (5d gold / 7d good / 14d acceptable). Humans intervene only at the three locked gates: virtual interview, onboarding-document accuracy review, orientation.
+
+**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
+
+**Why this is the wedge**: locked in `AGENT_PLATFORM_VISION.md` (revised 2026-04-30). Restated:
+- Recruiting agent (AI chat) is already in active production use by the owner.
+- Months of accumulated suggestions data exist for calibration.
+- Existing chat UI surface — no new review habit needed for the team.
+- Improvements show up in software people already open, building trust before Phase 3 asks for new review behavior.
+- Outcome signal is clean: orientation conductor checks `onboarding_complete` task = win.
+
+**Process source-of-truth**: `docs/AGENT_PLATFORM_PROCESS.md`. The Phase 2 sub-phases below enact the funnel described there. Process changes update that doc and re-shape the corresponding sub-phase or `funnel_stages` row.
+
+### Sliced into 6 sub-phases (stage-by-stage)
+
+The funnel has 6 stages (Stage 1 Screening → Stage 2 Triage → Stage 3 Booking → Stage 4 Interview → Stage 5 Verification → Stage 6 Onboarding Docs → Stage 7 Orientation). Each sub-phase below ships **one stage's orchestrator** in shadow mode for ≥ 14 days, calibrates against operator behavior + grading UI, then promotes to L1 confirm-everything, then climbs autonomy as data permits.
+
+This is intentionally slow and visible. We graduate the funnel **stage by stage**, not in a single big-bang cutover.
+
+#### 2.1 — Funnel state machine (data-as-process)
+
+- New tables `funnel_stages` and `funnel_transitions` per the schema sketched in `docs/AGENT_PLATFORM_PROCESS.md` ("Funnel state machine" section).
+- Seed Tremendous Care's 6 stages from the as-is process. Each stage row:
+  - `pipeline_phase` mapping (NULL/intake/interview/verification/onboarding/orientation)
+  - `human_gate` flag (true for Stage 4, Stage 6 review, Stage 7)
+  - `enter_action`, `wait_until`, `on_timeout`, `on_failure` — all data, all editable.
+- New Settings UI page `/settings/agents/funnel` for editing stages + transitions.
+- Recruiting agent's manifest gains a `funnel_slug = 'recruiting_v1'` reference.
+- No orchestrator loop yet — this PR is data + UI only. The agent does not consume the funnel rows yet.
+- Vitest: schema validation, seed correctness, UI roundtrip (create-edit-revert).
+
+**Exit criteria**: 6 stages + N transitions seeded, editable from the UI, version-history (similar to `agent_versions`) recording every change.
+
+**Rollback**: drop the two tables. Agent doesn't read them yet, so nothing else breaks.
+
+#### 2.2 — Stage 1 (Screening) orchestrator + Microsoft 365 Bookings webhook foundation
+
+- Recruiting orchestrator (cron + event-triggered) for Stage 1 only:
+  - On new caregiver: send screening survey (or rely on existing automation rule, with the agent acting as an observer + escalator).
+  - On survey response received: classify pass / flag / DQ from the survey JSON.
+  - On no response in N days: escalate per `funnel_stages.on_timeout`.
+- New edge function `bookings-webhook` ready to receive M365 Bookings webhook events (`booking_created`, `booking_rescheduled`, `booking_cancelled`, `booking_completed`). Writes events to the `events` bus. (Owner is implementing the M365 integration in parallel; the webhook endpoint is ready when they're ready.)
+- Ships in shadow mode for ≥ 14 days. Calibration: agent's classify-pass-flag-DQ judgments grade out at ≥ 80% agreement vs. operator + zero harmful in 7 consecutive days. Then promote to L1.
+- The hard auto-DQ (legal-to-work = no) graduates to L4 from day one because it's deterministic and safe.
+
+**Exit criteria**: orchestrator green in shadow mode for 14 days, calibration thresholds met, owner sign-off, then promote to L1 for non-DQ actions.
+
+**Rollback**: pause the orchestrator cron, kill_switch on the recruiting agent. The agent reverts to copilot mode.
+
+#### 2.3 — Stage 2 (Triage) orchestrator + Stage 3 (Booking) orchestrator with bookings integration live
+
+- Triage: pass routes to booking; flag escalates with operator alert; DQ archives with reason.
+- Booking: agent generates the M365 booking link, sends via SMS or email per caregiver preference, watches for `booking_created` event.
+- On no booking after N days: escalate per the timeout rule. Templates already exist (`Virtual Interview`).
+- Ships in shadow mode for ≥ 14 days. Same promotion gating.
+
+**Exit criteria**: caregiver can flow Stage 1 → 2 → 3 entirely under agent orchestration in shadow mode without operator intervention; booking events arrive cleanly from M365.
+
+**Rollback**: pause Stage 2 + 3 orchestrators independently.
+
+#### 2.4 — Stage 4 (Interview) post-meeting orchestrator + Stage 5 (Verification / HCA) orchestrator
+
+- Interview itself stays human (locked gate). After interview:
+  - Read interview recording, transcript, interview survey from M365.
+  - Compute initial advancement decision (pass / fail / borderline). Agent surfaces the recommendation; human approves.
+- Verification (HCA) handles 3 sub-paths:
+  - Branch A (HCA confirmed) → advance to Stage 6.
+  - Branch B (claims HCA, no PER ID verified) → guidance SMS, chase weekly.
+  - Branch C (no HCA) → CareAcademy enrollment, background check, weekly chase, monthly escalation.
+- The post-interview judgment runs in shadow for ≥ 21 days (longer because consequences are bigger).
+
+**Exit criteria**: Stage 4 advancement recommendations grade ≥ 80% agreement with operator decisions; Stage 5 chase pattern reduces stuck-in-Pending-HCA dropouts by a measurable amount.
+
+#### 2.5 — Stage 6 (Onboarding Documents) orchestrator
+
+- Two parallel tracks:
+  - Track A: send unsigned document request via existing `document_upload_tokens` flow. Watch SharePoint upload events. Chase missing.
+  - Track B: send 6-document e-signature packet. Watch `esign_envelopes` status transitions. Chase stuck signatures.
+- Detect "all complete" state. Surface for human accuracy review (locked gate).
+- After human review, advance to Stage 7.
+
+**Exit criteria**: stuck-document failure mode reduced; doc completion within X days from packet send sustained.
+
+#### 2.6 — Stage 7 (Orientation) orchestrator + handoff signal
+
+- Schedule orientation (per-caregiver as-needed today; user willing to move to weekly cadence — decide before this sub-phase).
+- Send confirmation, day-before reminder, day-of reminder.
+- After orientation, observe `onboarding_complete` task completion. **Win event recorded.**
+- Handoff signal: emit `agent_request` (Phase 5) to scheduling agent (when Phase 4 ships) — until then, set caregiver to `archive_phase = 'won'` with `archive_reason = 'onboarding_complete'` and emit a "ready for scheduling" alert to the operator UI.
+
+**Exit criteria**: end-to-end caregiver onboarding completion under recruiting agent orchestration, sustained for 30 days at L1+ with green metrics. Recruiting agent is **graduated**.
+
+### Recruiting graduation success criteria (from VISION_DOC + owner)
+
+Phase 2 is "shipped" when:
+- **Onboarding completion rate** improves by an owner-defined target percentage (initial target TBD; baseline from current 30/60/90-day data) for caregivers who entered the funnel post-graduation.
+- **N actions per week** auto-execute with zero rejections in the prior 30-day rolling window. (N to be set per action type.)
+- **Friction metric**: median operator decisions per onboarded caregiver drops monotonically over the 6 sub-phase rollout.
+- **Latency metric**: time-to-first-agent-action on a new caregiver drops to < 1 hour during business hours.
+- **Zero harmful incidents** in the 30 days preceding graduation.
+
+These metrics live in the per-agent dashboard from Phase 1.4. Phase 2 is the first time the dashboard tells a story end-to-end.
+
+---
+
+## Phase 3 — Intake (client lead management) agent
+
+**Goal**: Ship the second new production agent (first new agent = recruiting graduation in Phase 2). Move new client leads through inquiry → assessment → start-of-care faster and more reliably than the team does today, with verified outcomes.
+
+**Gate**: Phase 2 stages 1–6 graduated to L1+ with green metrics ≥ 30 days. Phase 2 graduation already required SaaS Phase B5 baked on every AI-tier table; that requirement carries forward.
+
+### Why intake before scheduling (not the wedge anymore, but still ahead of scheduling)
+
+Locked in `AGENT_PLATFORM_VISION.md` (revised 2026-04-30). Restated for the implementer:
+
+- **Smaller blast radius than scheduling.** A bad scheduling agent affects clock-ins and shift coverage (downstream of pay, compliance, client SLAs). A bad intake agent affects lead conversion (recoverable, manual fallback well-understood).
 - **Cleanest outcome signal.** `clients.start_of_care_date` is set or it isn't. No interpretation. Compare to scheduling, where "shift filled" depends on "and it was actually worked", "and it wasn't no-showed", "and the right caregiver showed up".
-- **De-risks scheduling.** The runtime gets exercised on a lower-stakes domain first.
+- **De-risks scheduling.** Once recruiting + intake are live, the runtime + per-(agent×org) controls + audit log + autonomy-v2 algorithm are battle-tested across two domains before scheduling exposes its larger blast radius.
+- **No new domain to discover.** The agent platform's runtime, manifest semantics, and grading pipeline are all proven by the time intake ships. Phase 3 is "another agent on the same rails," not "another platform iteration."
 
 ### Sliced into ~5 sequential PRs
 
-#### 2.1 — Intake agent manifest + tool allowlist
+#### 3.1 — Intake agent manifest + tool allowlist
 
 - New row in `agents` for org=Tremendous Care, slug=`intake`, version=1, kill_switch=true (off until 2.5), shadow_mode=true.
 - `tool_allowlist` (initial cut, narrow):
@@ -371,7 +523,7 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
 
 **Rollback**: delete the row.
 
-#### 2.2 — Intake-specific context layer + system prompt
+#### 3.2 — Intake-specific context layer + system prompt
 
 - New context-assembler layer file `ai-chat/context/layers/intake.ts` (or refactor the existing situational layer to accept a per-agent slice).
 - The system prompt is intake-specific: emphasis on lead quality assessment, qualification questions, scheduling assessments, identifying urgency signals, distinguishing prospects from referral sources, escalation triggers (e.g., "client mentioned hospice").
@@ -381,7 +533,7 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
 
 **Rollback**: revert the prompt; agent stays in shadow mode regardless.
 
-#### 2.3 — Intake agent edge function shell
+#### 3.3 — Intake agent edge function shell
 
 - New edge function `supabase/functions/intake-agent/index.ts`. ~50 lines: validates the request, looks up the org, calls `runAgent(supabase, "intake", request)`. Same shape as the Phase 0.4 shells.
 - Cron registration: `intake-agent` runs every 30 min.
@@ -391,7 +543,7 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
 
 **Rollback**: pause the cron, remove the event subscription. Function stays deployed, dormant.
 
-#### 2.4 — Shadow mode bake (≥ 14 days)
+#### 3.4 — Shadow mode bake (≥ 14 days)
 
 - Intake agent runs in shadow mode for ≥ 14 days against real Tremendous Care client traffic.
 - Daily review by the operator and the owner: open the per-agent metrics dashboard, scan the shadow suggestions, mark agreements / disagreements / harmful suggestions in a new "shadow review" UI.
@@ -402,7 +554,7 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
 
 **Rollback**: extend bake; flip kill switch on if the agent is generating noise that costs more than it saves to review.
 
-#### 2.5 — Promote intake agent to L1, then data-driven climb
+#### 3.5 — Promote intake agent to L1, then data-driven climb
 
 - Flip `shadow_mode = false`, `kill_switch = false`. Initial autonomy levels:
   - `add_client_note`: L4 (auto, low risk)
@@ -422,15 +574,15 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
 
 ---
 
-## Phase 3 — Scheduling agent
+## Phase 4 — Scheduling agent
 
-**Goal**: Ship the second new production agent. Fill open shifts, handle call-offs, match caregivers to shifts. The biggest external demo, the largest blast radius.
+**Goal**: Ship the third new production agent. Fill open shifts, handle call-offs, match caregivers to shifts. The biggest external demo, the largest blast radius.
 
-**Gate**: Phase 2 baked ≥ 30 days at L1 or higher with green metrics.
+**Gate**: Phase 3 baked ≥ 30 days at L1 or higher with green metrics. Recruiting (Phase 2) and Intake (Phase 3) running cleanly is the prerequisite — scheduling does not get to be the proving ground.
 
-### Sliced into ~5 sequential PRs (mirrors Phase 2)
+### Sliced into ~5 sequential PRs (mirrors Phase 3)
 
-#### 3.1 — Scheduling agent manifest
+#### 4.1 — Scheduling agent manifest
 
 - New row, slug=`scheduling`. Initial kill_switch on, shadow_mode on.
 - `tool_allowlist` (initial cut):
@@ -459,50 +611,51 @@ Locked in `AGENT_PLATFORM_VISION.md`. Restated for the implementer:
   - Cron: every 15 min during business hours, every hour off-hours.
   - Event: `shift_created`, `shift_offer_declined`, `inbound_sms_log` matched to a shift offer, `caregiver_call_off_recorded`.
 
-#### 3.2 — Scheduling-specific tools and context
+#### 4.2 — Scheduling-specific tools and context
 
 - New tools registered: `list_open_shifts`, `get_shift_offers`, `get_caregiver_availability`, `match_caregivers_to_shift`, `create_shift_offer`, `assign_caregiver_to_shift`, `update_shift_status`. Each goes through the existing tool registry pattern with explicit `riskLevel`. The matching tool reuses `src/lib/scheduling/availabilityMatching.js`.
 - New context layer `ai-chat/context/layers/scheduling.ts`: open shifts in next 7 days, caregiver availability heatmap, last 30 days of fill rate by day-of-week and shift-type.
 
-#### 3.3 — Scheduling agent edge function shell
+#### 4.3 — Scheduling agent edge function shell
 
 Same pattern as 2.3. Cron + event triggers configured.
 
-#### 3.4 — Shadow mode bake (≥ 21 days, longer than intake because higher stakes)
+#### 4.4 — Shadow mode bake (≥ 21 days, longer than intake because higher stakes)
 
 Same pattern as 2.4 with stricter calibration: ≥ 80% agreement on assignment choice, zero harmful suggestions for 14 consecutive days, no shift-coverage regression vs. dispatcher baseline.
 
-#### 3.5 — Promote scheduling to L1, then data-driven climb
+#### 4.5 — Promote scheduling to L1, then data-driven climb
 
 Same pattern as 2.5. Initial L1 across all writes — scheduling does not get the auto-note bypass that intake had. After 60 days at L1 with green metrics, scheduling agent is shipped.
 
 ---
 
-## Phase 4 — Inter-agent dispatch
+## Phase 5 — Inter-agent dispatch
 
-**Goal**: Enable agent-to-agent hand-offs without direct LLM calls. Unlocks Phase 5 and beyond.
+**Goal**: Enable agent-to-agent hand-offs without direct LLM calls. Unlocks Phase 6 and beyond. Three production agents (recruiting, intake, scheduling) running cleanly is the prerequisite — dispatch is built only after we know we have agents that need to talk.
 
-**Gate**: Phase 3 baked ≥ 30 days.
+**Gate**: Phase 4 baked ≥ 30 days.
 
 - New table `agent_requests`. Columns: `id`, `org_id`, `from_agent_id`, `to_agent_slug`, `request_type`, `payload`, `status` (pending | claimed | processed | failed | expired), `claimed_at`, `processed_at`, `result`, `created_at`, `expires_at`.
 - New helper `_shared/operations/agentRequests.ts` with `enqueueAgentRequest()` and `claimNextRequest()`. Queue semantics: at-least-once, idempotency-key on `payload.idempotency_key`, exponential backoff on retries.
 - Each agent's `triggers` manifest gains an `agent_requests` subscription option.
-- First production hand-off: Intake agent → Scheduling agent. When intake confirms a SOC date, intake enqueues a request for scheduling to seed initial shifts. Scheduling consumes, suggests an initial schedule, and (in shadow mode for first 30 days) returns a result; intake's own SOC follow-up tasks reference the shift seeding result.
+- First production hand-off: **Recruiting agent → Scheduling agent** (recruiting agent already needs this in Phase 2.6 — until Phase 5 ships, recruiting just sets archive_phase=won and emits an alert). After Phase 5, recruiting enqueues a typed request to scheduling for first-shift seeding.
+- Second hand-off: Intake agent → Scheduling agent. When intake confirms a SOC date, intake enqueues a request for scheduling to seed initial shifts. Scheduling consumes, suggests an initial schedule, and (in shadow mode for first 30 days) returns a result.
 - Audit: every hand-off writes to `agent_actions` on both sides (`enqueued_agent_request` from sender, `processed_agent_request` from receiver). The chain links them via `agent_actions.linked_action_id`.
 
-**Exit criteria**: Intake → Scheduling hand-off works end-to-end, both sides shadow-mode for the new path, no degradation of either agent's outcome rates.
+**Exit criteria**: Recruiting → Scheduling and Intake → Scheduling hand-offs both work end-to-end. Both sides shadow-mode for the new paths. No degradation of any agent's outcome rates.
 
-**Rollback**: pause the queue cron, hand-offs queue but do not process; agents fall back to independent operation.
+**Rollback**: pause the queue cron, hand-offs queue but do not process; agents fall back to independent operation (recruiting reverts to "set archive_phase=won and alert").
 
 ---
 
-## Phase 5 — Care coordination agent
+## Phase 6 — Care coordination agent
 
-**Goal**: Third new production agent. Ongoing client care management, family communication, escalations, visit follow-ups.
+**Goal**: Fourth new production agent. Ongoing client care management, family communication, escalations, visit follow-ups.
 
-**Gate**: Phase 4 baked ≥ 30 days, Intake → Scheduling hand-off live and green.
+**Gate**: Phase 5 baked ≥ 30 days, Recruiting/Intake → Scheduling hand-offs live and green.
 
-Sliced like Phases 2 and 3. Notable differences:
+Sliced like Phases 2, 3, and 4. Notable differences:
 
 - Heavy reliance on `agent_requests` from the start. Care coordination consumes hand-offs from intake (post-SOC) and scheduling (post-clock-in patterns) and emits hand-offs back to scheduling (caregiver-fit issues) and intake (re-engagement of paused clients).
 - Outcome definition centered on retention milestones: 30-day, 90-day, 180-day client retention; satisfaction survey responses; escalation resolution time.
@@ -510,11 +663,11 @@ Sliced like Phases 2 and 3. Notable differences:
 
 ---
 
-## Phase 6 — Marketplace, billing, voice, mobile
+## Phase 7 — Marketplace, billing, voice, mobile
 
 **Goal**: Make the platform sellable to other agencies and unlock vertical differentiators.
 
-**Gate**: SaaS Phase E shipped + Phase 5 baked.
+**Gate**: SaaS Phase E shipped + Phase 6 baked.
 
 - **Marketplace UI**: agent catalog, per-org install/configure/test in sandbox, version pinning, cost preview.
 - **Per-task billing**: meter `agent_actions` rows with `phase = 'verified_outcome'` per agent per org, integrate with Stripe + QBO. Dispute resolution surface: customer can flag a charge, the audit log + `outcome_definition` produces the receipt.
@@ -561,13 +714,17 @@ These were identified during the agent platform survey:
 Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` under "Strategic decisions locked". Operational decisions specific to the plan:
 
 - **Three legacy agents migrate, do not rebuild.** Behavior parity verified by replay harness in Phase 0.3, gated CI in Phase 0.4.
-- **Intake is the first new production agent.** Scheduling is second. Care coordination is third.
+- **Recruiting graduation is the wedge** (revised 2026-04-30). Intake is second. Scheduling is third. Care coordination is fourth.
+- **Onboarding-complete task = win signal.** The orientation conductor (human) checks an `onboarding_complete` task; the agent observes that as the verified third-party outcome. Agent never marks its own work done.
+- **Process is data, not code.** Funnel stages, transitions, timeouts, branching rules, message templates, human gates, time targets all live in editable rows. The runtime is the only thing in code. See `docs/AGENT_PLATFORM_PROCESS.md`.
+- **Phase 1.5 retrospective grading UI** ships before Phase 2. Months of accumulated `ai_suggestions` data become Phase 2's calibration set.
 - **`agent_id = NULL` on memory means org-level shared.** Tag `shareable` on a non-NULL row also makes it cross-agent readable. Both are intentional, both are documented.
 - **`agent_actions` is hash-chained Ed25519-signed per-org.** Until SaaS Phase C ships per-org Vault secrets, Tremendous Care uses a single env-var key with a sentinel comment for cutover.
 - **Promotion algorithm v2 is the only autonomy algorithm after Phase 1.2.** The legacy `autonomy_config` table becomes a back-compat view.
-- **Coarse first, split when data signals it.** No premature sub-agent splits during Phase 2–5.
-- **Shadow mode is mandatory for every new agent**, ≥ 7 days minimum, longer per agent risk profile (intake 14, scheduling 21).
+- **Coarse first, split when data signals it.** No premature sub-agent splits during Phase 2–6.
+- **Shadow mode is mandatory for every new agent**, ≥ 7 days minimum, longer per agent risk profile (recruiting per-stage 14, intake 14, scheduling 21).
 - **Per-agent edge function shells stay**, even though the runtime is shared. They preserve the HTTP/cron contract and make per-agent deploy/observability cleaner. They are 30–60 lines each, not 500.
+- **Microsoft 365 Bookings integration uses Graph API webhooks**. Required by Phase 2.2 (Stage 3 Booking orchestrator). Owner is implementing in parallel with infra phases. Spec in `docs/AGENT_PLATFORM_PROCESS.md` → "Microsoft 365 Bookings integration spec."
 
 ---
 
@@ -585,6 +742,7 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` under "Strategic dec
 ## Related artifacts in the repo
 
 - `docs/AGENT_PLATFORM_VISION.md` — vision, prime directives, locked strategic decisions.
+- `docs/AGENT_PLATFORM_PROCESS.md` — recruiting/onboarding process source-of-truth (as-is and target state, survey rules, document flows, M365 Bookings integration spec, time targets, human gates, open process questions).
 - `docs/AGENT_PLATFORM_STATUS.md` — current phase, shipped PRs, decision log.
 - `docs/SAAS_RETROFIT.md` — multi-tenancy retrofit plan; Phase B5 is the gate for Phase 2.
 - `docs/SAAS_RETROFIT_STATUS.md` — current SaaS phase.

@@ -1,7 +1,8 @@
 # Agent Platform — Vision
 
-**Status**: Vision document — locked directives below. Implementation plan and tracker spawned.
+**Status**: Vision document — locked directives below. Implementation plan, process source-of-truth, and tracker all spawned.
 **Plan**: `docs/AGENT_PLATFORM.md` (full phased plan)
+**Process**: `docs/AGENT_PLATFORM_PROCESS.md` (recruiting/onboarding as-is + target state, the contract Phase 2 enacts)
 **Tracker**: `docs/AGENT_PLATFORM_STATUS.md` (current phase, decisions, shipped PRs)
 **Prerequisite for Phase 0 (foundation refactor)**: none — runs in parallel with SaaS Phase B–C/D as additive scaffolding.
 **Prerequisite for Phase 2+ (new live agents for Tremendous Care)**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, plus the new `agents` table) — i.e., RLS actually enforces tenant isolation, not just permissive policies.
@@ -65,10 +66,10 @@ The agents we plan to build, ordered by current priority. Ambitions, not commitm
 
 | Agent | Status | Notes |
 |-------|--------|-------|
-| **Recruiting Agent** | Exists, migrates in Phase 0 | Today's AI chat. Sources, screens, advances candidates through the pipeline. Becomes the first row in the `agents` table during platform extraction. Behavior must be indistinguishable from today's after migration (verified by replay parity harness). |
-| **Intake / Lead Management Agent** | **Wedge — first new agent** | Moves new client leads through inquiry → assessment → start-of-care. Chosen as the wedge because the team is struggling here today (highest internal pain), the blast radius is smaller than scheduling, and the success outcome is clean (`start_of_care_date` set). Ships in Phase 2. |
-| **Scheduling Agent** | Next after Intake | Fills open shifts, handles call-offs, manages caregiver-shift matching, learns availability patterns. Highest stakes and biggest external demo wow-factor — but moved behind Intake because Intake delivers more internal value sooner and de-risks the runtime before we expose Scheduling's larger blast radius. Outcome: verified clock-in. |
-| **Care Coordination Agent** | Planned | Ongoing client care management, family communication, escalations, visit follow-ups. Heavy memory + cross-agent dependency; ships after the inter-agent dispatch layer. |
+| **Recruiting Agent** | Exists today as AI chat copilot. **Wedge — graduates to autonomous funnel orchestrator in Phase 2** | The recruiting agent is already in production use by the owner. Months of accumulated `ai_suggestions` data exist for calibration. Phase 2 transforms it from copilot into per-caregiver orchestrator: drives every applicant from CSV upload to verified orientation completion, inserting humans only at three locked gates (interview, document accuracy review, orientation). Outcome: `onboarding_complete` task checked by orientation conductor. Process source-of-truth: `docs/AGENT_PLATFORM_PROCESS.md`. |
+| **Intake / Lead Management Agent** | Second new agent | Moves new client leads through inquiry → assessment → start-of-care. Smaller blast radius than scheduling, cleanest outcome signal (`start_of_care_date` set). Ships in Phase 3. |
+| **Scheduling Agent** | Third new agent | Fills open shifts, handles call-offs, manages caregiver-shift matching, learns availability patterns. Highest stakes, biggest external demo wow-factor — sequenced behind recruiting + intake so the runtime, audit log, and autonomy-v2 algorithm are battle-tested before scheduling exposes its larger blast radius. Outcome: verified clock-in. |
+| **Care Coordination Agent** | Fourth new agent | Ongoing client care management, family communication, escalations, visit follow-ups. Heavy memory + cross-agent dependency; ships after the inter-agent dispatch layer (Phase 5). |
 | **(More)** | Speculative | Compliance, retention, family communication, QA/supervision, billing reconciliation, onboarding, training, voice. List expands as the platform matures. |
 
 ---
@@ -76,12 +77,15 @@ The agents we plan to build, ordered by current priority. Ambitions, not commitm
 ## Strategic decisions locked
 
 - **Replace, don't layer.** We replace incumbent CRMs (HHAeXchange, AxisCare, MatrixCare, WellSky), not integrate alongside them. The CRM substrate must stand on its own.
-- **Intake agent is the wedge** (revised 2026-04-30). First new agent ships for Intake. Scheduling moves to second. Rationale: highest internal pain today, smallest blast radius among the candidates, cleanest outcome signal (start-of-care date), and de-risks the runtime before we expose Scheduling.
-- **Recruiting agent migrates onto the platform**, not rebuilt. Behavior must be indistinguishable from today's AI chat after migration. Indistinguishability is verified by a replay-parity harness, not a vibe check.
+- **Recruiting graduation is the wedge** (revised 2026-04-30, supersedes the earlier "intake is the wedge" decision). The recruiting agent already runs in production. Months of accumulated `ai_suggestions` data exist as an "implicit shadow mode" calibration set. The team uses the chat — improvements show up in software they already open, no new review habit needed. Phase 2 transforms recruiting from copilot into autonomous funnel orchestrator. Intake moves to second; scheduling third.
+- **Recruiting agent migrates onto the platform**, not rebuilt. Behavior must be indistinguishable from today's AI chat after Phase 0.4 migration. Indistinguishability is verified by a replay-parity harness, not a vibe check. Phase 2 then *adds* orchestration on top — also non-destructive (the chat copilot continues to work; the orchestrator runs in parallel via cron + event triggers).
+- **Onboarding-complete task = recruiting-agent win signal.** The orientation conductor (human) checks an `onboarding_complete` task on the caregiver record; the agent observes that as the verified third-party outcome. Agent never marks its own work done. This satisfies Prime Directive #2.
+- **Process is data, not code.** The funnel state machine, transitions, timeouts, branching rules, message templates, human gates, and time targets all live in editable rows. Process changes are config edits, not deploys. See `docs/AGENT_PLATFORM_PROCESS.md`.
+- **Phase 1.5 retrospective grading UI** ships before Phase 2. Months of accumulated `ai_suggestions` (3,847 stamped, 0 graded as of 2026-04-30) become Phase 2's calibration data set.
 - **Coarse-first agent granularity.** One agent per business domain at launch. Split into sub-agents only when data signals it (see Prime Directive #7). The split is reversible — agents-as-data make this cheap.
 - **Per-agent memory by default; cross-agent via tagged promotion.** See Prime Directive #4. Cross-org learning remains off by default.
 - **Outcome verification is third-party-by-default.** See Prime Directive #2. Per-agent escape clauses are allowed but must be explicit fields on the agent manifest, not silent defaults.
-- **Pricing direction (soft, not locked):** per-completed-outcome — shifts filled (verified clock-in), caregivers onboarded (signed envelope + first shift completed), clients started (start-of-care date set). The architecture commits to *making outcomes countable, third-party-verified, and disputable*; specific tier prices and base subscription remain open.
+- **Pricing direction (soft, not locked):** per-completed-outcome — caregivers onboarded (orientation completed), shifts filled (verified clock-in), clients started (start-of-care date set). The architecture commits to *making outcomes countable, third-party-verified, and disputable*; specific tier prices and base subscription remain open.
 
 ---
 
