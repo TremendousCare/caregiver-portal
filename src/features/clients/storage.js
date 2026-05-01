@@ -198,6 +198,16 @@ export const dbToClient = (row) => ({
   startDatePreference: row.start_date_preference,
   budgetRange: row.budget_range,
   insuranceInfo: row.insurance_info,
+  // Billing rate config (nullable; populated for active clients via the
+  // ClientProfileCard "Billing" section). Numeric in DB; coerced to
+  // Number here, null when the column is null.
+  defaultBillableRate: row.default_billable_rate != null
+    ? Number(row.default_billable_rate)
+    : null,
+  defaultBillableOtRate: row.default_billable_ot_rate != null
+    ? Number(row.default_billable_ot_rate)
+    : null,
+  payerType: row.payer_type ?? null,
   referralSource: row.referral_source,
   referralDetail: row.referral_detail,
   phase: row.phase || 'new_lead',
@@ -222,6 +232,27 @@ export const dbToClient = (row) => ({
   updatedAt: row.updated_at,
 });
 
+/**
+ * Coerce a billing-rate form input to its DB representation.
+ * - Empty string / null / undefined → null (column stays nullable).
+ * - "0" / 0 → 0 (a real zero; the user explicitly entered it).
+ * - Negative numbers → null (defensive; rates are never negative).
+ * - Anything that doesn't parse → null (would otherwise crash the
+ *   numeric column on UPSERT).
+ *
+ * Exported so the profile-card edit form and any future bulk import
+ * flow can normalize identically.
+ */
+export function normalizeBillableRate(value) {
+  if (value == null) return null;
+  // Trim string inputs so a stray "  " doesn't parse to 0 via Number().
+  const trimmed = typeof value === 'string' ? value.trim() : value;
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 const clientToDb = (cl) => ({
   id: cl.id,
   first_name: cl.firstName || '',
@@ -241,6 +272,9 @@ const clientToDb = (cl) => ({
   start_date_preference: cl.startDatePreference || null,
   budget_range: cl.budgetRange || '',
   insurance_info: cl.insuranceInfo || '',
+  default_billable_rate: normalizeBillableRate(cl.defaultBillableRate),
+  default_billable_ot_rate: normalizeBillableRate(cl.defaultBillableOtRate),
+  payer_type: cl.payerType || null,
   referral_source: cl.referralSource || '',
   referral_detail: cl.referralDetail || '',
   phase: cl.phase || 'new_lead',

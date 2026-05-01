@@ -73,6 +73,11 @@ export function ClientProfileCard({ client, onUpdateClient }) {
       startDatePreference: client.startDatePreference || '',
       budgetRange: client.budgetRange || '',
       insuranceInfo: client.insuranceInfo || '',
+      // Billing rate config — empty string in the form maps back to
+      // null in the DB via normalizeBillableRate in storage.js.
+      defaultBillableRate: client.defaultBillableRate ?? '',
+      defaultBillableOtRate: client.defaultBillableOtRate ?? '',
+      payerType: client.payerType || '',
       referralSource: client.referralSource || '',
       referralDetail: client.referralDetail || '',
       assignedTo: client.assignedTo || '',
@@ -90,6 +95,11 @@ export function ClientProfileCard({ client, onUpdateClient }) {
     setEditForm((f) => ({ ...f, [field]: value }));
   };
 
+  const formatRate = (n) =>
+    typeof n === 'number' && Number.isFinite(n)
+      ? n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+      : null;
+
   const profileFields = [
     { label: 'Full Name', value: `${client.firstName || ''} ${client.lastName || ''}`.trim() },
     { label: 'Phone', value: client.phone },
@@ -104,6 +114,11 @@ export function ClientProfileCard({ client, onUpdateClient }) {
     { label: 'Start Preference', value: client.startDatePreference },
     { label: 'Budget Range', value: client.budgetRange },
     { label: 'Insurance Info', value: client.insuranceInfo },
+    // Billing — surface even when null so the back office sees what's
+    // missing on a client. Used by the Invoicing tab; see docs/INVOICING.md.
+    { label: 'Standard Billable Rate', value: formatRate(client.defaultBillableRate) },
+    { label: 'Overtime Billable Rate', value: formatRate(client.defaultBillableOtRate) },
+    { label: 'Payer Type', value: client.payerType },
     { label: 'Referral Source', value: [client.referralSource, client.referralDetail].filter(Boolean).join(' — ') || null },
     { label: 'Assigned To', value: client.assignedTo },
     { label: 'Priority', value: CLIENT_PRIORITIES.find((p) => p.id === client.priority)?.label || 'Normal' },
@@ -210,6 +225,49 @@ export function ClientProfileCard({ client, onUpdateClient }) {
             </div>
             <EditField label="Budget Range" value={editForm.budgetRange} onChange={(v) => editField('budgetRange', v)} />
             <EditField label="Insurance Info" value={editForm.insuranceInfo} onChange={(v) => editField('insuranceInfo', v)} />
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F', margin: '16px 0 8px' }}>Billing</div>
+          <div className={forms.formGrid}>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Standard Billable Rate ($/hr)</label>
+              <input
+                className={forms.fieldInput}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="e.g. 35.00"
+                value={editForm.defaultBillableRate}
+                onChange={(e) => editField('defaultBillableRate', e.target.value)}
+              />
+            </div>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Overtime Billable Rate ($/hr)</label>
+              <input
+                className={forms.fieldInput}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Leave blank for 1.5× standard"
+                value={editForm.defaultBillableOtRate}
+                onChange={(e) => editField('defaultBillableOtRate', e.target.value)}
+              />
+            </div>
+            <div className={forms.field}>
+              <label className={forms.fieldLabel}>Payer Type</label>
+              <select
+                className={forms.fieldInput}
+                value={editForm.payerType}
+                onChange={(e) => editField('payerType', e.target.value)}
+              >
+                <option value="">Select...</option>
+                <option value="private_pay">Private Pay</option>
+                <option value="medicaid">Medicaid</option>
+                <option value="ltc_insurance">Long-Term Care Insurance</option>
+                <option value="va">VA</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
 
           <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7B8F', margin: '16px 0 8px' }}>Lead Info</div>
