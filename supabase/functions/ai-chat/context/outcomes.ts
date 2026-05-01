@@ -34,6 +34,7 @@ export async function logAction(
   actor: string,
   actionContext: Record<string, any> = {},
   source: "ai_chat" | "automation" | "manual" = "ai_chat",
+  agentId?: string | null,
 ): Promise<void> {
   if (!TRACKABLE_ACTIONS.has(actionType)) return;
 
@@ -42,7 +43,7 @@ export async function logAction(
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiryDays);
 
-    const { error } = await supabase.from("action_outcomes").insert({
+    const row: Record<string, any> = {
       action_type: actionType,
       entity_type: entityType,
       entity_id: entityId,
@@ -50,7 +51,9 @@ export async function logAction(
       action_context: actionContext,
       source,
       expires_at: expiresAt.toISOString(),
-    });
+    };
+    if (agentId) row.agent_id = agentId;
+    const { error } = await supabase.from("action_outcomes").insert(row);
     if (error) {
       console.error(`[outcomes] Failed to log action ${actionType}:`, error);
     }
