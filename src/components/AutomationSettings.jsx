@@ -91,6 +91,7 @@ const MERGE_FIELDS = [
   { key: 'overall_progress', label: 'Progress %' },
   { key: 'survey_link', label: 'Survey Link' },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
+  { key: 'booking_url', label: 'Booking URL', triggers: ['task_completed'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
   { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },

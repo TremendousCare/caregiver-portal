@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getBookingUrlFromOrgSettings } from "../_shared/helpers/bookings.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -311,6 +312,7 @@ function resolveTemplate(
     message_text: triggerContext?.message_text || "",
     sender_number: triggerContext?.sender_number || "",
     survey_link: triggerContext?.survey_link || "",
+    booking_url: triggerContext?.booking_url || "",
   };
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => fieldMap[key] || "");
 }
@@ -478,9 +480,13 @@ Deno.serve(async (req) => {
     }
 
     // ─── Fetch Full Entity Data for Dynamic Fields ───
+    const needsFullData =
+      message_template?.includes("{{days_in_phase}}") ||
+      message_template?.includes("{{overall_progress}}") ||
+      message_template?.includes("{{booking_url}}") ||
+      ["update_phase", "complete_task", "add_note", "update_field", "send_docusign_envelope"].includes(action_type);
     let caregiverFullData: Record<string, any> | null = null;
-    if (message_template?.includes("{{days_in_phase}}") || message_template?.includes("{{overall_progress}}") ||
-        ["update_phase", "complete_task", "add_note", "update_field", "send_docusign_envelope"].includes(action_type)) {
+    if (needsFullData) {
       const { data: cgData } = await supabase
         .from(tableName)
         .select("*")
@@ -489,9 +495,26 @@ Deno.serve(async (req) => {
       caregiverFullData = cgData;
     }
 
+    // ─── Per-Org Bookings URL Resolution ───
+    // {{booking_url}} resolves to organizations.settings.bookings.public_url
+    // for the entity's org. Multi-tenant: each customer org configures its
+    // own Microsoft Bookings page in its settings JSON.
+    let enrichedTriggerContext = trigger_context;
+    if (message_template?.includes("{{booking_url}}") && caregiverFullData?.org_id) {
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("settings")
+        .eq("id", caregiverFullData.org_id)
+        .maybeSingle();
+      const bookingUrl = getBookingUrlFromOrgSettings(orgRow?.settings);
+      if (bookingUrl) {
+        enrichedTriggerContext = { ...(trigger_context || {}), booking_url: bookingUrl };
+      }
+    }
+
     // ─── Resolve Template ───
     const resolvedMessage = message_template
-      ? resolveTemplate(message_template, caregiver, trigger_context, caregiverFullData, entity_type)
+      ? resolveTemplate(message_template, caregiver, enrichedTriggerContext, caregiverFullData, entity_type)
       : "";
 
     // ─── Execute Action ───
