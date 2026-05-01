@@ -37,46 +37,65 @@ export interface AgentManifest {
 
 export class AgentNotFoundError extends Error {
   readonly code = "agent_not_found";
-  constructor(slug: string, orgId?: string) {
-    super(
-      `Agent manifest not found for slug="${slug}"${orgId ? ` org_id=${orgId}` : ""}.`,
-    );
+  constructor(slug: string, orgId: string) {
+    super(`Agent manifest not found for slug="${slug}" org_id=${orgId}.`);
     this.name = "AgentNotFoundError";
+  }
+}
+
+export class MissingOrgIdError extends Error {
+  readonly code = "missing_org_id";
+  constructor() {
+    super(
+      "loadManifest: orgId is required. The runtime uses a service-role " +
+        "supabase client which bypasses RLS, so manifest queries must scope " +
+        "by org_id explicitly. (agents.unique = (org_id, slug); a slug-only " +
+        "lookup returns multiple rows once a second org exists.)",
+    );
+    this.name = "MissingOrgIdError";
   }
 }
 
 export interface LoadManifestOptions {
   /**
-   * Org id to scope the lookup to. Defaults to the caller's resolved org. In
-   * Phase 0.3 every call passes Tremendous Care's org via the supabase
-   * service-role client, which bypasses RLS. Phase 0.4 + Phase B5 work
-   * tightens this — at that point the runtime resolves org from the JWT.
+   * Org id to scope the lookup to. **Required.** The runtime uses a
+   * service-role supabase client which bypasses RLS — and the
+   * `agents` schema enforces uniqueness on (org_id, slug), not slug alone.
+   * A slug-only query would return multiple rows the moment customer #2
+   * is onboarded and `maybeSingle()` would error. Forcing every caller to
+   * supply an explicit org id is the only correct posture; it also matches
+   * SaaS retrofit Prime Directive #3 ("every new query is org-scoped").
+   *
+   * Phase 0.4 callers resolve this from the staff JWT (`org_id` claim)
+   * for chat invocations and from a known constant for cron-triggered
+   * planner / router invocations.
    */
-  orgId?: string;
+  orgId: string;
 }
 
 /**
- * Look up an agent manifest by slug. Throws `AgentNotFoundError` if no row
- * matches. Throws a plain Error on transport failure (so callers can decide
- * whether to retry or surface).
+ * Look up an agent manifest by `(org_id, slug)`. Throws:
+ *   - `MissingOrgIdError` if `options.orgId` is empty / undefined.
+ *   - `AgentNotFoundError` if no row matches.
+ *   - A plain Error on transport failure.
  */
 export async function loadManifest(
   supabase: any,
   slug: string,
-  options: LoadManifestOptions = {},
+  options: LoadManifestOptions,
 ): Promise<AgentManifest> {
-  let query = supabase
+  if (!options || typeof options.orgId !== "string" || options.orgId.length === 0) {
+    throw new MissingOrgIdError();
+  }
+
+  const { data, error } = await supabase
     .from("agents")
     .select(
       "id, org_id, slug, name, version, system_prompt, tool_allowlist, autonomy_profile, context_recipe, model, max_iterations, kill_switch, shadow_mode, outcome_definition, triggers",
     )
-    .eq("slug", slug);
-
-  if (options.orgId) {
-    query = query.eq("org_id", options.orgId);
-  }
-
-  const { data, error } = await query.maybeSingle();
+    .eq("slug", slug)
+    .eq("org_id", options.orgId)
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Manifest load failed for slug=${slug}: ${error.message}`);

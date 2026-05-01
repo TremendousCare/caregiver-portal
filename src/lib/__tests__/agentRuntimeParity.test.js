@@ -158,6 +158,9 @@ async function runFixture(fixture) {
     apiKey: 'test-key',
     callAnthropicImpl,
     now: () => 0, // pin duration_ms = 0 for deterministic equality on cost
+    // Org id is required (post-Codex review). Fixtures pin org_id='tc-org'
+    // on every manifest, so the runtime's (org_id, slug) lookup matches.
+    orgId: fixture.manifest.org_id,
   });
 
   return { result, captured };

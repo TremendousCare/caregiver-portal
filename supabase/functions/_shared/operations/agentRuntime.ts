@@ -29,6 +29,7 @@
 import {
   AgentManifest,
   AgentNotFoundError,
+  MissingOrgIdError,
   loadManifest,
   isToolAllowed,
   levelForAction,
@@ -54,7 +55,13 @@ export type {
   RouterHandlerRequest,
   RouterClassification,
 };
-export { AgentNotFoundError, isToolAllowed, levelForAction, recipeLayers };
+export {
+  AgentNotFoundError,
+  MissingOrgIdError,
+  isToolAllowed,
+  levelForAction,
+  recipeLayers,
+};
 
 // ─── Public types ───
 
@@ -92,8 +99,14 @@ export interface AgentResult {
 }
 
 export interface RunAgentOptions {
-  /** Service-role supabase client (the runtime never uses user JWT in 0.3). */
-  // (passed positionally; documented here for clarity)
+  /**
+   * Org id to scope the manifest lookup to. **Required.** The runtime uses a
+   * service-role supabase client which bypasses RLS, and `agents.unique` is
+   * `(org_id, slug)` — a slug-only query would return multiple rows the
+   * moment customer #2 is onboarded. Phase 0.4 shells resolve this from the
+   * staff JWT for chat or from a known constant for cron-triggered runs.
+   */
+  orgId: string;
   /** Anthropic API key. Pulled from env in production; injected in tests. */
   apiKey?: string;
   /** Override fetch (tests). Production uses globalThis.fetch. */
@@ -104,8 +117,6 @@ export interface RunAgentOptions {
   now?: () => number;
   /** Override sleep() so retry backoff doesn't burn real time (tests). */
   sleep?: (ms: number) => Promise<void>;
-  /** Optional org id to scope the manifest lookup. Defaults to RLS-implicit. */
-  orgId?: string;
 }
 
 const ZERO_COST = {
@@ -127,8 +138,29 @@ export async function runAgent(
   supabase: any,
   slug: string,
   request: AgentRequest,
-  options: RunAgentOptions = {},
+  options: RunAgentOptions,
 ): Promise<AgentResult> {
+  // ── Validate orgId (required) ──
+  if (
+    !options ||
+    typeof options.orgId !== "string" ||
+    options.orgId.length === 0
+  ) {
+    return {
+      status: "error",
+      error: {
+        message:
+          "runAgent: options.orgId is required. The runtime uses a service-role " +
+          "supabase client and agents.unique is (org_id, slug) — every call must " +
+          "scope the manifest lookup to an explicit org.",
+        code: "missing_org_id",
+      },
+      agent: { id: "", slug, version: 0 },
+      shadow: false,
+      cost: { ...ZERO_COST },
+    };
+  }
+
   // ── Resolve API key ──
   let apiKey = options.apiKey;
   if (!apiKey) {
@@ -148,6 +180,15 @@ export async function runAgent(
     manifest = await loadManifest(supabase, slug, { orgId: options.orgId });
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
+      return {
+        status: "error",
+        error: { message: err.message, code: err.code },
+        agent: { id: "", slug, version: 0 },
+        shadow: false,
+        cost: { ...ZERO_COST },
+      };
+    }
+    if (err instanceof MissingOrgIdError) {
       return {
         status: "error",
         error: { message: err.message, code: err.code },

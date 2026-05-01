@@ -137,7 +137,7 @@ describe('Agent Platform Phase 0.3 — Layer C live API smoke', () => {
           executeTool: async () => ({}),
         },
       },
-      { apiKey },
+      { apiKey, orgId: 'tc-live' },
     );
 
     if (isTransient(result)) {
@@ -169,7 +169,7 @@ describe('Agent Platform Phase 0.3 — Layer C live API smoke', () => {
             'Return the JSON: {"ok": true}. No prose, no markdown, just the JSON.',
         },
       },
-      { apiKey },
+      { apiKey, orgId: 'tc-live' },
     );
 
     if (isTransient(result)) {
@@ -203,7 +203,7 @@ describe('Agent Platform Phase 0.3 — Layer C live API smoke', () => {
             'Inbound SMS from a caregiver: "STOP". Classify the intent.',
         },
       },
-      { apiKey },
+      { apiKey, orgId: 'tc-live' },
     );
 
     if (isTransient(result)) {

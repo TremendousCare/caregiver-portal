@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   runAgent,
   AgentNotFoundError,
+  MissingOrgIdError,
   isToolAllowed,
   levelForAction,
   recipeLayers,
@@ -208,36 +209,54 @@ function claudeJsonResponse(jsonObj, usage = { input_tokens: 20, output_tokens: 
 // ─── manifest module tests ───
 
 describe('manifest — loadManifest', () => {
-  it('loads the manifest happy path', async () => {
+  it('loads the manifest happy path with org-scoped filters', async () => {
     const m = recruitingManifest();
     const sb = makeSupabaseStub(m);
-    const result = await loadManifest(sb, 'recruiting');
+    const result = await loadManifest(sb, 'recruiting', { orgId: 'tc-org' });
     expect(result).toEqual(m);
     expect(sb.from).toHaveBeenCalledWith('agents');
-    expect(sb._calls.builder._filters).toEqual([['slug', 'recruiting']]);
+    expect(sb._calls.builder._filters).toEqual([
+      ['slug', 'recruiting'],
+      ['org_id', 'tc-org'],
+    ]);
+  });
+
+  it('throws MissingOrgIdError when orgId is omitted', async () => {
+    const sb = makeSupabaseStub(recruitingManifest());
+    await expect(loadManifest(sb, 'recruiting')).rejects.toBeInstanceOf(
+      MissingOrgIdError,
+    );
+  });
+
+  it('throws MissingOrgIdError when orgId is empty string', async () => {
+    const sb = makeSupabaseStub(recruitingManifest());
+    await expect(
+      loadManifest(sb, 'recruiting', { orgId: '' }),
+    ).rejects.toBeInstanceOf(MissingOrgIdError);
+  });
+
+  it('does not query the DB when orgId is missing (fail-fast)', async () => {
+    const sb = makeSupabaseStub(recruitingManifest());
+    await loadManifest(sb, 'recruiting', { orgId: 'tc-org' }).catch(() => {});
+    sb.from.mockClear();
+    await expect(loadManifest(sb, 'recruiting')).rejects.toBeInstanceOf(
+      MissingOrgIdError,
+    );
+    expect(sb.from).not.toHaveBeenCalled();
   });
 
   it('throws AgentNotFoundError when the row is absent', async () => {
     const sb = makeSupabaseStub(null, { notFound: true });
-    await expect(loadManifest(sb, 'mystery_agent')).rejects.toBeInstanceOf(
-      AgentNotFoundError,
-    );
+    await expect(
+      loadManifest(sb, 'mystery_agent', { orgId: 'tc-org' }),
+    ).rejects.toBeInstanceOf(AgentNotFoundError);
   });
 
   it('throws a generic Error on transport failure', async () => {
     const sb = makeSupabaseStub(null, { dbError: 'connection refused' });
-    await expect(loadManifest(sb, 'recruiting')).rejects.toThrow(
-      /Manifest load failed/,
-    );
-  });
-
-  it('passes orgId as an additional filter when provided', async () => {
-    const sb = makeSupabaseStub(recruitingManifest());
-    await loadManifest(sb, 'recruiting', { orgId: 'some-org' });
-    expect(sb._calls.builder._filters).toEqual([
-      ['slug', 'recruiting'],
-      ['org_id', 'some-org'],
-    ]);
+    await expect(
+      loadManifest(sb, 'recruiting', { orgId: 'tc-org' }),
+    ).rejects.toThrow(/Manifest load failed/);
   });
 });
 
@@ -441,7 +460,7 @@ describe('runAgent — kill switch', () => {
         shape: 'chat',
         chat: makeMinimalChatRequest(),
       },
-      { apiKey: 'test', callAnthropicImpl },
+      { apiKey: 'test', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.status).toBe('killed');
     expect(result.agent.slug).toBe('recruiting');
@@ -455,7 +474,7 @@ describe('runAgent — kill switch', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.cost).toEqual({
       input_tokens: 0,
@@ -472,7 +491,7 @@ describe('runAgent — kill switch', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.reply).toMatch(/dormant/i);
   });
@@ -485,7 +504,7 @@ describe('runAgent — manifest errors', () => {
       sb,
       'mystery',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.status).toBe('error');
     expect(result.error?.code).toBe('agent_not_found');
@@ -498,7 +517,7 @@ describe('runAgent — manifest errors', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.status).toBe('error');
     expect(result.error?.code).toBe('manifest_load_failed');
@@ -511,17 +530,43 @@ describe('runAgent — manifest errors', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: undefined },
+      { apiKey: undefined, orgId: 'tc-org' },
     );
     expect(result.status).toBe('error');
     expect(result.error?.code).toBe('missing_api_key');
+  });
+
+  it('errors with missing_org_id when orgId is omitted (fail-fast before manifest load)', async () => {
+    const sb = makeSupabaseStub(recruitingManifest());
+    const result = await runAgent(
+      sb,
+      'recruiting',
+      { shape: 'chat', chat: makeMinimalChatRequest() },
+      { apiKey: 'k' },
+    );
+    expect(result.status).toBe('error');
+    expect(result.error?.code).toBe('missing_org_id');
+    // Defense in depth: no DB call should have happened.
+    expect(sb.from).not.toHaveBeenCalled();
+  });
+
+  it('errors with missing_org_id when orgId is the empty string', async () => {
+    const sb = makeSupabaseStub(recruitingManifest());
+    const result = await runAgent(
+      sb,
+      'recruiting',
+      { shape: 'chat', chat: makeMinimalChatRequest() },
+      { apiKey: 'k', orgId: '' },
+    );
+    expect(result.status).toBe('error');
+    expect(result.error?.code).toBe('missing_org_id');
   });
 });
 
 describe('runAgent — request shape validation', () => {
   it('rejects a missing shape', async () => {
     const sb = makeSupabaseStub(recruitingManifest());
-    const result = await runAgent(sb, 'recruiting', {}, { apiKey: 'k' });
+    const result = await runAgent(sb, 'recruiting', {}, { apiKey: 'k', orgId: 'tc-org' });
     expect(result.status).toBe('error');
     expect(result.error?.code).toBe('invalid_request');
   });
@@ -532,7 +577,7 @@ describe('runAgent — request shape validation', () => {
       sb,
       'recruiting',
       { shape: 'mystery_shape' },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.status).toBe('error');
   });
@@ -543,7 +588,7 @@ describe('runAgent — request shape validation', () => {
       sb,
       'recruiting',
       { shape: 'chat' },
-      { apiKey: 'k' },
+      { apiKey: 'k', orgId: 'tc-org' },
     );
     expect(result.status).toBe('error');
     expect(result.error?.message).toMatch(/chat payload is required/);
@@ -837,7 +882,7 @@ describe('runAgent — chat shadow mode', () => {
           executeTool: realExecute,
         }),
       },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.status).toBe('shadow');
     expect(result.shadow).toBe(true);
@@ -867,7 +912,7 @@ describe('runAgent — chat shadow mode', () => {
           executeTool: realExecute,
         }),
       },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(realExecute).toHaveBeenCalledTimes(1);
     expect(result.toolResults?.[0]?.result).toEqual({ ok: true, found: 1 });
@@ -881,7 +926,7 @@ describe('runAgent — chat shadow mode', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.status).toBe('ok');
     expect(result.shadow).toBe(false);
@@ -1144,7 +1189,7 @@ describe('runAgent — dispatches to the right handler by shape', () => {
           userPrompt: 'up',
         },
       },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.status).toBe('ok');
     expect(result.agent.slug).toBe('proactive_planner');
@@ -1171,7 +1216,7 @@ describe('runAgent — dispatches to the right handler by shape', () => {
         shape: 'router',
         router: { systemPrompt: 'sp', userPrompt: 'up' },
       },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.status).toBe('ok');
     expect(result.agent.slug).toBe('inbound_router');
@@ -1187,7 +1232,7 @@ describe('runAgent — dispatches to the right handler by shape', () => {
       sb,
       'recruiting',
       { shape: 'chat', chat: makeMinimalChatRequest() },
-      { apiKey: 'k', callAnthropicImpl },
+      { apiKey: 'k', callAnthropicImpl, orgId: 'tc-org' },
     );
     expect(result.agent).toEqual({
       id: 'agent-recruiting-uuid',
