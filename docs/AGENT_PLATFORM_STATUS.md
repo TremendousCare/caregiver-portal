@@ -11,13 +11,11 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.3 — `agentRuntime.ts` + behavioral parity test harness** *(In progress, branch `claude/agent-platform-phase-0-3`)*
+**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(planned, gated on Phase 0.3 bake)*
 
-**Status**: PR open. Production infrastructure unchanged. The agentRuntime helper, the three internal handlers, and the three-layer parity harness ship; legacy edge functions stay live and untouched. Phase 0.4 wires the cutover.
+**Status**: Phase 0.3 shipped 2026-05-01 via PR #247. Bake on `main` for ≥ 7 days before kicking off 0.4. Daily Layer C smoke runs against real Anthropic on every PR keep the parity bar honest during the bake.
 
-**What 0.3 produces**: `_shared/operations/agentRuntime.ts` (orchestrator) + `agentRuntime/manifest.ts` (typed loader) + `agentRuntime/anthropic.ts` (retry helper) + `agentRuntime/handlers.ts` (three internal handlers — chat / planner / router). Three test files: `src/lib/__tests__/agentRuntime.test.js` (Layer A unit, ~58 specs), `agentRuntimeParity.test.js` (Layer B byte-equal parity, ~22 specs against fixture set), `agentRuntimeLive.test.js` (Layer C live Anthropic smoke, 3 specs, gated on `ANTHROPIC_API_KEY`).
-
-**What 0.3 doesn't touch**: any edge function, any user-visible behavior, any cron job, any frontend, any process choice, any funnel design. Pure additive scaffolding.
+**What 0.3 delivered (2026-05-01)**: `_shared/operations/agentRuntime.ts` (orchestrator) + `agentRuntime/manifest.ts` (typed loader, requires `orgId` — fixed during review per Codex P1 because `agents.unique = (org_id, slug)`) + `agentRuntime/anthropic.ts` (retry helper) + `agentRuntime/handlers.ts` (chat / planner / router internal handlers). Three test files: `agentRuntime.test.js` (Layer A unit, 62 specs), `agentRuntimeParity.test.js` (Layer B byte-equal parity, 22 specs across 11 fixtures), `agentRuntimeLive.test.js` (Layer C live Anthropic smoke, 3 specs, gated on `ANTHROPIC_API_KEY` and now configured in repo secrets). 87 runtime specs total.
 
 **Parity strategy revision (2026-05-01)**: The original "30-day replay against legacy code" framing in `docs/AGENT_PLATFORM.md` Phase 0.3 was replaced with a three-layer strategy after auditing what's actually persisted in production. `ai-chat` doesn't persist chat sessions, planner/router inputs have moved on since they were captured. With Anthropic mocked and identical inputs, byte-equal parity (Layer B) replaces the 2%-drift hedge from the original plan; Layer C catches mock-vs-reality drift via a small live API spend (~$0.10/PR). Full rationale in `docs/AGENT_PLATFORM.md` → Phase 0.3 → "Parity strategy".
 
@@ -25,6 +23,7 @@ This file is the living tracker. Update it in the same PR that advances the plat
 - SaaS retrofit Phase B is in progress (B2b baked, B3 next). Phase 0.x is intentionally safe to run in parallel.
 - Owner is implementing the Microsoft 365 Bookings webhook integration (per `docs/AGENT_PLATFORM_PROCESS.md` → "Microsoft 365 Bookings integration spec"); needed by Phase 2.2.
 
+**Gate to Phase 0.4 kickoff**: Phase 0.3 baked ≥ 7 days on `main` (target: 2026-05-08 or later) with Layer C green on every PR.
 **Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
 **Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
 
@@ -36,8 +35,8 @@ This file is the living tracker. Update it in the same PR that advances the plat
 |-------|------|--------|---------|-------|
 | 0.1 | `agents` + `agent_versions` tables, seed 3 agents, RLS | **Shipped** | 2026-04-30 (PR #240) | 3 agents seeded for Tremendous Care, 8 RLS policies, 36 Vitest specs. |
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
-| 0.3 | `agentRuntime.ts` + parity harness | **In progress** | — | Branch `claude/agent-platform-phase-0-3`. Three-layer parity harness (Layer A unit / Layer B byte-equal fixtures / Layer C live Anthropic smoke gated on `ANTHROPIC_API_KEY`). Pure additive — legacy edge functions untouched. |
-| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | Not started | — | Behavior parity verified; bake ≥ 7 days; nightly drift check. |
+| 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
+| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | Not started — gate: 0.3 baked ≥ 7 days | — | Behavior parity verified; bake ≥ 7 days; nightly drift check. |
 | 0.5 | Settings UI for manifest editing | Not started | — | Kill switch + shadow mode + prompt + allowlist edits, no deploy. |
 | 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
@@ -99,6 +98,7 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-04-30 | #239 | — | Vision doc refined, full plan and tracker docs spawned. No code. |
 | 2026-04-30 | #240 | 0.1 | `agents` + `agent_versions` tables, RLS, seed 3 agents (recruiting / proactive_planner / inbound_router). 36 Vitest specs. |
 | 2026-04-30 | #244 | 0.2 | `agent_id` columns + deterministic backfill on `events`/`action_outcomes`/`ai_suggestions`/`context_memory`. 29 Vitest specs. |
+| 2026-05-01 | #247 | 0.3 | `agentRuntime.ts` orchestrator + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness (Layer A unit / Layer B byte-equal fixtures / Layer C live Anthropic smoke). 87 new specs across the runtime test files (total suite now 2,454 incl. Layer C). Codex P1 fixed in-PR: `loadManifest` requires `orgId` because `agents.unique = (org_id, slug)`. Pure additive — no edge function or production behavior change. |
 
 (Add a row when each subsequent PR ships.)
 
