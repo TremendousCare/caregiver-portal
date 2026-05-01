@@ -183,6 +183,45 @@ export const setCaregiverPhaseOverride = async (caregiverId, phaseOverride, phas
 };
 
 /**
+ * Atomically merge a patch into a caregiver's `tasks` JSONB column.
+ *
+ * Why this exists: a whole-row upsert (saveCaregiver) round-trips the
+ * entire tasks object from the client's local state. If that state is
+ * stale (another tab/user/automation just changed tasks, or a realtime
+ * echo was missed), the upsert silently overwrites the recent change.
+ *
+ * This RPC performs `tasks = tasks || patch` inside Postgres under a
+ * row-level lock, so concurrent writers can't clobber each other.
+ *
+ * Patch shape: same as in-memory `caregiver.tasks` — `{ taskId: value }`
+ * where value is either a truthy `{completed, completedAt, completedBy}`
+ * record or literal `false` to mark the task uncompleted.
+ *
+ * @param {string} caregiverId
+ * @param {Record<string, any>} patch
+ */
+export const mergeCaregiverTasks = async (caregiverId, patch) => {
+  if (isSupabaseConfigured()) {
+    const { error } = await supabase.rpc('merge_caregiver_tasks', {
+      p_caregiver_id: caregiverId,
+      p_patch: patch || {},
+    });
+    if (error) throw error;
+  }
+  // Mirror to localStorage so the offline fallback and any post-refresh
+  // reload reflect the merge.
+  const all = localGet(CAREGIVERS_KEY) || [];
+  const idx = all.findIndex((c) => c.id === caregiverId);
+  if (idx >= 0) {
+    all[idx] = {
+      ...all[idx],
+      tasks: { ...(all[idx].tasks || {}), ...(patch || {}) },
+    };
+    localSet(CAREGIVERS_KEY, all);
+  }
+};
+
+/**
  * Toggle the SMS opt-out flag on a caregiver. Direct targeted update
  * — does NOT round-trip the full record, so it's safe to call from
  * any admin UI without risking accidental overwrites of other fields.
@@ -723,7 +762,13 @@ export const caregiverToDb = (cg) => ({
   auto_insurance: cg.autoInsurance || null,
   proposed_pay_rate: cg.proposedPayRate ?? null,
   initial_notes: cg.initialNotes || '',
-  tasks: cg.tasks || {},
+  // tasks intentionally omitted — round-tripping the whole tasks
+  // object through saveCaregiver caused stale-state writes (other
+  // tab / other user / dropped realtime echo) to silently wipe
+  // recently-completed tasks. Task writes go through
+  // mergeCaregiverTasks (atomic per-row JSONB merge in Postgres
+  // via the merge_caregiver_tasks RPC). The caregivers.tasks
+  // column has DEFAULT '{}'::jsonb so initial INSERTs are safe.
   notes: cg.notes || [],
   phase_timestamps: cg.phaseTimestamps || {},
   // phase_override intentionally omitted — see comment below.
@@ -746,13 +791,13 @@ export const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
-  // user_id, sms_opted_out*, availability_check_paused*, and
-  // phase_override are set via targeted .update() calls (edge
-  // functions + setCaregiverSmsOptOut + setCaregiverAvailabilityCheckPaused
-  // + setCaregiverPhaseOverride). Not round-tripped here so admin
-  // edits (add note, complete task, edit profile) don't clobber them
-  // when the client has stale state (multi-tab / multi-user / dropped
-  // realtime echo).
+  // user_id, sms_opted_out*, availability_check_paused*, tasks, and
+  // phase_override are set via targeted .update() / RPC calls
+  // (setCaregiverSmsOptOut, setCaregiverAvailabilityCheckPaused,
+  // mergeCaregiverTasks, setCaregiverPhaseOverride). Not
+  // round-tripped here so admin edits (add note, complete task,
+  // edit profile) don't clobber them when the client has stale
+  // state (multi-tab / multi-user / dropped realtime echo).
   created_at: cg.createdAt || Date.now(),
 });
 

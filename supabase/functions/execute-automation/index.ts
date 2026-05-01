@@ -587,12 +587,48 @@ Deno.serve(async (req) => {
           result = { success: false, error: "No task_id in action_config" };
           break;
         }
-        const tasks = caregiverFullData?.tasks || {};
-        tasks[taskId] = { completed: true, completedAt: Date.now(), completedBy: "Automation Engine" };
-        const { error: taskErr } = await supabase
-          .from(tableName)
-          .update({ tasks })
-          .eq("id", caregiver_id);
+        const taskValue = {
+          completed: true,
+          completedAt: Date.now(),
+          completedBy: "Automation Engine",
+        };
+        // Atomic per-row JSONB merge in Postgres. Avoids the lost-update
+        // race the previous read-modify-write pattern had: another tab,
+        // user, or concurrent automation could complete a different task
+        // between our SELECT and our UPDATE, and our write would silently
+        // wipe their entry. The RPC is caregiver-only — clients still use
+        // the legacy path because their task model lives elsewhere.
+        let taskErr: any = null;
+        if (entity_type === "client") {
+          const tasks = caregiverFullData?.tasks || {};
+          tasks[taskId] = taskValue;
+          const res = await supabase
+            .from(tableName)
+            .update({ tasks })
+            .eq("id", caregiver_id);
+          taskErr = res.error;
+        } else {
+          const res = await supabase.rpc("merge_caregiver_tasks", {
+            p_caregiver_id: caregiver_id,
+            p_patch: { [taskId]: taskValue },
+          });
+          taskErr = res.error;
+        }
+        if (!taskErr) {
+          // Audit trail — fire-and-forget.
+          supabase
+            .from("events")
+            .insert({
+              event_type: "task_completed",
+              entity_type: entity_type === "client" ? "client" : "caregiver",
+              entity_id: caregiver_id,
+              actor: "system:automation",
+              payload: { task_id: taskId, rule_id: rule_id || null, rule_name: rule_name || null },
+            })
+            .then(({ error }: { error: any }) => {
+              if (error) console.warn("[execute-automation:complete_task] event log failed", error.message);
+            });
+        }
         result = taskErr
           ? { success: false, error: `Failed to complete task: ${taskErr.message}` }
           : { success: true };
