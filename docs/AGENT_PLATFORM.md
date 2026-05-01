@@ -221,17 +221,35 @@ Bake at least 7–14 days on `main` between phases. Phases are sequential, not p
   - Builds the system prompt from `system_prompt` + the context-assembler layers named in `context_recipe`.
   - Filters the tool registry by `tool_allowlist`.
   - Runs the agentic loop with `model` and `max_iterations` from the manifest.
-  - Routes confirmed suggestions through the existing `executeSuggestion`.
-  - If `shadow_mode = true`, suggestions are inserted with status `shadow` and never executed; outcomes are still tracked for grading.
+  - Routes confirmed suggestions through the existing `executeSuggestion` (Phase 0.4 wires the call site; 0.3 ships the helper unwired).
+  - If `shadow_mode = true`, the runtime intercepts confirm-tier tool calls so they never reach the side-effect path; the AgentResult status flips from `ok` to `shadow`. Auto-tier (read-only) tools pass through unchanged.
   - Records cost and outcome telemetry stamped with `agent_id`.
-- New test file `src/lib/__tests__/agentRuntime.test.js` and a behavioral parity harness:
-  - Replay the last 30 days of `ai-chat` invocations through both the legacy code path and `runAgent` with the recruiting manifest.
-  - Diff the resulting suggestions, tool calls, and final replies. Allow ≤ 2% per-character drift on free-text replies; require 100% match on tool calls and suggestion writes.
-- The legacy edge functions stay live and untouched in this PR. Parity is verified before any cutover.
+- Sub-modules under `supabase/functions/_shared/operations/agentRuntime/`:
+  - `manifest.ts` — typed manifest loader, `AgentNotFoundError`, derived helpers (`levelForAction`, `isToolAllowed`, `recipeLayers`).
+  - `anthropic.ts` — single retry-with-backoff helper used by every handler (matches today's `callClaudeWithRetry` semantics: retries on 429/500/503/529, exponential backoff, fetchImpl injectable for tests).
+  - `handlers.ts` — three internal handlers (`runChatHandler`, `runPlannerHandler`, `runRouterHandler`) that map each agent's invocation surface to a deterministic flow byte-equal with the legacy edge function paths.
 
-**Exit criteria**: parity harness green; `runAgent` produces identical results to the existing `ai-chat`, `ai-planner`, and `message-router` paths on a 30-day replay.
+##### Parity strategy (revised 2026-05-01 from earlier "30-day replay" framing)
 
-**Rollback**: delete the runtime file and the harness. Nothing has been wired in yet.
+The plan originally called for replaying the last 30 days of legacy `ai-chat`/`ai-planner`/`message-router` invocations through both code paths and diffing results. After auditing what Tremendous Care actually persists, that target as stated isn't achievable: `ai-chat` doesn't persist chat sessions (only post-action artifacts), `ai-planner` inputs (full pipeline snapshots, recent_outcomes windows, business_context) have all moved on, and `message-router` reads live entity state at processing time so old queue rows can't be replayed against contemporaneous state. The plan's "≤ 2% per-character drift on free-text replies" allowance was also a hedge against LLM non-determinism that disappears once the LLM call is mocked.
+
+The revised parity strategy is three layers:
+
+- **Layer A — unit tests on `agentRuntime` itself.** ~58 specs in `src/lib/__tests__/agentRuntime.test.js`. Mock Anthropic + mock supabase. Verifies manifest dispatch, kill_switch, tool allowlist filtering, agentic loop with `max_iterations`, shadow mode (confirm-tier short-circuit, auto-tier passthrough, status flip), agent-stamped writes, cost telemetry across iterations, retry behaviour on 429/503/529, friendly fallback replies on transport failures, and shape validation. Fast, deterministic, no network.
+
+- **Layer B — fixture-driven byte-equal parity.** ~22 specs in `src/lib/__tests__/agentRuntimeParity.test.js` driven by `src/lib/__tests__/fixtures/agentRuntime/fixtures.js`. For each fixture, mock Anthropic returns a canned response; the test asserts the body sent to Anthropic AND the returned `AgentResult` are byte-equal to the fixture's recorded expectations. Fixtures encode "this is what the legacy edge function does for input X" once, and never drift. Coverage floor: ≥ 3 fixtures per agent shape (router / planner / chat).
+
+- **Layer C — live API smoke.** 3 specs in `src/lib/__tests__/agentRuntimeLive.test.js`, gated on `ANTHROPIC_API_KEY`. Makes ~$0.10 of real Claude calls per run to catch mock-vs-reality drift (malformed tool definitions, response shape changes, model deprecations). Transient 429/503/529 → ONE retry inside `callAnthropic`; if the retry also returns transient, the test logs a warning and PASSES so Anthropic outages don't block PR merges. Wired into the GitHub Actions PR workflow via `secrets.ANTHROPIC_API_KEY`.
+
+**Why this is the right framing**: the goal of Phase 0.3 is to give 0.4 cutover confidence that flipping the edge functions over to `runAgent` produces identical behaviour. With Anthropic mocked and identical inputs, "≤ 2% drift" becomes the wrong bar — 100% byte-equal is achievable and is the only bar that proves the runtime is a no-op refactor at the model interface. The fixtures are the documented behavioural contract; the live API layer is the real-world tripwire.
+
+##### Pure additive — legacy code untouched
+
+The legacy edge functions (`ai-chat/index.ts`, `ai-planner/index.ts`, `message-router/index.ts`) and `_shared/operations/routing.ts` are NOT modified in this PR. Phase 0.4 is the cutover.
+
+**Exit criteria**: all three layers green in CI. ≥ 50 tests across the three test files (target met: 83 with Layer C running, 80 with Layer C skipped). Byte-equal parity locked for ≥ 3 fixtures per agent shape.
+
+**Rollback**: delete `supabase/functions/_shared/operations/agentRuntime.ts`, the `agentRuntime/` sub-folder, the three test files, and the fixture module. Revert the `ANTHROPIC_API_KEY` env addition in `.github/workflows/ci.yml`. Pure additive — nothing has been wired in to production paths yet.
 
 #### 0.4 — Edge function cutover
 

@@ -25,6 +25,14 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          # Layer C of the agent-platform parity harness (3 specs in
+          # src/lib/__tests__/agentRuntimeLive.test.js) makes ~$0.10 of real
+          # Anthropic API calls per run when this secret is set. When the
+          # secret is absent, the live tests skip cleanly. Transient 429/503/
+          # 529 responses soft-fail (warn + pass) so Anthropic outages don't
+          # block PR merges. See docs/AGENT_PLATFORM.md → Phase 0.3.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build
         run: npm run build
