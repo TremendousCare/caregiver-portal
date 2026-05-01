@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getCurrentPhase } from '../../lib/utils';
-import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels, setCaregiverPhaseOverride } from '../../lib/storage';
+import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels, setCaregiverPhaseOverride, mergeCaregiverTasks } from '../../lib/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireEventTriggers } from '../../lib/automations';
 import { useApp } from './AppContext';
@@ -126,6 +126,7 @@ export function CaregiverProvider({ children }) {
     const taskValue = value ? { completed: true, completedAt: Date.now(), completedBy: currentUserName } : false;
     let changed;
     let oldPhase;
+    let phaseTimestampsBumped = false;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
@@ -134,6 +135,7 @@ export function CaregiverProvider({ children }) {
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
+          phaseTimestampsBumped = true;
         }
         changed = updated;
         return updated;
@@ -141,7 +143,26 @@ export function CaregiverProvider({ children }) {
     );
     if (changed) {
       recentLocalEdits.current.set(cgId, Date.now());
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      // Persist the task change via an atomic per-row JSONB merge so
+      // concurrent writers (other tabs, automations) can't clobber
+      // each other's task entries. Phase timestamps are persisted via
+      // the legacy whole-row path only when this completion advanced
+      // the phase — kept as-is until the phase_timestamps merge PR.
+      mergeCaregiverTasks(cgId, { [taskId]: taskValue })
+        .catch(() => showToast('Failed to save — check your connection'));
+      if (phaseTimestampsBumped) {
+        saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      }
+      // Audit trail — fire-and-forget, never blocks the UI.
+      if (isSupabaseConfigured()) {
+        supabase.from('events').insert({
+          event_type: value ? 'task_completed' : 'task_uncompleted',
+          entity_type: 'caregiver',
+          entity_id: cgId,
+          actor: currentUserName ? `user:${currentUserName}` : 'user:unknown',
+          payload: { task_id: taskId },
+        }).then(({ error }) => { if (error) console.warn('[updateTask] event log failed', error.message); });
+      }
       if (value) {
         fireEventTriggers('task_completed', changed, { task_id: taskId });
       }
@@ -159,6 +180,7 @@ export function CaregiverProvider({ children }) {
     }
     let changed;
     let oldPhase;
+    let phaseTimestampsBumped = false;
     setCaregivers((prev) =>
       prev.map((cg) => {
         if (cg.id !== cgId) return cg;
@@ -167,6 +189,7 @@ export function CaregiverProvider({ children }) {
         const newPhase = getCurrentPhase(updated);
         if (!updated.phaseTimestamps[newPhase]) {
           updated.phaseTimestamps = { ...updated.phaseTimestamps, [newPhase]: Date.now() };
+          phaseTimestampsBumped = true;
         }
         changed = updated;
         return updated;
@@ -174,7 +197,26 @@ export function CaregiverProvider({ children }) {
     );
     if (changed) {
       recentLocalEdits.current.set(cgId, Date.now());
-      saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      // Atomic per-row JSONB merge — see updateTask for rationale.
+      mergeCaregiverTasks(cgId, enriched)
+        .catch(() => showToast('Failed to save — check your connection'));
+      if (phaseTimestampsBumped) {
+        saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+      }
+      // Audit trail — fire-and-forget, never blocks the UI.
+      if (isSupabaseConfigured()) {
+        const eventRows = Object.entries(taskUpdates).map(([key, val]) => ({
+          event_type: val ? 'task_completed' : 'task_uncompleted',
+          entity_type: 'caregiver',
+          entity_id: cgId,
+          actor: currentUserName ? `user:${currentUserName}` : 'user:unknown',
+          payload: { task_id: key },
+        }));
+        if (eventRows.length > 0) {
+          supabase.from('events').insert(eventRows)
+            .then(({ error }) => { if (error) console.warn('[updateTasksBulk] event log failed', error.message); });
+        }
+      }
       for (const [key, val] of Object.entries(taskUpdates)) {
         if (val) fireEventTriggers('task_completed', changed, { task_id: key });
       }

@@ -27,7 +27,7 @@ describe('phase_override persistence (stale-state protection)', () => {
     expect(row).not.toHaveProperty('phase_override');
   });
 
-  it('caregiverToDb still includes phase_override-adjacent fields (tasks, notes, phase_timestamps)', () => {
+  it('caregiverToDb still includes notes and phase_timestamps (tasks is now also excluded — see tasksPersistence.test.js)', () => {
     const cg = {
       id: 'cg-2',
       firstName: 'Test',
@@ -38,7 +38,6 @@ describe('phase_override persistence (stale-state protection)', () => {
       phaseOverride: 'orientation',
     };
     const row = caregiverToDb(cg);
-    expect(row.tasks).toEqual({ task1: true });
     expect(row.notes).toEqual([{ text: 'hi' }]);
     expect(row.phase_timestamps).toEqual({ orientation: 123 });
   });
