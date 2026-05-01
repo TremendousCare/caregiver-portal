@@ -71,7 +71,7 @@ function deriveOutcomeSource(executedBy: string): string {
 
 // ─── Constants ───
 
-const VALID_INTENTS = [
+export const VALID_INTENTS = [
   "question",
   "document_submission",
   "scheduling_request",
@@ -101,7 +101,7 @@ const DEMOTION_MAP: Record<string, string> = {
 };
 
 // Valid actions the classifier can suggest (matches executeSuggestion switch cases)
-const VALID_ACTIONS = [
+export const VALID_ACTIONS = [
   "send_sms",
   "send_email",
   "add_note",
@@ -124,7 +124,7 @@ export const MAX_BATCH_SIZE = 10;
 
 // ─── Classifier ───
 
-const CLASSIFIER_SYSTEM_PROMPT = `You are a message classifier for a home care staffing agency called Tremendous Care.
+export const CLASSIFIER_SYSTEM_PROMPT = `You are a message classifier for a home care staffing agency called Tremendous Care.
 Given an inbound message from a caregiver or client, classify the intent and suggest the best action.
 
 ## Intent Classification
@@ -167,20 +167,16 @@ Choose the BEST action for the situation. Use "none" if no action is appropriate
 Respond with JSON only, no other text.`;
 
 /**
- * Classify an inbound message using Claude Haiku.
- * Returns structured classification or null on failure.
+ * Build the user-message prompt for the message classifier. Pure function —
+ * exported so the Phase 0.4 message-router shell can call it before
+ * invoking `runAgent({ shape: "router" })` and produce a body byte-equal
+ * with the legacy `classifyMessage` path.
  */
-export async function classifyMessage(
+export function buildClassifierUserMessage(
   entityContext: EntityContext,
   messageText: string,
   channel: string,
-): Promise<ClassificationResult | null> {
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) {
-    console.error("ANTHROPIC_API_KEY not set for classifier");
-    return null;
-  }
-
+): string {
   // Build entity context summary (token-efficient)
   const recentNotesSummary = entityContext.recent_notes
     .slice(0, 5)
@@ -231,7 +227,7 @@ export async function classifyMessage(
 
   const enrichmentBlock = sections.length > 0 ? "\n" + sections.join("\n\n") + "\n" : "";
 
-  const userMessage = `Entity: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.phase}) — ${entityContext.entity_type}
+  return `Entity: ${entityContext.first_name} ${entityContext.last_name} (${entityContext.phase}) — ${entityContext.entity_type}
 Channel: ${channel}
 Phone: ${entityContext.phone || "none"}
 Email: ${entityContext.email || "none"}
@@ -243,6 +239,31 @@ Inbound message: "${messageText}"
 
 Respond with JSON:
 {"intent": "question|document_submission|scheduling_request|general_response|confirmation|opt_out|unknown", "confidence": 0.0-1.0, "suggested_action": "send_sms|send_email|add_note|complete_task|update_phase|create_calendar_event|update_board_status|none", "suggested_params": {"key": "value"}, "drafted_response": "the response text or empty string", "reasoning": "brief explanation"}`;
+}
+
+/**
+ * Classify an inbound message using Claude Haiku.
+ * Returns structured classification or null on failure.
+ *
+ * Phase 0.4 note: this remains the legacy code path. The new message-router
+ * shell (`message-router/shell.ts`) bypasses this and calls
+ * `runAgent({ shape: "router" })` directly using `buildClassifierUserMessage`
+ * + `CLASSIFIER_SYSTEM_PROMPT` to produce a byte-equal request body. This
+ * function is still exported for the legacy `index_legacy.ts` path until
+ * the post-bake cleanup PR removes it.
+ */
+export async function classifyMessage(
+  entityContext: EntityContext,
+  messageText: string,
+  channel: string,
+): Promise<ClassificationResult | null> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) {
+    console.error("ANTHROPIC_API_KEY not set for classifier");
+    return null;
+  }
+
+  const userMessage = buildClassifierUserMessage(entityContext, messageText, channel);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -700,6 +721,13 @@ export async function createSuggestion(
     autonomyLevel: string;
     channel: string;
     tokens?: { input: number; output: number };
+    /**
+     * Phase 0.4: stamp `ai_suggestions.agent_id` on the new row. Optional —
+     * legacy callers omit it and continue writing NULL (matches today). The
+     * router shell passes the inbound_router agent's id when the cutover
+     * flag is on.
+     */
+    agentId?: string | null;
   },
 ): Promise<OperationResult> {
   const { classification } = params;
@@ -750,7 +778,7 @@ export async function createSuggestion(
     actionParams.text = classification.drafted_response || classification.reasoning;
   }
 
-  const { error } = await supabase.from("ai_suggestions").insert({
+  const insertRow: Record<string, any> = {
     source_type: params.sourceType,
     source_id: params.sourceId,
     entity_type: params.entityType,
@@ -770,7 +798,9 @@ export async function createSuggestion(
       : "pending",
     input_tokens: params.tokens?.input || null,
     output_tokens: params.tokens?.output || null,
-  });
+  };
+  if (params.agentId) insertRow.agent_id = params.agentId;
+  const { error } = await supabase.from("ai_suggestions").insert(insertRow);
 
   if (error) {
     console.error("Failed to create suggestion:", error);
@@ -1141,13 +1171,18 @@ export async function executeSuggestion(
   }
 
   // ─── Record outcome for trackable actions (fire-and-forget) ───
+  // Phase 0.4: stamp `agent_id` from the suggestion row. The agent that
+  // originally created the suggestion owns the outcome — independent of
+  // who executes it (auto-execute vs operator approval). The column is
+  // nullable; legacy suggestions without an agent_id continue to write
+  // NULL outcomes, matching today's behaviour exactly.
   const outcomeMapping = OUTCOME_ACTION_MAP[suggestion.action_type];
   if (result.success && outcomeMapping) {
     const expiresAt = outcomeMapping.expiryDays
       ? new Date(Date.now() + outcomeMapping.expiryDays * 86400000).toISOString()
       : null;
 
-    supabase.from("action_outcomes").insert({
+    const outcomeRow: Record<string, any> = {
       action_type: outcomeMapping.outcomeType,
       entity_type: entityType,
       entity_id: entityId,
@@ -1158,9 +1193,13 @@ export async function executeSuggestion(
         action_params: suggestion.action_params,
       },
       expires_at: expiresAt,
-    }).then(() => {}).catch((err: Error) =>
-      console.error(`[routing] Failed to record outcome for ${suggestionId}:`, err)
-    );
+    };
+    if (suggestion.agent_id) outcomeRow.agent_id = suggestion.agent_id;
+
+    supabase.from("action_outcomes").insert(outcomeRow)
+      .then(() => {}).catch((err: Error) =>
+        console.error(`[routing] Failed to record outcome for ${suggestionId}:`, err)
+      );
   }
 
   // ─── Record autonomy outcome (fire-and-forget) ───

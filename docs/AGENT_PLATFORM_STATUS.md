@@ -11,7 +11,7 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(ready to start)*
+**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(in progress — PR open)*
 
 **Status**: Phase 0.3 shipped 2026-05-01 via PR #247. **No mandatory pre-bake before 0.4.** Decision (2026-05-01, owner): inter-phase bakes are evidence-driven, not calendar-driven. Phase 0.3 has zero production callers (the runtime sits in `_shared/operations/` and no edge function imports it yet), so a calendar-only bake before 0.4 has nothing to verify. Bakes still apply where they buy real insurance — specifically, **after** 0.4 ships before removing the `*_legacy.ts` rollback siblings, and **before** any phase that exposes new behavior to caregivers (Phase 2 sub-phases each bake ≥ 14 days as designed).
 

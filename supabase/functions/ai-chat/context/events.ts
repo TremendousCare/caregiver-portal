@@ -21,6 +21,10 @@ export interface EventPayload {
  * Log an event to the unified event bus.
  * For inbound events (sms_received, email_received, docusign_completed),
  * also triggers outcome detection to close pending action loops.
+ *
+ * `agentId` is optional and stamps `events.agent_id`. Phase 0.4 runtime
+ * shells pass it; legacy callers omit it and continue writing NULL —
+ * matches today's behaviour exactly (FK is nullable, no migration needed).
  */
 export async function logEvent(
   supabase: any,
@@ -29,15 +33,18 @@ export async function logEvent(
   entityId: string | null,
   actor: string,
   payload: EventPayload = {},
+  agentId?: string | null,
 ): Promise<void> {
   try {
-    const { error } = await supabase.from("events").insert({
+    const row: Record<string, any> = {
       event_type: eventType,
       entity_type: entityType,
       entity_id: entityId,
       actor,
       payload,
-    });
+    };
+    if (agentId) row.agent_id = agentId;
+    const { error } = await supabase.from("events").insert(row);
     if (error) {
       console.error(`[events] Failed to log ${eventType}:`, error);
     }
