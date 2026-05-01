@@ -16,16 +16,20 @@
 //   list_staff          — list staff members of a business
 //   list_appointments   — list appointments for a business in a date window
 //   get_appointment     — get one appointment by id
-//   subscribe           — create (or renew) Graph change-notification subscriptions
-//                         on every org's configured Bookings business. Idempotent.
-//                         Stores the subscription ID + clientState in
-//                         bookings_subscriptions for the bookings-webhook to verify.
-//   renew_subscriptions — alias of `subscribe`. Daily pg_cron entry-point;
-//                         renames clarify intent in cron logs.
-//   unsubscribe         — admin-only escape hatch; deletes Graph subscriptions
-//                         for a given business_id.
+//   poll_appointments   — for every org with settings.bookings.business_id set,
+//                         pull the current appointment window from Graph,
+//                         normalize/match-to-caregiver/upsert into
+//                         caregiver_interviews. Driven by a 5-minute pg_cron
+//                         entry (Microsoft Graph does NOT support webhook
+//                         subscriptions for bookingAppointment resources, so
+//                         polling is the only viable path).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  matchCustomerToCaregiver,
+  normalizeGraphAppointment,
+  type GraphAppointment,
+} from "../_shared/helpers/bookings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,9 +40,9 @@ const corsHeaders = {
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const TZ = "Pacific Standard Time";
 
-// Service-role client for the subscribe/renew/unsubscribe actions, which
-// need to read organizations + write bookings_subscriptions across all
-// tenants. Read-only Graph actions don't touch Supabase at all.
+// Service-role client for the poll_appointments action, which reads
+// organizations + caregivers and upserts caregiver_interviews across
+// all tenants. Read-only Graph actions don't touch Supabase at all.
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const supabase =
@@ -307,98 +311,27 @@ async function verify(token: string): Promise<any> {
   };
 }
 
-// ─── Graph Subscriptions ──────────────────────────────────────────────────
-// Microsoft Graph caps Bookings appointment subscriptions at ~3 days.
-// We POST to /subscriptions to create one, and PATCH the same path to
-// renew. Both responses include `id` (subscription ID) and
-// `expirationDateTime`. Failures fall through to a fresh create — Graph
-// returns 404 on expired subs and the renew loop is meant to recover.
+// ─── Polling (replacement for Graph subscriptions) ─────────────────────────
+// Microsoft Graph does NOT support change-notification subscriptions for
+// /solutions/bookingBusinesses/{id}/appointments. The Step 3 v1 webhook
+// architecture failed in production with "Invalid 'changeType' attribute:
+// 'created'" — Graph rejects the entire subscription, not a single
+// keyword. The Microsoft-recommended workaround is polling.
 //
-// The notification URL is this project's bookings-webhook function. Graph
-// does a synchronous validation handshake (POSTs back with a
-// validationToken query string) at subscription create-time, so the
-// webhook must already be deployed before the first subscribe call.
-
-const SUBSCRIPTION_LIFETIME_MINUTES = 4230; // 70.5h, just under Graph's ~72h cap
-
-function generateClientState(): string {
-  // 32 hex chars from 16 random bytes. crypto.getRandomValues is
-  // available in Deno without an import.
-  const buf = new Uint8Array(16);
-  crypto.getRandomValues(buf);
-  return Array.from(buf)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function graphPost(token: string, path: string, body: any): Promise<any> {
-  const resp = await fetch(`${GRAPH}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    throw new Error(`Graph POST ${path} failed: ${resp.status} - ${await resp.text()}`);
-  }
-  return resp.json();
-}
-
-async function graphPatch(token: string, path: string, body: any): Promise<Response> {
-  return fetch(`${GRAPH}${path}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-}
-
-async function graphDelete(token: string, path: string): Promise<Response> {
-  return fetch(`${GRAPH}${path}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-// Build the Graph subscription POST body for a given business + clientState.
-// `resource` points at the appointments collection of one bookingBusiness;
-// Graph notifies on any create/update/delete in that collection.
-function buildSubscriptionBody(
-  businessId: string,
-  notificationUrl: string,
-  clientState: string,
-  expirationIso: string,
-) {
-  return {
-    changeType: "created,updated,deleted",
-    notificationUrl,
-    resource: `/solutions/bookingBusinesses/${businessId}/appointments`,
-    expirationDateTime: expirationIso,
-    clientState,
-  };
-}
-
-// Try to renew an existing subscription. Returns the new expiration on
-// success, null if Graph rejects the renewal (typically 404 because it
-// expired between cron runs). Caller falls back to a fresh create.
-async function tryRenewSubscription(
-  token: string,
-  subscriptionId: string,
-  expirationIso: string,
-): Promise<string | null> {
-  const resp = await graphPatch(
-    token,
-    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
-    { expirationDateTime: expirationIso },
-  );
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  return (data.expirationDateTime as string) || expirationIso;
-}
+// Driven by a 5-minute pg_cron entry installed in
+// 20260505010000_bookings_step3_v2_pivot_to_polling.sql. Each tick:
+//
+//   1. Loads every org with settings.bookings.business_id set.
+//   2. For each org, fetches the appointment window from Graph
+//      (raw payloads, not the shapeAppointment-formatted ones).
+//   3. Normalizes via the shared helper (locked by Vitest).
+//   4. Loads org-scoped caregivers, matches each appointment by
+//      phone (primary) → email (fallback) → unmatched.
+//   5. Upserts into caregiver_interviews (ON CONFLICT on the
+//      org_id + graph_appointment_id unique constraint).
+//
+// All upserts are idempotent. A no-op poll (nothing changed since last
+// tick) writes nothing.
 
 interface OrgWithBookings {
   id: string;
@@ -428,182 +361,172 @@ async function loadOrgsWithBookings(): Promise<OrgWithBookings[]> {
   return out;
 }
 
-// Subscribe (or renew) one org's bookings business. The function is
-// the per-org primitive that the bulk subscribe/renew action loops over.
-async function subscribeOneOrg(
+// Poll-window defaults. Yesterday → 60 days out covers any normal
+// interview-pipeline cadence and gives us a 24h buffer for late
+// notifications without bloating the response.
+const POLL_LOOKBACK_MS = 24 * 60 * 60 * 1000; // 1 day
+const POLL_LOOKAHEAD_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+const POLL_TOP = 200; // generous; one Bookings business has nowhere near this
+
+interface CaregiverLookup {
+  id: string;
+  phone: string | null;
+  email: string | null;
+}
+
+// Poll one org's Bookings business and reconcile into caregiver_interviews.
+async function pollOneOrg(
   token: string,
   org: OrgWithBookings,
-  notificationUrl: string,
 ): Promise<Record<string, unknown>> {
   if (!supabase) throw new Error("Supabase service-role client not configured");
 
-  const expirationIso = new Date(
-    Date.now() + SUBSCRIPTION_LIFETIME_MINUTES * 60 * 1000,
-  ).toISOString();
-
-  // Look up the existing subscription row, if any.
-  const { data: existing } = await supabase
-    .from("bookings_subscriptions")
-    .select("id, subscription_id, client_state")
-    .eq("org_id", org.id)
-    .eq("business_id", org.business_id)
-    .maybeSingle();
-
-  // Try to renew first — cheaper, preserves the subscriptionId in our
-  // mirror so we don't have to wait for Graph's validation handshake.
-  if (existing?.subscription_id) {
-    try {
-      const newExpiration = await tryRenewSubscription(
-        token,
-        existing.subscription_id,
-        expirationIso,
-      );
-      if (newExpiration) {
-        await supabase
-          .from("bookings_subscriptions")
-          .update({
-            expires_at: newExpiration,
-            last_renewed_at: new Date().toISOString(),
-            last_synced_at: new Date().toISOString(),
-            last_error: null,
-          })
-          .eq("id", existing.id);
-        return {
-          org_id: org.id,
-          slug: org.slug,
-          business_id: org.business_id,
-          action: "renewed",
-          subscription_id: existing.subscription_id,
-          expires_at: newExpiration,
-        };
-      }
-    } catch (err) {
-      // Fall through to create-new on any renew failure.
-      console.warn("subscribe renew failed, falling through:", (err as Error).message);
-    }
-  }
-
-  // Create a fresh subscription. clientState is generated per-create
-  // so a leaked secret can be rotated by simply re-running the cron.
-  const clientState = generateClientState();
-  let subData: any;
+  // 1. Fetch raw appointment payloads from Graph. We use the raw shape
+  //    (not shapeAppointment) so the shared normalizer can do its job.
+  let raw: any;
   try {
-    subData = await graphPost(token, "/subscriptions", buildSubscriptionBody(
-      org.business_id,
-      notificationUrl,
-      clientState,
-      expirationIso,
-    ));
-  } catch (err) {
-    const message = (err as Error).message || String(err);
-    await supabase.from("bookings_subscriptions").upsert(
-      {
-        org_id: org.id,
-        business_id: org.business_id,
-        last_synced_at: new Date().toISOString(),
-        last_error: message,
-      },
-      { onConflict: "org_id,business_id" },
+    raw = await graphGet(
+      token,
+      `/solutions/bookingBusinesses/${encodeURIComponent(org.business_id)}/appointments?$top=${POLL_TOP}`,
     );
+  } catch (err) {
     return {
       org_id: org.id,
       slug: org.slug,
       business_id: org.business_id,
       action: "failed",
-      error: message,
+      error: (err as Error).message,
     };
   }
 
-  await supabase.from("bookings_subscriptions").upsert(
-    {
+  const appts: GraphAppointment[] = Array.isArray(raw.value) ? raw.value : [];
+  const startMs = Date.now() - POLL_LOOKBACK_MS;
+  const endMs = Date.now() + POLL_LOOKAHEAD_MS;
+
+  // 2. Filter to the window. Graph's $filter on dateTimeTimeZone is
+  //    finicky across versions, so we filter client-side as the
+  //    read-only listAppointments helper does.
+  const inRange = appts.filter((a) => {
+    const dt = a.startDateTime?.dateTime;
+    if (!dt) return false;
+    const t = new Date(dt.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(dt) ? dt : `${dt}Z`).getTime();
+    return Number.isFinite(t) && t >= startMs && t <= endMs;
+  });
+
+  if (inRange.length === 0) {
+    return {
       org_id: org.id,
+      slug: org.slug,
       business_id: org.business_id,
-      subscription_id: subData.id,
-      expires_at: subData.expirationDateTime || expirationIso,
-      notification_url: notificationUrl,
-      client_state: clientState,
-      last_renewed_at: new Date().toISOString(),
-      last_synced_at: new Date().toISOString(),
-      last_error: null,
-    },
-    { onConflict: "org_id,business_id" },
-  );
+      action: "polled",
+      total_fetched: appts.length,
+      total_in_window: 0,
+      upserted: 0,
+    };
+  }
+
+  // 3. Load org-scoped, non-archived caregivers once for matching.
+  const { data: caregivers, error: cgErr } = await supabase
+    .from("caregivers")
+    .select("id, phone, email")
+    .eq("org_id", org.id)
+    .eq("archived", false);
+
+  if (cgErr) {
+    console.error(`caregivers lookup failed for org ${org.slug}:`, cgErr);
+    // Fall through with empty list — appointments still mirror as unmatched.
+  }
+  const caregiverList: CaregiverLookup[] = (caregivers || []).map((c: any) => ({
+    id: c.id,
+    phone: c.phone || null,
+    email: c.email || null,
+  }));
+
+  // 4. Normalize, match, build upsert rows.
+  const rows = inRange.map((a) => {
+    const norm = normalizeGraphAppointment(a);
+    const { caregiver, matchMethod } = matchCustomerToCaregiver(
+      { phone: norm.customer_phone, email: norm.customer_email },
+      caregiverList,
+    );
+    return {
+      org_id: org.id,
+      graph_appointment_id: norm.graph_appointment_id,
+      business_id: org.business_id,
+      service_id: norm.service_id,
+      service_name: norm.service_name,
+      staff_member_ids: norm.staff_member_ids,
+      caregiver_id: caregiver ? caregiver.id : null,
+      match_method: matchMethod,
+      start_at: norm.start_at,
+      end_at: norm.end_at,
+      status: norm.status,
+      customer_name: norm.customer_name,
+      customer_email: norm.customer_email,
+      customer_phone: norm.customer_phone,
+      customer_notes: norm.customer_notes,
+      join_web_url: norm.join_web_url,
+      raw_payload: a as unknown as Record<string, unknown>,
+    };
+  }).filter((r) => r.graph_appointment_id);
+
+  // 5. Single bulk upsert. ON CONFLICT (org_id, graph_appointment_id)
+  //    keeps the row stable across reschedules / repeated polls.
+  const { error: upsertErr } = await supabase
+    .from("caregiver_interviews")
+    .upsert(rows, { onConflict: "org_id,graph_appointment_id" });
+
+  if (upsertErr) {
+    console.error(`caregiver_interviews upsert failed for org ${org.slug}:`, upsertErr);
+    return {
+      org_id: org.id,
+      slug: org.slug,
+      business_id: org.business_id,
+      action: "failed",
+      error: upsertErr.message,
+      total_fetched: appts.length,
+      total_in_window: inRange.length,
+    };
+  }
 
   return {
     org_id: org.id,
     slug: org.slug,
     business_id: org.business_id,
-    action: "created",
-    subscription_id: subData.id,
-    expires_at: subData.expirationDateTime || expirationIso,
+    action: "polled",
+    total_fetched: appts.length,
+    total_in_window: inRange.length,
+    upserted: rows.length,
+    matched_phone: rows.filter((r) => r.match_method === "phone").length,
+    matched_email: rows.filter((r) => r.match_method === "email").length,
+    unmatched: rows.filter((r) => r.match_method === "unmatched").length,
   };
 }
 
-async function subscribeAll(token: string): Promise<any> {
-  if (!SUPABASE_URL) {
-    throw new Error("SUPABASE_URL env var missing");
-  }
-  const notificationUrl = `${SUPABASE_URL}/functions/v1/bookings-webhook`;
+async function pollAppointments(token: string): Promise<any> {
   const orgs = await loadOrgsWithBookings();
   if (orgs.length === 0) {
     return {
       total: 0,
       results: [],
-      note: "No organizations have settings.bookings.business_id set; nothing to subscribe.",
+      note: "No organizations have settings.bookings.business_id set; nothing to poll.",
     };
   }
-  // Serial loop: keeps Graph rate-limit risk minimal and error
-  // attribution clean.
+  // Serial loop: keeps Graph rate-limit risk minimal and per-org
+  // failure attribution clean.
   const results: any[] = [];
   for (const org of orgs) {
-    results.push(await subscribeOneOrg(token, org, notificationUrl));
-  }
-  return {
-    total: results.length,
-    notification_url: notificationUrl,
-    results,
-  };
-}
-
-// Admin-only escape hatch. Deletes any active subscription for the
-// given business and clears the local row. Useful when rotating
-// secrets, decommissioning a Bookings business, or recovering from a
-// stuck subscription.
-async function unsubscribeBusiness(token: string, body: any): Promise<any> {
-  if (!supabase) throw new Error("Supabase service-role client not configured");
-  const businessId = body.business_id;
-  if (!businessId) throw new Error("unsubscribe requires business_id");
-
-  const { data: rows } = await supabase
-    .from("bookings_subscriptions")
-    .select("id, org_id, subscription_id")
-    .eq("business_id", businessId);
-
-  const results: any[] = [];
-  for (const row of rows || []) {
-    if (row.subscription_id) {
-      const resp = await graphDelete(
-        token,
-        `/subscriptions/${encodeURIComponent(row.subscription_id)}`,
-      );
-      // Best-effort: 404 is fine (already gone). Anything else gets logged.
-      if (!resp.ok && resp.status !== 404) {
-        const err = await resp.text();
-        results.push({ id: row.id, action: "graph_delete_failed", status: resp.status, error: err });
-        continue;
-      }
+    try {
+      results.push(await pollOneOrg(token, org));
+    } catch (err) {
+      results.push({
+        org_id: org.id,
+        slug: org.slug,
+        business_id: org.business_id,
+        action: "failed",
+        error: (err as Error).message,
+      });
     }
-    await supabase
-      .from("bookings_subscriptions")
-      .update({
-        subscription_id: null,
-        expires_at: null,
-        client_state: null,
-        last_synced_at: new Date().toISOString(),
-        last_error: null,
-      })
-      .eq("id", row.id);
-    results.push({ id: row.id, org_id: row.org_id, action: "unsubscribed" });
   }
   return { total: results.length, results };
 }
@@ -641,10 +564,8 @@ Deno.serve(async (req) => {
       result = await listAppointments(token, body);
     } else if (action === "get_appointment") {
       result = await getAppointment(token, body);
-    } else if (action === "subscribe" || action === "renew_subscriptions") {
-      result = await subscribeAll(token);
-    } else if (action === "unsubscribe") {
-      result = await unsubscribeBusiness(token, body);
+    } else if (action === "poll_appointments") {
+      result = await pollAppointments(token);
     } else {
       return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
         status: 400,
