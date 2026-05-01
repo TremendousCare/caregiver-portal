@@ -12,6 +12,7 @@ import { ProgressOverview } from './caregiver/ProgressOverview';
 import { PhaseDetail } from './caregiver/PhaseDetail';
 import { DocumentsSection } from './caregiver/DocumentsSection';
 import { ActivityLog } from './caregiver/ActivityLog';
+import { InterviewCard } from './caregiver/InterviewCard';
 import { RecommendedNextStep } from './caregiver/RecommendedNextStep';
 import { SurveyResults } from './caregiver/SurveyResults';
 import { DetailTabBar } from './caregiver/DetailTabBar';
@@ -148,6 +149,8 @@ export function CaregiverDetail({
 
       {detailTab === 'tasks' && (
         <>
+          <InterviewCard caregiver={caregiver} showToast={showToast} />
+
           <PhaseDetail
             caregiver={caregiver}
             allCaregivers={allCaregivers}

@@ -33,7 +33,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'survey_completed', label: 'Survey Completed', description: 'Fires when a caregiver completes a pre-screening survey' },
   { value: 'survey_pending', label: 'Survey Pending Reminder', description: 'Re-sends the pre-screening survey daily (or at a custom interval) until the caregiver completes it' },
   { value: 'recurring_availability_check', label: 'Recurring Availability Check-In', description: 'Periodically texts caregivers to refresh their weekly availability. Ships OFF — enable explicitly.' },
-  { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'Coming soon', disabled: true },
+  { value: 'interview_not_scheduled', label: 'Interview Not Scheduled (Follow-Up)', description: 'Fires when the booking link was sent N days ago and the caregiver still has no active interview booking. Anchors on the actual SMS send time, not on a phase or task.' },
 ];
 
 const CLIENT_TRIGGER_OPTIONS = [
@@ -91,7 +91,7 @@ const MERGE_FIELDS = [
   { key: 'overall_progress', label: 'Progress %' },
   { key: 'survey_link', label: 'Survey Link' },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
-  { key: 'booking_url', label: 'Booking URL', triggers: ['task_completed'] },
+  { key: 'booking_url', label: 'Booking URL', triggers: ['task_completed', 'interview_not_scheduled'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
   { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },
@@ -160,6 +160,7 @@ function TriggerBadge({ type }) {
     survey_completed: { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
     survey_pending: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
     recurring_availability_check: { bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
+    interview_not_scheduled: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -176,6 +177,7 @@ function TriggerBadge({ type }) {
     survey_completed: 'Survey Done',
     survey_pending: 'Survey Reminder',
     recurring_availability_check: 'Availability Check-In',
+    interview_not_scheduled: 'Interview Follow-Up',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -1030,6 +1032,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [reminderStartHour, setReminderStartHour] = useState(rule?.conditions?.start_hour ?? 9);
   const [reminderEndHour, setReminderEndHour] = useState(rule?.conditions?.end_hour ?? 18);
 
+  // Interview-not-scheduled (booking-link follow-up) trigger condition
+  const [daysAfterSend, setDaysAfterSend] = useState(rule?.conditions?.days_after_send ?? 3);
+
   // Recurring availability check-in trigger conditions
   const [intervalDays, setIntervalDays] = useState(
     rule?.conditions?.interval_days ?? 14,
@@ -1136,6 +1141,15 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       if (!Number.isFinite(eh) || eh < 1 || eh > 24) { setError('Send window end hour must be between 1 and 24.'); return; }
       if (sh >= eh) { setError('Send window start hour must be earlier than the end hour.'); return; }
     }
+    if (triggerType === 'interview_not_scheduled') {
+      const days = parseInt(daysAfterSend, 10);
+      if (!Number.isFinite(days) || days < 1) {
+        setError('Days after send must be a positive number.'); return;
+      }
+      if (actionType !== 'send_sms' && actionType !== 'send_email') {
+        setError('Interview follow-up must use Send SMS or Send Email.'); return;
+      }
+    }
     if (triggerType === 'recurring_availability_check') {
       const days = parseInt(intervalDays, 10);
       const sh = parseInt(availabilityStartHour, 10);
@@ -1180,6 +1194,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
           survey_template_id: availabilitySurveyTemplateId,
           start_hour: parseInt(availabilityStartHour, 10),
           end_hour: parseInt(availabilityEndHour, 10),
+        } : {}),
+        ...(triggerType === 'interview_not_scheduled' ? {
+          days_after_send: parseInt(daysAfterSend, 10),
         } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
@@ -1271,6 +1288,25 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
             />
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
               Fires when a {entityLabel} has had no activity (notes, messages) for this many days.
+            </div>
+          </div>
+        )}
+
+        {/* Conditions — interview_not_scheduled */}
+        {triggerType === 'interview_not_scheduled' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Days After Booking-Link Send</label>
+            <input
+              type="number"
+              className={forms.fieldInput}
+              style={{ maxWidth: 120 }}
+              value={daysAfterSend}
+              onChange={(e) => { setDaysAfterSend(e.target.value); setError(''); }}
+              min="1"
+              placeholder="3"
+            />
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              Fires once when this many days have passed since the booking link was sent (any automation that included the {'{{booking_url}}'} merge field) and the caregiver still hasn't booked an interview. Will not fire if the caregiver currently has an active or completed booking.
             </div>
           </div>
         )}
@@ -1874,6 +1910,11 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             {rule.trigger_type === 'days_inactive' && rule.conditions?.days && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 After {rule.conditions.days} day{rule.conditions.days !== 1 ? 's' : ''}
+              </div>
+            )}
+            {rule.trigger_type === 'interview_not_scheduled' && rule.conditions?.days_after_send && (
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                {rule.conditions.days_after_send} day{rule.conditions.days_after_send !== 1 ? 's' : ''} after booking-link send
               </div>
             )}
             {['phase_change', 'client_phase_change'].includes(rule.trigger_type) && rule.conditions?.to_phase && (
