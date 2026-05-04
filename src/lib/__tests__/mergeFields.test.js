@@ -96,4 +96,49 @@ describe('resolveMergeFields', () => {
     });
     expect(out).toBe('');
   });
+
+  // ─── camelCase placeholder support ───
+  // Admin-managed Message Templates (`message_templates` table) author
+  // templates with {{firstName}}, {{lastName}}, {{fullName}}. Bulk SMS
+  // sends those bodies through this resolver per recipient, so both
+  // naming conventions must work.
+
+  it('substitutes {{firstName}} (camelCase)', () => {
+    const out = resolveMergeFields('Hi {{firstName}}!', {
+      first_name: 'Sam',
+      last_name: 'Reed',
+    });
+    expect(out).toBe('Hi Sam!');
+  });
+
+  it('substitutes {{lastName}} (camelCase)', () => {
+    const out = resolveMergeFields('Dear {{lastName}}', {
+      first_name: 'Sam',
+      last_name: 'Reed',
+    });
+    expect(out).toBe('Dear Reed');
+  });
+
+  it('renders {{fullName}} as "first last" trimmed', () => {
+    const out = resolveMergeFields('Hi {{fullName}}!', {
+      first_name: 'Sam',
+      last_name: 'Reed',
+    });
+    expect(out).toBe('Hi Sam Reed!');
+  });
+
+  it('renders {{fullName}} without trailing space when last_name is missing', () => {
+    const out = resolveMergeFields('Hi {{fullName}}!', {
+      first_name: 'Sam',
+    });
+    expect(out).toBe('Hi Sam!');
+  });
+
+  it('mixes snake_case and camelCase placeholders in one template', () => {
+    const out = resolveMergeFields(
+      'Hi {{firstName}}, your phone is {{phone}}.',
+      { first_name: 'Sam', last_name: 'Reed', phone: '+15555550123' },
+    );
+    expect(out).toBe('Hi Sam, your phone is +15555550123.');
+  });
 });
