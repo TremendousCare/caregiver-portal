@@ -24,6 +24,8 @@ const {
   isGreenLight,
   formatDate,
   isAwaitingInterviewResponse,
+  isAwaitingInterviewHca,
+  isAwaitingInterviewNonHca,
   getInterviewLinkSentAt,
   getDaysSinceInterviewLinkSent,
   isAwaitingHcaVerification,
@@ -476,6 +478,82 @@ describe('isAwaitingInterviewResponse', () => {
   it('returns false for null/undefined caregiver', () => {
     expect(isAwaitingInterviewResponse(null)).toBe(false);
     expect(isAwaitingInterviewResponse(undefined)).toBe(false);
+  });
+});
+
+describe('isAwaitingInterviewHca / isAwaitingInterviewNonHca', () => {
+  const INTAKE_CUSTOM = [
+    { id: 'send_interview_link', label: 'Send Link to schedule Interview' },
+    { id: 'interview_scheduled', label: 'Interview Scheduled', critical: true },
+  ];
+
+  beforeEach(() => {
+    mockedPhaseTasks.value = { ...DEFAULT_PHASE_TASKS, intake: INTAKE_CUSTOM };
+  });
+
+  const pendingCg = (hasHCA) => ({
+    hasHCA,
+    tasks: { send_interview_link: { completed: true, completedAt: Date.now() } },
+  });
+
+  it('routes hasHCA === "yes" to the HCA bucket', () => {
+    const cg = pendingCg('yes');
+    expect(isAwaitingInterviewHca(cg)).toBe(true);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(false);
+  });
+
+  it('routes hasHCA === "no" to the Non-HCA bucket', () => {
+    const cg = pendingCg('no');
+    expect(isAwaitingInterviewHca(cg)).toBe(false);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(true);
+  });
+
+  it('routes hasHCA === "willing" to the Non-HCA bucket', () => {
+    const cg = pendingCg('willing');
+    expect(isAwaitingInterviewHca(cg)).toBe(false);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(true);
+  });
+
+  it('routes null/undefined hasHCA to the Non-HCA bucket', () => {
+    expect(isAwaitingInterviewHca(pendingCg(null))).toBe(false);
+    expect(isAwaitingInterviewNonHca(pendingCg(null))).toBe(true);
+    expect(isAwaitingInterviewHca(pendingCg(undefined))).toBe(false);
+    expect(isAwaitingInterviewNonHca(pendingCg(undefined))).toBe(true);
+  });
+
+  it('returns false for both when not awaiting interview response', () => {
+    const cg = { hasHCA: 'yes', tasks: {} };
+    expect(isAwaitingInterviewHca(cg)).toBe(false);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(false);
+  });
+
+  it('returns false for both once interview is scheduled', () => {
+    const cg = {
+      hasHCA: 'no',
+      tasks: {
+        send_interview_link: { completed: true, completedAt: Date.now() },
+        interview_scheduled: { completed: true, completedAt: Date.now() },
+      },
+    };
+    expect(isAwaitingInterviewHca(cg)).toBe(false);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(false);
+  });
+
+  it('the two buckets are mutually exclusive across the pending-interview cohort', () => {
+    for (const v of ['yes', 'no', 'willing', null, undefined, '']) {
+      const cg = pendingCg(v);
+      const hca = isAwaitingInterviewHca(cg);
+      const nonHca = isAwaitingInterviewNonHca(cg);
+      expect(hca && nonHca).toBe(false);
+      expect(hca || nonHca).toBe(true);
+    }
+  });
+
+  it('returns false for null/undefined caregiver', () => {
+    expect(isAwaitingInterviewHca(null)).toBe(false);
+    expect(isAwaitingInterviewNonHca(null)).toBe(false);
+    expect(isAwaitingInterviewHca(undefined)).toBe(false);
+    expect(isAwaitingInterviewNonHca(undefined)).toBe(false);
   });
 });
 

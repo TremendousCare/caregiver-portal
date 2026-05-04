@@ -52,6 +52,8 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
               <div className={layout.exportItemDesc}>
                 {filterPhase === 'intake_pending'
                   ? 'Pending Interview caregivers only'
+                  : filterPhase === 'intake_pending_non_hca'
+                  ? 'Non-HCA pending interview caregivers only'
                   : filterPhase === 'interview_pending_hca'
                   ? 'Pending HCA caregivers only'
                   : `${PHASES.find((p) => p.id === filterPhase)?.label} caregivers only`}
@@ -672,7 +674,9 @@ export function Dashboard({
             {filterPhase === 'archived'
               ? 'Showing: Archived caregivers'
               : filterPhase === 'intake_pending'
-              ? 'Showing: Pending Interview — link sent, awaiting response'
+              ? 'Showing: Pending Interview — link sent, awaiting response (HCA registered)'
+              : filterPhase === 'intake_pending_non_hca'
+              ? 'Showing: Non-HCA — link sent, awaiting response (not HCA registered)'
               : filterPhase === 'interview_pending_hca'
               ? 'Showing: Pending HCA — interview evaluation complete, awaiting HCA verification'
               : filterPhase !== 'all'

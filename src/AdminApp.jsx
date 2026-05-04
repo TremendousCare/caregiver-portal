@@ -25,7 +25,7 @@ import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
 import { AdminSettings } from './components/AdminSettings';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
-import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingHcaVerification } from './lib/utils';
+import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import btn from './styles/buttons.module.css';
 
@@ -49,7 +49,9 @@ function DashboardPage() {
         filterPhase === 'all' ||
         filterPhase === 'archived' ||
         (filterPhase === 'intake_pending'
-          ? getCurrentPhase(cg) === 'intake' && isAwaitingInterviewResponse(cg)
+          ? isAwaitingInterviewHca(cg)
+          : filterPhase === 'intake_pending_non_hca'
+          ? isAwaitingInterviewNonHca(cg)
           : filterPhase === 'intake'
           ? getCurrentPhase(cg) === 'intake' && !isAwaitingInterviewResponse(cg)
           : filterPhase === 'interview_pending_hca'
