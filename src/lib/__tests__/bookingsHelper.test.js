@@ -20,6 +20,8 @@ import {
   deriveInterviewCardState,
   shouldFireInterviewFollowUp,
   shouldFireInterviewFollowUpRecurring,
+  computeInterviewFollowUpLookbackDays,
+  INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS,
 } from '../../../supabase/functions/_shared/helpers/bookings.ts';
 
 describe('getBookingUrlFromOrgSettings', () => {
@@ -619,6 +621,83 @@ describe('shouldFireInterviewFollowUpRecurring', () => {
       now: NOW,
     });
     expect(out).toEqual({ fire: false, reason: 'unparseable_last_followup_timestamp' });
+  });
+});
+
+describe('computeInterviewFollowUpLookbackDays', () => {
+  it('single-fire rule: window is daysGap + 60 buffer', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({ daysGap: 3 }),
+    ).toBe(63);
+  });
+
+  it('with explicit stop_after_days, uses the larger of stop and daysGap', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        stopAfterDays: 10,
+      }),
+    ).toBe(70);
+  });
+
+  it('regression: recurring rule with no stop_after_days extends window via cadence span', () => {
+    // The Codex P1 case: days_after_send=1, interval_days=30, max_reminders=5.
+    // Without this fix, lookback was 1+60=61 days and the original send
+    // fell out of the window after ~61 days, silently halting the cadence.
+    // The fix: cadence span = daysGap + intervalDays*maxReminders = 1+150 = 151.
+    // Plus 60 buffer = 211 days, well over the 150 days the cadence needs.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+        maxReminders: 5,
+      }),
+    ).toBe(211);
+  });
+
+  it('respects the larger of cadence span vs stop_after_days', () => {
+    // intervalDays * maxReminders = 150, but stop is 200 — stop should win.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+        maxReminders: 5,
+        stopAfterDays: 200,
+      }),
+    ).toBe(260);
+  });
+
+  it('hard-caps at 365 days for misconfigured rules', () => {
+    // intervalDays without max or stop is unbounded in principle —
+    // helper still returns a sane value rather than scanning forever.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 999,
+        maxReminders: 999,
+      }),
+    ).toBe(INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS);
+  });
+
+  it('ignores invalid recurring inputs and falls back to single-fire window', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 5,
+        intervalDays: 0,
+        maxReminders: -1,
+        stopAfterDays: NaN,
+      }),
+    ).toBe(65);
+  });
+
+  it('cadence span only kicks in when both interval and max are set', () => {
+    // intervalDays alone is unbounded — without max we don't extend.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+      }),
+    ).toBe(61);
   });
 });
 

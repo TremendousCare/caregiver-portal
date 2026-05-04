@@ -17,6 +17,7 @@ import {
 } from "../_shared/helpers/availabilityCheckIn.ts";
 import {
   shouldFireInterviewFollowUpRecurring,
+  computeInterviewFollowUpLookbackDays,
   getBookingUrlFromOrgSettings,
 } from "../_shared/helpers/bookings.ts";
 
@@ -996,11 +997,17 @@ Deno.serve(async (req) => {
             ? stopAfterDaysRaw
             : null;
 
-          // Lookback must cover both the initial gap and the full recurring
-          // window; otherwise old original sends would fall out of the
-          // window and we'd lose the anchor mid-cadence.
-          const lookbackDays =
-            Math.max(daysGap, stopAfterDays || 0) + 60;
+          // Lookback must cover the entire span over which a recurring
+          // cadence could still fire — otherwise an in-flight original
+          // send falls out of the window and the anchor disappears,
+          // silently stopping the cadence before max_reminders is hit.
+          // Helper hard-caps at 365 days to bound the scan.
+          const lookbackDays = computeInterviewFollowUpLookbackDays({
+            daysGap,
+            intervalDays,
+            maxReminders,
+            stopAfterDays,
+          });
           const lookbackMs = lookbackDays * 24 * 60 * 60 * 1000;
           const lookbackIso = new Date(nowMs - lookbackMs).toISOString();
           const { data: sendLogs, error: sendLogsErr } = await supabase

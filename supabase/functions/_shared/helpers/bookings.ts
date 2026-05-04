@@ -294,6 +294,63 @@ export function shouldFireInterviewFollowUp(
   return { fire: true };
 }
 
+// ─── interview_not_scheduled lookback window ─────────────────────────────
+// Computes how many days back the cron should scan automation_log for the
+// original booking-URL send. Must cover the entire span over which a
+// recurring cadence could still legitimately fire — otherwise an in-flight
+// original send falls out of the lookback window and the anchor
+// disappears, silently stopping the cadence before max_reminders is hit.
+//
+// Worst case for a recurring rule is the last possible nudge, which lands
+// at roughly `daysGap + (maxReminders − 1) × intervalDays`. We approximate
+// with `daysGap + intervalDays × maxReminders` (over-counts by one
+// interval, which is fine — extra margin) and take the max with any
+// explicit `stopAfterDays`. A 60-day buffer catches anything else.
+//
+// Hard-capped at 365 days so a misconfigured rule (e.g. interval_days set
+// without max_reminders or stop_after_days) cannot trigger an unbounded
+// table scan.
+export const INTERVIEW_FOLLOWUP_LOOKBACK_BUFFER_DAYS = 60;
+export const INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS = 365;
+
+export function computeInterviewFollowUpLookbackDays(input: {
+  daysGap: number;
+  intervalDays?: number | null;
+  maxReminders?: number | null;
+  stopAfterDays?: number | null;
+}): number {
+  const daysGap = Number.isFinite(input.daysGap) && input.daysGap >= 1
+    ? input.daysGap
+    : 1;
+  const intervalDays =
+    Number.isFinite(input.intervalDays as number) && (input.intervalDays as number) >= 1
+      ? (input.intervalDays as number)
+      : 0;
+  const maxReminders =
+    Number.isFinite(input.maxReminders as number) && (input.maxReminders as number) >= 1
+      ? (input.maxReminders as number)
+      : 0;
+  const stopAfterDays =
+    Number.isFinite(input.stopAfterDays as number) && (input.stopAfterDays as number) >= 1
+      ? (input.stopAfterDays as number)
+      : 0;
+
+  // Span over which recurring nudges could still fire, measured from the
+  // original send. Only meaningful when both interval_days and either
+  // max_reminders or stop_after_days are set — otherwise we fall back to
+  // the explicit stopAfterDays (or just daysGap for single-fire rules).
+  const cadenceSpan =
+    intervalDays > 0 && maxReminders > 0
+      ? daysGap + intervalDays * maxReminders
+      : 0;
+
+  const raw =
+    Math.max(daysGap, stopAfterDays, cadenceSpan) +
+    INTERVIEW_FOLLOWUP_LOOKBACK_BUFFER_DAYS;
+
+  return Math.min(INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS, raw);
+}
+
 // ─── interview_not_scheduled recurring evaluator ─────────────────────────
 // Same anchor + booking-status logic as shouldFireInterviewFollowUp, but
 // supports a repeating cadence: starting `daysGap` days after the original
