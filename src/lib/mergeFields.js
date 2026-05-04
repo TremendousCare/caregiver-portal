@@ -5,13 +5,29 @@
 
 /**
  * Resolve merge fields for a caregiver record.
- * Fields: {{first_name}}, {{last_name}}, {{phone}}, {{email}}, {{phase}}
+ *
+ * Supported placeholders (mirrors the server-side resolver in
+ * supabase/functions/_shared/helpers/mergeFields.ts):
+ *   snake_case: {{first_name}}, {{last_name}}, {{phone}}, {{email}}, {{phase}}
+ *   camelCase:  {{firstName}},  {{lastName}},  {{fullName}}
+ *
+ * Used for the bulk SMS preview (one example recipient) — the server
+ * does the per-recipient substitution at send time. Both naming
+ * conventions exist because admin-managed Message Templates from the
+ * `message_templates` table use camelCase, while legacy bulk SMS hint
+ * text uses snake_case.
  */
 export function resolveCaregiverMergeFields(template, caregiver) {
   if (!template) return '';
+  const firstName = caregiver?.firstName || '';
+  const lastName = caregiver?.lastName || '';
+  const fullName = `${firstName} ${lastName}`.trim();
   return template
-    .replace(/\{\{first_name\}\}/gi, caregiver?.firstName || '')
-    .replace(/\{\{last_name\}\}/gi, caregiver?.lastName || '')
+    .replace(/\{\{first_name\}\}/gi, firstName)
+    .replace(/\{\{last_name\}\}/gi, lastName)
+    .replace(/\{\{firstName\}\}/g, firstName)
+    .replace(/\{\{lastName\}\}/g, lastName)
+    .replace(/\{\{fullName\}\}/g, fullName)
     .replace(/\{\{phone\}\}/gi, caregiver?.phone || '')
     .replace(/\{\{email\}\}/gi, caregiver?.email || '')
     .replace(/\{\{phase\}\}/gi, caregiver?.phaseOverride || '');

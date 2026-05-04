@@ -50,6 +50,37 @@ describe('resolveCaregiverMergeFields', () => {
   it('handles null caregiver gracefully', () => {
     expect(resolveCaregiverMergeFields('Hi {{first_name}}', null)).toBe('Hi ');
   });
+
+  // ─── camelCase placeholder support ───
+  // Templates from the shared `message_templates` table use camelCase
+  // placeholders ({{firstName}}, {{lastName}}, {{fullName}}). Bulk SMS
+  // pulls from the same table now, so the preview helper must resolve
+  // both formats. Mirrors the server-side resolver in
+  // supabase/functions/_shared/helpers/mergeFields.ts.
+
+  it('replaces {{firstName}} (camelCase)', () => {
+    expect(resolveCaregiverMergeFields('Hi {{firstName}}!', caregiver)).toBe('Hi Jane!');
+  });
+
+  it('replaces {{lastName}} (camelCase)', () => {
+    expect(resolveCaregiverMergeFields('Dear {{lastName}}', caregiver)).toBe('Dear Doe');
+  });
+
+  it('replaces {{fullName}} as "first last" trimmed', () => {
+    expect(resolveCaregiverMergeFields('Hi {{fullName}}!', caregiver)).toBe('Hi Jane Doe!');
+  });
+
+  it('renders {{fullName}} with no leading/trailing space when last name is missing', () => {
+    const partial = { firstName: 'Jane' };
+    expect(resolveCaregiverMergeFields('Hi {{fullName}}!', partial)).toBe('Hi Jane!');
+  });
+
+  it('resolves a real Settings-tab template body using camelCase fields', () => {
+    const template = 'Hi {{firstName}}, welcome to Tremendous Care!';
+    expect(resolveCaregiverMergeFields(template, caregiver)).toBe(
+      'Hi Jane, welcome to Tremendous Care!',
+    );
+  });
 });
 
 // ─── resolveClientMergeFields ────────────────────────────────

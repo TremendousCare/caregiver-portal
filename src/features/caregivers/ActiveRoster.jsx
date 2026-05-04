@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../lib/constants';
 import { getExpiryStatus } from '../../lib/rosterUtils';
 import { resolveCaregiverMergeFields, normalizePhone } from '../../lib/mergeFields';
-import { supabase } from '../../lib/supabase';
+import { listActiveTemplates, groupTemplatesByCategory } from './caregiver/messageTemplateHelpers';
 import { useCommunicationRoutes } from '../../shared/hooks/useCommunicationRoutes';
 import { RouteSelectorChip, RouteSummaryLine } from '../../shared/components/RouteSelectorChip';
 import layout from '../../styles/layout.module.css';
@@ -120,17 +120,16 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
   const [smsCategory, setSmsCategory] = useState(null);
   const [smsCategoryTouched, setSmsCategoryTouched] = useState(false);
 
-  // Load SMS templates
+  // Load SMS templates from the shared `message_templates` table — same
+  // source the inline composer uses (Settings → Message Templates).
   useEffect(() => {
-    if (!supabase) return;
-    supabase.from('app_settings').select('value').eq('key', 'sms_templates').single()
-      .then(({ data }) => {
-        if (data?.value) {
-          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-          setSmsTemplates(Array.isArray(parsed) ? parsed : []);
-        }
-      })
-      .catch(() => {});
+    let cancelled = false;
+    listActiveTemplates({ entityScope: 'caregiver' })
+      .then((data) => { if (!cancelled) setSmsTemplates(data || []); })
+      .catch((err) => {
+        console.warn('[ActiveRoster] Failed to load message templates:', err);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // Clear selection when filters change
@@ -495,21 +494,25 @@ export function ActiveRoster({ caregivers, onUpdateCaregiver, onBulkSms, onBulkA
                           style={{ marginBottom: 8 }}
                         >
                           <option value="">-- Pick a template (optional) --</option>
-                          {smsTemplates.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
+                          {groupTemplatesByCategory(smsTemplates).map((group) => (
+                            <optgroup key={group.category} label={group.label}>
+                              {group.templates.map((t) => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       )}
                       <textarea
                         className={d.composeTextarea}
-                        placeholder="Type your SMS message... Use {{first_name}}, {{last_name}} for merge fields"
+                        placeholder="Type your SMS message... Use {{firstName}}, {{lastName}} for merge fields"
                         value={bulkSmsText}
                         onChange={(e) => setBulkSmsText(e.target.value)}
                         rows={4}
                         autoFocus
                       />
                       <div className={d.mergeFieldsHint}>
-                        Merge fields: {'{{first_name}}'}, {'{{last_name}}'}, {'{{phone}}'}, {'{{email}}'}
+                        Merge fields: {'{{firstName}}'}, {'{{lastName}}'}, {'{{fullName}}'}, {'{{phone}}'}, {'{{email}}'}
                       </div>
                       <div className={withPhone.length > 0 ? d.phoneCountLine : `${d.phoneCountLine} ${d.phoneCountWarning}`}>
                         {withPhone.length} of {selectedCgs.length} have a valid phone number

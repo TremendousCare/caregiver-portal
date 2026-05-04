@@ -6,6 +6,7 @@ import { loadBoardColumns } from '../../lib/storage';
 import { exportToCSV } from '../../lib/export';
 import { supabase } from '../../lib/supabase';
 import { resolveCaregiverMergeFields, normalizePhone } from '../../lib/mergeFields';
+import { listActiveTemplates, groupTemplatesByCategory } from './caregiver/messageTemplateHelpers';
 import { OrientationBanner } from './KanbanBoard';
 import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
@@ -572,17 +573,19 @@ export function Dashboard({
     loadBoardColumns().then(setBoardColumns);
   }, []);
 
-  // Load SMS templates
+  // Load SMS templates from the shared `message_templates` table — same
+  // source the inline composer uses (Settings → Message Templates).
+  // Scoped to caregiver-applicable templates (entity_scope IS NULL OR
+  // 'caregiver'). Helpers handle the entity_scope-missing fallback so
+  // pre-migration deployments still render a list.
   useEffect(() => {
-    if (!supabase) return;
-    supabase.from('app_settings').select('value').eq('key', 'sms_templates').single()
-      .then(({ data }) => {
-        if (data?.value) {
-          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-          setSmsTemplates(Array.isArray(parsed) ? parsed : []);
-        }
-      })
-      .catch(() => {});
+    let cancelled = false;
+    listActiveTemplates({ entityScope: 'caregiver' })
+      .then((data) => { if (!cancelled) setSmsTemplates(data || []); })
+      .catch((err) => {
+        console.warn('[Dashboard] Failed to load message templates:', err);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // Clear selection when filter changes
@@ -1166,21 +1169,25 @@ export function Dashboard({
                           style={{ marginBottom: 8 }}
                         >
                           <option value="">-- Pick a template (optional) --</option>
-                          {smsTemplates.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
+                          {groupTemplatesByCategory(smsTemplates).map((group) => (
+                            <optgroup key={group.category} label={group.label}>
+                              {group.templates.map((t) => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       )}
                       <textarea
                         className={d.composeTextarea}
-                        placeholder="Type your SMS message... Use {{first_name}}, {{last_name}} for merge fields"
+                        placeholder="Type your SMS message... Use {{firstName}}, {{lastName}} for merge fields"
                         value={bulkSmsText}
                         onChange={(e) => setBulkSmsText(e.target.value)}
                         rows={4}
                         autoFocus
                       />
                       <div className={d.mergeFieldsHint}>
-                        Merge fields: {'{{first_name}}'}, {'{{last_name}}'}, {'{{phone}}'}, {'{{email}}'}
+                        Merge fields: {'{{firstName}}'}, {'{{lastName}}'}, {'{{fullName}}'}, {'{{phone}}'}, {'{{email}}'}
                       </div>
                       <div className={withPhone.length > 0 ? d.phoneCountLine : `${d.phoneCountLine} ${d.phoneCountWarning}`}>
                         {withPhone.length} of {selectedCgs.length} have a valid phone number
