@@ -51,6 +51,7 @@ import { expandRecurrence } from "../../../src/lib/scheduling/recurrence.js";
 import { DEFAULT_APP_TIMEZONE } from "../../../src/lib/scheduling/timezone.js";
 import {
   computeOngoingExtensionWindow,
+  dayFloorUtc,
   latestEndTime,
 } from "../../../src/lib/scheduling/ongoingExtension.js";
 import {
@@ -167,11 +168,20 @@ async function extendPlan(
   // The dialog also dedupes; doing it here too means the cron is safe
   // even if a scheduler manually inserted a one-off shift in the
   // window between runs.
+  //
+  // The lower bound is floored to the start of the UTC day because
+  // `expandRecurrence` floors `windowStart` the same way and may emit
+  // shifts earlier on the boundary day (e.g. resuming at 12:00:00.001
+  // Z still produces an 08:00 shift if the pattern matches that day).
+  // Using the un-floored windowStart as the SQL lower bound let those
+  // boundary-day duplicates slip through to the insert.
+  const dedupeLowerBound = (dayFloorUtc(decision.windowStart) ?? decision.windowStart)
+    .toISOString();
   const { data: existingData, error: existingErr } = await supabase
     .from("shifts")
     .select("start_time, end_time")
     .eq("service_plan_id", plan.id)
-    .gte("start_time", decision.windowStart.toISOString())
+    .gte("start_time", dedupeLowerBound)
     .lte("start_time", decision.windowEnd.toISOString());
 
   if (existingErr) {

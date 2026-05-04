@@ -119,8 +119,15 @@ export function GenerateShiftsDialog({
     return parts.length > 0 ? parts.join(', ') : null;
   }, [client]);
 
+  // True when the user changed the Ongoing toggle relative to the
+  // plan's persisted state. Used so the Save button stays enabled
+  // even when the visible window has zero new shifts to insert —
+  // otherwise a scheduler couldn't enable/disable Ongoing on a plan
+  // whose 12 weeks are already fully materialized.
+  const ongoingChanged = isOngoing !== (plan?.isOngoing === true);
+
   const handleGenerate = async () => {
-    if (newInstances.length === 0) {
+    if (newInstances.length === 0 && !ongoingChanged) {
       setSaveError('Nothing to generate. All shifts in this window already exist.');
       return;
     }
@@ -144,12 +151,14 @@ export function GenerateShiftsDialog({
       }
 
       // Persist the ongoing flag + the bookkeeping marker the cron
-      // reads from. We always write the flag (so toggling off clears
-      // it), and we update last_generated_through whenever we
-      // actually pushed shifts that extend it forward.
-      const newestEnd = latestEndTime([...newInstances, ...existingShifts.map((s) => ({
-        end_time: s.endTime,
-      }))]);
+      // reads from. Runs even when no new shifts were created, so a
+      // user can toggle Ongoing on a plan whose window is already
+      // fully materialized. The marker only advances if existing or
+      // newly-created shifts push it forward.
+      const newestEnd = latestEndTime([
+        ...newInstances,
+        ...existingShifts.map((s) => ({ end_time: s.endTime })),
+      ]);
       const priorEnd = plan.lastGeneratedThrough
         ? new Date(plan.lastGeneratedThrough).getTime()
         : 0;
@@ -317,11 +326,19 @@ export function GenerateShiftsDialog({
           <button
             className={btn.primaryBtn}
             onClick={handleGenerate}
-            disabled={saving || loadingExisting || newInstances.length === 0}
+            disabled={
+              saving ||
+              loadingExisting ||
+              (newInstances.length === 0 && !ongoingChanged)
+            }
           >
             {saving
               ? 'Generating…'
-              : `Create ${newInstances.length} shift${newInstances.length === 1 ? '' : 's'}`}
+              : newInstances.length === 0 && ongoingChanged
+                ? isOngoing
+                  ? 'Turn on Ongoing'
+                  : 'Turn off Ongoing'
+                : `Create ${newInstances.length} shift${newInstances.length === 1 ? '' : 's'}`}
           </button>
         </footer>
       </div>

@@ -21,6 +21,28 @@
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * Floor a Date to UTC midnight on the same calendar day. Mirrors the
+ * normalization that `expandRecurrence` does internally via its
+ * `toUTCDate` helper, so callers that need to predict which existing
+ * shifts might collide with a re-expansion can use the same boundary.
+ *
+ * Why this exists: when the cron resumes from `last_generated_through
+ * + 1ms` (typically mid-day, e.g. 12:00:00.001Z), expandRecurrence
+ * still floors that to the start of the UTC day and may emit shifts
+ * earlier on the boundary day (e.g. an 08:00 shift). The dedupe
+ * query that loads existing shifts must therefore use this same UTC
+ * day boundary as its lower bound — anything narrower lets the
+ * boundary-day duplicate slip through `filterOutExistingInstances`.
+ */
+export function dayFloorUtc(date) {
+  if (date === null || date === undefined) return null;
+  const ms = date instanceof Date ? date.getTime() : Number(date);
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
  * Decide whether and how much to extend an ongoing service plan.
  *
  * @param {object} plan

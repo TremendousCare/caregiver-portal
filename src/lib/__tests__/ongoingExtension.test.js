@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeOngoingExtensionWindow,
+  dayFloorUtc,
   latestEndTime,
 } from '../scheduling/ongoingExtension';
 
@@ -85,6 +86,45 @@ describe('computeOngoingExtensionWindow', () => {
     );
     expect(decision.shouldExtend).toBe(true);
     expect(decision.windowEnd.getTime()).toBe(NOW.getTime() + 84 * MS_PER_DAY);
+  });
+});
+
+describe('dayFloorUtc', () => {
+  it('floors a mid-day Date to UTC midnight', () => {
+    const out = dayFloorUtc(new Date('2026-08-04T12:34:56.789Z'));
+    expect(out.toISOString()).toBe('2026-08-04T00:00:00.000Z');
+  });
+
+  it('is a no-op when the input is already UTC midnight', () => {
+    const out = dayFloorUtc(new Date('2026-08-04T00:00:00.000Z'));
+    expect(out.toISOString()).toBe('2026-08-04T00:00:00.000Z');
+  });
+
+  it('accepts a numeric ms-since-epoch input', () => {
+    const ms = new Date('2026-08-04T18:00:00.000Z').getTime();
+    expect(dayFloorUtc(ms).toISOString()).toBe('2026-08-04T00:00:00.000Z');
+  });
+
+  it('returns null for invalid input', () => {
+    expect(dayFloorUtc('not a date')).toBeNull();
+    expect(dayFloorUtc(null)).toBeNull();
+  });
+
+  it('mirrors expandRecurrence boundary handling — a `last_generated_through + 1ms` window start floors back to the start of the same UTC day so the dedupe SQL can catch boundary-day shifts', () => {
+    // Pin the documented invariant that the cron relies on: the
+    // dedupe lower bound used by the edge function MUST be the start
+    // of the UTC day, not the un-floored windowStart, otherwise an
+    // 08:00 shift on the boundary day slips past the SQL filter and
+    // gets re-inserted as a duplicate.
+    const lastGeneratedThrough = new Date('2026-08-04T12:00:00.000Z');
+    const windowStart = new Date(lastGeneratedThrough.getTime() + 1);
+    const lower = dayFloorUtc(windowStart).toISOString();
+    expect(lower).toBe('2026-08-04T00:00:00.000Z');
+    // Sanity-check: an existing 08:00 shift falls inside the lower
+    // bound but would NOT have if we'd used windowStart directly.
+    const existingShiftStart = '2026-08-04T08:00:00.000Z';
+    expect(existingShiftStart >= lower).toBe(true);
+    expect(existingShiftStart >= windowStart.toISOString()).toBe(false);
   });
 });
 
