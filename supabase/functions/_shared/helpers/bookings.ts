@@ -294,6 +294,180 @@ export function shouldFireInterviewFollowUp(
   return { fire: true };
 }
 
+// ─── interview_not_scheduled lookback window ─────────────────────────────
+// Computes how many days back the cron should scan automation_log for the
+// original booking-URL send. Must cover the entire span over which a
+// recurring cadence could still legitimately fire — otherwise an in-flight
+// original send falls out of the lookback window and the anchor
+// disappears, silently stopping the cadence before max_reminders is hit.
+//
+// Worst case for a recurring rule is the last possible nudge, which lands
+// at roughly `daysGap + (maxReminders − 1) × intervalDays`. We approximate
+// with `daysGap + intervalDays × maxReminders` (over-counts by one
+// interval, which is fine — extra margin) and take the max with any
+// explicit `stopAfterDays`. A 60-day buffer catches anything else.
+//
+// Hard-capped at 365 days so a misconfigured rule (e.g. interval_days set
+// without max_reminders or stop_after_days) cannot trigger an unbounded
+// table scan.
+export const INTERVIEW_FOLLOWUP_LOOKBACK_BUFFER_DAYS = 60;
+export const INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS = 365;
+
+export function computeInterviewFollowUpLookbackDays(input: {
+  daysGap: number;
+  intervalDays?: number | null;
+  maxReminders?: number | null;
+  stopAfterDays?: number | null;
+}): number {
+  const daysGap = Number.isFinite(input.daysGap) && input.daysGap >= 1
+    ? input.daysGap
+    : 1;
+  const intervalDays =
+    Number.isFinite(input.intervalDays as number) && (input.intervalDays as number) >= 1
+      ? (input.intervalDays as number)
+      : 0;
+  const maxReminders =
+    Number.isFinite(input.maxReminders as number) && (input.maxReminders as number) >= 1
+      ? (input.maxReminders as number)
+      : 0;
+  const stopAfterDays =
+    Number.isFinite(input.stopAfterDays as number) && (input.stopAfterDays as number) >= 1
+      ? (input.stopAfterDays as number)
+      : 0;
+
+  // Span over which recurring nudges could still fire, measured from the
+  // original send. Only meaningful when both interval_days and either
+  // max_reminders or stop_after_days are set — otherwise we fall back to
+  // the explicit stopAfterDays (or just daysGap for single-fire rules).
+  const cadenceSpan =
+    intervalDays > 0 && maxReminders > 0
+      ? daysGap + intervalDays * maxReminders
+      : 0;
+
+  const raw =
+    Math.max(daysGap, stopAfterDays, cadenceSpan) +
+    INTERVIEW_FOLLOWUP_LOOKBACK_BUFFER_DAYS;
+
+  return Math.min(INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS, raw);
+}
+
+// ─── interview_not_scheduled recurring evaluator ─────────────────────────
+// Same anchor + booking-status logic as shouldFireInterviewFollowUp, but
+// supports a repeating cadence: starting `daysGap` days after the original
+// send, fire every `intervalDays` days (spaced by the most recent prior
+// follow-up), capped by `maxReminders` and `stopAfterDays`. When any of
+// the recurring fields are omitted the function degrades to single-fire
+// behavior identical to the original helper, so existing rules without
+// the new conditions keep working unchanged.
+//
+// Inputs:
+//   priorFollowUpCount       — number of successful follow-ups already
+//                              sent for this rule + caregiver since the
+//                              original booking-URL send.
+//   lastFollowUpAt           — ISO timestamp of the most recent prior
+//                              follow-up (null if none yet).
+//   intervalDays             — optional. Spacing between follow-ups. If
+//                              omitted/≤0, behaves as single-fire.
+//   maxReminders             — optional. Hard cap on total follow-ups.
+//                              If omitted, no cap (still bounded by
+//                              stopAfterDays).
+//   stopAfterDays            — optional. Absolute cutoff measured from
+//                              the original send. If omitted, no cutoff
+//                              (still bounded by maxReminders).
+
+export interface InterviewFollowUpRecurringInput {
+  lastSendAt: string | null;
+  latestInterviewRow: { status?: string | null } | null | undefined;
+  daysGap: number;
+  priorFollowUpCount: number;
+  lastFollowUpAt: string | null;
+  intervalDays?: number | null;
+  maxReminders?: number | null;
+  stopAfterDays?: number | null;
+  now: number;
+}
+
+export function shouldFireInterviewFollowUpRecurring(
+  input: InterviewFollowUpRecurringInput,
+): InterviewFollowUpDecision {
+  const {
+    lastSendAt,
+    latestInterviewRow,
+    daysGap,
+    priorFollowUpCount,
+    lastFollowUpAt,
+    intervalDays,
+    maxReminders,
+    stopAfterDays,
+    now,
+  } = input;
+
+  if (!Number.isFinite(daysGap) || daysGap < 1) {
+    return { fire: false, reason: "invalid_days_gap" };
+  }
+  if (!lastSendAt) {
+    return { fire: false, reason: "no_link_send_recorded" };
+  }
+  const sentMs = Date.parse(lastSendAt);
+  if (!Number.isFinite(sentMs)) {
+    return { fire: false, reason: "unparseable_send_timestamp" };
+  }
+  const ageMs = now - sentMs;
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  // Active or completed booking blocks all follow-ups, current and future.
+  const status = latestInterviewRow?.status;
+  if (status === "booked") {
+    return { fire: false, reason: "currently_booked" };
+  }
+  if (status === "completed") {
+    return { fire: false, reason: "interview_completed" };
+  }
+
+  // First nudge — gated solely by daysGap, same as single-fire.
+  if (priorFollowUpCount <= 0) {
+    if (ageMs < daysGap * dayMs) {
+      return { fire: false, reason: "too_soon" };
+    }
+    return { fire: true };
+  }
+
+  // Subsequent nudges — must opt in by setting intervalDays. Without it,
+  // the rule behaves as single-fire and we stop after the first nudge.
+  const hasInterval = Number.isFinite(intervalDays as number) && (intervalDays as number) > 0;
+  if (!hasInterval) {
+    return { fire: false, reason: "already_fired" };
+  }
+
+  if (Number.isFinite(maxReminders as number) && (maxReminders as number) > 0) {
+    if (priorFollowUpCount >= (maxReminders as number)) {
+      return { fire: false, reason: "max_reminders_reached" };
+    }
+  }
+
+  if (Number.isFinite(stopAfterDays as number) && (stopAfterDays as number) > 0) {
+    if (ageMs > (stopAfterDays as number) * dayMs) {
+      return { fire: false, reason: "past_stop_after_days" };
+    }
+  }
+
+  // Spacing check against the most recent prior follow-up.
+  if (!lastFollowUpAt) {
+    // Defensive: count says we've fired, but no timestamp recorded.
+    // Treat as "too soon" rather than firing without spacing data.
+    return { fire: false, reason: "missing_last_followup_timestamp" };
+  }
+  const lastMs = Date.parse(lastFollowUpAt);
+  if (!Number.isFinite(lastMs)) {
+    return { fire: false, reason: "unparseable_last_followup_timestamp" };
+  }
+  if (now - lastMs < (intervalDays as number) * dayMs) {
+    return { fire: false, reason: "interval_not_elapsed" };
+  }
+
+  return { fire: true };
+}
+
 export function normalizeGraphAppointment(
   appt: GraphAppointment,
 ): NormalizedAppointment {

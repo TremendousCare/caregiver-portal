@@ -19,6 +19,9 @@ import {
   normalizeGraphAppointment,
   deriveInterviewCardState,
   shouldFireInterviewFollowUp,
+  shouldFireInterviewFollowUpRecurring,
+  computeInterviewFollowUpLookbackDays,
+  INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS,
 } from '../../../supabase/functions/_shared/helpers/bookings.ts';
 
 describe('getBookingUrlFromOrgSettings', () => {
@@ -421,6 +424,280 @@ describe('shouldFireInterviewFollowUp', () => {
     const oneSecondShort = new Date(NOW - 3 * 24 * 60 * 60 * 1000 + 1000).toISOString();
     expect(shouldFireInterviewFollowUp({ ...base, lastSendAt: oneSecondShort }))
       .toEqual({ fire: false, reason: 'too_soon' });
+  });
+});
+
+describe('shouldFireInterviewFollowUpRecurring', () => {
+  // Anchor "now" at a fixed point so day-math is readable.
+  const NOW = Date.parse('2026-05-20T12:00:00Z');
+  const dayMs = 24 * 60 * 60 * 1000;
+  const daysAgo = (n) => new Date(NOW - n * dayMs).toISOString();
+
+  // Default recurring config: first nudge at day 1, then every 1 day,
+  // stop after 10 days, cap at 5 total. Mirrors the team's example.
+  const recurring = {
+    daysGap: 1,
+    intervalDays: 1,
+    stopAfterDays: 10,
+    maxReminders: 5,
+  };
+
+  it('first nudge: fires once daysGap has elapsed and there is no booking', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(1),
+      latestInterviewRow: null,
+      priorFollowUpCount: 0,
+      lastFollowUpAt: null,
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: true });
+  });
+
+  it('first nudge: does not fire before daysGap elapses', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(0.5),
+      latestInterviewRow: null,
+      priorFollowUpCount: 0,
+      lastFollowUpAt: null,
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'too_soon' });
+  });
+
+  it('repeat: fires when interval has elapsed since last follow-up', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: null,
+      priorFollowUpCount: 2,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: true });
+  });
+
+  it('repeat: skipped when interval has not yet elapsed', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: null,
+      priorFollowUpCount: 2,
+      lastFollowUpAt: daysAgo(0.5),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'interval_not_elapsed' });
+  });
+
+  it('cap: stops once max_reminders has been reached', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(6),
+      latestInterviewRow: null,
+      priorFollowUpCount: 5,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'max_reminders_reached' });
+  });
+
+  it('cutoff: stops once stop_after_days has elapsed', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(11),
+      latestInterviewRow: null,
+      priorFollowUpCount: 2,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'past_stop_after_days' });
+  });
+
+  it('booking blocks the cadence even mid-cycle', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: { status: 'booked' },
+      priorFollowUpCount: 1,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'currently_booked' });
+  });
+
+  it('completed interview blocks the cadence', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: { status: 'completed' },
+      priorFollowUpCount: 1,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'interview_completed' });
+  });
+
+  it('cancelled interview does NOT block — caregiver still needs to re-book', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: { status: 'cancelled' },
+      priorFollowUpCount: 1,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: true });
+  });
+
+  it('back-compat: omitting interval_days behaves as single-fire', () => {
+    // First nudge fires.
+    const first = shouldFireInterviewFollowUpRecurring({
+      daysGap: 3,
+      lastSendAt: daysAgo(4),
+      latestInterviewRow: null,
+      priorFollowUpCount: 0,
+      lastFollowUpAt: null,
+      now: NOW,
+    });
+    expect(first).toEqual({ fire: true });
+
+    // Second never fires — already_fired gate kicks in.
+    const second = shouldFireInterviewFollowUpRecurring({
+      daysGap: 3,
+      lastSendAt: daysAgo(7),
+      latestInterviewRow: null,
+      priorFollowUpCount: 1,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(second).toEqual({ fire: false, reason: 'already_fired' });
+  });
+
+  it('no original send recorded → does not fire', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: null,
+      latestInterviewRow: null,
+      priorFollowUpCount: 0,
+      lastFollowUpAt: null,
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'no_link_send_recorded' });
+  });
+
+  it('boundary: exactly intervalDays elapsed since last follow-up fires', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: null,
+      priorFollowUpCount: 1,
+      lastFollowUpAt: daysAgo(1),
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: true });
+  });
+
+  it('rejects invalid daysGap', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      daysGap: 0,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: null,
+      priorFollowUpCount: 0,
+      lastFollowUpAt: null,
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'invalid_days_gap' });
+  });
+
+  it('handles unparseable lastFollowUpAt gracefully', () => {
+    const out = shouldFireInterviewFollowUpRecurring({
+      ...recurring,
+      lastSendAt: daysAgo(3),
+      latestInterviewRow: null,
+      priorFollowUpCount: 1,
+      lastFollowUpAt: 'not-a-date',
+      now: NOW,
+    });
+    expect(out).toEqual({ fire: false, reason: 'unparseable_last_followup_timestamp' });
+  });
+});
+
+describe('computeInterviewFollowUpLookbackDays', () => {
+  it('single-fire rule: window is daysGap + 60 buffer', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({ daysGap: 3 }),
+    ).toBe(63);
+  });
+
+  it('with explicit stop_after_days, uses the larger of stop and daysGap', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        stopAfterDays: 10,
+      }),
+    ).toBe(70);
+  });
+
+  it('regression: recurring rule with no stop_after_days extends window via cadence span', () => {
+    // The Codex P1 case: days_after_send=1, interval_days=30, max_reminders=5.
+    // Without this fix, lookback was 1+60=61 days and the original send
+    // fell out of the window after ~61 days, silently halting the cadence.
+    // The fix: cadence span = daysGap + intervalDays*maxReminders = 1+150 = 151.
+    // Plus 60 buffer = 211 days, well over the 150 days the cadence needs.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+        maxReminders: 5,
+      }),
+    ).toBe(211);
+  });
+
+  it('respects the larger of cadence span vs stop_after_days', () => {
+    // intervalDays * maxReminders = 150, but stop is 200 — stop should win.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+        maxReminders: 5,
+        stopAfterDays: 200,
+      }),
+    ).toBe(260);
+  });
+
+  it('hard-caps at 365 days for misconfigured rules', () => {
+    // intervalDays without max or stop is unbounded in principle —
+    // helper still returns a sane value rather than scanning forever.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 999,
+        maxReminders: 999,
+      }),
+    ).toBe(INTERVIEW_FOLLOWUP_LOOKBACK_MAX_DAYS);
+  });
+
+  it('ignores invalid recurring inputs and falls back to single-fire window', () => {
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 5,
+        intervalDays: 0,
+        maxReminders: -1,
+        stopAfterDays: NaN,
+      }),
+    ).toBe(65);
+  });
+
+  it('cadence span only kicks in when both interval and max are set', () => {
+    // intervalDays alone is unbounded — without max we don't extend.
+    expect(
+      computeInterviewFollowUpLookbackDays({
+        daysGap: 1,
+        intervalDays: 30,
+      }),
+    ).toBe(61);
   });
 });
 

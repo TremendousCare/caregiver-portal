@@ -16,7 +16,8 @@ import {
   resolveAvailabilityCheckInConditions,
 } from "../_shared/helpers/availabilityCheckIn.ts";
 import {
-  shouldFireInterviewFollowUp,
+  shouldFireInterviewFollowUpRecurring,
+  computeInterviewFollowUpLookbackDays,
   getBookingUrlFromOrgSettings,
 } from "../_shared/helpers/bookings.ts";
 
@@ -934,12 +935,23 @@ Deno.serve(async (req) => {
     //
     // Per-rule conditions:
     //   days_after_send  — required, integer ≥ 1. How many days after the
-    //                      booking-URL went out before nudging.
+    //                      booking-URL went out before the FIRST nudge.
     //   phase            — optional. If set, only nudges caregivers whose
     //                      current computed phase matches.
+    //   interval_days    — optional, integer ≥ 1. If set, the rule recurs
+    //                      every N days after the first nudge until either
+    //                      max_reminders or stop_after_days is hit, or the
+    //                      caregiver books an interview. Omit for legacy
+    //                      single-fire behavior.
+    //   max_reminders    — optional, integer ≥ 1. Hard cap on total
+    //                      follow-ups per caregiver per (booking-URL send).
+    //   stop_after_days  — optional, integer ≥ 1. Absolute cutoff measured
+    //                      from the original booking-URL send.
     //
-    // Idempotency: at most one successful follow-up per (rule, caregiver).
-    // Tracked via automation_log entries for this rule.
+    // Idempotency / cadence: prior follow-up count is derived per cron run
+    // by counting successful automation_log rows for this rule + caregiver
+    // whose executed_at is after the original booking-URL send. Single-fire
+    // rules (no interval_days) still cap at one nudge per caregiver.
 
     try {
       const { data: followUpRules, error: followUpRulesErr } = await supabase
@@ -969,43 +981,94 @@ Deno.serve(async (req) => {
           // We pull the most recent send per caregiver in JS (Postgres
           // window functions through PostgREST are awkward), capped at a
           // generous lookback so we don't scan unbounded history.
-          const lookbackMs = (daysGap + 60) * 24 * 60 * 60 * 1000;
+          // Resolve optional recurring-cadence config. Omitted/invalid
+          // values fall back to single-fire behavior (back-compat with
+          // existing rules created before recurring shipped).
+          const intervalDaysRaw = Number(rule.conditions?.interval_days);
+          const intervalDays = Number.isFinite(intervalDaysRaw) && intervalDaysRaw >= 1
+            ? intervalDaysRaw
+            : null;
+          const maxRemindersRaw = Number(rule.conditions?.max_reminders);
+          const maxReminders = Number.isFinite(maxRemindersRaw) && maxRemindersRaw >= 1
+            ? maxRemindersRaw
+            : null;
+          const stopAfterDaysRaw = Number(rule.conditions?.stop_after_days);
+          const stopAfterDays = Number.isFinite(stopAfterDaysRaw) && stopAfterDaysRaw >= 1
+            ? stopAfterDaysRaw
+            : null;
+
+          // Lookback must cover the entire span over which a recurring
+          // cadence could still fire — otherwise an in-flight original
+          // send falls out of the window and the anchor disappears,
+          // silently stopping the cadence before max_reminders is hit.
+          // Helper hard-caps at 365 days to bound the scan.
+          const lookbackDays = computeInterviewFollowUpLookbackDays({
+            daysGap,
+            intervalDays,
+            maxReminders,
+            stopAfterDays,
+          });
+          const lookbackMs = lookbackDays * 24 * 60 * 60 * 1000;
           const lookbackIso = new Date(nowMs - lookbackMs).toISOString();
           const { data: sendLogs, error: sendLogsErr } = await supabase
             .from("automation_log")
-            .select("caregiver_id, created_at, trigger_context")
+            .select("caregiver_id, rule_id, executed_at, trigger_context")
             .eq("status", "success")
-            .gte("created_at", lookbackIso)
+            .gte("executed_at", lookbackIso)
             .not("trigger_context->>booking_url", "is", null)
-            .order("created_at", { ascending: false });
+            .order("executed_at", { ascending: false });
           if (sendLogsErr) {
             console.error(`Failed to fetch booking-URL sends for rule ${rule.id}:`, sendLogsErr);
             summary.errors++;
             continue;
           }
 
-          // Most recent send per caregiver.
+          // Most recent send per caregiver. We exclude follow-ups produced
+          // by this very rule — when a recurring follow-up message itself
+          // contains {{booking_url}}, its automation_log row also has
+          // trigger_context.booking_url set, which would otherwise reset
+          // the anchor every time the cadence fires.
           const lastSendByCg = new Map<string, string>();
           for (const log of sendLogs || []) {
             const cgId = (log as any).caregiver_id;
             if (!cgId) continue;
+            if ((log as any).rule_id === rule.id) continue;
             if (!lastSendByCg.has(cgId)) {
-              lastSendByCg.set(cgId, (log as any).created_at);
+              lastSendByCg.set(cgId, (log as any).executed_at);
             }
           }
           if (lastSendByCg.size === 0) continue;
 
-          // Step 2: which of those caregivers has this rule already nudged?
+          // Step 2: count prior successful follow-ups for THIS rule per
+          // caregiver since their original send. Used by the recurring
+          // helper to gate spacing, max_reminders, and (for legacy
+          // single-fire rules) the "already fired" cap.
           const candidateIds = Array.from(lastSendByCg.keys());
           const { data: priorFollowUps } = await supabase
             .from("automation_log")
-            .select("caregiver_id")
+            .select("caregiver_id, executed_at")
             .eq("rule_id", rule.id)
             .eq("status", "success")
-            .in("caregiver_id", candidateIds);
-          const alreadyFired = new Set(
-            (priorFollowUps || []).map((r: any) => r.caregiver_id).filter(Boolean),
-          );
+            .in("caregiver_id", candidateIds)
+            .order("executed_at", { ascending: false });
+          const followUpCountByCg = new Map<string, number>();
+          const lastFollowUpByCg = new Map<string, string>();
+          for (const row of priorFollowUps || []) {
+            const cgId = (row as any).caregiver_id;
+            if (!cgId) continue;
+            const sendIso = lastSendByCg.get(cgId);
+            if (!sendIso) continue;
+            // Only count follow-ups that came after the most recent
+            // original send — earlier ones belong to a previous cycle.
+            if ((row as any).executed_at < sendIso) continue;
+            followUpCountByCg.set(
+              cgId,
+              (followUpCountByCg.get(cgId) || 0) + 1,
+            );
+            if (!lastFollowUpByCg.has(cgId)) {
+              lastFollowUpByCg.set(cgId, (row as any).executed_at);
+            }
+          }
 
           // Step 3: pull caregiver records (need phase, sms_opted_out,
           // archived). archived/opted-out caregivers are filtered now to
@@ -1071,11 +1134,16 @@ Deno.serve(async (req) => {
               continue;
             }
 
-            const decision = shouldFireInterviewFollowUp({
+            const priorCount = followUpCountByCg.get(cgId) || 0;
+            const decision = shouldFireInterviewFollowUpRecurring({
               lastSendAt: lastSendByCg.get(cgId) || null,
               latestInterviewRow: latestInterview.get(cgId) || null,
               daysGap,
-              alreadyFiredFollowUp: alreadyFired.has(cgId),
+              priorFollowUpCount: priorCount,
+              lastFollowUpAt: lastFollowUpByCg.get(cgId) || null,
+              intervalDays,
+              maxReminders,
+              stopAfterDays,
               now: nowMs,
             });
             if (!decision.fire) {
@@ -1125,6 +1193,8 @@ Deno.serve(async (req) => {
                       booking_url: bookingUrl,
                       original_send_at: lastSendByCg.get(cgId) || null,
                       days_since_send: daysGap,
+                      reminder_number: priorCount + 1,
+                      ...(maxReminders ? { max_reminders: maxReminders } : {}),
                     },
                   }),
                 },
