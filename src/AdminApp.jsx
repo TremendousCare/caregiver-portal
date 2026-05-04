@@ -25,6 +25,7 @@ import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
 import { AdminSettings } from './components/AdminSettings';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
+import { MyCnaJobsImportModal } from './features/caregivers/MyCnaJobsImport';
 import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from './lib/utils';
 import { getClientPhase } from './features/clients/utils';
 import btn from './styles/buttons.module.css';
@@ -41,6 +42,7 @@ function DashboardPage() {
   } = useCaregivers();
   const [searchTerm, setSearchTerm] = useState('');
   const [showIndeedImport, setShowIndeedImport] = useState(false);
+  const [showMyCnaImport, setShowMyCnaImport] = useState(false);
 
   const filtered = useMemo(() => {
     const base = filterPhase === 'archived' ? archivedCaregivers : onboardingCaregivers;
@@ -89,6 +91,7 @@ function DashboardPage() {
         onSelect={(id) => navigate(`/caregiver/${id}`)}
         onAdd={() => navigate('/add')}
         onImportIndeed={() => setShowIndeedImport(true)}
+        onImportMyCnaJobs={() => setShowMyCnaImport(true)}
         onBulkPhaseOverride={bulkPhaseOverride}
         onBulkAddNote={bulkAddNote}
         onBulkBoardStatus={bulkBoardStatus}
@@ -99,6 +102,13 @@ function DashboardPage() {
       {showIndeedImport && (
         <IndeedImportModal
           onClose={() => setShowIndeedImport(false)}
+          onImport={handleImportCaregiver}
+          existingCaregivers={[...onboardingCaregivers, ...archivedCaregivers]}
+        />
+      )}
+      {showMyCnaImport && (
+        <MyCnaJobsImportModal
+          onClose={() => setShowMyCnaImport(false)}
           onImport={handleImportCaregiver}
           existingCaregivers={[...onboardingCaregivers, ...archivedCaregivers]}
         />
