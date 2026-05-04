@@ -96,12 +96,12 @@
   gap: 14px;
 }
 
-/* ─── Weeks selector ─── */
+/* ─── Duration picker ─── */
 
 .controlRow {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .controlLabel {
@@ -112,47 +112,65 @@
   letter-spacing: 0.4px;
 }
 
-.weeksToggle {
-  display: inline-flex;
+.durationRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.durationSelect {
+  padding: 8px 10px;
   border: 1px solid #C9D3E1;
   border-radius: 8px;
-  overflow: hidden;
   background: #fff;
-}
-
-.weeksBtn {
-  padding: 8px 16px;
-  border: none;
-  background: #fff;
-  color: #5A6B80;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.weeksBtn + .weeksBtn {
-  border-left: 1px solid #C9D3E1;
-}
-
-.weeksBtn:hover:not(:disabled) {
-  background: #F5F8FC;
   color: #0F1724;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  min-width: 88px;
 }
 
-.weeksBtnActive {
-  background: #2E4E8D;
-  color: #fff;
+.durationSelect:hover:not(:disabled) {
+  border-color: #2E4E8D;
 }
 
-.weeksBtnActive:hover:not(:disabled) {
-  background: #253f73;
-}
-
-.weeksBtn:disabled {
+.durationSelect:disabled {
   background: #F5F5F5;
   color: #A2B0C4;
   cursor: not-allowed;
+}
+
+.ongoingRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  background: #F5F8FC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #0F1724;
+  line-height: 1.4;
+}
+
+.ongoingRow input[type='checkbox'] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ongoingLabel {
+  flex: 1;
+}
+
+.ongoingHint {
+  display: block;
+  margin-top: 2px;
+  color: #5A6B80;
+  font-size: 11px;
+  font-weight: 400;
 }
 
 /* ─── Preview ─── */

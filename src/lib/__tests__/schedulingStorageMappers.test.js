@@ -62,10 +62,54 @@ describe('service plan mappers', () => {
       endDate: null,
       status: 'active',
       notes: 'VIP client',
+      // Defaults for the new ongoing-extension columns when the row
+      // predates the migration or the columns are nullable/false.
+      isOngoing: false,
+      lastGeneratedThrough: null,
       createdBy: 'jessica',
       createdAt: '2026-04-13T22:00:00.000Z',
       updatedAt: '2026-04-13T22:00:00.000Z',
     });
+  });
+
+  it('dbToServicePlan surfaces ongoing-extension columns when set', () => {
+    const plan = dbToServicePlan({
+      id: 'plan-1',
+      client_id: 'client-A',
+      is_ongoing: true,
+      last_generated_through: '2026-08-01T00:00:00.000Z',
+    });
+    expect(plan.isOngoing).toBe(true);
+    expect(plan.lastGeneratedThrough).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('servicePlanToDb writes ongoing-extension columns when set', () => {
+    const row = servicePlanToDb({
+      clientId: 'client-A',
+      isOngoing: true,
+      lastGeneratedThrough: '2026-08-01T00:00:00.000Z',
+    });
+    expect(row.is_ongoing).toBe(true);
+    expect(row.last_generated_through).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('servicePlanToDb omits ongoing-extension columns at defaults so the create path is forward-compatible with un-migrated schemas', () => {
+    // Vercel preview deploys hit the production DB. If this mapper
+    // emitted is_ongoing/last_generated_through in every insert, every
+    // service-plan create on the preview would 4xx with a "schema
+    // cache" error before the 20260507000000 migration is applied.
+    const row = servicePlanToDb({ clientId: 'c' });
+    expect(row).not.toHaveProperty('is_ongoing');
+    expect(row).not.toHaveProperty('last_generated_through');
+  });
+
+  it('buildServicePlanPatchRow round-trips ongoing toggles', () => {
+    const row = buildServicePlanPatchRow({
+      isOngoing: true,
+      lastGeneratedThrough: '2026-08-01T00:00:00.000Z',
+    });
+    expect(row.is_ongoing).toBe(true);
+    expect(row.last_generated_through).toBe('2026-08-01T00:00:00.000Z');
   });
 
   it('dbToServicePlan defaults status to draft when null', () => {

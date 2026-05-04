@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   DAY_OF_WEEK_LABELS_SHORT,
-  GENERATE_WEEKS_OPTIONS,
-  GENERATE_WEEKS_DEFAULT,
+  GENERATE_NUMBER_OPTIONS,
+  GENERATE_NUMBER_DEFAULT,
+  GENERATE_UNIT_OPTIONS,
+  GENERATE_UNIT_DEFAULT,
+  ONGOING_INITIAL_DAYS,
+  ONGOING_TARGET_DAYS,
+  ONGOING_BUFFER_DAYS,
+  durationToDays,
   emptyRecurrencePattern,
   hasRecurrencePattern,
   isOvernightPattern,
@@ -22,12 +28,75 @@ describe('constants', () => {
     expect(DAY_OF_WEEK_LABELS_SHORT[6]).toBe('Sat');
   });
 
-  it('has a default generate-weeks value in the options list', () => {
-    expect(GENERATE_WEEKS_OPTIONS).toContain(GENERATE_WEEKS_DEFAULT);
+  it('has the default generate-shifts number in the options list', () => {
+    expect(GENERATE_NUMBER_OPTIONS).toContain(GENERATE_NUMBER_DEFAULT);
   });
 
-  it('default generate-weeks is 4 per user decision', () => {
-    expect(GENERATE_WEEKS_DEFAULT).toBe(4);
+  it('default generate-number is 4 per user decision', () => {
+    expect(GENERATE_NUMBER_DEFAULT).toBe(4);
+  });
+
+  it('default unit is weeks and is one of the listed unit options', () => {
+    expect(GENERATE_UNIT_DEFAULT).toBe('weeks');
+    const values = GENERATE_UNIT_OPTIONS.map((o) => o.value);
+    expect(values).toContain(GENERATE_UNIT_DEFAULT);
+  });
+
+  it('exposes day, week, and month units with correct flat multipliers', () => {
+    const byValue = Object.fromEntries(
+      GENERATE_UNIT_OPTIONS.map((o) => [o.value, o.daysPerUnit]),
+    );
+    expect(byValue.days).toBe(1);
+    expect(byValue.weeks).toBe(7);
+    // Months are flat 30-day chunks per the dialog UX, not calendar months.
+    expect(byValue.months).toBe(30);
+  });
+
+  it('uses 12 weeks for the ongoing target and initial windows', () => {
+    expect(ONGOING_INITIAL_DAYS).toBe(84);
+    expect(ONGOING_TARGET_DAYS).toBe(84);
+  });
+
+  it('keeps the ongoing buffer comfortably smaller than the target', () => {
+    // The cron only tops up when runway drops below the buffer; if
+    // buffer >= target the cron would never skip and would re-run
+    // every week unnecessarily.
+    expect(ONGOING_BUFFER_DAYS).toBeLessThan(ONGOING_TARGET_DAYS);
+    expect(ONGOING_BUFFER_DAYS).toBeGreaterThan(0);
+  });
+});
+
+// ─── durationToDays ────────────────────────────────────────────
+
+describe('durationToDays', () => {
+  it('multiplies days by 1', () => {
+    expect(durationToDays(1, 'days')).toBe(1);
+    expect(durationToDays(10, 'days')).toBe(10);
+  });
+
+  it('multiplies weeks by 7', () => {
+    expect(durationToDays(2, 'weeks')).toBe(14);
+    expect(durationToDays(4, 'weeks')).toBe(28);
+  });
+
+  it('multiplies months by 30 (flat, not calendar)', () => {
+    expect(durationToDays(1, 'months')).toBe(30);
+    expect(durationToDays(3, 'months')).toBe(90);
+  });
+
+  it('returns 0 for unknown units', () => {
+    expect(durationToDays(4, 'years')).toBe(0);
+    expect(durationToDays(4, '')).toBe(0);
+  });
+
+  it('returns 0 for non-positive numbers', () => {
+    expect(durationToDays(0, 'weeks')).toBe(0);
+    expect(durationToDays(-3, 'weeks')).toBe(0);
+    expect(durationToDays(NaN, 'weeks')).toBe(0);
+  });
+
+  it('floors fractional numbers (dropdowns only emit integers anyway)', () => {
+    expect(durationToDays(2.7, 'weeks')).toBe(14);
   });
 });
 

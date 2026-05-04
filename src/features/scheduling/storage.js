@@ -34,26 +34,39 @@ export const dbToServicePlan = (row) => ({
   endDate: row.end_date,
   status: row.status || 'draft',
   notes: row.notes,
+  isOngoing: row.is_ongoing === true,
+  lastGeneratedThrough: row.last_generated_through ?? null,
   createdBy: row.created_by,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-export const servicePlanToDb = (plan) => ({
-  id: plan.id,
-  client_id: plan.clientId,
-  title: plan.title ?? null,
-  service_type: plan.serviceType ?? null,
-  hours_per_week: plan.hoursPerWeek ?? null,
-  preferred_times: plan.preferredTimes ?? {},
-  recurrence_pattern: plan.recurrencePattern ?? null,
-  start_date: plan.startDate ?? null,
-  end_date: plan.endDate ?? null,
-  status: plan.status ?? 'draft',
-  notes: plan.notes ?? null,
-  created_by: plan.createdBy ?? null,
-  updated_at: new Date().toISOString(),
-});
+export const servicePlanToDb = (plan) => {
+  const row = {
+    id: plan.id,
+    client_id: plan.clientId,
+    title: plan.title ?? null,
+    service_type: plan.serviceType ?? null,
+    hours_per_week: plan.hoursPerWeek ?? null,
+    preferred_times: plan.preferredTimes ?? {},
+    recurrence_pattern: plan.recurrencePattern ?? null,
+    start_date: plan.startDate ?? null,
+    end_date: plan.endDate ?? null,
+    status: plan.status ?? 'draft',
+    notes: plan.notes ?? null,
+    created_by: plan.createdBy ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  // Only emit ongoing-extension columns when they have a non-default
+  // value. This keeps `createServicePlan` working even before the
+  // 20260507000000 migration has been applied (Vercel preview deploys
+  // hit the production DB, so the new code must tolerate the
+  // pre-migration schema). Once the columns exist, the DB DEFAULTs
+  // (`false` and `NULL`) cover the omitted case.
+  if (plan.isOngoing === true) row.is_ongoing = true;
+  if (plan.lastGeneratedThrough != null) row.last_generated_through = plan.lastGeneratedThrough;
+  return row;
+};
 
 export const createServicePlan = async (plan) => {
   if (!isSupabaseConfigured()) return null;
@@ -90,6 +103,8 @@ export const buildServicePlanPatchRow = (patch) => {
   if ('endDate' in patch) row.end_date = patch.endDate;
   if ('status' in patch) row.status = patch.status;
   if ('notes' in patch) row.notes = patch.notes;
+  if ('isOngoing' in patch) row.is_ongoing = patch.isOngoing === true;
+  if ('lastGeneratedThrough' in patch) row.last_generated_through = patch.lastGeneratedThrough;
   if ('createdBy' in patch) row.created_by = patch.createdBy;
   row.updated_at = new Date().toISOString();
   return row;
