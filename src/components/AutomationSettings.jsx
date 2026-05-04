@@ -1032,8 +1032,19 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
   const [reminderStartHour, setReminderStartHour] = useState(rule?.conditions?.start_hour ?? 9);
   const [reminderEndHour, setReminderEndHour] = useState(rule?.conditions?.end_hour ?? 18);
 
-  // Interview-not-scheduled (booking-link follow-up) trigger condition
+  // Interview-not-scheduled (booking-link follow-up) trigger conditions.
+  // The three recurring fields are optional; leaving "Repeat every (days)"
+  // blank preserves the legacy single-fire behavior.
   const [daysAfterSend, setDaysAfterSend] = useState(rule?.conditions?.days_after_send ?? 3);
+  const [interviewIntervalDays, setInterviewIntervalDays] = useState(
+    rule?.conditions?.interval_days ?? '',
+  );
+  const [interviewStopAfterDays, setInterviewStopAfterDays] = useState(
+    rule?.conditions?.stop_after_days ?? '',
+  );
+  const [interviewMaxReminders, setInterviewMaxReminders] = useState(
+    rule?.conditions?.max_reminders ?? '',
+  );
 
   // Recurring availability check-in trigger conditions
   const [intervalDays, setIntervalDays] = useState(
@@ -1149,6 +1160,32 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       if (actionType !== 'send_sms' && actionType !== 'send_email') {
         setError('Interview follow-up must use Send SMS or Send Email.'); return;
       }
+      // Recurring fields are all optional, but if any is provided they
+      // must be positive integers and the cadence must be self-consistent.
+      const trimmedInterval = String(interviewIntervalDays).trim();
+      const trimmedStop = String(interviewStopAfterDays).trim();
+      const trimmedMax = String(interviewMaxReminders).trim();
+      if (trimmedInterval) {
+        const v = parseInt(trimmedInterval, 10);
+        if (!Number.isFinite(v) || v < 1) {
+          setError('Repeat every (days) must be a positive whole number, or left blank.'); return;
+        }
+      }
+      if (trimmedStop) {
+        const v = parseInt(trimmedStop, 10);
+        if (!Number.isFinite(v) || v < 1) {
+          setError('Stop after (days) must be a positive whole number, or left blank.'); return;
+        }
+        if (v < days) {
+          setError('Stop after (days) must be at least Days After Booking-Link Send.'); return;
+        }
+      }
+      if (trimmedMax) {
+        const v = parseInt(trimmedMax, 10);
+        if (!Number.isFinite(v) || v < 1) {
+          setError('Max total reminders must be a positive whole number, or left blank.'); return;
+        }
+      }
     }
     if (triggerType === 'recurring_availability_check') {
       const days = parseInt(intervalDays, 10);
@@ -1197,6 +1234,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         } : {}),
         ...(triggerType === 'interview_not_scheduled' ? {
           days_after_send: parseInt(daysAfterSend, 10),
+          ...(String(interviewIntervalDays).trim() ? { interval_days: parseInt(interviewIntervalDays, 10) } : {}),
+          ...(String(interviewStopAfterDays).trim() ? { stop_after_days: parseInt(interviewStopAfterDays, 10) } : {}),
+          ...(String(interviewMaxReminders).trim() ? { max_reminders: parseInt(interviewMaxReminders, 10) } : {}),
         } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
@@ -1294,21 +1334,71 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
 
         {/* Conditions — interview_not_scheduled */}
         {triggerType === 'interview_not_scheduled' && (
-          <div style={{ marginBottom: 16 }}>
-            <label className={forms.fieldLabel}>Days After Booking-Link Send</label>
-            <input
-              type="number"
-              className={forms.fieldInput}
-              style={{ maxWidth: 120 }}
-              value={daysAfterSend}
-              onChange={(e) => { setDaysAfterSend(e.target.value); setError(''); }}
-              min="1"
-              placeholder="3"
-            />
-            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-              Fires once when this many days have passed since the booking link was sent (any automation that included the {'{{booking_url}}'} merge field) and the caregiver still hasn't booked an interview. Will not fire if the caregiver currently has an active or completed booking.
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label className={forms.fieldLabel}>Days After Booking-Link Send</label>
+              <input
+                type="number"
+                className={forms.fieldInput}
+                style={{ maxWidth: 120 }}
+                value={daysAfterSend}
+                onChange={(e) => { setDaysAfterSend(e.target.value); setError(''); }}
+                min="1"
+                placeholder="3"
+              />
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                Days to wait after the booking link is sent (any automation that included the {'{{booking_url}}'} merge field) before the FIRST nudge. Will not fire if the caregiver currently has an active or completed booking.
+              </div>
             </div>
-          </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label className={forms.fieldLabel}>Repeat every (days) — optional</label>
+              <input
+                type="number"
+                className={forms.fieldInput}
+                style={{ maxWidth: 120 }}
+                value={interviewIntervalDays}
+                onChange={(e) => { setInterviewIntervalDays(e.target.value); setError(''); }}
+                min="1"
+                placeholder="(blank = single nudge)"
+              />
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                After the first nudge, send another every this many days until the caregiver books, the cap is hit, or the cutoff is reached. Leave blank to send only one nudge.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label className={forms.fieldLabel}>Stop after (days from original send) — optional</label>
+              <input
+                type="number"
+                className={forms.fieldInput}
+                style={{ maxWidth: 120 }}
+                value={interviewStopAfterDays}
+                onChange={(e) => { setInterviewStopAfterDays(e.target.value); setError(''); }}
+                min="1"
+                placeholder="e.g. 10"
+              />
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                Absolute cutoff — no nudges after this many days from the original booking-link send. Leave blank for no cutoff.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label className={forms.fieldLabel}>Max total reminders — optional</label>
+              <input
+                type="number"
+                className={forms.fieldInput}
+                style={{ maxWidth: 120 }}
+                value={interviewMaxReminders}
+                onChange={(e) => { setInterviewMaxReminders(e.target.value); setError(''); }}
+                min="1"
+                placeholder="e.g. 5"
+              />
+              <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+                Hard cap on the total number of nudges per caregiver. Leave blank to rely on the cutoff above.
+              </div>
+            </div>
+          </>
         )}
 
         {/* Conditions — phase_change / client_phase_change */}
@@ -1915,6 +2005,15 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
             {rule.trigger_type === 'interview_not_scheduled' && rule.conditions?.days_after_send && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 {rule.conditions.days_after_send} day{rule.conditions.days_after_send !== 1 ? 's' : ''} after booking-link send
+                {rule.conditions?.interval_days
+                  ? `, then every ${rule.conditions.interval_days} day${rule.conditions.interval_days !== 1 ? 's' : ''}`
+                  : ''}
+                {rule.conditions?.stop_after_days
+                  ? ` until day ${rule.conditions.stop_after_days}`
+                  : ''}
+                {rule.conditions?.max_reminders
+                  ? ` (max ${rule.conditions.max_reminders})`
+                  : ''}
               </div>
             )}
             {['phase_change', 'client_phase_change'].includes(rule.trigger_type) && rule.conditions?.to_phase && (
