@@ -83,7 +83,7 @@ describe('service plan mappers', () => {
     expect(plan.lastGeneratedThrough).toBe('2026-08-01T00:00:00.000Z');
   });
 
-  it('servicePlanToDb writes ongoing-extension columns', () => {
+  it('servicePlanToDb writes ongoing-extension columns when set', () => {
     const row = servicePlanToDb({
       clientId: 'client-A',
       isOngoing: true,
@@ -93,10 +93,14 @@ describe('service plan mappers', () => {
     expect(row.last_generated_through).toBe('2026-08-01T00:00:00.000Z');
   });
 
-  it('servicePlanToDb defaults ongoing flag to false', () => {
+  it('servicePlanToDb omits ongoing-extension columns at defaults so the create path is forward-compatible with un-migrated schemas', () => {
+    // Vercel preview deploys hit the production DB. If this mapper
+    // emitted is_ongoing/last_generated_through in every insert, every
+    // service-plan create on the preview would 4xx with a "schema
+    // cache" error before the 20260507000000 migration is applied.
     const row = servicePlanToDb({ clientId: 'c' });
-    expect(row.is_ongoing).toBe(false);
-    expect(row.last_generated_through).toBeNull();
+    expect(row).not.toHaveProperty('is_ongoing');
+    expect(row).not.toHaveProperty('last_generated_through');
   });
 
   it('buildServicePlanPatchRow round-trips ongoing toggles', () => {

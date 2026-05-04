@@ -41,23 +41,32 @@ export const dbToServicePlan = (row) => ({
   updatedAt: row.updated_at,
 });
 
-export const servicePlanToDb = (plan) => ({
-  id: plan.id,
-  client_id: plan.clientId,
-  title: plan.title ?? null,
-  service_type: plan.serviceType ?? null,
-  hours_per_week: plan.hoursPerWeek ?? null,
-  preferred_times: plan.preferredTimes ?? {},
-  recurrence_pattern: plan.recurrencePattern ?? null,
-  start_date: plan.startDate ?? null,
-  end_date: plan.endDate ?? null,
-  status: plan.status ?? 'draft',
-  notes: plan.notes ?? null,
-  is_ongoing: plan.isOngoing === true,
-  last_generated_through: plan.lastGeneratedThrough ?? null,
-  created_by: plan.createdBy ?? null,
-  updated_at: new Date().toISOString(),
-});
+export const servicePlanToDb = (plan) => {
+  const row = {
+    id: plan.id,
+    client_id: plan.clientId,
+    title: plan.title ?? null,
+    service_type: plan.serviceType ?? null,
+    hours_per_week: plan.hoursPerWeek ?? null,
+    preferred_times: plan.preferredTimes ?? {},
+    recurrence_pattern: plan.recurrencePattern ?? null,
+    start_date: plan.startDate ?? null,
+    end_date: plan.endDate ?? null,
+    status: plan.status ?? 'draft',
+    notes: plan.notes ?? null,
+    created_by: plan.createdBy ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  // Only emit ongoing-extension columns when they have a non-default
+  // value. This keeps `createServicePlan` working even before the
+  // 20260507000000 migration has been applied (Vercel preview deploys
+  // hit the production DB, so the new code must tolerate the
+  // pre-migration schema). Once the columns exist, the DB DEFAULTs
+  // (`false` and `NULL`) cover the omitted case.
+  if (plan.isOngoing === true) row.is_ongoing = true;
+  if (plan.lastGeneratedThrough != null) row.last_generated_through = plan.lastGeneratedThrough;
+  return row;
+};
 
 export const createServicePlan = async (plan) => {
   if (!isSupabaseConfigured()) return null;

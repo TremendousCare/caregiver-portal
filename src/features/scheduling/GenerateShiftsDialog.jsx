@@ -150,34 +150,45 @@ export function GenerateShiftsDialog({
         created++;
       }
 
-      // Persist the ongoing flag + the bookkeeping marker the cron
-      // reads from. Runs even when no new shifts were created, so a
-      // user can toggle Ongoing on a plan whose window is already
-      // fully materialized. The marker only advances if existing or
-      // newly-created shifts push it forward.
-      const newestEnd = latestEndTime([
-        ...newInstances,
-        ...existingShifts.map((s) => ({ end_time: s.endTime })),
-      ]);
-      const priorEnd = plan.lastGeneratedThrough
-        ? new Date(plan.lastGeneratedThrough).getTime()
-        : 0;
-      const candidateEnd = newestEnd ? new Date(newestEnd).getTime() : 0;
-      const lastGeneratedThrough = candidateEnd > priorEnd ? newestEnd : plan.lastGeneratedThrough;
+      // Persist ongoing-related state on the plan row only when it
+      // changed or is currently set. Pure finite-mode generation on a
+      // non-ongoing plan leaves the row untouched, matching the
+      // pre-feature behavior — and avoiding the
+      // is_ongoing / last_generated_through columns entirely so the
+      // code keeps working before the 20260507000000 migration has
+      // been applied.
+      const needsServicePlanUpdate = ongoingChanged || isOngoing;
+      if (needsServicePlanUpdate) {
+        const newestEnd = latestEndTime([
+          ...newInstances,
+          ...existingShifts.map((s) => ({ end_time: s.endTime })),
+        ]);
+        const priorEnd = plan.lastGeneratedThrough
+          ? new Date(plan.lastGeneratedThrough).getTime()
+          : 0;
+        const candidateEnd = newestEnd ? new Date(newestEnd).getTime() : 0;
+        const lastGeneratedThrough = candidateEnd > priorEnd ? newestEnd : plan.lastGeneratedThrough;
 
-      try {
-        await updateServicePlan(plan.id, {
-          isOngoing,
-          lastGeneratedThrough: lastGeneratedThrough ?? null,
-        });
-      } catch (e) {
-        // Don't fail the whole generation just because the bookkeeping
-        // update couldn't write — the shifts already exist. Surface
-        // the error so the user can retry; the cron will still pick
-        // the plan up if `is_ongoing` is already true server-side.
-        console.warn('Service plan ongoing-flag update failed:', e);
-        if (showToast) {
-          showToast('Shifts created, but ongoing flag may not have saved.');
+        const patch = {};
+        if (ongoingChanged) patch.isOngoing = isOngoing;
+        // Only stamp the bookkeeping marker for ongoing plans —
+        // finite-mode plans have no rolling window for the cron to
+        // top up.
+        if (isOngoing && lastGeneratedThrough) {
+          patch.lastGeneratedThrough = lastGeneratedThrough;
+        }
+
+        try {
+          await updateServicePlan(plan.id, patch);
+        } catch (e) {
+          // Don't fail the whole generation just because the bookkeeping
+          // update couldn't write — the shifts already exist. Surface
+          // the error so the user can retry; the cron will still pick
+          // the plan up if `is_ongoing` is already true server-side.
+          console.warn('Service plan ongoing-flag update failed:', e);
+          if (showToast) {
+            showToast('Shifts created, but ongoing flag may not have saved.');
+          }
         }
       }
 
