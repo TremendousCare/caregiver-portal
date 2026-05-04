@@ -168,7 +168,7 @@ export const saveClientsBulk = async (clients) => {
 export const deleteClientsFromDb = async (ids) => {
   if (isSupabaseConfigured()) {
     const { error } = await supabase.from('clients').delete().in('id', ids);
-    if (error) throw new Error(error.message);
+    if (error) throw error;
   }
 };
 

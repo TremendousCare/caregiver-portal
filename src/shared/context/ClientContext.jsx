@@ -4,6 +4,7 @@ import { CLIENT_PHASES } from '../../features/clients/constants';
 import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClient, getClientPhaseTasks, saveClientPhaseTasks, loadClientPhaseTasks } from '../../features/clients/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireClientEventTriggers, fireClientSequences } from '../../features/clients/automations';
+import { describeDeleteError } from '../../lib/errors';
 import { useApp } from './AppContext';
 
 // ─── Auto-advance helper ────────────────────────────────────
@@ -344,8 +345,9 @@ export function ClientProvider({ children }) {
       await deleteClientsFromDb([clientId]);
       setClients((prev) => prev.filter((cl) => cl.id !== clientId));
       showToast('Client permanently deleted');
-    } catch {
-      showToast('Failed to delete \u2014 check your connection');
+    } catch (err) {
+      console.error('deleteClient failed:', err);
+      showToast(describeDeleteError(err, 'client'));
     }
   }, [showToast]);
 
