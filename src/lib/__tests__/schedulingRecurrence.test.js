@@ -344,6 +344,86 @@ describe('expandRecurrence — explicit timezone', () => {
   });
 });
 
+// ─── Overnight patterns (cross-midnight) ──────────────────────
+// A pattern like { start_time: '22:00', end_time: '06:00' } means the
+// shift starts at 10pm on the selected day and ends at 6am the
+// following calendar day. The day-of-week filter applies to the START
+// of the shift.
+
+describe('expandRecurrence — overnight patterns', () => {
+  const tz = 'America/Los_Angeles';
+
+  it('builds end_time on the next calendar day when end clock < start clock', () => {
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1, 2, 3, 4, 5, 6, 0], // every day
+      start_time: '22:00',
+      end_time: '06:00',
+    };
+    const result = expandRecurrence(pattern, '2026-05-04', '2026-05-04', {
+      timezone: tz,
+    });
+    expect(result).toHaveLength(1);
+    // 2026-05-04 22:00 PT (PDT) = 2026-05-05 05:00 UTC
+    expect(result[0].start_time).toBe('2026-05-05T05:00:00.000Z');
+    // 2026-05-05 06:00 PT (PDT) = 2026-05-05 13:00 UTC
+    expect(result[0].end_time).toBe('2026-05-05T13:00:00.000Z');
+    // Stored date keeps the start day so callers can match instances by date
+    expect(result[0].date).toBe('2026-05-04');
+  });
+
+  it('produces an 8-hour shift duration for 10:00p → 6:00a', () => {
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1, 2, 3, 4, 5, 6, 0],
+      start_time: '22:00',
+      end_time: '06:00',
+    };
+    const result = expandRecurrence(pattern, '2026-05-04', '2026-05-04', {
+      timezone: tz,
+    });
+    const startMs = new Date(result[0].start_time).getTime();
+    const endMs = new Date(result[0].end_time).getTime();
+    expect((endMs - startMs) / (60 * 60 * 1000)).toBe(8);
+  });
+
+  it('day-of-week filter applies to the start day, not the end day', () => {
+    // Mon-only pattern, overnight. Mondays in May 2026: 4, 11, 18, 25.
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [1],
+      start_time: '22:00',
+      end_time: '06:00',
+    };
+    const result = expandRecurrence(pattern, '2026-05-01', '2026-05-31', {
+      timezone: tz,
+    });
+    expect(result.map((r) => r.date)).toEqual([
+      '2026-05-04',
+      '2026-05-11',
+      '2026-05-18',
+      '2026-05-25',
+    ]);
+  });
+
+  it('a shift starting on the last day of the window may end after the window', () => {
+    // Sun (May 31) overnight ends Mon (Jun 1). Window stops at May 31
+    // but the shift starts in-window — so it should still be generated.
+    const pattern = {
+      frequency: 'weekly',
+      days_of_week: [0], // Sunday
+      start_time: '22:00',
+      end_time: '06:00',
+    };
+    const result = expandRecurrence(pattern, '2026-05-31', '2026-05-31', {
+      timezone: tz,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].start_time).toBe('2026-06-01T05:00:00.000Z');
+    expect(result[0].end_time).toBe('2026-06-01T13:00:00.000Z');
+  });
+});
+
 // ─── DST transitions (America/Los_Angeles) ────────────────────
 // A caregiver with a weekly Mon 08:00-12:00 recurring shift should
 // see the shift fire at 08:00 PACIFIC every Monday, even across DST

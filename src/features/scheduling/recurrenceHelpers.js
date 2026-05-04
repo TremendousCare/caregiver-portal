@@ -71,7 +71,10 @@ export function hasRecurrencePattern(pattern) {
  * Rules:
  *   - frequency must be 'weekly'
  *   - days_of_week must be a non-empty array of integers 0..6
- *   - start_time and end_time required; end must be after start
+ *   - start_time and end_time required and not equal; if end_time clock
+ *     is earlier than start_time clock, the shift is interpreted as
+ *     overnight (e.g. 10:00p → 6:00a means the shift ends 6am the
+ *     following day)
  *   - if both dates set, end_date must not precede start_date
  */
 export function validateRecurrencePattern(pattern) {
@@ -95,13 +98,30 @@ export function validateRecurrencePattern(pattern) {
   if (startMinutes === null || endMinutes === null) {
     return 'Invalid time format.';
   }
-  if (endMinutes <= startMinutes) {
-    return 'End time must be after start time.';
+  if (endMinutes === startMinutes) {
+    return 'End time must be different from start time.';
   }
   if (pattern.start_date && pattern.end_date && pattern.end_date < pattern.start_date) {
     return 'End date cannot be before start date.';
   }
   return null;
+}
+
+/**
+ * True when the pattern's end_time clock is earlier than (or equal to)
+ * start_time clock — i.e. the shift crosses midnight into the next day.
+ *
+ * Examples:
+ *   { start_time: '22:00', end_time: '06:00' } → true   (10pm → 6am)
+ *   { start_time: '08:00', end_time: '16:00' } → false  (8am → 4pm)
+ *   { start_time: '00:00', end_time: '06:00' } → false  (12am → 6am, same day)
+ */
+export function isOvernightPattern(pattern) {
+  if (!pattern || typeof pattern !== 'object') return false;
+  const startMinutes = clockToMinutes(pattern.start_time);
+  const endMinutes = clockToMinutes(pattern.end_time);
+  if (startMinutes === null || endMinutes === null) return false;
+  return endMinutes < startMinutes;
 }
 
 function clockToMinutes(clock) {
@@ -161,7 +181,8 @@ export function describeRecurrencePattern(pattern) {
 
   const start = formatClockLabel(pattern.start_time);
   const end = formatClockLabel(pattern.end_time);
-  return `${daysLabel} from ${start} to ${end}`;
+  const overnightSuffix = isOvernightPattern(pattern) ? ' (next day)' : '';
+  return `${daysLabel} from ${start} to ${end}${overnightSuffix}`;
 }
 
 /**

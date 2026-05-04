@@ -5,6 +5,7 @@ import {
   GENERATE_WEEKS_DEFAULT,
   emptyRecurrencePattern,
   hasRecurrencePattern,
+  isOvernightPattern,
   validateRecurrencePattern,
   formatClockLabel,
   describeRecurrencePattern,
@@ -129,16 +130,22 @@ describe('validateRecurrencePattern', () => {
     expect(validateRecurrencePattern({ ...valid, start_time: '' })).toMatch(/time/i);
   });
 
-  it('rejects end before start', () => {
+  it('accepts end before start as an overnight shift (10:00p → 6:00a)', () => {
     expect(
-      validateRecurrencePattern({ ...valid, start_time: '12:00', end_time: '08:00' }),
-    ).toMatch(/after/i);
+      validateRecurrencePattern({ ...valid, start_time: '22:00', end_time: '06:00' }),
+    ).toBeNull();
+  });
+
+  it('accepts midnight crossings where end is just past start', () => {
+    expect(
+      validateRecurrencePattern({ ...valid, start_time: '23:30', end_time: '00:30' }),
+    ).toBeNull();
   });
 
   it('rejects equal start and end', () => {
     expect(
       validateRecurrencePattern({ ...valid, start_time: '10:00', end_time: '10:00' }),
-    ).toMatch(/after/i);
+    ).toMatch(/different/i);
   });
 
   it('rejects invalid clock format', () => {
@@ -165,6 +172,33 @@ describe('validateRecurrencePattern', () => {
     expect(
       validateRecurrencePattern({ ...valid, start_date: null, end_date: null }),
     ).toBeNull();
+  });
+});
+
+// ─── isOvernightPattern ───────────────────────────────────────
+
+describe('isOvernightPattern', () => {
+  it('returns true when end_time is before start_time on the clock', () => {
+    expect(
+      isOvernightPattern({ start_time: '22:00', end_time: '06:00' }),
+    ).toBe(true);
+  });
+
+  it('returns false for a daytime shift', () => {
+    expect(
+      isOvernightPattern({ start_time: '08:00', end_time: '16:00' }),
+    ).toBe(false);
+  });
+
+  it('returns false when shift starts at midnight (00:00 → 06:00 is same day)', () => {
+    expect(
+      isOvernightPattern({ start_time: '00:00', end_time: '06:00' }),
+    ).toBe(false);
+  });
+
+  it('returns false for null / malformed inputs', () => {
+    expect(isOvernightPattern(null)).toBe(false);
+    expect(isOvernightPattern({ start_time: 'bad', end_time: '06:00' })).toBe(false);
   });
 });
 
@@ -241,6 +275,28 @@ describe('describeRecurrencePattern', () => {
     expect(desc).toContain('Mon');
     expect(desc).toContain('Wed');
     expect(desc).toContain('Fri');
+  });
+
+  it('flags overnight patterns with a "(next day)" suffix', () => {
+    const desc = describeRecurrencePattern({
+      frequency: 'weekly',
+      days_of_week: [0, 1, 2, 3, 4, 5, 6],
+      start_time: '22:00',
+      end_time: '06:00',
+    });
+    expect(desc).toContain('10:00p');
+    expect(desc).toContain('6:00a');
+    expect(desc).toContain('(next day)');
+  });
+
+  it('omits the "(next day)" suffix for same-day shifts', () => {
+    const desc = describeRecurrencePattern({
+      frequency: 'weekly',
+      days_of_week: [1, 2, 3, 4, 5],
+      start_time: '08:00',
+      end_time: '16:00',
+    });
+    expect(desc).not.toContain('next day');
   });
 
   it('sorts days chronologically in the summary', () => {
