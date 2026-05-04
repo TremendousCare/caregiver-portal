@@ -153,6 +153,10 @@ export function expandRecurrence(pattern, windowStart, windowEnd, options = {}) 
   const daysOfWeek = new Set(pattern.days_of_week);
   const exceptions = new Set(pattern.exceptions || []);
 
+  // Overnight patterns (e.g. 10:00p → 6:00a) start on the selected day
+  // but end the following calendar day.
+  const overnight = isOvernightClock(pattern.start_time, pattern.end_time);
+
   const results = [];
   const cursor = new Date(effectiveStart.getTime());
   while (cursor.getTime() <= effectiveEnd.getTime()) {
@@ -160,10 +164,11 @@ export function expandRecurrence(pattern, windowStart, windowEnd, options = {}) 
     if (daysOfWeek.has(dayOfWeek)) {
       const dateStr = formatDate(cursor);
       if (!exceptions.has(dateStr)) {
+        const endCursor = overnight ? addOneDay(cursor) : cursor;
         results.push({
           date: dateStr,
           start_time: buildIsoTimestamp(cursor, pattern.start_time, timezone),
-          end_time: buildIsoTimestamp(cursor, pattern.end_time, timezone),
+          end_time: buildIsoTimestamp(endCursor, pattern.end_time, timezone),
         });
       }
     }
@@ -172,4 +177,29 @@ export function expandRecurrence(pattern, windowStart, windowEnd, options = {}) 
   }
 
   return results;
+}
+
+/**
+ * True when the wall-clock end is earlier than the wall-clock start —
+ * i.e. the shift crosses midnight. Equal times are not overnight (and
+ * are rejected by validateRecurrencePattern anyway).
+ */
+function isOvernightClock(startClock, endClock) {
+  const toMin = (clock) => {
+    const parts = clock.split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  };
+  const startMin = toMin(startClock);
+  const endMin = toMin(endClock);
+  if (startMin === null || endMin === null) return false;
+  return endMin < startMin;
+}
+
+function addOneDay(date) {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
 }
