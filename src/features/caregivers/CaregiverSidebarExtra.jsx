@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { PHASES } from '../../lib/constants';
-import { getCurrentPhase, isAwaitingInterviewResponse, isAwaitingHcaVerification } from '../../lib/utils';
+import { getCurrentPhase, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from '../../lib/utils';
 import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import layout from '../../styles/layout.module.css';
@@ -17,7 +17,8 @@ export function CaregiverSidebarExtra() {
     navigate('/');
   };
 
-  const pendingInterviewCount = onboardingCaregivers.filter(isAwaitingInterviewResponse).length;
+  const pendingInterviewCount = onboardingCaregivers.filter(isAwaitingInterviewHca).length;
+  const pendingInterviewNonHcaCount = onboardingCaregivers.filter(isAwaitingInterviewNonHca).length;
   const pendingHcaCount = onboardingCaregivers.filter(isAwaitingHcaVerification).length;
 
   if (!collapsed) {
@@ -51,10 +52,26 @@ export function CaregiverSidebarExtra() {
                       ...(filterPhase === 'intake_pending' ? { background: 'rgba(41,190,228,0.12)', opacity: 1 } : {}),
                     }}
                     onClick={() => goToDashboard('intake_pending')}
-                    title="Interview link sent, awaiting response"
+                    title="Interview link sent, awaiting response · HCA registered"
                   >
                     <span style={{ flex: 1, textAlign: 'left' }}>Pending Interview</span>
                     <span className={layout.badge}>{pendingInterviewCount}</span>
+                  </button>
+                )}
+                {p.id === 'intake' && pendingInterviewNonHcaCount > 0 && (
+                  <button
+                    className={layout.pipelineItem}
+                    style={{
+                      paddingLeft: 32,
+                      fontSize: 12,
+                      opacity: 0.85,
+                      ...(filterPhase === 'intake_pending_non_hca' ? { background: 'rgba(41,190,228,0.12)', opacity: 1 } : {}),
+                    }}
+                    onClick={() => goToDashboard('intake_pending_non_hca')}
+                    title="Interview link sent, awaiting response · not HCA registered"
+                  >
+                    <span style={{ flex: 1, textAlign: 'left' }}>Non-HCA</span>
+                    <span className={layout.badge}>{pendingInterviewNonHcaCount}</span>
                   </button>
                 )}
                 {p.id === 'interview' && pendingHcaCount > 0 && (

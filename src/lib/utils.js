@@ -81,6 +81,17 @@ export const isAwaitingInterviewResponse = (caregiver) => {
   return true;
 };
 
+// Pending-interview split by HCA registration. Sidebar/filter use these to
+// route non-HCA applicants to a separate "Non-HCA" subtab while HCA-registered
+// applicants stay in "Pending Interview". hasHCA is the editable Personal
+// Information field, so flipping it to 'yes' immediately moves the caregiver
+// into the HCA tab.
+export const isAwaitingInterviewHca = (caregiver) =>
+  isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA === 'yes';
+
+export const isAwaitingInterviewNonHca = (caregiver) =>
+  isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA !== 'yes';
+
 export const getDaysSinceInterviewLinkSent = (caregiver) => {
   const ts = getInterviewLinkSentAt(caregiver);
   if (ts == null) return null;
