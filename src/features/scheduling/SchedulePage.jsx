@@ -467,7 +467,7 @@ export function SchedulePage() {
       {broadcastShift && (
         <BroadcastModal
           shift={broadcastShift}
-          caregivers={rosterCaregivers}
+          caregivers={schedulableCaregivers}
           client={clientsById[broadcastShift.clientId] || null}
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}

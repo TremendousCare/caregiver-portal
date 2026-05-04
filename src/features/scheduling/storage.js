@@ -160,6 +160,7 @@ export const dbToShift = (row) => ({
   noShowNote: row.no_show_note,
   markedNoShowAt: row.marked_no_show_at,
   markedNoShowBy: row.marked_no_show_by,
+  autoAssignOnFirstYes: row.auto_assign_on_first_yes ?? false,
   createdBy: row.created_by,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -188,6 +189,7 @@ export const shiftToDb = (shift) => ({
   no_show_note: shift.noShowNote ?? null,
   marked_no_show_at: shift.markedNoShowAt ?? null,
   marked_no_show_by: shift.markedNoShowBy ?? null,
+  auto_assign_on_first_yes: shift.autoAssignOnFirstYes ?? false,
   created_by: shift.createdBy ?? null,
   updated_at: new Date().toISOString(),
 });
@@ -244,6 +246,9 @@ export const updateShift = async (id, patch) => {
   if ('noShowNote' in patch) row.no_show_note = patch.noShowNote;
   if ('markedNoShowAt' in patch) row.marked_no_show_at = patch.markedNoShowAt;
   if ('markedNoShowBy' in patch) row.marked_no_show_by = patch.markedNoShowBy;
+  if ('autoAssignOnFirstYes' in patch) {
+    row.auto_assign_on_first_yes = !!patch.autoAssignOnFirstYes;
+  }
   row.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase

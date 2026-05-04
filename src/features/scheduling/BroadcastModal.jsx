@@ -24,6 +24,7 @@ import {
 } from './broadcastHelpers';
 import { formatShiftTimeRange } from './shiftHelpers';
 import { TemplateEditor } from './TemplateEditor';
+import { isOnboardingCaregiver } from '../../lib/rosterUtils';
 import btn from '../../styles/buttons.module.css';
 import s from './BroadcastModal.module.css';
 
@@ -79,6 +80,9 @@ export function BroadcastModal({
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [recipientIds, setRecipientIds] = useState([]);
   const [showFiltered, setShowFiltered] = useState(false);
+  const [autoAssignFirstYes, setAutoAssignFirstYes] = useState(
+    !!shift?.autoAssignOnFirstYes,
+  );
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
 
@@ -326,9 +330,14 @@ export function BroadcastModal({
         await createShiftOffers(sentOffers);
       }
 
-      // Move the shift to 'offered' if it was 'open'
-      if (sentOffers.length > 0 && shift.status === 'open') {
-        await updateShift(shift.id, { status: 'offered' });
+      // Move the shift to 'offered' if it was 'open', and persist the
+      // auto-assign preference so the matcher can read it when replies
+      // come in. We always write the auto-assign flag (even if unchanged)
+      // so toggling it off in a re-broadcast actually sticks.
+      if (sentOffers.length > 0) {
+        const shiftPatch = { autoAssignOnFirstYes: autoAssignFirstYes };
+        if (shift.status === 'open') shiftPatch.status = 'offered';
+        await updateShift(shift.id, shiftPatch);
       }
 
       const sentCount = results.filter((r) => r.status === 'sent').length;
@@ -396,6 +405,28 @@ export function BroadcastModal({
               onToggleSaveAsDefault={setSaveAsDefault}
               disabled={sending}
             />
+          </section>
+
+          {/* ─── Auto-assign toggle ─── */}
+          <section className={s.section}>
+            <label className={s.autoAssignToggle}>
+              <input
+                type="checkbox"
+                checked={autoAssignFirstYes}
+                onChange={(e) => setAutoAssignFirstYes(e.target.checked)}
+                disabled={sending}
+              />
+              <span>
+                <span className={s.autoAssignTitle}>
+                  Auto-assign to the first “Yes”
+                </span>
+                <span className={s.autoAssignHint}>
+                  When on, the first caregiver who replies YES is assigned
+                  immediately, the other offers are expired, and a confirmation
+                  SMS goes out — no manual click needed.
+                </span>
+              </span>
+            </label>
           </section>
 
           {/* ─── Recipient picker ─── */}
@@ -499,6 +530,7 @@ function RecipientRow({ entry, selected, onToggle, filtered }) {
   const name = `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim() || caregiver.id;
   const reason = filtered ? filterDetail : formatEligibleReason(entry);
   const hasPhone = !!caregiver.phone;
+  const isOnboarding = isOnboardingCaregiver(caregiver);
 
   return (
     <li className={`${s.row} ${selected ? s.rowSelected : ''} ${filtered ? s.rowFiltered : ''}`}>
@@ -511,9 +543,19 @@ function RecipientRow({ entry, selected, onToggle, filtered }) {
           disabled={!hasPhone}
         />
         <span className={s.rowText}>
-          <span className={s.rowName}>
-            {name}
-            {!hasPhone && <span className={s.noPhone}> — no phone</span>}
+          <span className={s.rowNameLine}>
+            <span className={s.rowName}>
+              {name}
+              {!hasPhone && <span className={s.noPhone}> — no phone</span>}
+            </span>
+            {isOnboarding && (
+              <span
+                className={s.onboardingBadge}
+                title="Still in onboarding — not yet on active roster"
+              >
+                Onboarding
+              </span>
+            )}
           </span>
           <span className={s.rowReason}>{reason}</span>
         </span>
