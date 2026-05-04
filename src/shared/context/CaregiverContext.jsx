@@ -3,6 +3,7 @@ import { getCurrentPhase } from '../../lib/utils';
 import { loadCaregivers, saveCaregiver, saveCaregiversBulk, deleteCaregiversFromDb, loadPhaseTasks, savePhaseTasks, getPhaseTasks, dbToCaregiver, loadBoardLabels, saveBoardLabels, setCaregiverPhaseOverride, mergeCaregiverTasks } from '../../lib/storage';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireEventTriggers } from '../../lib/automations';
+import { describeDeleteError } from '../../lib/errors';
 import { useApp } from './AppContext';
 
 const CaregiverContext = createContext();
@@ -306,8 +307,9 @@ export function CaregiverProvider({ children }) {
       await deleteCaregiversFromDb([cgId]);
       setCaregivers((prev) => prev.filter((cg) => cg.id !== cgId));
       showToast('Caregiver permanently deleted');
-    } catch {
-      showToast('Failed to delete — check your connection');
+    } catch (err) {
+      console.error('deleteCaregiver failed:', err);
+      showToast(describeDeleteError(err, 'caregiver'));
     }
   }, [showToast]);
 
