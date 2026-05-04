@@ -223,18 +223,24 @@ async function processEntry(
     return;
   }
 
-  // Phase 5b: shift-offer matching (caregiver SMS only)
+  // Shift-offer matching (caregiver SMS only).
+  //
+  // We pass both `caregiverId` AND `senderPhone` so the matcher can
+  // fall back to phone-based lookup when duplicate caregiver records
+  // share a number — without that fallback, the inbound gets tagged
+  // to the "wrong" duplicate record and the offer never matches.
   if (entry.channel === "sms" && entry.matched_entity_type === "caregiver") {
     try {
-      const result = await matchInboundShiftOfferResponse(
-        supabase,
-        entry.matched_entity_id,
-        entry.message_text,
-        entry.received_at || entry.created_at,
-      );
+      const result = await matchInboundShiftOfferResponse(supabase, {
+        caregiverId: entry.matched_entity_id,
+        senderPhone: entry.sender_identifier,
+        messageText: entry.message_text,
+        messageReceivedAt: entry.received_at || entry.created_at,
+        actor: "system:message_router",
+      });
       if (result.matched) {
         console.log(
-          `[message-router] shift-offer match: offer ${result.offerId} → ${result.newStatus} (${result.response})`,
+          `[message-router] shift-offer match: offer ${result.offerId} → ${result.newStatus} (${result.response})${result.autoAssigned ? " [auto-assigned]" : ""}`,
         );
       }
     } catch (err) {

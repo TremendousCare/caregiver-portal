@@ -123,6 +123,47 @@
   letter-spacing: normal;
 }
 
+/* ─── Auto-assign toggle ─── */
+
+.autoAssignToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #F4F8FE;
+  border: 1px solid #DCE6F5;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.autoAssignToggle input[type='checkbox'] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.autoAssignToggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.autoAssignTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F1724;
+}
+
+.autoAssignHint {
+  font-size: 11px;
+  color: #5A6B80;
+  line-height: 1.4;
+}
+
 /* ─── Template editor ─── */
 
 .templateInput {
@@ -294,6 +335,13 @@
   min-width: 0;
 }
 
+.rowNameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rowName {
   font-size: 13px;
   font-weight: 600;
@@ -307,6 +355,20 @@
   color: #DC2626;
   font-weight: 400;
   font-style: italic;
+}
+
+.onboardingBadge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #E0F2FE;
+  color: #075985;
+  border: 1px solid #BAE6FD;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
 }
 
 .rowReason {
