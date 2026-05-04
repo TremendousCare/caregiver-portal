@@ -34,6 +34,8 @@ export const dbToServicePlan = (row) => ({
   endDate: row.end_date,
   status: row.status || 'draft',
   notes: row.notes,
+  isOngoing: row.is_ongoing === true,
+  lastGeneratedThrough: row.last_generated_through ?? null,
   createdBy: row.created_by,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -51,6 +53,8 @@ export const servicePlanToDb = (plan) => ({
   end_date: plan.endDate ?? null,
   status: plan.status ?? 'draft',
   notes: plan.notes ?? null,
+  is_ongoing: plan.isOngoing === true,
+  last_generated_through: plan.lastGeneratedThrough ?? null,
   created_by: plan.createdBy ?? null,
   updated_at: new Date().toISOString(),
 });
@@ -90,6 +94,8 @@ export const buildServicePlanPatchRow = (patch) => {
   if ('endDate' in patch) row.end_date = patch.endDate;
   if ('status' in patch) row.status = patch.status;
   if ('notes' in patch) row.notes = patch.notes;
+  if ('isOngoing' in patch) row.is_ongoing = patch.isOngoing === true;
+  if ('lastGeneratedThrough' in patch) row.last_generated_through = patch.lastGeneratedThrough;
   if ('createdBy' in patch) row.created_by = patch.createdBy;
   row.updated_at = new Date().toISOString();
   return row;

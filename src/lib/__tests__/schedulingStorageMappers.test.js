@@ -62,10 +62,50 @@ describe('service plan mappers', () => {
       endDate: null,
       status: 'active',
       notes: 'VIP client',
+      // Defaults for the new ongoing-extension columns when the row
+      // predates the migration or the columns are nullable/false.
+      isOngoing: false,
+      lastGeneratedThrough: null,
       createdBy: 'jessica',
       createdAt: '2026-04-13T22:00:00.000Z',
       updatedAt: '2026-04-13T22:00:00.000Z',
     });
+  });
+
+  it('dbToServicePlan surfaces ongoing-extension columns when set', () => {
+    const plan = dbToServicePlan({
+      id: 'plan-1',
+      client_id: 'client-A',
+      is_ongoing: true,
+      last_generated_through: '2026-08-01T00:00:00.000Z',
+    });
+    expect(plan.isOngoing).toBe(true);
+    expect(plan.lastGeneratedThrough).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('servicePlanToDb writes ongoing-extension columns', () => {
+    const row = servicePlanToDb({
+      clientId: 'client-A',
+      isOngoing: true,
+      lastGeneratedThrough: '2026-08-01T00:00:00.000Z',
+    });
+    expect(row.is_ongoing).toBe(true);
+    expect(row.last_generated_through).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('servicePlanToDb defaults ongoing flag to false', () => {
+    const row = servicePlanToDb({ clientId: 'c' });
+    expect(row.is_ongoing).toBe(false);
+    expect(row.last_generated_through).toBeNull();
+  });
+
+  it('buildServicePlanPatchRow round-trips ongoing toggles', () => {
+    const row = buildServicePlanPatchRow({
+      isOngoing: true,
+      lastGeneratedThrough: '2026-08-01T00:00:00.000Z',
+    });
+    expect(row.is_ongoing).toBe(true);
+    expect(row.last_generated_through).toBe('2026-08-01T00:00:00.000Z');
   });
 
   it('dbToServicePlan defaults status to draft when null', () => {

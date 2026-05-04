@@ -29,8 +29,50 @@ export const DAY_OF_WEEK_LABELS_LONG = [
   'Saturday',
 ];
 
-export const GENERATE_WEEKS_OPTIONS = [2, 4, 8, 12];
-export const GENERATE_WEEKS_DEFAULT = 4;
+// ─── Generate-shifts dialog options ────────────────────────────
+//
+// The dialog used to offer four hardcoded buttons (2/4/8/12 weeks).
+// We replaced that with a (number × unit) dropdown plus an "Ongoing"
+// toggle that hands the plan off to the service-plan-extend-ongoing
+// cron for perpetual rolling generation.
+//
+// `daysPerUnit` is a flat multiplier — a "month" in this dialog is
+// 30 days, not a calendar month. Users only pick ahead-of-time
+// horizons here, never billing periods, so the simpler math is fine
+// and avoids the Jan-31-plus-one-month edge cases that calendar
+// arithmetic introduces.
+export const GENERATE_NUMBER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+export const GENERATE_UNIT_OPTIONS = [
+  { value: 'days', label: 'days', daysPerUnit: 1 },
+  { value: 'weeks', label: 'weeks', daysPerUnit: 7 },
+  { value: 'months', label: 'months', daysPerUnit: 30 },
+];
+export const GENERATE_NUMBER_DEFAULT = 4;
+export const GENERATE_UNIT_DEFAULT = 'weeks';
+
+// Ongoing-mode horizons. The dialog generates ONGOING_INITIAL_DAYS
+// up front so the user sees a full preview, and the cron tops the
+// rolling window back up to ONGOING_TARGET_DAYS whenever the runway
+// drops below ONGOING_BUFFER_DAYS. With weekly cron + 4-week buffer,
+// even a missed run leaves several weeks of slack before any plan
+// runs out of materialized shifts.
+export const ONGOING_INITIAL_DAYS = 84; // 12 weeks
+export const ONGOING_TARGET_DAYS = 84; // 12 weeks
+export const ONGOING_BUFFER_DAYS = 28; // 4 weeks
+
+/**
+ * Convert a (number, unit) selection from the Generate Shifts dialog
+ * into a plain day count. Falls back to 0 for unknown units so a bad
+ * input produces an empty window rather than a crash.
+ */
+export function durationToDays(number, unit) {
+  if (typeof number !== 'number' || !Number.isFinite(number) || number <= 0) {
+    return 0;
+  }
+  const u = GENERATE_UNIT_OPTIONS.find((opt) => opt.value === unit);
+  if (!u) return 0;
+  return Math.floor(number) * u.daysPerUnit;
+}
 
 /**
  * Create an empty pattern draft. Used when the user first toggles
