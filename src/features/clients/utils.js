@@ -68,30 +68,10 @@ export const getDaysSinceCreated = (client) => {
 
 // ─── Overdue Detection ──────────────────────────────────────
 
-export const isClientOverdue = (client) => {
-  const phase = getClientPhase(client);
-  const tasks = getClientPhaseTasks()[phase];
-  if (!tasks) return false;
-
-  const hasCriticalIncomplete = tasks.some(
-    (t) => t.critical && !isTaskDone(client.tasks?.[t.id])
-  );
-  if (!hasCriticalIncomplete) return false;
-
-  // For new_lead, threshold is 1 hour based on createdAt
-  if (phase === 'new_lead') {
-    const created = client.createdAt
-      ? (typeof client.createdAt === 'number' ? client.createdAt : new Date(client.createdAt).getTime())
-      : null;
-    if (!created) return false;
-    const hoursSinceCreated = (Date.now() - created) / 3600000;
-    return hoursSinceCreated > 1;
-  }
-
-  // For all other phases, threshold is 2 days in phase
-  const daysInPhase = getDaysInClientPhase(client);
-  return daysInPhase > 2;
-};
+// isClientOverdue() removed — card-level "overdue" status is now
+// derived from the configurable action item rules engine, so the
+// Settings toggles are the single source of truth. See
+// generateClientActionItems() and the dashboard's overdueIds set.
 
 // ─── Next Step ──────────────────────────────────────────────
 
@@ -103,26 +83,10 @@ export const getNextStep = (client) => {
   // Find the first incomplete task in current phase
   for (const task of tasks) {
     if (!isTaskDone(client.tasks?.[task.id])) {
-      // Determine if this specific task is overdue
-      let overdue = false;
-      if (task.critical) {
-        if (phase === 'new_lead') {
-          const created = client.createdAt
-            ? (typeof client.createdAt === 'number' ? client.createdAt : new Date(client.createdAt).getTime())
-            : null;
-          if (created) {
-            overdue = (Date.now() - created) / 3600000 > 1;
-          }
-        } else {
-          overdue = getDaysInClientPhase(client) > 2;
-        }
-      }
-
       return {
         taskId: task.id,
         label: task.label,
         critical: !!task.critical,
-        overdue,
       };
     }
   }
@@ -135,7 +99,6 @@ export const getNextStep = (client) => {
       taskId: null,
       label: `All ${phase} tasks complete \u2014 ready to advance to ${nextPhase.label}`,
       critical: false,
-      overdue: false,
     };
   }
 
