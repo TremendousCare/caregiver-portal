@@ -28,7 +28,7 @@
 // to preserve behavior for legacy callers.
 // ═══════════════════════════════════════════════════════════════
 
-import { wallClockToUtcMs } from './timezone';
+import { wallClockToUtcMs } from './timezone.js';
 
 /**
  * Parse an ISO date string (YYYY-MM-DD) or Date into a UTC midnight Date.

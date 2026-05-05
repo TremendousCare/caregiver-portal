@@ -31,7 +31,7 @@
 // compatibility.
 // ═══════════════════════════════════════════════════════════════
 
-import { utcMsToWallClockParts } from './timezone';
+import { utcMsToWallClockParts } from './timezone.js';
 
 /**
  * Parse a "HH:MM" or "HH:MM:SS" clock string into minutes-from-midnight.
