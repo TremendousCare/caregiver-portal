@@ -1106,7 +1106,7 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
     if (!supabase) return;
     supabase
       .from('communication_routes')
-      .select('category, label, is_default, sms_from_number, sms_vault_secret_name')
+      .select('category, label, is_default, sms_from_number, sms_vault_secret_name, email_from_address, email_from_name')
       .eq('is_active', true)
       .order('sort_order', { ascending: true })
       .then(({ data }) => {
@@ -1890,16 +1890,27 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
             >
               <option value="">Auto (smart default based on caregiver status)</option>
               {communicationRoutes.map((r) => {
-                const configured = !!(r.sms_vault_secret_name && r.sms_from_number);
+                // "Configured" means this route can fulfill the chosen
+                // action: SMS rules need a phone number + JWT, email
+                // rules need an email_from_address. A route missing the
+                // relevant column for the action is shown but disabled.
+                const configured = actionType === 'send_email'
+                  ? !!r.email_from_address
+                  : !!(r.sms_vault_secret_name && r.sms_from_number);
+                const displayLabel = actionType === 'send_email' && r.email_from_name
+                  ? `${r.email_from_name} — ${r.label}`
+                  : r.label;
                 return (
                   <option key={r.category} value={r.category} disabled={!configured}>
-                    {r.label}{r.is_default ? ' (default)' : ''}{!configured ? ' — not configured' : ''}
+                    {displayLabel}{r.is_default ? ' (default)' : ''}{!configured ? ' — not configured' : ''}
                   </option>
                 );
               })}
             </select>
             <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
-              Which RingCentral route this automation sends through. "Auto" lets the system pick based on the caregiver's onboarding status.
+              {actionType === 'send_email'
+                ? 'Which mailbox this email is sent from. Replies will land in that mailbox.'
+                : 'Which RingCentral route this automation sends through. "Auto" lets the system pick based on the caregiver\'s onboarding status.'}
             </div>
           </div>
         )}

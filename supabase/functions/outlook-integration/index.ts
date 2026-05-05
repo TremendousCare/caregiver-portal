@@ -76,6 +76,30 @@ async function graphGet(token: string, path: string): Promise<any> {
 
 // ─── Mailbox Resolution ───────────────────────────────────────────────────
 
+// Resolve the email_from_address + email_from_name for a given route.
+// Returns { mailbox, fromName } or null if the route is missing / inactive
+// / has no email sender configured. Caller decides whether to fall back.
+async function resolveRoute(
+  supabase: any,
+  category: string | null,
+): Promise<{ mailbox: string; fromName: string | null } | null> {
+  if (!category) return null;
+  const { data } = await supabase
+    .from("communication_routes")
+    .select("email_from_address, email_from_name, is_active")
+    .eq("category", category)
+    .maybeSingle();
+  if (!data || data.is_active === false) return null;
+  const addr = typeof data.email_from_address === "string"
+    ? data.email_from_address.trim().toLowerCase()
+    : "";
+  if (!addr.includes("@")) return null;
+  const name = typeof data.email_from_name === "string" && data.email_from_name.trim()
+    ? data.email_from_name.trim()
+    : null;
+  return { mailbox: addr, fromName: name };
+}
+
 async function resolveMailbox(supabase: any, adminEmail: string | null): Promise<string> {
   // 1. If admin_email provided, look up user_roles.mailbox_email (or use the email directly)
   if (adminEmail) {
@@ -171,7 +195,12 @@ function attendeeEmails(attendees: any[]): string[] {
 
 // ─── Actions ──────────────────────────────────────────────────────────────
 
-async function sendEmail(token: string, mailbox: string, body: any): Promise<any> {
+async function sendEmail(
+  token: string,
+  mailbox: string,
+  body: any,
+  fromName?: string | null,
+): Promise<any> {
   const { to_email, to_name, subject, body: emailBody, cc } = body;
   if (!to_email || !subject || !emailBody) {
     throw new Error("send_email requires to_email, subject, body");
@@ -181,6 +210,15 @@ async function sendEmail(token: string, mailbox: string, body: any): Promise<any
     body: { contentType: "Text", content: emailBody },
     toRecipients: [{ emailAddress: { address: to_email, name: to_name || undefined } }],
   };
+  if (fromName) {
+    // Setting `from` lets us control the recipient's "From" display name
+    // when the mailbox's default doesn't match (e.g. shared mailboxes
+    // or when we want a friendlier label than the M365 user object).
+    // Address must equal the mailbox we POST to — Graph rejects mismatches
+    // unless the app holds explicit Send-As permission, which we don't
+    // need with tenant-wide application Mail.Send.
+    message.from = { emailAddress: { address: mailbox, name: fromName } };
+  }
   if (cc) {
     message.ccRecipients = [{ emailAddress: { address: cc } }];
   }
@@ -509,13 +547,32 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const action = body.action;
     const adminEmail: string | null = body.admin_email || null;
+    const category: string | null = typeof body.category === "string" && body.category.trim()
+      ? body.category.trim()
+      : null;
 
     const token = await getGraphToken();
 
     let result: any;
     if (action === "send_email") {
-      const mailbox = await resolveMailbox(supabase, adminEmail);
-      result = await sendEmail(token, mailbox, body);
+      // Resolution order for outbound email:
+      //   1. category → communication_routes.email_from_address (+ name)
+      //   2. admin_email → user_roles.mailbox_email (per-admin override)
+      //   3. global app_settings.outlook_mailbox
+      // Categories are how sequences and route-aware automation rules
+      // pick a sender; admin_email is for per-user UI sends; the
+      // global default catches everything else.
+      const route = await resolveRoute(supabase, category);
+      let mailbox: string;
+      let fromName: string | null = null;
+      if (route) {
+        mailbox = route.mailbox;
+        fromName = route.fromName;
+      } else {
+        mailbox = await resolveMailbox(supabase, adminEmail);
+      }
+      result = await sendEmail(token, mailbox, body, fromName);
+      result.routeUsed = route ? category : null;
     } else if (action === "search_emails") {
       const mailbox = await resolveMailbox(supabase, adminEmail);
       result = await searchEmails(token, mailbox, body);

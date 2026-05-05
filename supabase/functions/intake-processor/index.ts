@@ -608,8 +608,8 @@ async function fireSequences(
                 entity_type: "client",
                 action_type: actionType,
                 message_template: resolvedTemplate,
-                action_config:
-                  actionType === "send_email"
+                action_config: {
+                  ...(actionType === "send_email"
                     ? {
                         subject: resolveClientMergeFields(
                           step.subject ||
@@ -617,7 +617,11 @@ async function fireSequences(
                           client
                         ),
                       }
-                    : {},
+                    : {}),
+                  ...(typeof step.category === "string" && step.category.trim()
+                    ? { category: step.category.trim() }
+                    : {}),
+                },
                 rule_name: `${sequence.name} - Step ${i + 1}`,
                 caregiver: {
                   id: client.id,
