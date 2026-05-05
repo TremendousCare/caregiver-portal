@@ -747,7 +747,9 @@ async function processEntry(
   let raw: Record<string, any> = entry.raw_payload || {};
 
   // 0. Meta Lead Ads enrichment — fetch real field data from Graph API
-  if (entry.source === "facebook_lead_ads") {
+  // Only direct Meta webhooks deliver a bare leadgen_id; Zapier-style
+  // integrations forward already-flat lead data and must skip enrichment.
+  if (entry.source === "facebook_lead_ads" && raw.leadgen_id) {
     try {
       raw = await enrichFacebookLead(raw);
     } catch (err) {
