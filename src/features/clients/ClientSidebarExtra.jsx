@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { CLIENT_PHASES } from './constants';
-import { getClientPhase, isClientOverdue } from './utils';
+import { getClientPhase } from './utils';
+import { generateClientActionItems } from '../../lib/actionItemEngine';
 import { useApp } from '../../shared/context/AppContext';
 import { useClients } from '../../shared/context/ClientContext';
 import layout from '../../styles/layout.module.css';
@@ -18,7 +19,14 @@ export function ClientSidebarExtra() {
   };
 
   if (!collapsed) {
-    const overdueCount = activeClients.filter(isClientOverdue).length;
+    // Mirror the dashboard: overdue = clients with a critical-severity
+    // action item from an enabled rule. Disabling all rules in Settings
+    // zeroes this count out, keeping the metric in lockstep with the UI.
+    const overdueCount = new Set(
+      generateClientActionItems(activeClients)
+        .filter((a) => a.severity === 'critical')
+        .map((a) => a.clientId)
+    ).size;
 
     return (
       <>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CLIENT_PHASES, CLIENT_PRIORITIES } from './constants';
-import { getClientPhase, getDaysSinceCreated, isClientOverdue, getNextStep } from './utils';
+import { getClientPhase, getDaysSinceCreated, getNextStep } from './utils';
 import { generateClientActionItems } from '../../lib/actionItemEngine';
 import { supabase } from '../../lib/supabase';
 import { resolveClientMergeFields } from '../../lib/mergeFields';
@@ -36,12 +36,11 @@ function fmtPhone(val) {
 }
 
 // ─── CLIENT CARD ─────────────────────────────────────────────
-function ClientCard({ client, onClick, isSelected, onToggleSelect, selectionMode }) {
+function ClientCard({ client, overdue, onClick, isSelected, onToggleSelect, selectionMode }) {
   const phase = getClientPhase(client);
   const phaseInfo = CLIENT_PHASES.find((p) => p.id === phase);
   const priorityInfo = CLIENT_PRIORITIES.find((p) => p.id === client.priority);
   const days = getDaysSinceCreated(client);
-  const overdue = isClientOverdue(client);
   const nextStep = getNextStep(client);
 
   return (
@@ -106,8 +105,7 @@ function ClientCard({ client, onClick, isSelected, onToggleSelect, selectionMode
       </div>
 
       {nextStep && (
-        <div className={`${d.cardNextStep} ${nextStep.overdue ? d.cardNextStepOverdue : ''}`}>
-          {nextStep.overdue && <span className={d.cardOverdueDot} />}
+        <div className={d.cardNextStep}>
           <span>{nextStep.critical ? '!' : '→'} {nextStep.label}</span>
         </div>
       )}
@@ -158,7 +156,6 @@ export function ClientDashboard({
   }, []);
 
   const totalActive = allClients.length;
-  const overdueCount = allClients.filter(isClientOverdue).length;
 
   // Won this month
   const now = new Date();
@@ -171,6 +168,14 @@ export function ClientDashboard({
 
   const actionItems = generateClientActionItems(allClients);
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
+
+  // A client is "overdue" only when an enabled action item rule produces
+  // a critical-severity item for them. Disabling all rules in Settings
+  // turns off every red badge on the dashboard.
+  const overdueIds = new Set(
+    actionItems.filter((a) => a.severity === 'critical').map((a) => a.clientId)
+  );
+  const overdueCount = overdueIds.size;
 
   const sortedClients = [...clients].sort((a, b) => {
     const pOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -395,6 +400,7 @@ export function ClientDashboard({
               <div key={cl.id} style={{ animation: `fadeInUp 0.35s cubic-bezier(0.4,0,0.2,1) ${Math.min(idx * 0.04, 0.5)}s both` }}>
                 <ClientCard
                   client={cl}
+                  overdue={overdueIds.has(cl.id)}
                   onClick={() => onSelect(cl.id)}
                   isSelected={selectedIds.has(cl.id)}
                   onToggleSelect={() => toggleSelect(cl.id)}
