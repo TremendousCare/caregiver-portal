@@ -770,6 +770,27 @@ describe('mapClientFields', () => {
     expect(result.clientData.phone).toBe('5551112222');
     expect(result.clientData.zip).toBe('10001');
   });
+
+  it('maps a Zapier-forwarded Facebook lead payload end-to-end', () => {
+    const result = mapClientFields({
+      first_name: 'Andy',
+      last_name: 'Chirico',
+      email: 'andychirico12@gmail.com',
+      phone: '+19737691591',
+      city: 'Nashville',
+      zipcode: '37075',
+      start_date_preference: 'Within 2-4 weeks',
+      who_is_care_needed_for: 'Parent',
+    });
+    expect(result.clientData.first_name).toBe('Andy');
+    expect(result.clientData.last_name).toBe('Chirico');
+    expect(result.clientData.email).toBe('andychirico12@gmail.com');
+    expect(result.clientData.phone).toBe('9737691591');
+    expect(result.clientData.city).toBe('Nashville');
+    expect(result.clientData.zip).toBe('37075');
+    expect(result.clientData.start_date_preference).toBe('Within 2-4 weeks');
+    expect(result.clientData.relationship).toBe('Parent');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
