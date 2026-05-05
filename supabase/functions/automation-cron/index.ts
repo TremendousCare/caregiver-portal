@@ -1246,14 +1246,46 @@ Deno.serve(async (req) => {
         const rcToken = await getRingCentralToken();
         const msToken = await getMicrosoftToken();
 
-        // Get mailbox from app_settings
-        let mailbox = '';
+        // Build the set of mailboxes to scan for inbound replies. We need
+        // to look in every mailbox a sequence step might have sent FROM,
+        // because that's where replies will land. Sources:
+        //   - app_settings.outlook_mailbox (the global default sender)
+        //   - communication_routes.email_from_address for active routes
+        //     that have an email sender configured.
+        // Without this, a sequence step routed through Daniela (onboarding)
+        // would send from her mailbox, the reply would land in her inbox,
+        // and we'd never see it because we were only polling the default
+        // (Juliana). Result: the enrollment would keep dripping after the
+        // client had already replied.
+        const mailboxes: string[] = [];
+        const seenMailboxes = new Set<string>();
+        const addMailbox = (raw: unknown) => {
+          if (typeof raw !== 'string') return;
+          const trimmed = raw.replace(/^"|"$/g, '').trim().toLowerCase();
+          if (!trimmed.includes('@')) return;
+          if (seenMailboxes.has(trimmed)) return;
+          seenMailboxes.add(trimmed);
+          mailboxes.push(trimmed);
+        };
+
         const { data: mailboxSetting } = await supabase
           .from("app_settings")
           .select("value")
           .eq("key", "outlook_mailbox")
           .single();
-        if (mailboxSetting) mailbox = mailboxSetting.value;
+        if (mailboxSetting) {
+          const v = mailboxSetting.value;
+          if (typeof v === 'string') addMailbox(v);
+          else if (v && typeof v === 'object' && typeof (v as any).email === 'string') addMailbox((v as any).email);
+        }
+
+        const { data: routeRows } = await supabase
+          .from("communication_routes")
+          .select("email_from_address, is_active")
+          .eq("is_active", true);
+        for (const r of (routeRows || [])) {
+          addMailbox((r as any).email_from_address);
+        }
 
         for (const enrollment of checkable) {
           const { data: client } = await supabase
@@ -1279,10 +1311,15 @@ Deno.serve(async (req) => {
             if (hasCall) responseChannel = 'call';
           }
 
-          // Check email
-          if (!responseChannel && msToken && client.email && mailbox) {
-            const hasEmail = await checkInboundEmails(msToken, mailbox, client.email, since);
-            if (hasEmail) responseChannel = 'email';
+          // Check email across every configured sender mailbox. First hit wins.
+          if (!responseChannel && msToken && client.email && mailboxes.length > 0) {
+            for (const mb of mailboxes) {
+              const hasEmail = await checkInboundEmails(msToken, mb, client.email, since);
+              if (hasEmail) {
+                responseChannel = 'email';
+                break;
+              }
+            }
           }
 
           if (responseChannel) {
@@ -1507,12 +1544,25 @@ Deno.serve(async (req) => {
               if (normalizedAction === 'send_sms' || normalizedAction === 'send_email') {
                 const resolvedMessage = resolveAutomationMergeFields(step.template || '', client);
                 try {
+                  // Per-step communication route. Stored on the JSONB step
+                  // object as `category`. Falls through to execute-automation's
+                  // smart default when omitted, which preserves prior
+                  // behavior for sequences saved before this column existed.
+                  const stepCategory = typeof step.category === 'string' && step.category.trim()
+                    ? step.category.trim()
+                    : null;
+                  const actionConfig: Record<string, any> = {
+                    ...(normalizedAction === 'send_email'
+                      ? { subject: resolveAutomationMergeFields(step.subject || '', client) }
+                      : {}),
+                    ...(stepCategory ? { category: stepCategory } : {}),
+                  };
                   const body: Record<string, any> = {
                     rule_id: `seq_${sequence.id}_step_${stepIndex}`,
                     caregiver_id: client.id,
                     action_type: normalizedAction,
                     message_template: resolvedMessage,
-                    action_config: normalizedAction === 'send_email' ? { subject: resolveAutomationMergeFields(step.subject || '', client) } : {},
+                    action_config: actionConfig,
                     rule_name: `${sequence.name} - Step ${stepIndex + 1}`,
                     entity_type: 'client',
                     caregiver: {

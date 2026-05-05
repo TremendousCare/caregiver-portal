@@ -108,9 +108,25 @@ function ActionTypeBadge({ type }) {
 }
 
 // ─── Step Editor Row ───
-function StepRow({ step, index, onChange, onRemove, totalSteps }) {
+function StepRow({ step, index, onChange, onRemove, totalSteps, communicationRoutes }) {
   const templateRef = useRef(null);
   const { value: delayValue, unit: delayUnit } = decomposeDelay(step.delay_hours || 0);
+
+  // Routes available for THIS step's action type. SMS needs a phone
+  // number + JWT; email needs an email_from_address. We hide routes
+  // that aren't configured for the action so users never pick a sender
+  // that would fail at send time. Leadership routes (no email_from_address)
+  // simply won't appear here, which is the intended access control —
+  // raise it later by populating the route's email columns.
+  const eligibleRoutes = (communicationRoutes || []).filter((r) => {
+    if (step.action_type === 'send_sms') {
+      return !!(r.sms_from_number && r.sms_vault_secret_name);
+    }
+    if (step.action_type === 'send_email') {
+      return !!r.email_from_address;
+    }
+    return false;
+  });
 
   const handleDelayChange = (newValue, newUnit) => {
     const val = newValue !== undefined ? newValue : delayValue;
@@ -216,6 +232,34 @@ function StepRow({ step, index, onChange, onRemove, totalSteps }) {
         </div>
       </div>
 
+      {/* Send From (only for SMS/email) */}
+      {(step.action_type === 'send_sms' || step.action_type === 'send_email') && eligibleRoutes.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <label className={forms.fieldLabel}>Send from</label>
+          <select
+            className={forms.fieldInput}
+            style={{ cursor: 'pointer' }}
+            value={step.category || ''}
+            onChange={(e) => onChange({ ...step, category: e.target.value || undefined })}
+          >
+            <option value="">Default</option>
+            {eligibleRoutes.map((r) => (
+              <option key={r.category} value={r.category}>
+                {step.action_type === 'send_email' && r.email_from_name
+                  ? `${r.email_from_name} — ${r.label}`
+                  : r.label}
+                {r.is_default ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+            {step.action_type === 'send_email'
+              ? 'Which mailbox this email is sent from. Replies will land in that mailbox.'
+              : 'Which RingCentral number this SMS is sent from.'}
+          </div>
+        </div>
+      )}
+
       {/* Email Subject (only for send_email) */}
       {step.action_type === 'send_email' && (
         <div style={{ marginBottom: 12 }}>
@@ -290,6 +334,23 @@ function SequenceForm({ sequence, onSave, onCancel, saving }) {
     return [{ step_id: 'step_1', delay_hours: 0, action_type: 'send_sms', template: '', subject: '' }];
   });
   const [error, setError] = useState('');
+  const [communicationRoutes, setCommunicationRoutes] = useState([]);
+
+  // Active communication routes — feeds the per-step Send From dropdown.
+  // Filtered to is_active=true; per-step rendering further filters to
+  // routes configured for the step's action type (SMS vs email).
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('communication_routes')
+      .select('category, label, is_default, is_active, sms_from_number, sms_vault_secret_name, email_from_address, email_from_name')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (!cancelled && data) setCommunicationRoutes(data);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const addStep = () => {
     const newId = `step_${Date.now()}`;
@@ -443,6 +504,7 @@ function SequenceForm({ sequence, onSave, onCancel, saving }) {
               totalSteps={steps.length}
               onChange={(updated) => updateStep(i, updated)}
               onRemove={() => removeStep(i)}
+              communicationRoutes={communicationRoutes}
             />
           ))}
 

@@ -371,20 +371,33 @@ async function sendSMS(
 }
 
 // ─── Send Email via Outlook Integration ───
+// `category` picks a route from communication_routes — the matching
+// row's email_from_address becomes the sender mailbox and email_from_name
+// the displayed sender. When omitted, outlook-integration falls back to
+// app_settings.outlook_mailbox (legacy single-mailbox path).
 async function sendEmail(
   toEmail: string,
   toName: string,
   subject: string,
-  body: string
-): Promise<{ success: boolean; error?: string }> {
+  body: string,
+  category?: string | null,
+): Promise<{ success: boolean; error?: string; routeUsed?: string | null }> {
   try {
+    const payload: Record<string, any> = {
+      action: "send_email",
+      to_email: toEmail,
+      to_name: toName,
+      subject,
+      body,
+    };
+    if (category) payload.category = category;
     const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       },
-      body: JSON.stringify({ action: "send_email", to_email: toEmail, to_name: toName, subject, body }),
+      body: JSON.stringify(payload),
     });
 
     const text = await response.text();
@@ -401,7 +414,7 @@ async function sendEmail(
     }
 
     if (result.error) return { success: false, error: result.error };
-    return { success: true };
+    return { success: true, routeUsed: result.routeUsed ?? (category || null) };
   } catch (err) {
     return { success: false, error: `Email send failed: ${err.message}` };
   }
@@ -556,7 +569,7 @@ Deno.serve(async (req) => {
         }
         const subject = action_config?.subject || "Message from Tremendous Care";
         const toName = `${caregiver.first_name || ""} ${caregiver.last_name || ""}`.trim();
-        result = await sendEmail(caregiver.email, toName, subject, resolvedMessage);
+        result = await sendEmail(caregiver.email, toName, subject, resolvedMessage, action_config?.category);
         break;
       }
 
@@ -870,7 +883,7 @@ Deno.serve(async (req) => {
         noteText = `DocuSign envelope sent via automation rule: ${rule_name || rule_id}`;
       }
 
-      const outcomeSuffix = action_type === "send_sms" && result.routeUsed
+      const outcomeSuffix = (action_type === "send_sms" || action_type === "send_email") && result.routeUsed
         ? ` (route: ${result.routeUsed})`
         : "";
       const autoNote: Record<string, any> = {
