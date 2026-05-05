@@ -414,7 +414,13 @@ async function sendEmail(
     }
 
     if (result.error) return { success: false, error: result.error };
-    return { success: true, routeUsed: result.routeUsed ?? (category || null) };
+    // Trust what outlook-integration reports. It returns the category
+    // when the route was actually used to pick the sender mailbox, and
+    // null when it fell back to the global default (route inactive,
+    // missing email_from_address, unknown category, etc). Do not
+    // substitute the requested category here — that would make the
+    // audit note claim a route was used when it wasn't.
+    return { success: true, routeUsed: result.routeUsed ?? null };
   } catch (err) {
     return { success: false, error: `Email send failed: ${err.message}` };
   }
