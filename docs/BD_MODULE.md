@@ -302,13 +302,13 @@ Three areas worth naming:
 Designed to land an end-to-end usable tool by the rep's start date, then layer enrichment over the following weeks.
 
 ### Phase 0 — Pre-start (this week)
-- [ ] Lock zip-code list for her territory (5-minute decision with the owner).
 - [x] Trello API access — using existing `trello-webhook` credentials. BD board: `iykstkqZ`.
-- [ ] Create migration scaffolding for `accounts`, `account_contacts`, `bd_activities`, `referrals`, `bd_goals`. Org-scoped, RLS in place.
+- [x] Migration scaffolding for `bd_accounts`, `bd_account_contacts`, `bd_activities`, `bd_referrals`, `bd_goals`, `bd_trello_import_staging`. Org-scoped, RLS in place. (`supabase/migrations/20260508120000_bd_module_phase_0_foundation.sql` — pending review and `Deploy Database Migrations` workflow run.)
 - [ ] Run **stratified Trello import** (see "Trello import strategy" section below).
-- [ ] Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search of her territory.
+- [ ] Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search.
 - [ ] Backfill 6–12 months of inferred referrals from existing client records → baseline metrics.
 - [ ] Insert her starter goals (see "Goals trajectory" section).
+- [ ] **(Deferred)** Lock territory zip-code list — not blocking; defaults to no territory filter.
 
 ### Phase 1 — Day one (her first week)
 - [ ] Today screen (mobile) — briefing, route, counters.
@@ -394,7 +394,7 @@ These are not blocking the MVP build but should be resolved before the correspon
 
 | Decision | Needed by | Notes |
 |---|---|---|
-| Final territory city/zip list | Phase 0 step 5 (geo-search), not blocking migrations or Trello import | **North Orange County** confirmed. Default proposal: Anaheim, Brea, Buena Park, Cypress, Fullerton, La Habra, La Palma, Los Alamitos, Placentia, Seal Beach, Stanton, Villa Park, Yorba Linda, Garden Grove, Orange, Rossmoor (16 cities). Owner to confirm or trim borderlines (Garden Grove, Orange) before geo-search sweep. |
+| Territory definition | Deferred — may cover all of Orange County | Owner deferred the territory decision (round 5). For now, no territory filter is applied; all OC accounts are surfaced. The `bd_accounts.out_of_territory` column ships with default `false` so a territory filter can be flipped on later without a migration. North OC is the likely future scope but not locked. |
 | ~~Trello access~~ | ~~Phase 0~~ | **Resolved**: REST API via existing `TRELLO_API_KEY` / `TRELLO_TOKEN` Supabase env vars. Board: `iykstkqZ` (Business Development). |
 | Annual per-contact spend threshold | Phase 2 (compliance export) | Default $400 unless owner sets otherwise. |
 | Voice memo retention policy | Phase 1 (quick capture) | Audio files in Supabase Storage. Default: 90 days, then transcript-only. |
@@ -435,3 +435,8 @@ The owner explicitly approved locked-in MVP scope and deferred items as listed a
 
 - **Territory: North Orange County** confirmed. Default city list of 16 documented in Open Decisions; owner to confirm borderline cities (Garden Grove, Orange) before the Google Places geo-search sweep.
 - **Territory does not block migrations or Trello import** — those run regardless. Territory is only required for the geo-search supplement (Phase 0 step 5) and downstream UI filtering. Phase 0 steps 1–4 can begin immediately.
+
+### Round 5 (same session)
+
+- **Territory deferred entirely**: she may cover all of Orange County; we'll revisit. No territory filter applied for now. `bd_accounts.out_of_territory` ships with default `false` so the filter can be turned on later without a migration.
+- **Phase 0 migration written**: `supabase/migrations/20260508120000_bd_module_phase_0_foundation.sql` creates `bd_accounts`, `bd_account_contacts`, `bd_activities`, `bd_referrals`, `bd_goals`, and `bd_trello_import_staging`. All `org_id`-scoped per the SaaS retrofit rules with `tenant_isolation_<table>_<command>` policies and `service_role_full_access_<table>` for cron/edge-function access. Rollback at `_rollback/20260508120000_bd_module_phase_0_foundation_down.sql`.
