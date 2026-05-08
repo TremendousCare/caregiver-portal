@@ -440,3 +440,10 @@ The owner explicitly approved locked-in MVP scope and deferred items as listed a
 
 - **Territory deferred entirely**: she may cover all of Orange County; we'll revisit. No territory filter applied for now. `bd_accounts.out_of_territory` ships with default `false` so the filter can be turned on later without a migration.
 - **Phase 0 migration written**: `supabase/migrations/20260508120000_bd_module_phase_0_foundation.sql` creates `bd_accounts`, `bd_account_contacts`, `bd_activities`, `bd_referrals`, `bd_goals`, and `bd_trello_import_staging`. All `org_id`-scoped per the SaaS retrofit rules with `tenant_isolation_<table>_<command>` policies and `service_role_full_access_<table>` for cron/edge-function access. Rollback at `_rollback/20260508120000_bd_module_phase_0_foundation_down.sql`.
+- **Phase 0 deployed**: PR #271 merged; migration applied via the `Deploy Database Migrations` workflow. Smoke-tested via Supabase MCP — all six tables present, RLS enabled, 5 policies each.
+
+### Round 6 (same session) — Phase 1 part A.1 kickoff
+
+- **Phase 1 split into two PRs** for safety: A.1 fetch-only (this PR), A.2 AI extraction + CSV review report (next PR after we inspect real card shapes).
+- **Decisions locked for AI extraction (A.2)**: Claude Haiku 4.5; manual trigger; CSV review output.
+- **Edge function written**: `supabase/functions/bd-trello-import/index.ts` — fetches board `iykstkqZ` from Trello via the existing `TRELLO_API_KEY` / `TRELLO_TOKEN` credentials and upserts board / lists / cards / actions / members into `bd_trello_import_staging`. Idempotent on `(org_id, kind, trello_id)`. Service-role auth required.
