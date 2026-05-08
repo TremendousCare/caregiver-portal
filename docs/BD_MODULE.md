@@ -303,7 +303,7 @@ Designed to land an end-to-end usable tool by the rep's start date, then layer e
 
 ### Phase 0 — Pre-start (this week)
 - [ ] Lock zip-code list for her territory (5-minute decision with the owner).
-- [ ] Obtain Trello API key + token OR JSON board export from owner.
+- [x] Trello API access — using existing `trello-webhook` credentials. BD board: `iykstkqZ`.
 - [ ] Create migration scaffolding for `accounts`, `account_contacts`, `bd_activities`, `referrals`, `bd_goals`. Org-scoped, RLS in place.
 - [ ] Run **stratified Trello import** (see "Trello import strategy" section below).
 - [ ] Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search of her territory.
@@ -338,7 +338,9 @@ Designed to land an end-to-end usable tool by the rep's start date, then layer e
 
 ## Trello import strategy
 
-Tremendous Care has a Trello board with months of accumulated BD history from a previous rep. No one has touched it in months. The import goal is to preserve every signal the AI memory layer can use without overwhelming the new rep on day one.
+Tremendous Care has a Trello board (`https://trello.com/b/iykstkqZ/business-development`, short ID `iykstkqZ`) with months of accumulated BD history from a previous rep. No one has touched it in months. The import goal is to preserve every signal the AI memory layer can use without overwhelming the new rep on day one.
+
+**Source path: Trello REST API**, using the existing `TRELLO_API_KEY` / `TRELLO_API_SECRET` / `TRELLO_TOKEN` Supabase env vars already provisioned for the `trello-webhook` edge function (`supabase/functions/trello-webhook/index.ts`). No new credentials required. API gives richer data than JSON export (paginated action history, attachments via signed URLs, member metadata) and lets us optionally register a live webhook later for ongoing sync if the team continues using the BD board during transition.
 
 **Strategy: import everything to the database, but stratify what surfaces in her UI.**
 
@@ -354,12 +356,20 @@ Day-one expectation: she sees ~20–30 accounts in her main view — enough to w
 
 ### Import pipeline
 
-1. Pull Trello data via API (key + token from owner) or load owner-provided JSON export.
-2. AI pass over each card to extract structured fields: account name, contact name(s), phone, email, last touch date, content type (referral, drop-off, note, idea, junk).
-3. Stratify into A/B/C by recency and signal density.
-4. Stage results for owner review before going live (catch obvious errors — e.g., a personal note misclassified as an account).
-5. Load: A and B → `accounts` + `account_contacts` rows; comments/activities → `bd_activities` with original timestamps; C → `context_memory` blobs.
-6. Generate a "what was imported" report for the rep so she understands her starting inventory.
+1. Fetch full board snapshot from Trello REST API:
+   - `GET /boards/{boardId}?cards=all&card_attachments=true&lists=all&members=all&labels=all` — board structure, lists (likely BD pipeline stages), all cards with attachments and labels.
+   - `GET /boards/{boardId}/actions?limit=1000&filter=commentCard,createCard,updateCard,addAttachmentToCard&before=...` — paginated action history. Loop with `before=<earliest_action_date>` until empty so we capture the full timeline.
+   - `GET /cards/{cardId}/actions` for any cards needing deeper history.
+2. Persist raw payload to a temporary table (`trello_import_staging`) so the import is idempotent and re-runnable without hitting Trello again.
+3. AI pass over each card to extract structured fields: account name, account type (facility / professional), contact name(s), role, phone, email, last touch date, content type (referral, drop-off, note, idea, junk).
+4. Stratify into A/B/C tiers by recency and signal density.
+5. Stage results for owner review before going live (catch obvious errors — e.g., a personal note misclassified as an account).
+6. Load: A and B → `accounts` + `account_contacts` rows; comments/activities → `bd_activities` with original timestamps and `source='trello_import'`; C → `context_memory` blobs.
+7. Generate a "what was imported" report for the rep so she understands her starting inventory.
+
+### Trello list → account-tier hint
+
+Trello board lists (e.g., "Active referrers", "Cold leads", "Lost", "Ideas") are a strong prior for the A/B/C stratification. The AI extraction step will weight the source list when deciding tier — e.g., a card on "Active referrers" with a recent comment lands as Tier A regardless of pure recency math. Final assignment still requires owner review.
 
 ---
 
@@ -367,14 +377,14 @@ Day-one expectation: she sees ~20–30 accounts in her main view — enough to w
 
 Owner-set referral targets with proposed visit and SOC complements. SOC numbers assume ~75% referral conversion and a 2–4 week lag.
 
-| Month | Visits/week | Client referrals (locked) | SOCs/month (estimated) |
+| Month | Visits/week (target) | Client referrals (locked) | SOCs/month (estimated) |
 |---|---|---|---|
-| Month 1 | 30 (heavy intro tour, build pipeline) | 0 | 0 |
-| Month 2 | 25 | 2–3 | 0–2 |
-| Month 3 | 22 | 4 | 2–3 |
-| Month 4+ | 20–25 | 4–6 | 3–5 |
+| Month 1 | ~35 (heavy intro tour, build pipeline) | 0 | 0 |
+| Month 2 | ~35 | 2–3 | 0–2 |
+| Month 3 | ~35 | 4 | 2–3 |
+| Month 4+ | ~35 | 4–6 | 3–5 |
 
-Goals are stored in `bd_goals` with `effective_from` / `effective_to` dates so the trajectory is data, not code. Editable from the settings UI without redeploy.
+Owner-set visit cadence is ~35 visits/week as a flat baseline (subject to change as we learn what's sustainable). Goals are stored in `bd_goals` with `effective_from` / `effective_to` dates so the trajectory is data, not code. Editable from the settings UI without redeploy.
 
 ---
 
@@ -385,7 +395,7 @@ These are not blocking the MVP build but should be resolved before the correspon
 | Decision | Needed by | Notes |
 |---|---|---|
 | Specific zip codes for "half of Orange County" | Phase 0 | North OC vs South OC. Owner to confirm. |
-| Trello access (API key+token, or JSON export) | Phase 0 | Owner offered either path. |
+| ~~Trello access~~ | ~~Phase 0~~ | **Resolved**: REST API via existing `TRELLO_API_KEY` / `TRELLO_TOKEN` Supabase env vars. Board: `iykstkqZ` (Business Development). |
 | Annual per-contact spend threshold | Phase 2 (compliance export) | Default $400 unless owner sets otherwise. |
 | Voice memo retention policy | Phase 1 (quick capture) | Audio files in Supabase Storage. Default: 90 days, then transcript-only. |
 | Whisper provider (OpenAI vs Anthropic-native vs self-hosted) | Phase 1 | OpenAI Whisper API simplest; cost ~$0.006/min. Self-host if HIPAA stance demands. |
@@ -414,3 +424,9 @@ The owner explicitly approved locked-in MVP scope and deferred items as listed a
 - **Goal trajectory locked**: 0 referrals month 1 → 2–3 month 2 → 4 month 3 → 4–6/month month 4+. Visit and SOC complements proposed and accepted directionally (will tune from real data after month 2).
 - **Intake handoff**: BD rep books assessments today; future-proofed via `assigned_to` field and role abstraction (no hardcoded "BD rep" references in UI or business logic).
 - **Long-term product vision added**: three-horizon roadmap (MVP → Differentiation → Moat) with full capability inventory so deferred items have explicit homes and promotion triggers.
+
+### Round 3 (same session)
+
+- **Visit goal updated**: ~35 visits/week as a flat baseline across all months (subject to change). Replaces the earlier ramped 30→25→22→20 proposal.
+- **Trello import path resolved**: REST API via existing portal credentials. Board confirmed as `iykstkqZ` (Business Development). No new secrets required. Existing `trello-webhook` edge function and `src/lib/trelloParser.js` are prior art for parsing patterns.
+- **Phase 0 ready to start** pending only the territory zip-code list.
