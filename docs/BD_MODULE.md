@@ -394,7 +394,7 @@ These are not blocking the MVP build but should be resolved before the correspon
 
 | Decision | Needed by | Notes |
 |---|---|---|
-| Specific zip codes for "half of Orange County" | Phase 0 | North OC vs South OC. Owner to confirm. |
+| Final territory city/zip list | Phase 0 step 5 (geo-search), not blocking migrations or Trello import | **North Orange County** confirmed. Default proposal: Anaheim, Brea, Buena Park, Cypress, Fullerton, La Habra, La Palma, Los Alamitos, Placentia, Seal Beach, Stanton, Villa Park, Yorba Linda, Garden Grove, Orange, Rossmoor (16 cities). Owner to confirm or trim borderlines (Garden Grove, Orange) before geo-search sweep. |
 | ~~Trello access~~ | ~~Phase 0~~ | **Resolved**: REST API via existing `TRELLO_API_KEY` / `TRELLO_TOKEN` Supabase env vars. Board: `iykstkqZ` (Business Development). |
 | Annual per-contact spend threshold | Phase 2 (compliance export) | Default $400 unless owner sets otherwise. |
 | Voice memo retention policy | Phase 1 (quick capture) | Audio files in Supabase Storage. Default: 90 days, then transcript-only. |
@@ -430,3 +430,8 @@ The owner explicitly approved locked-in MVP scope and deferred items as listed a
 - **Visit goal updated**: ~35 visits/week as a flat baseline across all months (subject to change). Replaces the earlier ramped 30→25→22→20 proposal.
 - **Trello import path resolved**: REST API via existing portal credentials. Board confirmed as `iykstkqZ` (Business Development). No new secrets required. Existing `trello-webhook` edge function and `src/lib/trelloParser.js` are prior art for parsing patterns.
 - **Phase 0 ready to start** pending only the territory zip-code list.
+
+### Round 4 (same session)
+
+- **Territory: North Orange County** confirmed. Default city list of 16 documented in Open Decisions; owner to confirm borderline cities (Garden Grove, Orange) before the Google Places geo-search sweep.
+- **Territory does not block migrations or Trello import** — those run regardless. Territory is only required for the geo-search supplement (Phase 0 step 5) and downstream UI filtering. Phase 0 steps 1–4 can begin immediately.
