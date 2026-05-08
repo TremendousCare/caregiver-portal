@@ -117,6 +117,20 @@ async function upsertStaging(
   rawPayload: unknown,
   trelloBoardId: string | null,
 ): Promise<void> {
+  // Only refresh the columns the fetcher owns: raw_payload and
+  // trello_board_id. We deliberately omit extracted_payload,
+  // proposed_tier, and processed_at from the upsert payload so that
+  // re-fetching (e.g., to pick up new Trello comments) preserves any
+  // extraction or load state already written by the next-PR
+  // extractor and loader. Supabase's .upsert() only includes columns
+  // present in the payload in the ON CONFLICT DO UPDATE SET clause —
+  // omitted columns are left alone for existing rows and default to
+  // NULL for fresh inserts, which is the schema default.
+  //
+  // If a force-reprocess is needed, callers should explicitly clear
+  // those fields (e.g., a SQL UPDATE) rather than relying on the
+  // fetcher to do it. That keeps responsibilities crisp and avoids
+  // accidental loss of approved extraction results.
   const { error } = await supabase
     .from("bd_trello_import_staging")
     .upsert(
@@ -126,11 +140,6 @@ async function upsertStaging(
         trello_id: trelloId,
         trello_board_id: trelloBoardId,
         raw_payload: rawPayload,
-        // Reset extraction fields on re-fetch so the next PR's
-        // extractor re-processes any updated card content.
-        extracted_payload: null,
-        proposed_tier: null,
-        processed_at: null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "org_id,kind,trello_id" },
