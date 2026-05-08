@@ -131,19 +131,98 @@ The smallest tool that makes her successful on day one. All entities are `org_id
 
 ---
 
-## Deferred items (not in v1)
+## Long-term product vision
 
-Explicitly cut for the first release. Each has a trigger that would move it back into scope.
+The MVP is the foundation, not the destination. This section captures what the great-product state looks like at maturity so deferred items don't quietly disappear.
 
-| Item | Trigger to add |
+### The North Star
+
+A field BD rep walks into a hospital lobby. Her phone vibrates: *"Sarah is back from her wedding — you logged it three weeks ago. She typically refers Monday or Tuesday. Last week she mentioned a pending discharge — ask about it."* She walks in. After the visit she taps her phone, dictates thirty seconds, the AI extracts the next steps and drafts a thank-you for the previous referral. The morning after, the agency director opens the manager view and sees *"Riverside is converting at 67%, Oak Hill is at 12% — here's why, and here's what I'd suggest."* The AI is doing the remembering. The rep is doing the relating. The system gets smarter every week.
+
+That is what we are building toward. The MVP makes the rep functional on day one; horizons 2 and 3 layer the intelligence and scale that turn this from a tool into a moat.
+
+### Capability inventory by horizon
+
+Every capability has a home. Items in **Horizon 1** ship with the MVP; items in **Horizon 2** and **Horizon 3** are sequenced but committed to.
+
+| Capability | Horizon | Why this horizon |
+|---|---|---|
+| Accounts, contacts, activities, referrals data model | H1 | Foundation. Nothing else works without it. |
+| Today screen with AI briefing and route | H1 | Day-one value. Reuses existing briefing infra. |
+| Account profile (mobile + desktop) | H1 | Day-one value. Where memory shows up. |
+| Quick capture: visit log + GPS + voice memo + photo + business-card OCR | H1 | The killer feature for mobile-first reps. |
+| Referral intake linked to client lead | H1 | Closes the funnel. Without this, attribution doesn't work. |
+| Funnel report (desktop) | H1 | Weekly review for owner. |
+| Onboarding seeding (Trello + clients.referral_source + Google Places) | H1 | Day-one inventory. |
+| Email auto-logging (O365) | H1 | Free leverage from existing email_accounts infra. |
+| Per-contact spend tracking + compliance export | H1 | Anti-Kickback posture. Cheap to add early, expensive to retrofit. |
+| Goals dashboard with weekly/monthly targets | H1 | The reason the dashboard exists. |
+| Outcome learning (semantic memories from BD activities) | H2 | Needs 60–90 days of data; cron extends existing outcome-analyzer. |
+| L2 autonomy: auto-draft thank-you notes, follow-ups, calendar invites | H2 | Promote once outcome data validates the patterns. |
+| Cadences / multi-touch sequences | H2 | Templated nurture flows (new SNF onboarding, dormant revival). AI personalizes within templates. |
+| Manager / leadership surface (per-rep dashboards, weekly review prep) | H2 | Owner gets analytic visibility; pre-req for scaling reps. |
+| Lost-referral analytics + AI-generated coaching notes | H2 | "You're losing 40% of Riverside's referrals to insurance denial — pre-screen earlier." |
+| Lunch-and-learn / event management | H2 | When she runs >2 events/month. CEU credit tracking, attendance, materials library. |
+| Birthday / anniversary auto-reminders | H2 | Stored on contacts; surfaced on Today screen. |
+| Photo memory ("who's that?") | H2 | Face/business-card recognition for fast contact recall. |
+| Full offline-first PWA with sync queue | H2 | Add only if real connectivity pain shows up after 2 weeks. |
+| L3 autonomy: auto-attribute SOCs to referrals, auto-send thank-yous | H2 | Higher trust, lower-stakes actions only. |
+| CMS claims-data market intelligence (Trella or alternative) | H3 | Untapped accounts in territory, market share, leakage. Gated by per-org licensing; amortizes across multi-tenant SaaS. |
+| Contact mobility tracking (auto-detect job changes) | H3 | Claims data or LinkedIn polling reveals when a discharge planner moves between facilities. |
+| Relationship graph (who-knows-whom across orgs) | H3 | Influence mapping; surfaces second-order opportunities. |
+| Multi-rep territory enforcement, account assignment, leaderboards | H3 | When a 2nd rep is hired. Round-robin, geographic, or account-type-based assignment. |
+| Manager review workflows (approve activities, audit spend) | H3 | When agency size demands separation of duties. |
+| Conversation intelligence (visit recording) | H3 (probably never) | HIPAA-fraught and awkward in-person. Voice memos cover 90% of the value. Skip unless reps demand it. |
+| Integration ecosystem (DocuSign for service agreements, RingCentral SMS, calendar sync) | H3 | Reuses existing portal integrations; thin glue. |
+| White-label / per-org configurable taxonomies, goals, thresholds | H3 | Required for SaaS Phase D. Ships with the SaaS retrofit. |
+| L4 autonomy: AI-initiated outreach to dormant accounts | H3 | Highest trust. Gated on clean outcome data and explicit owner approval. |
+
+### Horizon 1 — MVP (May 2026)
+
+Goal: the rep is functional on day one. Foundation in place.
+
+Outcomes by end of horizon:
+- Rep has a clean account list (~20–30 surfaced from Trello import) and logs every visit, call, and referral in seconds.
+- Owner has a weekly funnel report.
+- AI briefing layer is live and getting better at being useful.
+- All entities are `org_id`-scoped — module is sellable as part of the SaaS retrofit when Phase D ships.
+
+### Horizon 2 — Differentiation (Q3 2026)
+
+Goal: the AI starts doing work, not just remembering. The product becomes hard to leave.
+
+Outcomes by end of horizon:
+- AI auto-drafts thank-you notes, follow-ups, and calendar invites; rep approves with one tap.
+- Cadences exist for the 3–4 most common scenarios (new SNF onboarding, dormant account revival, post-event follow-up).
+- Manager surface gives the owner per-rep dashboards and lost-referral coaching insights.
+- Outcome data is rich enough to validate which actions drive conversions; the autonomy promotion path is real, not theoretical.
+
+### Horizon 3 — Moat (Q4 2026 / 2027)
+
+Goal: market intelligence and multi-rep scale. The SaaS pitch becomes "we have what PlayMaker has, plus an AI that learns."
+
+Outcomes by end of horizon:
+- Claims-data feed integrated; territory market share, untapped accounts, and discharge volume trends are visible per account.
+- Multi-rep operations: territory enforcement, account assignment, leaderboards, manager workflows.
+- Contact mobility and relationship graph turn the system into a true relationship-intelligence asset.
+- Integration ecosystem is complete; the BD module is the agency's BD operating system.
+
+---
+
+## Deferred items — explicit triggers
+
+Items below have a horizon assignment in the inventory above. This section names the *trigger* — the condition that promotes them from "later" to "now."
+
+| Item | Promotion trigger |
 |---|---|
-| Cadences / multi-touch sequences | When she has >100 accounts or we add a 2nd rep. |
-| CMS claims-data market intelligence (Trella-style) | Phase E SaaS launch with multiple agencies — amortizes licensing. |
-| Conversation intelligence (visit recording) | Awkward in-person, HIPAA-fraught. Skip; voice memos cover 90% of the value. |
-| Lunch-and-learn / event management | When she runs >2 events/month. Calendar plus a notes field is fine until then. |
-| Contact mobility tracking (auto-detected job changes) | Manual flag for now; automate when we have claims data or LinkedIn integration. |
-| Full offline-first PWA | Low priority per rep — most of her day has signal. Revisit after 2 weeks of real use. Online-only PWA degrades gracefully (clear "couldn't sync" indicator, no silent failure). |
-| Promotion to L2+ autonomy (auto-thank-you, auto-calendar) | After 60–90 days of L1 outcome data is collected. |
+| Cadences / multi-touch sequences | She has >100 active accounts, OR a 2nd rep is hired. |
+| CMS claims-data market intelligence | SaaS Phase E launch with multiple paying agencies — amortizes licensing. |
+| Conversation intelligence (visit recording) | A rep explicitly asks for it twice. Default: never. |
+| Lunch-and-learn / event management | She runs >2 events in a single month. |
+| Contact mobility tracking | First time the AI gets a fact wrong because a contact moved without us knowing. |
+| Full offline-first PWA | Two weeks of real use shows >5 sync failures per week. |
+| Promotion to L2+ autonomy | 60–90 days of clean L1 outcome data, AND a specific action shows >85% acceptance rate from the rep. |
+| Multi-rep territory enforcement | A 2nd BD rep is hired or contracted. |
 
 ---
 
@@ -224,9 +303,12 @@ Designed to land an end-to-end usable tool by the rep's start date, then layer e
 
 ### Phase 0 — Pre-start (this week)
 - [ ] Lock zip-code list for her territory (5-minute decision with the owner).
+- [ ] Obtain Trello API key + token OR JSON board export from owner.
 - [ ] Create migration scaffolding for `accounts`, `account_contacts`, `bd_activities`, `referrals`, `bd_goals`. Org-scoped, RLS in place.
-- [ ] Seed accounts from existing `clients.referral_source` + Google Places geo-search of her territory.
+- [ ] Run **stratified Trello import** (see "Trello import strategy" section below).
+- [ ] Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search of her territory.
 - [ ] Backfill 6–12 months of inferred referrals from existing client records → baseline metrics.
+- [ ] Insert her starter goals (see "Goals trajectory" section).
 
 ### Phase 1 — Day one (her first week)
 - [ ] Today screen (mobile) — briefing, route, counters.
@@ -254,6 +336,48 @@ Designed to land an end-to-end usable tool by the rep's start date, then layer e
 
 ---
 
+## Trello import strategy
+
+Tremendous Care has a Trello board with months of accumulated BD history from a previous rep. No one has touched it in months. The import goal is to preserve every signal the AI memory layer can use without overwhelming the new rep on day one.
+
+**Strategy: import everything to the database, but stratify what surfaces in her UI.**
+
+| Tier | Definition | Where it surfaces |
+|---|---|---|
+| **A — Active** | Accounts with any logged activity in last 12 months, OR among the top ~20–30 by inferred referral volume from existing `clients.referral_source` | Her main account list, route planner, and morning briefing |
+| **B — Dormant** | Everything else with valid contact info | Searchable but not in default views. Type "Riverside" → it appears. AI surfaces them when relevant ("You visited Riverside in 2024 — Sarah was your contact then.") |
+| **C — Archive** | One-off cards, scratch notes, exploratory ideas, junk | Stored as text-blob entries in `context_memory` (semantic / historical), not as accounts. AI can reference, rep never sees in lists. |
+
+**All historical Trello notes and comments become `bd_activities` rows** with `source='trello_import'` and the original card date. Rep's timeline view defaults to last 90 days (clean). AI sees the full corpus (rich memory). Nothing is lost; nothing is overwhelming.
+
+Day-one expectation: she sees ~20–30 accounts in her main view — enough to work with, few enough to dig into each one in her first two weeks.
+
+### Import pipeline
+
+1. Pull Trello data via API (key + token from owner) or load owner-provided JSON export.
+2. AI pass over each card to extract structured fields: account name, contact name(s), phone, email, last touch date, content type (referral, drop-off, note, idea, junk).
+3. Stratify into A/B/C by recency and signal density.
+4. Stage results for owner review before going live (catch obvious errors — e.g., a personal note misclassified as an account).
+5. Load: A and B → `accounts` + `account_contacts` rows; comments/activities → `bd_activities` with original timestamps; C → `context_memory` blobs.
+6. Generate a "what was imported" report for the rep so she understands her starting inventory.
+
+---
+
+## Goals trajectory
+
+Owner-set referral targets with proposed visit and SOC complements. SOC numbers assume ~75% referral conversion and a 2–4 week lag.
+
+| Month | Visits/week | Client referrals (locked) | SOCs/month (estimated) |
+|---|---|---|---|
+| Month 1 | 30 (heavy intro tour, build pipeline) | 0 | 0 |
+| Month 2 | 25 | 2–3 | 0–2 |
+| Month 3 | 22 | 4 | 2–3 |
+| Month 4+ | 20–25 | 4–6 | 3–5 |
+
+Goals are stored in `bd_goals` with `effective_from` / `effective_to` dates so the trajectory is data, not code. Editable from the settings UI without redeploy.
+
+---
+
 ## Open decisions
 
 These are not blocking the MVP build but should be resolved before the corresponding phase.
@@ -261,10 +385,10 @@ These are not blocking the MVP build but should be resolved before the correspon
 | Decision | Needed by | Notes |
 |---|---|---|
 | Specific zip codes for "half of Orange County" | Phase 0 | North OC vs South OC. Owner to confirm. |
+| Trello access (API key+token, or JSON export) | Phase 0 | Owner offered either path. |
 | Annual per-contact spend threshold | Phase 2 (compliance export) | Default $400 unless owner sets otherwise. |
 | Voice memo retention policy | Phase 1 (quick capture) | Audio files in Supabase Storage. Default: 90 days, then transcript-only. |
 | Whisper provider (OpenAI vs Anthropic-native vs self-hosted) | Phase 1 | OpenAI Whisper API simplest; cost ~$0.006/min. Self-host if HIPAA stance demands. |
-| Goal defaults for the rep | Phase 0 | Owner to set: visits/wk, referrals/mo, SOCs/mo. Suggested starting: 25/wk, 12/mo, 4/mo. |
 | Email integration scope | Phase 2 | Auto-log only, or auto-log + auto-suggest replies? Suggested: auto-log only at L1. |
 
 ---
@@ -283,3 +407,10 @@ This module's design was hashed out in a single session on 2026-05-08. Key input
 - **Strategic positioning:** build with `org_id` from day one so the module is sellable as part of the multi-tenant SaaS in Phase E.
 
 The owner explicitly approved locked-in MVP scope and deferred items as listed above. Build begins on `claude/design-bd-portal-Jde8c`. No PRs opened yet.
+
+### Round 2 (same session, after first doc landed)
+
+- **Trello import strategy**: stratified A/B/C tiers approved. Full corpus to AI; clean ~20–30 accounts to rep on day one.
+- **Goal trajectory locked**: 0 referrals month 1 → 2–3 month 2 → 4 month 3 → 4–6/month month 4+. Visit and SOC complements proposed and accepted directionally (will tune from real data after month 2).
+- **Intake handoff**: BD rep books assessments today; future-proofed via `assigned_to` field and role abstraction (no hardcoded "BD rep" references in UI or business logic).
+- **Long-term product vision added**: three-horizon roadmap (MVP → Differentiation → Moat) with full capability inventory so deferred items have explicit homes and promotion triggers.
