@@ -12,7 +12,7 @@ import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
 import layout from '../../styles/layout.module.css';
 
 export function AppShell() {
-  const { toast, isAdmin, currentOrgRole, currentOrgSettings } = useApp();
+  const { toast, isAdmin, currentOrgSettings } = useApp();
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
   const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
@@ -20,15 +20,14 @@ export function AppShell() {
   const loaded = caregiversLoaded && clientsLoaded;
 
   // Accounting visibility gate. Show when:
-  //   - the user is staff (admin or member), AND
+  //   - the user is an admin (members don't see Payroll or Invoicing), AND
   //   - the org has at least one Accounting sub-feature enabled
   //     (features_enabled.payroll OR features_enabled.invoicing).
-  // The route still renders if a user navigates directly; the page
-  // itself shows a polite empty state in that case.
-  const isStaff = isAdmin || currentOrgRole === 'admin' || currentOrgRole === 'member';
+  // The route is also gated by AdminOnly in AdminApp.jsx, so a member
+  // who types the URL directly hits the access-denied panel.
   const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
   const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
-  const accountingVisible = isStaff && (payrollEnabled || invoicingEnabled);
+  const accountingVisible = isAdmin && (payrollEnabled || invoicingEnabled);
 
   // ─── Sidebar section configs ───
   // Each module registers its section here. Future modules (Scheduling, Billing)
@@ -103,15 +102,20 @@ export function AppShell() {
         id: 'bd',
         label: 'Business Development',
         items: [
+          // BD Portal stays visible to everyone; the funnel report and
+          // goals editor are admin-only (matches the AdminOnly route
+          // guard in AdminApp.jsx).
           { id: 'bd-portal',  path: '/bd',         icon: '📱', label: 'BD Portal' },
-          { id: 'bd-funnel',  path: '/bd-funnel',  icon: '📊', label: 'Funnel Report' },
-          { id: 'bd-goals',   path: '/bd-goals',   icon: '🎯', label: 'Goals' },
+          ...(isAdmin ? [
+            { id: 'bd-funnel',  path: '/bd-funnel',  icon: '📊', label: 'Funnel Report' },
+            { id: 'bd-goals',   path: '/bd-goals',   icon: '🎯', label: 'Goals' },
+          ] : []),
         ],
       },
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];
-  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible]);
+  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible, isAdmin, payrollEnabled, invoicingEnabled]);
 
   return (
     <div className={layout.app}>

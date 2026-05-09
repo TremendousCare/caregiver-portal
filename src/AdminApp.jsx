@@ -586,15 +586,19 @@ function SequenceSettingsPage() {
   return <SequenceSettings showToast={showToast} currentUserEmail={currentUserEmail} />;
 }
 
-function SettingsPage() {
+// Wraps any route element with an admin-only access check. Renders an
+// "Access Denied" panel for non-admins so a member who types the URL
+// directly still gets a friendly redirect path instead of the page
+// content. Used for Settings, Accounting, BD Funnel, and BD Goals.
+function AdminOnly({ children }) {
   const navigate = useNavigate();
-  const { showToast, currentUserEmail, isAdmin } = useApp();
+  const { isAdmin } = useApp();
 
   if (!isAdmin) {
     return (
       <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
         <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
-        <p>You need admin privileges to view Settings.</p>
+        <p>You need admin privileges to view this page.</p>
         <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
           Back to Dashboard
         </button>
@@ -602,6 +606,11 @@ function SettingsPage() {
     );
   }
 
+  return children;
+}
+
+function SettingsPage() {
+  const { showToast, currentUserEmail } = useApp();
   return <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />;
 }
 
@@ -634,10 +643,10 @@ export default function AdminApp() {
                 <Route path="clients/sequences" element={<SequenceSettingsPage />} />
                 <Route path="clients/:id" element={<ClientDetailPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
-                <Route path="accounting" element={<AccountingPage />} />
-                <Route path="bd-funnel" element={<FunnelReport />} />
-                <Route path="bd-goals"  element={<GoalsEditor />} />
-                <Route path="settings" element={<SettingsPage />} />
+                <Route path="accounting" element={<AdminOnly><AccountingPage /></AdminOnly>} />
+                <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
+                <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
+                <Route path="settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
