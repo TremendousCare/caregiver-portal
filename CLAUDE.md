@@ -21,6 +21,14 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Add columns as nullable** — old code must continue working
 - **All schema changes must be reviewed** before execution
 
+### RLS Safety (MANDATORY — read before writing any policy)
+
+- **NEVER put an inline `EXISTS (SELECT ... FROM T)` inside a policy on table `T`.** Always extract the check into a `STABLE SECURITY DEFINER` helper function (see `public.is_staff()` and `public.is_admin()` for the canonical pattern).
+- **`SECURITY DEFINER` bypasses RLS for the inner SELECT, but does NOT unwind Postgres' policy-recursion detector.** One level deep into the same table works; two levels deep trips it. SECURITY DEFINER is necessary but not sufficient.
+- **When adding a new SELECT policy on a table that already has admin-gated UPDATE/INSERT/DELETE policies, audit those existing policies in the same PR.** They may have inline subqueries that worked fine until your new SELECT policy added a second layer to the chain.
+- **Before merging any RLS migration on a table with multiple policies, manually reproduce the exact frontend query in the Supabase SQL editor under `SET LOCAL ROLE authenticated` with fake JWT claims.** Structural grep-style migration tests cannot catch RLS runtime semantics. If the reproduction returns `infinite recursion detected in policy for relation`, fix before merging.
+- Full incident postmortem, mechanism, and reproduction recipe: **`docs/RLS_GOTCHAS.md`**.
+
 ### Deployment Rules
 
 - `main` branch auto-deploys to production via Vercel — treat it as sacred
