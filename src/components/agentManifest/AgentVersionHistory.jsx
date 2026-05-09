@@ -17,9 +17,13 @@ import { ManifestDiffView } from './ManifestDiffView';
 import { RevertConfirmationDialog } from './RevertConfirmationDialog';
 
 export function AgentVersionHistory({ agentId, currentVersion, onRevert, showToast }) {
-  const { versions, loading, error, refresh } = useAgentVersions(agentId);
-  const [diffTarget, setDiffTarget]   = useState(null);     // version row to diff vs prev
-  const [revertTarget, setRevertTarget] = useState(null);   // version row to revert to
+  // currentVersion is also the refresh signal: when the parent
+  // re-renders with a new currentVersion (after a save or revert),
+  // the hook re-fetches so the history shows the just-saved row
+  // without waiting for the user to collapse/re-expand the editor.
+  const { versions, loading, error, refresh } = useAgentVersions(agentId, currentVersion);
+  const [diffTarget, setDiffTarget]   = useState(null);
+  const [revertTarget, setRevertTarget] = useState(null);
   const { reverting, revert }         = useRevertAgent();
 
   if (loading) {
