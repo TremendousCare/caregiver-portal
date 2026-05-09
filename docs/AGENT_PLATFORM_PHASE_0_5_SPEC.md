@@ -29,7 +29,7 @@ The doc closes with a sign-off gate (§9) listing decisions the owner must lock 
 - **No autonomy_profile wrapped UI.** Per VISION doc, the wrapped UI lands in Phase 1.4. Phase 0.5 ships raw JSON editing for `autonomy_profile` and `context_recipe`.
 - **No hash-chain / Ed25519 signing of `agent_versions`.** That's Phase 1.1 (`agent_actions`).
 - **No markdown-mirror prompt files in `docs/agent-prompts/`.** Per VISION doc — locked to (a) "column is authoritative." Markdown mirrors deferred until/unless a customer asks for PR-review on prompt changes.
-- **No `ai_suggestions` per-agent filter UI.** That's mentioned in `docs/AGENT_PLATFORM.md:724` as part of Phase 0.5 but functionally belongs to the human-in-the-loop UI (`AISuggestionsCenter` / equivalent), not the manifest editor. Splitting it into its own ticket keeps this PR focused. **Decision needed (§9 D7).**
+- **No `ai_suggestions` per-agent filter UI.** That's mentioned in `docs/AGENT_PLATFORM.md:724` as part of Phase 0.5 but functionally belongs to the human-in-the-loop UI (`AISuggestionsCenter` / equivalent), not the manifest editor. Splitting it into its own ticket keeps this PR focused. *(Locked: §9 D7 — defer to a separate PR after 0.5.)*
 
 ---
 
@@ -50,11 +50,11 @@ The Phase 0.1 migration is sufficient for everything Phase 0.5 does. No schema c
 | `tool_allowlist` | text[] | **yes** | Subset of registry tool names |
 | `autonomy_profile` | jsonb | **yes** | Raw JSON in 0.5 (wrapped UI deferred to Phase 1.4) |
 | `context_recipe` | jsonb | **yes** | Raw JSON; assembler doesn't honor `enabledLayers` yet, but the field is editable for future-proofing |
-| `model` | text | **yes** | Free-text — the manifest already accepts e.g. `claude-haiku-4-5-20251001`, `claude-sonnet-4-5-20250929`. **Decision needed (§9 D2).** |
+| `model` | text | **yes** | Free-text input with non-blocking warning if not in the known-good list. *(Locked: §9 D2.)* The manifest already accepts e.g. `claude-haiku-4-5-20251001`, `claude-sonnet-4-5-20250929`. |
 | `max_iterations` | integer | **yes** | CHECK ≥ 1 |
 | `kill_switch` | boolean | **yes** | Single-toggle save (no version increment) |
 | `shadow_mode` | boolean | **yes** | Single-toggle save (no version increment) |
-| `outcome_definition` | jsonb | edge case | Phase 1.x metrics dashboard reads this. Editable in 0.5 for completeness. **Decision needed (§9 D6).** |
+| `outcome_definition` | jsonb | **yes** | Editable as raw JSON in 0.5. *(Locked: §9 D6.)* Phase 1.x metrics dashboard reads this; harmless to edit pre-1.x because no consumer reads it yet. |
 | `triggers` | jsonb | no | Cron schedules + invocation modes; tightly coupled to deployed cron jobs. Editing this from the UI without redeploying the cron entries is dangerous. **Read-only display in 0.5.** |
 | `created_at`, `updated_at` | timestamptz | no | `updated_at` trigger already in place (`tg_agents_set_updated_at`) |
 | `created_by`, `updated_by` | text | no (auto) | Set on save from JWT |
@@ -97,9 +97,9 @@ A single Postgres function, `public.update_agent_manifest_v1`, is called from th
 - Returns the new version number,
 - All inside a transaction.
 
-Optimistic lock is enforced by a `WHERE id = ? AND version = ?` clause; if zero rows match, the function raises `agent_version_conflict` (sqlstate `'P0001'`) and the UI surfaces a "another admin saved version N+1, refresh and retry" dialog. **Decision needed (§9 D3).**
+Optimistic lock is enforced by a `WHERE id = ? AND version = ?` clause; if zero rows match, the function raises `agent_version_conflict` (sqlstate `'P0001'`) and the UI surfaces a "another admin saved version N+1, refresh and retry" dialog. *(Locked: §9 D3 — optimistic locking unequivocally.)*
 
-A second RPC `public.toggle_agent_flag_v1(p_agent_id, p_flag, p_value)` handles the immediate `kill_switch` / `shadow_mode` toggles without touching `version` — these are operational levers, not manifest edits. Per the design intent that toggles are "single-click" and don't need confirmation, they don't write to `agent_versions`. **Decision needed (§9 D4).**
+A second RPC `public.toggle_agent_flag_v1(p_agent_id, p_flag, p_value)` handles the immediate `kill_switch` / `shadow_mode` toggles without touching `version` — these are operational levers, not manifest edits. Per the design intent that toggles are "single-click" and don't need confirmation, they don't write to `agent_versions`. *(Locked: §9 D4 — no `agent_versions` row on toggle.)*
 
 A third RPC `public.revert_agent_to_version_v1(p_agent_id, p_target_version, p_change_summary)` handles revert. It loads the target snapshot, applies it as the new content (excluding non-revertable fields like `id`, `org_id`, `slug`, `kill_switch`, `shadow_mode`, version metadata), increments version, and writes a new `agent_versions` row marked with `change_summary = "Reverted to version N"`.
 
@@ -115,7 +115,7 @@ All three RPCs run with `SECURITY DEFINER` and explicit role checks against `use
 - **Saved immediately**: no confirmation dialog.
 - **Effect on running invocations**: the runtime checks `kill_switch` exactly **once per `runAgent` call**, immediately after manifest load (`supabase/functions/_shared/operations/agentRuntime.ts:219`). The handlers (chat / planner / router) do not re-read the manifest during the tool-use loop. So a flip during a long-running invocation does **not** stop that invocation; only the next `runAgent` call hits the new value. The UI must communicate this honestly: "Kill switch engaged. New invocations will be skipped; any invocation currently in progress will complete." For chat (short, single-call interactions) this is rarely visible. For planner (single-shot per cron tick) it doesn't matter. For long multi-iteration chat sessions with tool use, it can mean a few extra tool calls finish after the flip. If we ever want a hard mid-flight stop, that's a runtime change (per-iteration manifest reread or a check before each Claude call) and it'd ship as a separate phase, not 0.5. **No behavior change from Phase 0.4.**
 - **UI feedback**: optimistic update + toast. On failure, revert and show error.
-- **Audit**: written to `events` table (event_type = `agent_kill_switch_toggled`, payload = `{flag: 'kill_switch', value: true|false, prior_value: ...}`, agent_id stamped). **Decision needed (§9 D5).** Not written to `agent_versions` (operational lever, not manifest change).
+- **Audit**: written to `events` table (event_type = `agent_flag_toggled`, payload = `{flag: 'kill_switch', value: true|false, prior_value: ...}`, agent_id stamped). *(Locked: §9 D5 — yes, write `events` row on toggle.)* Not written to `agent_versions` (operational lever, not manifest change).
 
 ### 3.2 Shadow mode toggle
 
@@ -126,10 +126,10 @@ Identical to kill switch, but for `shadow_mode`. The runtime behavior is already
 - **Trigger**: admin clicks "Edit" on the detail view, modifies fields, clicks "Save".
 - **Validation**:
   - `system_prompt`: nonempty (CHECK constraint).
-  - `tool_allowlist`: each entry must be a known tool name. The full registry of valid tools is the union of registered tools across the three current agents; we expose this as a query against `getToolDefinitions()` from each shell. **Decision needed (§9 D1.**
+  - `tool_allowlist`: each entry must be a known tool name. The full universe is hard-coded per-agent (recruiting=40, planner=10, router=14) and validated against the registry on save. *(Locked: §9 D1.)*
   - `autonomy_profile`: valid JSON, must be an object. Each key should be a string action name; each value an object with at least `current_level` ∈ `{L1, L2, L3, L4}`. Validation is best-effort in 0.5 (Phase 1.2 hardens this with the v2 promotion algorithm).
   - `context_recipe`: valid JSON, must be an object. No deeper validation in 0.5.
-  - `model`: nonempty string. Optionally validated against an allowed-models list. **Decision needed (§9 D2).**
+  - `model`: nonempty string. Free-text input with a non-blocking warning if the value isn't in the known-good list. *(Locked: §9 D2.)*
   - `max_iterations`: integer ≥ 1.
   - `name`: nonempty.
   - `outcome_definition`: valid JSON, must be an object.
@@ -175,7 +175,7 @@ For the confirmation dialog and revert preview:
 | `name`, `model` | Inline before/after on a single line. |
 | `max_iterations` | Inline before/after. |
 | `tool_allowlist` | Two-column list with added/removed indicators. |
-| `autonomy_profile`, `context_recipe`, `outcome_definition` | JSON property diff: render as a tree, highlight changed keys, expand subtrees with deeper changes. Alternatively (simpler), render canonical JSON.stringify(obj, null, 2) on both sides and unified-diff that. **Decision needed (§9 D8).** |
+| `autonomy_profile`, `context_recipe`, `outcome_definition` | Canonical-JSON unified diff: `JSON.stringify(obj, null, 2)` on both sides, then unified-diff. *(Locked: §9 D8.)* |
 
 The diff renderer is a pure function (`renderManifestDiff(current, proposed)`); it accepts the two row objects and returns React elements. Vitest covers it with snapshot tests.
 
@@ -206,7 +206,7 @@ Rendered as a `SettingsCard` titled "AI Agents" inside `AdminSettings` (slot it 
 - `[v1]` chip — current version. Clicking it scrolls to version history within the detail view.
 - `●live` / `●dormant` / `●shadow` indicator — single dot, color-coded.
 - `[ Kill ]` / `[ Shadow ]` — toggle buttons (state-aware). Live toggles, no confirm.
-- `▸` chevron — expands into the detail view (in-page accordion or modal — **decision needed §9 D9**).
+- `▸` chevron — expands into the detail view as an in-page accordion. *(Locked: §9 D9 — accordion + per-field [Edit] modals + min-height: 600px on the expanded section.)*
 
 ### 5.2 Agent detail view
 
@@ -325,7 +325,7 @@ Migrations (two files):
 
     Rollback (`_rollback/..._down.sql`) re-grants the privileges, restoring Phase 0.1 behavior. Idempotent.
 
-    **Decision needed (§9 D11)** — alternative is to tighten the existing RLS policies to `org_id match AND admin role check` instead of revoking privileges. Both achieve the same outcome; revoking is cleaner because RLS stays focused on tenant isolation and authz lives in the RPC layer (matches the `payroll-export-run` admin-gate pattern).
+    *(Locked: §9 D11 — revoke privileges. Admin-gating RLS policies has a footgun documented by the 2026-05-09 user_roles recursion incident; revoking keeps these tables out of the admin-gated RLS chain entirely.)*
 
 `+_rollback/...down.sql` for both. Idempotent on re-run via `IF EXISTS` / `IF NOT EXISTS` and `CREATE OR REPLACE`.
 
@@ -388,7 +388,7 @@ Two PRs (recommended):
 - The bake gate to Phase 1 is "0.5 shipped + 7 days." If PR A merges and bakes for 4 days while PR B is in review, the total Phase 0.5 timeline doesn't lengthen — both PRs can be in flight overlapping.
 - Risk asymmetry: a bug in PR A surfaces as "the list view crashes" — annoying, no production impact. A bug in PR B can write a malformed `system_prompt` to a live agent. Splitting puts the risky write path in a smaller, more reviewable diff.
 
-If the owner prefers a single PR for simplicity, I'd argue against — but it's a defensible call. **Decision needed (§9 D10).**
+*(Locked: §9 D10 — two PRs.)*
 
 ---
 
