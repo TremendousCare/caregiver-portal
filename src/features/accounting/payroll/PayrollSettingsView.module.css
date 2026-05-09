@@ -1,0 +1,147 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 16px;
+  color: #0F1724;
+}
+
+.sectionLede {
+  margin: 0;
+  font-size: 13px;
+  color: #5A6B80;
+  line-height: 1.5;
+}
+
+.sectionLede code {
+  background: #F4F7FB;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.fieldsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5A6B80;
+}
+
+.input {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #C8D6E8;
+  border-radius: 6px;
+  font-weight: 400;
+  color: #0F1724;
+}
+
+.toggleField {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #0F1724;
+}
+
+.sectionFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #C8D6E8;
+  background: #fff;
+  color: #2E4E8D;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #ECF1F8;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: #1B5E20;
+  color: #fff;
+  border-color: #1B5E20;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #154918;
+  border-color: #154918;
+}
+
+.statusRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #EAEFF6;
+}
+
+.statusRow:last-child {
+  border-bottom: none;
+}
+
+.statusLabel {
+  color: #5A6B80;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.statusValue code {
+  background: #F4F7FB;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #0F1724;
+}
+
+.statusOk {
+  color: #1B5E20;
+  font-weight: 600;
+}
+
+.statusGap {
+  color: #9C2A2A;
+  font-weight: 600;
+}
+
+.subtle {
+  color: #7A8BA0;
+  font-style: italic;
+  font-size: 12px;
+}

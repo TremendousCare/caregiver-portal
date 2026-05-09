@@ -309,3 +309,120 @@ export function exportPayrollRun({ timesheetIds, payDate, dryRun = false }) {
     dry_run: dryRun,
   });
 }
+
+// ─── Phase 4 PR #3: Payroll Runs + Mark as Paid + Settings ──────
+
+export const dbToPayrollRun = (row) => ({
+  id: row.id,
+  orgId: row.org_id,
+  payPeriodStart: row.pay_period_start,
+  payPeriodEnd: row.pay_period_end,
+  payDate: row.pay_date,
+  status: row.status,
+  submissionMode: row.submission_mode,
+  timesheetCount: row.timesheet_count != null ? Number(row.timesheet_count) : 0,
+  totalGross: row.total_gross != null ? Number(row.total_gross) : 0,
+  totalMileage: row.total_mileage != null ? Number(row.total_mileage) : 0,
+  csvExportUrl: row.csv_export_url,
+  exportFilename: row.export_filename,
+  paychexPayperiodId: row.paychex_payperiod_id,
+  submittedBy: row.submitted_by,
+  submittedAt: row.submitted_at,
+  completedAt: row.completed_at,
+  errorDetails: row.error_details,
+  createdAt: row.created_at,
+});
+
+/**
+ * Fetch every payroll_runs row for the caller's org, most-recent
+ * pay_date first. Used by PayrollRunsView. Org-scoped via RLS + the
+ * explicit filter (defense in depth).
+ */
+export async function listPayrollRuns({ orgId, limit = 50 }) {
+  if (!isSupabaseConfigured() || !orgId) return [];
+  const { data, error } = await supabase
+    .from('payroll_runs')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('pay_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('[accounting/storage] listPayrollRuns failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map(dbToPayrollRun);
+}
+
+/**
+ * Fetch a single payroll run + its member timesheets for the
+ * per-run detail panel. Returns { run, members: [{ timesheet,
+ * caregiver }] }. Org-scoped.
+ */
+export async function getPayrollRunDetail({ orgId, payrollRunId }) {
+  if (!isSupabaseConfigured() || !orgId || !payrollRunId) {
+    return { run: null, members: [] };
+  }
+  const { data: runRow, error: runErr } = await supabase
+    .from('payroll_runs')
+    .select('*')
+    .eq('id', payrollRunId)
+    .eq('org_id', orgId)
+    .maybeSingle();
+  if (runErr || !runRow) {
+    if (runErr) console.error('[accounting/storage] getPayrollRunDetail run failed:', runErr.message);
+    return { run: null, members: [] };
+  }
+
+  // Phase 4 PR #3 added `timesheets.payroll_run_id`. Pre-PR-3 runs
+  // (legacy) have no linked timesheets; their detail panel renders
+  // "Cannot identify member timesheets — exported before PR #3."
+  const { data: tsRows, error: tsErr } = await supabase
+    .from('timesheets')
+    .select('*')
+    .eq('payroll_run_id', payrollRunId)
+    .eq('org_id', orgId);
+  if (tsErr) {
+    console.error('[accounting/storage] getPayrollRunDetail timesheets failed:', tsErr.message);
+    return { run: dbToPayrollRun(runRow), members: [] };
+  }
+  const timesheets = (tsRows ?? []).map(dbToTimesheet);
+
+  const cgIds = Array.from(new Set(timesheets.map((t) => t.caregiverId).filter(Boolean)));
+  const caregiverMap = await getCaregiverDescriptors(cgIds);
+
+  const members = timesheets
+    .map((t) => ({
+      timesheet: t,
+      caregiver: caregiverMap.get(t.caregiverId) || null,
+    }))
+    .sort((a, b) => {
+      const aName = a.caregiver
+        ? `${a.caregiver.lastName || ''} ${a.caregiver.firstName || ''}`
+        : a.timesheet.caregiverId;
+      const bName = b.caregiver
+        ? `${b.caregiver.lastName || ''} ${b.caregiver.firstName || ''}`
+        : b.timesheet.caregiverId;
+      return aName.localeCompare(bName);
+    });
+
+  return { run: dbToPayrollRun(runRow), members };
+}
+
+export function downloadPayrollRun(payrollRunId) {
+  return invokeOrThrow('payroll-download-run', {
+    payroll_run_id: payrollRunId,
+  });
+}
+
+export function markPayrollRunPaid({ payrollRunId, paidDate, notes }) {
+  return invokeOrThrow('payroll-mark-run-paid', {
+    payroll_run_id: payrollRunId,
+    paid_date: paidDate,
+    notes: notes || null,
+  });
+}
+
+export function updateOrgSettings({ section, patch }) {
+  return invokeOrThrow('org-settings-update', { section, patch });
+}

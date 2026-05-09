@@ -1,0 +1,237 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.errorBanner {
+  background: #FDECEA;
+  color: #B71C1C;
+  border: 1px solid #F5C2C0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.empty {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: #5A6B80;
+  font-size: 14px;
+}
+
+.subtle {
+  color: #7A8BA0;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.tableWrap {
+  background: #fff;
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 880px;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: #F4F7FB;
+  color: #5A6B80;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 14px;
+  border-bottom: 1px solid #DDE5EF;
+}
+
+.thLeft { text-align: left; }
+.thRight { text-align: right; }
+
+.row {
+  background: #fff;
+}
+
+.row:hover {
+  background: #F4F7FB;
+}
+
+.row td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #EAEFF6;
+  vertical-align: top;
+  font-size: 13px;
+  color: #0F1724;
+}
+
+.expandCell {
+  width: 32px;
+}
+
+.expandBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #5A6B80;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.expandBtn:hover {
+  color: #0F1724;
+}
+
+.periodLabel {
+  font-weight: 600;
+  color: #0F1724;
+}
+
+.numCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #E8EEF7;
+  color: #2E4E8D;
+  border: 1px solid #C8D6E8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statusBadgeSm {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #E8EEF7;
+  color: #2E4E8D;
+  border: 1px solid #C8D6E8;
+}
+
+.status_draft {
+  background: #E8EEF7;
+  color: #2E4E8D;
+  border-color: #C8D6E8;
+}
+
+.status_exported,
+.status_submitted,
+.status_processing {
+  background: #E0F2F7;
+  color: #00566B;
+  border-color: #BFE0EA;
+}
+
+.status_completed,
+.status_paid {
+  background: #DEFAEC;
+  color: #0F5132;
+  border-color: #B8EBC8;
+}
+
+.status_failed {
+  background: #FDECEA;
+  color: #B71C1C;
+  border-color: #F5C2C0;
+}
+
+.status_approved {
+  background: #E1F4E5;
+  color: #1B5E20;
+  border-color: #BFE3C7;
+}
+
+.actionsCell {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.actionBtn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #C8D6E8;
+  background: #fff;
+  color: #2E4E8D;
+  cursor: pointer;
+}
+
+.actionBtn:hover:not(:disabled) {
+  background: #ECF1F8;
+  border-color: #98B2D6;
+}
+
+.actionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actionPrimary {
+  background: #1B5E20;
+  color: #fff;
+  border-color: #1B5E20;
+}
+
+.actionPrimary:hover:not(:disabled) {
+  background: #154918;
+  border-color: #154918;
+}
+
+.detailRow {
+  background: #F8FAFD;
+}
+
+.detailCell {
+  padding: 14px 18px 18px 46px;
+  border-bottom: 1px solid #EAEFF6;
+}
+
+.detailTable {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.detailTable th {
+  text-align: left;
+  padding: 6px 10px;
+  background: #ECF1F8;
+  color: #5A6B80;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #DDE5EF;
+}
+
+.detailTable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #EAEFF6;
+  color: #0F1724;
+}
