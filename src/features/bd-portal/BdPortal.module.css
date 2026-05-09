@@ -109,6 +109,12 @@
   font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
 }
 
+.counterTarget {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5A6B85;
+}
+
 .counterLabel {
   font-size: 11px;
   color: #5A6B85;

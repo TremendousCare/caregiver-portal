@@ -96,6 +96,12 @@
   color: #1A2332;
 }
 
+.metricTarget {
+  font-size: 18px;
+  font-weight: 600;
+  color: #5A6B85;
+}
+
 .row2 {
   display: grid;
   grid-template-columns: 2fr 1fr;

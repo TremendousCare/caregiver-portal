@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdBriefing } from './hooks/useBdBriefing';
 import { rankAccounts, summarizeWeek, daysSince } from './lib/bdQueries';
+import { fetchBdGoals, findActiveGoal, progressVsTarget } from '../bd-goals/lib/goalsQueries';
+import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
 
 function timeOfDayGreeting(now = new Date()) {
@@ -26,6 +28,22 @@ export function Today({ displayName }) {
 
   const week = useMemo(() => summarizeWeek(activities), [activities]);
   const top = useMemo(() => rankAccounts(accounts).slice(0, 5), [accounts]);
+
+  // Active weekly goal overlay. Best-effort — if it fails or there's
+  // no goal yet, the counters render without the "/ target" suffix.
+  const [weeklyGoal, setWeeklyGoal] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email;
+      if (!email) return;
+      const { data: goals } = await fetchBdGoals(supabase);
+      if (cancelled) return;
+      setWeeklyGoal(findActiveGoal(goals, { period: 'weekly', assigneeEmail: email }));
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Briefing wins when present; otherwise fall back to the local
   // counters/list. The Today screen never blocks waiting on Claude.
@@ -77,8 +95,13 @@ export function Today({ displayName }) {
         <div className={s.sectionTitle}>This week</div>
         <div className={s.counters}>
           <div className={s.counter}>
-            <div className={s.counterValue}>{weekStats.visits}</div>
-            <div className={s.counterLabel}>visits</div>
+            <div className={s.counterValue}>
+              {weekStats.visits}
+              {weeklyGoal?.visits_target ? <span className={s.counterTarget}> / {weeklyGoal.visits_target}</span> : null}
+            </div>
+            <div className={s.counterLabel}>
+              {progressVsTarget(weekStats.visits, weeklyGoal?.visits_target ?? null).label ?? 'visits'}
+            </div>
           </div>
           <div className={s.counter}>
             <div className={s.counterValue}>{weekStats.calls}</div>

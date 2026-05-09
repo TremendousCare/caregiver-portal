@@ -23,7 +23,7 @@ export function FunnelReport() {
   const navigate = useNavigate();
   const {
     loading, error, period, setPeriod, refresh,
-    funnel, ranked, lostReasons, cold,
+    funnel, ranked, lostReasons, cold, goal, progress,
   } = useBdFunnel('month');
 
   const topAccounts = ranked.filter((a) => a.visits + a.referrals + a.socs > 0).slice(0, 12);
@@ -61,19 +61,32 @@ export function FunnelReport() {
       <div className={s.funnelRow}>
         <div className={s.metricCard}>
           <div className={s.metricLabel}>Visits</div>
-          <div className={s.metricValue}>{funnel.visits}</div>
-          <div className={s.metricSub}>logged in {PERIOD_LABELS[period].toLowerCase()}</div>
+          <div className={s.metricValue}>
+            {funnel.visits}
+            {progress?.visits?.target ? <span className={s.metricTarget}> / {progress.visits.target}</span> : null}
+          </div>
+          <div className={s.metricSub}>
+            {progress?.visits?.label
+              ? <strong>{progress.visits.label}</strong>
+              : `logged in ${PERIOD_LABELS[period].toLowerCase()}`}
+          </div>
         </div>
         <div className={s.metricCard}>
           <div className={s.metricLabel}>Referrals</div>
-          <div className={s.metricValue}>{funnel.referrals}</div>
+          <div className={s.metricValue}>
+            {funnel.referrals}
+            {progress?.referrals?.target ? <span className={s.metricTarget}> / {progress.referrals.target}</span> : null}
+          </div>
           <div className={s.metricSub}>
             <strong>{pct(funnel.visit_to_referral)}</strong> visit→referral
           </div>
         </div>
         <div className={s.metricCard}>
           <div className={s.metricLabel}>Starts of Care</div>
-          <div className={s.metricValue}>{funnel.socs}</div>
+          <div className={s.metricValue}>
+            {funnel.socs}
+            {progress?.socs?.target ? <span className={s.metricTarget}> / {progress.socs.target}</span> : null}
+          </div>
           <div className={s.metricSub}>
             <strong>{pct(funnel.referral_to_soc)}</strong> referral→SOC
           </div>
@@ -84,6 +97,12 @@ export function FunnelReport() {
           <div className={s.metricSub}>referrals that did not convert</div>
         </div>
       </div>
+      {goal && (period === 'week' || period === 'month') && (
+        <p className={s.subtitle} style={{ marginTop: -12, marginBottom: 16 }}>
+          Targets from {goal.period} goal effective {goal.effective_from}
+          {goal.effective_to ? ` through ${goal.effective_to}` : ''}.
+        </p>
+      )}
 
       <div className={s.row2}>
         {/* Top accounts table */}
