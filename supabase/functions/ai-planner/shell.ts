@@ -1,22 +1,20 @@
-// ─── ai-planner Phase 0.4 cutover shell ───
+// ─── ai-planner shell ───
 //
-// Drop-in replacement for the legacy ai-planner Deno.serve body, gated by
-// the `app_settings.agent_runtime_cutover.ai_planner` flag in `index.ts`.
+// Deno-free, testable handler for the ai-planner edge function. The
+// `index.ts` Deno entry point creates a service-role client and the env
+// vars, then calls `runAiPlannerShell(req, deps)`. Tests import directly
+// from this file (no Deno.serve, no jsr: imports).
 //
-// Behavioural contract (must match `index_legacy.ts` byte-equal):
-//   * Honours `planner_enabled` flag
-//   * Honours full-pipeline-mode idempotency via `app_settings.last_planner_run`
-//   * Honours single-entity-mode 30-min dedup
-//   * Builds the same systemPrompt + userPrompt as the legacy path
-//   * Inserts `ai_suggestions` rows with the same column values
+// Behavioural contract (locked by `aiPlannerShell.test.js` and the Layer
+// B parity fixtures from Phase 0.3):
+//   * Honours `planner_enabled`
+//   * Full-pipeline-mode idempotency via `app_settings.last_planner_run`
+//   * Single-entity-mode 30-min dedup via `ai_suggestions`
+//   * Builds the same systemPrompt + userPrompt as legacy
+//   * Inserts `ai_suggestions` rows with `agent_id = proactive_planner.id`
 //
-// Phase 0.4 additions:
-//   * Replaces direct fetch to api.anthropic.com with `runAgent({ shape: "planner" })`
-//   * Stamps `ai_suggestions.agent_id = proactive_planner.id`
-//   * `executeSuggestion` reads agent_id from the suggestion row and
-//     stamps action_outcomes accordingly (no per-call wiring needed)
-//
-// Test surface: `src/lib/__tests__/aiPlannerShell.test.js`.
+// Phase 0.4 closeout: the cutover flag and `index_legacy.ts` rollback
+// sibling have been removed. This module is the single source of truth.
 
 import { runAgent } from "../_shared/operations/agentRuntime.ts";
 import {
@@ -158,7 +156,7 @@ export async function runAiPlannerShell(
       return jsonOk(results);
     }
 
-    // ── Shared context (matches legacy verbatim) ──
+    // ── Shared context ──
     const { data: actionItemRules } = await supabase
       .from("action_item_rules")
       .select("name, entity_type, condition_type, condition_config, urgency, title_template, detail_template, enabled")
@@ -401,7 +399,6 @@ export async function runAiPlannerShell(
         ? "auto_executed"
         : "pending";
 
-      // Insert with agent_id stamped (Phase 0.4 contract).
       const insertRow: Record<string, any> = {
         source_type: sourceType,
         source_id: null,
@@ -468,7 +465,7 @@ export async function runAiPlannerShell(
     doneInvocation(true, results);
     return jsonOk(results);
   } catch (err) {
-    console.error("[ai-planner shell] Fatal error:", err);
+    console.error("[ai-planner] Fatal error:", err);
     logMetric(supabase, "ai-planner", "error", undefined, false, {
       error: (err as Error).message,
     });

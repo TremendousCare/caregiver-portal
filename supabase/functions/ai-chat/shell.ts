@@ -1,29 +1,23 @@
-// ─── ai-chat Phase 0.4 cutover shell ───
+// ─── ai-chat shell ───
 //
-// When `app_settings.agent_runtime_cutover.ai_chat = true` the dispatcher
-// in `index.ts` calls `runAiChatShell()` instead of `legacyHandler`. This
-// module preserves every concern that lived in the legacy file (JWT auth,
-// rate limiting, briefing path, confirmedAction path, post-conversation
-// observability) but routes the agentic chat path through `runAgent()` —
-// the Phase 0.3 manifest-driven runtime.
+// Deno-free, testable handler for the ai-chat edge function. The
+// `index.ts` Deno entry point creates the supabase clients (service-role
+// + user-context for JWT verify) and resolves env vars, then calls
+// `runAiChatShell(req, deps)`. Tests import directly from this file
+// (no Deno.serve, no jsr: imports) and stub `./config.ts`.
 //
-// Design constraints:
-//   * Neutral imports only (no `Deno.serve`, no `jsr:`). All Deno-side
-//     plumbing (`createClient`, env reads) is injected via `ShellDeps`,
-//     making this file directly importable from Vitest in Node.
-//   * Every events / action_outcomes write that the runtime path triggers
-//     stamps `agent_id = recruiting.id`. (Legacy path keeps writing NULL
-//     to preserve byte-equal rollback.) Suggestion writes the runtime
-//     itself does not perform — they happen via `executeConfirmedAction`,
-//     which runs through the existing tool registry (registry.ts hands
-//     out the writes; the inserts inside operations like sendSMS / sendEmail
-//     don't touch the four AI-tier tables).
-//   * The chat handler in `_shared/operations/agentRuntime/handlers.ts`
-//     accepts `assembleSystemPrompt` as an injected callback, so the shell
-//     wraps the existing assembler with a 1:1 thunk. Layer B parity locks
-//     the byte-equal contract on the request body sent to Anthropic.
+// Behavioural contract (locked by `aiChatShell.test.js` and the Layer B
+// parity fixtures from Phase 0.3):
+//   * JWT auth via supabaseAuth.auth.getUser()
+//   * Strict org_id claim required → 403 otherwise
+//   * Rate limit 60/hour per user (counted off `events` table)
+//   * Briefing, confirmAction, and chat paths each handled
+//   * Every events/action_outcomes write stamps agent_id = recruiting.id
+//   * Post-conversation: per-tool logEvent + logAction, session snapshot,
+//     fire-and-forget memory consolidation
 //
-// Test surface: `src/lib/__tests__/aiChatShell.test.js`.
+// Phase 0.4 closeout: the cutover flag and `index_legacy.ts` rollback
+// sibling have been removed. This module is the single source of truth.
 
 import {
   runAgent,
@@ -44,7 +38,6 @@ import { generateBriefing } from "./context/briefing.ts";
 import { runConsolidation } from "./context/consolidation.ts";
 import { logMetric, startTimer } from "../_shared/operations/metrics.ts";
 import {
-  CLAUDE_MODEL,
   MAX_TOKENS,
   RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS,
@@ -89,9 +82,8 @@ export interface JwtAuthContext {
 // ─── Public entry point ───
 
 /**
- * Top-level shell entry. Mirrors `legacyHandler(req)` but every path that
- * touches the Claude agent loop dispatches into `runAgent()` and stamps
- * agent_id on every observability write.
+ * Top-level shell entry. Every path that touches the Claude agent loop
+ * dispatches into `runAgent()` and stamps agent_id on every observability write.
  */
 export async function runAiChatShell(
   req: Request,
@@ -104,7 +96,7 @@ export async function runAiChatShell(
   try {
     if (!deps.apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
 
-    // ── JWT Authentication (matches legacy path verbatim) ──
+    // ── JWT Authentication ──
     const authHeader = req.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return jsonResponse(deps.corsHeaders, 401, {
@@ -153,7 +145,7 @@ export async function runAiChatShell(
     // to NULL stamping rather than 500-ing — safety over visibility.
     const agentId = await resolveAgentIdSafe(supabase, RECRUITING_AGENT_SLUG, orgId);
 
-    // ── Rate Limiting (fails open, matches legacy) ──
+    // ── Rate Limiting (fails open) ──
     try {
       const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
       const { count, error: rlError } = await supabase
@@ -187,7 +179,7 @@ export async function runAiChatShell(
       console.warn("[ai-chat] Failed to log request event:", err),
     );
 
-    // ── Briefing path (unchanged from legacy; no Claude call) ──
+    // ── Briefing path (no Claude call) ──
     if (requestType === "briefing") {
       const { data: allCg } = await supabase
         .from("caregivers")
@@ -214,7 +206,7 @@ export async function runAiChatShell(
     }
 
     // ── Confirmed action path (post-suggestion execution) ──
-    // Same flow as legacy, but every event/action write carries agent_id.
+    // Every event/action write carries agent_id.
     if (confirmAction) {
       const result = await executeConfirmedAction(
         confirmAction.action,
@@ -298,7 +290,7 @@ export async function runAiChatShell(
 
     // Build the ChatHandlerRequest for runAgent. The chat handler accepts
     // an injected `assembleSystemPrompt` so the shell hands over the same
-    // assembler the legacy path uses — keeping prompt content identical.
+    // assembler the legacy path used — keeping prompt content identical.
     const chatRequest = {
       messages,
       caregiverId,
@@ -331,7 +323,7 @@ export async function runAiChatShell(
         cgId: string | undefined,
         cls: any[],
       ) => buildSystemPrompt(cgs, cgId, cls),
-      modelOverride: undefined, // let manifest dictate; legacy used CLAUDE_MODEL constant
+      modelOverride: undefined, // let manifest dictate
       maxTokens: MAX_TOKENS,
     };
 
@@ -346,9 +338,9 @@ export async function runAiChatShell(
       },
     );
 
-    // ── Translate AgentResult → legacy response shape ──
+    // ── Translate AgentResult → response shape ──
     if (result.status === "error") {
-      console.error("[ai-chat shell] runAgent error:", result.error);
+      console.error("[ai-chat] runAgent error:", result.error);
       doneInvocation(false, { error: result.error?.message });
       return jsonResponse(deps.corsHeaders, 500, {
         error: "Something went wrong. Please try again.",
@@ -373,7 +365,7 @@ export async function runAiChatShell(
     }
 
     // ── Post-conversation: log events for tool actions & save snapshot ──
-    // Mirrors legacy behaviour 1:1, but every write stamps agent_id.
+    // Every write stamps agent_id.
     try {
       for (const tr of result.toolResults || []) {
         if (tr.result?.success) {
@@ -431,7 +423,7 @@ export async function runAiChatShell(
 
       // Session continuity snapshot. The runtime returns the user-visible
       // reply only, not the full message stack — we still extract topics
-      // from the original messages array which is identical to legacy.
+      // from the original messages array.
       if (finalReply && Array.isArray(messages) && messages.length > 1) {
         const topics = extractTopics(messages, caregivers, clients);
         await saveContextSnapshot(
@@ -446,7 +438,7 @@ export async function runAiChatShell(
         console.error("[ai-chat] Consolidation failed:", err),
       );
     } catch (bgErr) {
-      console.error("[ai-chat shell] Post-conversation tasks failed:", bgErr);
+      console.error("[ai-chat] Post-conversation tasks failed:", bgErr);
     }
 
     doneInvocation(true, {
@@ -461,7 +453,7 @@ export async function runAiChatShell(
 
     return jsonResponse(deps.corsHeaders, 200, responseBody);
   } catch (err) {
-    console.error("[ai-chat shell] error:", err);
+    console.error("[ai-chat] error:", err);
     try {
       logMetric(deps.supabase, "ai-chat", "error", undefined, false, {
         error: (err as Error).message,
@@ -499,7 +491,7 @@ export function decodeOrgIdFromJwt(token: string): string | null {
 /**
  * Look up the agent row's id for stamping observability writes. The runtime
  * itself loads the full manifest separately; we just need the id here.
- * Returns null on any failure so writes degrade to legacy NULL stamping.
+ * Returns null on any failure so writes degrade to NULL stamping.
  */
 export async function resolveAgentIdSafe(
   supabase: any,

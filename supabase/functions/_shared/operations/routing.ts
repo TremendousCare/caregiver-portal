@@ -167,10 +167,9 @@ Choose the BEST action for the situation. Use "none" if no action is appropriate
 Respond with JSON only, no other text.`;
 
 /**
- * Build the user-message prompt for the message classifier. Pure function —
- * exported so the Phase 0.4 message-router shell can call it before
- * invoking `runAgent({ shape: "router" })` and produce a body byte-equal
- * with the legacy `classifyMessage` path.
+ * Build the user-message prompt for the message classifier. The
+ * message-router shell calls this before invoking
+ * `runAgent({ shape: "router" })`.
  */
 export function buildClassifierUserMessage(
   entityContext: EntityContext,
@@ -239,85 +238,6 @@ Inbound message: "${messageText}"
 
 Respond with JSON:
 {"intent": "question|document_submission|scheduling_request|general_response|confirmation|opt_out|unknown", "confidence": 0.0-1.0, "suggested_action": "send_sms|send_email|add_note|complete_task|update_phase|create_calendar_event|update_board_status|none", "suggested_params": {"key": "value"}, "drafted_response": "the response text or empty string", "reasoning": "brief explanation"}`;
-}
-
-/**
- * Classify an inbound message using Claude Haiku.
- * Returns structured classification or null on failure.
- *
- * Phase 0.4 note: this remains the legacy code path. The new message-router
- * shell (`message-router/shell.ts`) bypasses this and calls
- * `runAgent({ shape: "router" })` directly using `buildClassifierUserMessage`
- * + `CLASSIFIER_SYSTEM_PROMPT` to produce a byte-equal request body. This
- * function is still exported for the legacy `index_legacy.ts` path until
- * the post-bake cleanup PR removes it.
- */
-export async function classifyMessage(
-  entityContext: EntityContext,
-  messageText: string,
-  channel: string,
-): Promise<ClassificationResult | null> {
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) {
-    console.error("ANTHROPIC_API_KEY not set for classifier");
-    return null;
-  }
-
-  const userMessage = buildClassifierUserMessage(entityContext, messageText, channel);
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 400,
-        system: CLASSIFIER_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userMessage }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`Classifier API error (${response.status}):`, errText);
-      return null;
-    }
-
-    const data = await response.json();
-    const text = data.content?.[0]?.text || "";
-
-    // Parse JSON from response (handle potential markdown wrapping)
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Classifier returned non-JSON:", text);
-      return null;
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // Validate and normalize
-    const validAction = VALID_ACTIONS.includes(parsed.suggested_action)
-      ? parsed.suggested_action
-      : "none";
-
-    return {
-      intent: VALID_INTENTS.includes(parsed.intent) ? parsed.intent : "unknown",
-      confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-      suggested_action: validAction,
-      suggested_params: (parsed.suggested_params && typeof parsed.suggested_params === "object")
-        ? parsed.suggested_params
-        : {},
-      drafted_response: String(parsed.drafted_response || ""),
-      reasoning: String(parsed.reasoning || ""),
-    };
-  } catch (err) {
-    console.error("Classifier error:", err);
-    return null;
-  }
 }
 
 // ─── Autonomy Level Lookup ───
