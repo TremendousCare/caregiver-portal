@@ -69,6 +69,14 @@ export function AccountProfile() {
     <div className={s.page}>
       <div className={s.detailHeader}>
         <button type="button" className={s.backBtn} onClick={() => navigate(-1)}>← Back</button>
+        <button
+          type="button"
+          className={s.logCta}
+          onClick={() => navigate(`/bd/accounts/${account.id}/log`)}
+          style={{ marginLeft: 'auto' }}
+        >
+          + Log activity
+        </button>
       </div>
 
       {/* Header */}
