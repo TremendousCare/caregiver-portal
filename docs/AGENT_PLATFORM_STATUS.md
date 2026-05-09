@@ -11,11 +11,15 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
+**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; **all 11 decisions locked 2026-05-09**; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
 
-**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — closes with a sign-off gate listing 10 decisions to lock before PR A starts.
+**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — §9 lists 11 decisions, all locked. PR A and PR B implement to those answers; deviations stop and ask.
 
 **Implementation start**: earliest **2026-05-17** (cleanup PR #291 merged 2026-05-09, +7 days).
+
+**Slicing** (locked D10): PR A = read-only foundation + kill_switch/shadow_mode toggles + read-only version history + `toggle_agent_flag_v1` RPC. PR B = full manifest editing + revert + `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs + the `agent_table_write_lockdown` migration that revokes `INSERT/UPDATE/DELETE` on `agents` / `agent_versions` from `authenticated`.
+
+**Architecturally locked**: D3 (optimistic locking with `agent_version_conflict` sqlstate) and D11 (revoke privileges, RPC-only write path; **no admin-check in any RLS policy on these tables** to prevent recursion regressions like the 2026-05-09 user_roles incident).
 
 ---
 
