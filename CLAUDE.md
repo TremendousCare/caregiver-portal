@@ -43,7 +43,7 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Framework**: Vitest (config in `vitest.config.js`)
 - **Test location**: `src/lib/__tests__/`
 - **Commands**: `npm test` (CI), `npm run test:watch` (dev), `npm run test:ui` (browser UI)
-- **Current coverage**: 1,868+ tests across 66 test files (utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking, scheduling conflict detection, availability matching, recurrence expansion, eligibility ranking, broadcast helpers, service plan helpers, shift helpers, schedule view helpers, clock event mutations, no-show eligibility, shift variance, and more)
+- **Current coverage**: 2,950+ tests across 109 test files (utils, automations, actionEngine, actionItemEngine, bulkMessaging, recording, outcomeTracking, scheduling conflict detection, availability matching, recurrence expansion, eligibility ranking, broadcast helpers, service plan helpers, shift helpers, schedule view helpers, clock event mutations, no-show eligibility, shift variance, and more)
 - **Rule**: New utility/business logic functions MUST have tests before merging
 
 ### CI Pipeline
