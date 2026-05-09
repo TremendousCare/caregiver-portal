@@ -23,6 +23,7 @@ import { ClientDetail } from './features/clients/ClientDetail';
 import { SequenceSettings } from './features/clients/SequenceSettings';
 import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
+import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { AdminSettings } from './components/AdminSettings';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { MyCnaJobsImportModal } from './features/caregivers/MyCnaJobsImport';
@@ -633,6 +634,7 @@ export default function AdminApp() {
                 <Route path="clients/:id" element={<ClientDetailPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
                 <Route path="accounting" element={<AccountingPage />} />
+                <Route path="bd-funnel" element={<FunnelReport />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
