@@ -11,11 +11,15 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
+**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; **all 11 decisions locked 2026-05-09**; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
 
-**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — closes with a sign-off gate listing 10 decisions to lock before PR A starts.
+**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — §9 lists 11 decisions, all locked. PR A and PR B implement to those answers; deviations stop and ask.
 
 **Implementation start**: earliest **2026-05-17** (cleanup PR #291 merged 2026-05-09, +7 days).
+
+**Slicing** (locked D10): PR A = read-only foundation + kill_switch/shadow_mode toggles + read-only version history + `toggle_agent_flag_v1` RPC. PR B = full manifest editing + revert + `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs + the `agent_table_write_lockdown` migration that revokes `INSERT/UPDATE/DELETE` on `agents` / `agent_versions` from `authenticated`.
+
+**Architecturally locked**: D3 (optimistic locking with `agent_version_conflict` sqlstate) and D11 (revoke privileges, RPC-only write path; **no admin-check in any RLS policy on these tables** to prevent recursion regressions like the 2026-05-09 user_roles incident).
 
 ---
 
@@ -59,7 +63,7 @@ Net diff: **−1,651 lines**. CI green, 2,915 tests passing.
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
 | 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
 | 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped + closed** | 2026-05-04 (PR #254) + 2026-05-09 (cleanup PR #291) | All three shells flipped clean. Cleanup removed `*_legacy.ts` siblings, `cutoverFlag.ts` helper, dead `classifyMessage()`, and the `agent_runtime_cutover` row. Owner-authorized early cleanup merge after live verification showed zero unstamped across all three shells post-flip. |
-| 0.5 | Settings UI for manifest editing | **Spec drafted** | — | `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. Two-PR slicing recommended (read-only + toggles, then full edit + revert). 10 decisions pending owner sign-off before implementation starts. Implementation gate: cleanup baked ≥ 7 days (earliest 2026-05-17). |
+| 0.5 | Settings UI for manifest editing | **Spec drafted, decisions locked** | — | `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. Two-PR slicing locked (PR A read-only + toggles + read-only version history; PR B full edit + revert + RLS lockdown). All 11 decisions in §9 locked 2026-05-09. Implementation gate: cleanup baked ≥ 7 days (earliest 2026-05-17). |
 | 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
 | 1.3 | Per-(agent × org) kill switch + shadow mode hardening | Not started | — | Defense in depth; toggles audited. |
