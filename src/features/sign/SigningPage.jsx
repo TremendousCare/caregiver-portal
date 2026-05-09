@@ -77,16 +77,34 @@ function SignatureModal({ fieldType, onSave, onClose }) {
       if (!hasDrawn) return;
       onSave(canvasRef.current.toDataURL('image/png'));
     } else {
-      if (!typedName.trim()) return;
+      const name = typedName.trim();
+      if (!name) return;
+      // Render the typed signature into a canvas tightly cropped to the text
+      // bounds. pdf-lib stretches the image to fill the field rect, so the
+      // image needs to BE the text (no surrounding whitespace) — otherwise
+      // the visible glyphs get squashed into a small fraction of the field.
+      // Render at a high font size so the resulting bitmap stays sharp when
+      // scaled into a small PDF field.
+      const FONT_PX = 200;
+      const PAD = 10;
+      const FONT = `italic ${FONT_PX}px "Dancing Script", "Brush Script MT", cursive, serif`;
+      const measureCanvas = document.createElement('canvas');
+      const measureCtx = measureCanvas.getContext('2d');
+      measureCtx.font = FONT;
+      const m = measureCtx.measureText(name);
+      const ascent = m.actualBoundingBoxAscent || FONT_PX * 0.8;
+      const descent = m.actualBoundingBoxDescent || FONT_PX * 0.2;
+      const textWidth = Math.max(1, m.width);
+      const textHeight = Math.max(1, ascent + descent);
+
       const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = 200;
+      canvas.width = Math.ceil(textWidth + PAD * 2);
+      canvas.height = Math.ceil(textHeight + PAD * 2);
       const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, 640, 200);
-      ctx.font = 'italic 48px "Dancing Script", "Brush Script MT", cursive, serif';
+      ctx.font = FONT;
       ctx.fillStyle = '#000';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(typedName, 20, 100);
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(name, PAD, PAD + ascent);
       onSave(canvas.toDataURL('image/png'));
     }
     onClose();
@@ -951,11 +969,16 @@ export function SigningPage() {
             {currentDocIndex === templates.length - 1 && (
               <div className={s.submitSection} data-section="submit">
                 <label className={s.consentCheckbox}>
-                  <input type="checkbox" checked={consentAgreed} onChange={(e) => setConsentAgreed(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={consentAgreed}
+                    onChange={(e) => setConsentAgreed(e.target.checked)}
+                    disabled={submitting}
+                  />
                   <span>I agree to sign {templates.length > 1 ? 'these documents' : 'this document'} electronically. My electronic signature is the legal equivalent of my handwritten signature.</span>
                 </label>
                 {submitError && <div className={s.errorBanner}>{submitError}</div>}
-                <button className={s.submitBtn} onClick={handleSubmit} disabled={submitting}>
+                <button className={s.submitBtn} onClick={handleSubmit} disabled={submitting || !consentAgreed}>
                   {submitting ? (<><span className={s.spinnerSmall} /> Submitting...</>) : `Complete Signing (${templates.length} document${templates.length !== 1 ? 's' : ''})`}
                 </button>
               </div>
