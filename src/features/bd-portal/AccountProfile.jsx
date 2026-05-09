@@ -79,6 +79,13 @@ export function AccountProfile() {
         </button>
         <button
           type="button"
+          className={s.contactCta}
+          onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
+        >
+          📷 Contact
+        </button>
+        <button
+          type="button"
           className={s.referCta}
           onClick={() => navigate(`/bd/accounts/${account.id}/refer`)}
         >

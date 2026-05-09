@@ -611,6 +611,19 @@
   box-shadow: 0 2px 8px rgba(224, 143, 26, 0.24);
 }
 
+.contactCta {
+  background: linear-gradient(135deg, #5A9F6E, #3A7F4E);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(58, 127, 78, 0.24);
+}
+
 /* ─── Center FAB in bottom nav ─── */
 
 .bottomNav3 {

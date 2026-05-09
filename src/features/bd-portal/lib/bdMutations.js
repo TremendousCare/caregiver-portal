@@ -291,3 +291,128 @@ export async function createReferral(supabase, { orgId, draft, createdBy, accoun
     error: null,
   };
 }
+
+// ─── Contact creation (PR #10 — business-card OCR) ──────────────
+
+// bd_account_contacts.role CHECK constraint domain.
+export const CONTACT_ROLES = [
+  'discharge_planner',
+  'case_manager',
+  'social_worker',
+  'admissions',
+  'ed_director',
+  'administrator',
+  'principal',
+  'physician',
+  'gcm',
+  'attorney',
+  'financial_planner',
+  'office_manager',
+  'other',
+];
+
+export const CONTACT_ROLE_LABELS = {
+  discharge_planner:  'Discharge planner',
+  case_manager:       'Case manager',
+  social_worker:      'Social worker',
+  admissions:         'Admissions',
+  ed_director:        'ED director',
+  administrator:      'Administrator',
+  principal:          'Principal',
+  physician:          'Physician',
+  gcm:                'Geriatric care manager',
+  attorney:           'Attorney',
+  financial_planner:  'Financial planner',
+  office_manager:     'Office manager',
+  other:              'Other',
+};
+
+// Coerces an arbitrary role string to a CHECK-domain value or null.
+// Tolerant: accepts the bucket key, the human label, leading/trailing
+// whitespace, and case variants. Anything else → null.
+export function normalizeContactRole(input) {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  if (CONTACT_ROLES.includes(s)) return s;
+  // Try matching against the human labels too (case-insensitive).
+  for (const [key, label] of Object.entries(CONTACT_ROLE_LABELS)) {
+    if (label.toLowerCase() === s) return key;
+  }
+  return null;
+}
+
+export function validateContactDraft(draft) {
+  if (!draft || typeof draft !== 'object') {
+    return { ok: false, error: 'Missing form data.' };
+  }
+  if (!draft.account_id) {
+    return { ok: false, error: 'Pick an account.' };
+  }
+  if (!draft.name || !draft.name.trim()) {
+    return { ok: false, error: 'Enter the contact’s name.' };
+  }
+  if (draft.role !== null && draft.role !== undefined && draft.role !== '' &&
+      !CONTACT_ROLES.includes(draft.role)) {
+    return { ok: false, error: 'Invalid role — pick from the dropdown.' };
+  }
+  const trimmedEmail = draft.email?.trim();
+  if (trimmedEmail && !trimmedEmail.includes('@')) {
+    return { ok: false, error: 'Email looks invalid.' };
+  }
+  return { ok: true };
+}
+
+// Inserts a bd_account_contacts row, deduping case-insensitively
+// against existing contacts on the same account by name. Returns
+// { data, error } shaped like the other helpers.
+export async function createContact(supabase, { orgId, draft, createdBy }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  const validation = validateContactDraft(draft);
+  if (!validation.ok) return { data: null, error: new Error(validation.error) };
+  if (!orgId) return { data: null, error: new Error('Missing org_id from session — sign out and back in.') };
+
+  // Pre-check for an existing contact with the same case-insensitive
+  // name on this account so we don't create duplicates from a re-take.
+  const cleanName = draft.name.trim();
+  const existingRes = await supabase
+    .from('bd_account_contacts')
+    .select('id, name, role, title, email, phone_mobile, phone_office')
+    .eq('account_id', draft.account_id)
+    .ilike('name', cleanName)
+    .limit(1);
+  if (existingRes.error) return { data: null, error: existingRes.error };
+  if ((existingRes.data ?? []).length > 0) {
+    return {
+      data: { existing: existingRes.data[0], created: null },
+      error: null,
+      duplicate: true,
+    };
+  }
+
+  const row = {
+    org_id:        orgId,
+    account_id:    draft.account_id,
+    name:          cleanName,
+    title:         draft.title?.trim() || null,
+    role:          draft.role || null,
+    email:         draft.email?.trim() || null,
+    phone_mobile:  draft.phone_mobile?.trim() || null,
+    phone_office:  draft.phone_office?.trim() || null,
+    notes:         draft.notes?.trim() || null,
+    is_primary:    Boolean(draft.is_primary),
+    created_by:    createdBy ?? null,
+  };
+
+  const insertRes = await supabase
+    .from('bd_account_contacts')
+    .insert(row)
+    .select('id, name, role, title, email, phone_mobile, phone_office, is_primary')
+    .single();
+  if (insertRes.error) return { data: null, error: insertRes.error };
+
+  return {
+    data: { existing: null, created: insertRes.data },
+    error: null,
+    duplicate: false,
+  };
+}

@@ -11,6 +11,11 @@ import {
   generateClientId,
   createReferral,
   REFERRAL_LOSS_REASONS,
+  CONTACT_ROLES,
+  CONTACT_ROLE_LABELS,
+  normalizeContactRole,
+  validateContactDraft,
+  createContact,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -474,5 +479,189 @@ describe('createReferral', () => {
     expect(clientInsert.row.id.length).toBeGreaterThan(8);
     const referralInsert = observed.find((o) => o.table === 'bd_referrals' && o.op === 'insert');
     expect(referralInsert.row.client_id).toBe(clientInsert.row.id);
+  });
+});
+
+// ─── Contact creation (PR #10) ───────────────────────────────
+
+describe('CONTACT_ROLES + CONTACT_ROLE_LABELS', () => {
+  it('match the bd_account_contacts.role CHECK constraint domain', () => {
+    expect(CONTACT_ROLES).toEqual([
+      'discharge_planner', 'case_manager', 'social_worker', 'admissions',
+      'ed_director', 'administrator', 'principal', 'physician',
+      'gcm', 'attorney', 'financial_planner', 'office_manager', 'other',
+    ]);
+  });
+  it('every role has a human label', () => {
+    for (const r of CONTACT_ROLES) {
+      expect(CONTACT_ROLE_LABELS[r], `label for ${r}`).toBeTruthy();
+    }
+  });
+});
+
+describe('normalizeContactRole', () => {
+  it('passes valid bucket keys through unchanged', () => {
+    expect(normalizeContactRole('case_manager')).toBe('case_manager');
+    expect(normalizeContactRole('discharge_planner')).toBe('discharge_planner');
+  });
+  it('is case- and whitespace-tolerant on bucket keys', () => {
+    expect(normalizeContactRole('  CASE_MANAGER ')).toBe('case_manager');
+  });
+  it('matches human labels back to bucket keys', () => {
+    expect(normalizeContactRole('Case manager')).toBe('case_manager');
+    expect(normalizeContactRole('Discharge planner')).toBe('discharge_planner');
+    expect(normalizeContactRole('Geriatric care manager')).toBe('gcm');
+  });
+  it('returns null for unknown / empty input', () => {
+    expect(normalizeContactRole('Director of Marketing')).toBe(null);
+    expect(normalizeContactRole('')).toBe(null);
+    expect(normalizeContactRole(null)).toBe(null);
+    expect(normalizeContactRole(undefined)).toBe(null);
+  });
+});
+
+const validContactDraft = () => ({
+  account_id: 'a-1',
+  name: 'Sarah Connor',
+  title: 'RN, BSN',
+  role: 'case_manager',
+  email: 'sconnor@hoag.org',
+  phone_mobile: '555-0001',
+  phone_office: '',
+  notes: '',
+  is_primary: false,
+});
+
+describe('validateContactDraft', () => {
+  it('accepts a minimal valid draft', () => {
+    expect(validateContactDraft(validContactDraft())).toEqual({ ok: true });
+  });
+  it('requires an account', () => {
+    expect(validateContactDraft({ ...validContactDraft(), account_id: null }).ok).toBe(false);
+  });
+  it('requires a non-empty name', () => {
+    expect(validateContactDraft({ ...validContactDraft(), name: '' }).ok).toBe(false);
+    expect(validateContactDraft({ ...validContactDraft(), name: '   ' }).ok).toBe(false);
+  });
+  it('rejects an invalid role', () => {
+    expect(validateContactDraft({ ...validContactDraft(), role: 'archivist' }).ok).toBe(false);
+  });
+  it('accepts null/empty role (optional field)', () => {
+    expect(validateContactDraft({ ...validContactDraft(), role: null }).ok).toBe(true);
+    expect(validateContactDraft({ ...validContactDraft(), role: '' }).ok).toBe(true);
+  });
+  it('rejects an obviously bad email', () => {
+    expect(validateContactDraft({ ...validContactDraft(), email: 'not-an-email' }).ok).toBe(false);
+  });
+});
+
+// ─── createContact (with stubbed supabase) ───
+function makeContactStub({
+  existingResult = { data: [], error: null },
+  insertResult   = null,
+  observed       = [],
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table !== 'bd_account_contacts') throw new Error(`unexpected ${table}`);
+      return {
+        select() {
+          return {
+            eq() { return this; },
+            ilike() { return this; },
+            limit: () => Promise.resolve(existingResult),
+            single: () => Promise.resolve(insertResult ?? { data: null, error: null }),
+          };
+        },
+        insert(row) {
+          observed.push({ op: 'insert', row });
+          return {
+            select() { return this; },
+            single: () => Promise.resolve(insertResult ?? {
+              data: { id: 'c-new', ...row },
+              error: null,
+            }),
+          };
+        },
+      };
+    },
+  };
+}
+
+describe('createContact', () => {
+  it('rejects when supabase is missing', async () => {
+    const r = await createContact(null, { orgId: 'o', draft: validContactDraft(), createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects when validation fails', async () => {
+    const stub = makeContactStub();
+    const r = await createContact(stub, { orgId: 'o', draft: { ...validContactDraft(), name: '' }, createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects without org_id', async () => {
+    const stub = makeContactStub();
+    const r = await createContact(stub, { orgId: null, draft: validContactDraft(), createdBy: 'u' });
+    expect(r.error?.message).toMatch(/org/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('returns the existing contact and skips insert when a duplicate is found', async () => {
+    const observed = [];
+    const stub = makeContactStub({
+      observed,
+      existingResult: {
+        data: [{ id: 'c-existing', name: 'Sarah Connor', role: 'case_manager' }],
+        error: null,
+      },
+    });
+    const r = await createContact(stub, { orgId: 'o', draft: validContactDraft(), createdBy: 'u' });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(true);
+    expect(r.data?.existing?.id).toBe('c-existing');
+    expect(r.data?.created).toBe(null);
+    expect(observed.find((o) => o.op === 'insert')).toBeUndefined();
+  });
+
+  it('inserts a fresh contact when no duplicate exists', async () => {
+    const observed = [];
+    const stub = makeContactStub({
+      observed,
+      insertResult: {
+        data: { id: 'c-new', name: 'Sarah Connor', role: 'case_manager' },
+        error: null,
+      },
+    });
+    const r = await createContact(stub, { orgId: 'org-1', draft: validContactDraft(), createdBy: 'Sasha' });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(false);
+    expect(r.data?.created?.id).toBe('c-new');
+    const insertOp = observed.find((o) => o.op === 'insert');
+    expect(insertOp.row).toMatchObject({
+      org_id: 'org-1',
+      account_id: 'a-1',
+      name: 'Sarah Connor',
+      role: 'case_manager',
+      email: 'sconnor@hoag.org',
+      phone_mobile: '555-0001',
+      created_by: 'Sasha',
+    });
+  });
+
+  it('trims whitespace and converts empty fields to null', async () => {
+    const observed = [];
+    const stub = makeContactStub({ observed });
+    await createContact(stub, {
+      orgId: 'o',
+      draft: { ...validContactDraft(), name: '  Sarah  ', email: '  ', phone_office: '' },
+      createdBy: 'u',
+    });
+    const insertOp = observed.find((o) => o.op === 'insert');
+    expect(insertOp.row.name).toBe('Sarah');
+    expect(insertOp.row.email).toBe(null);
+    expect(insertOp.row.phone_office).toBe(null);
   });
 });
