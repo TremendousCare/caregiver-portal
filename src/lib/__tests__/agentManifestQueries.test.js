@@ -7,6 +7,9 @@ import {
   loadAgents,
   loadAgentVersions,
   toggleAgentFlag,
+  updateAgentManifest,
+  revertAgentToVersion,
+  isVersionConflict,
   summariseAgent,
   agentStatus,
 } from '../../components/agentManifest/queries';
@@ -142,6 +145,122 @@ describe('toggleAgentFlag', () => {
     await expect(
       toggleAgentFlag(sb, { agentId: 'a', flag: 'kill_switch', value: true })
     ).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+describe('updateAgentManifest', () => {
+  const okArgs = {
+    agentId: 'a1',
+    expectedVersion: 1,
+    updates: { name: 'X' },
+    changeSummary: 'Tweak name',
+  };
+
+  it('rejects without agentId', async () => {
+    const sb = makeSupabase();
+    await expect(updateAgentManifest(sb, { ...okArgs, agentId: null }))
+      .rejects.toThrow(/agentId required/);
+  });
+
+  it('rejects non-integer expectedVersion', async () => {
+    const sb = makeSupabase();
+    await expect(updateAgentManifest(sb, { ...okArgs, expectedVersion: 0 }))
+      .rejects.toThrow(/positive integer/);
+    await expect(updateAgentManifest(sb, { ...okArgs, expectedVersion: 1.5 }))
+      .rejects.toThrow(/positive integer/);
+  });
+
+  it('rejects empty changeSummary', async () => {
+    const sb = makeSupabase();
+    await expect(updateAgentManifest(sb, { ...okArgs, changeSummary: '   ' }))
+      .rejects.toThrow(/changeSummary required/);
+  });
+
+  it('calls update_agent_manifest_v1 RPC with correct args + trims summary', async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: 2, error: null });
+    const sb = makeSupabase({ rpcMock });
+
+    const result = await updateAgentManifest(sb, {
+      ...okArgs,
+      changeSummary: '  My change  ',
+    });
+
+    expect(rpcMock).toHaveBeenCalledWith('update_agent_manifest_v1', {
+      p_agent_id:         'a1',
+      p_expected_version: 1,
+      p_updates:          { name: 'X' },
+      p_change_summary:   'My change',
+    });
+    expect(result).toBe(2);
+  });
+
+  it('propagates RPC errors (admin gate, version conflict)', async () => {
+    const rpcMock = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'agent_version_conflict: ...', code: 'P0001' },
+    });
+    const sb = makeSupabase({ rpcMock });
+    await expect(updateAgentManifest(sb, okArgs)).rejects.toMatchObject({ code: 'P0001' });
+  });
+});
+
+describe('revertAgentToVersion', () => {
+  const okArgs = { agentId: 'a1', targetVersion: 1, changeSummary: 'Revert to v1' };
+
+  it('rejects without agentId', async () => {
+    const sb = makeSupabase();
+    await expect(revertAgentToVersion(sb, { ...okArgs, agentId: null }))
+      .rejects.toThrow(/agentId required/);
+  });
+
+  it('rejects bad targetVersion', async () => {
+    const sb = makeSupabase();
+    await expect(revertAgentToVersion(sb, { ...okArgs, targetVersion: 0 }))
+      .rejects.toThrow(/positive integer/);
+  });
+
+  it('rejects empty changeSummary', async () => {
+    const sb = makeSupabase();
+    await expect(revertAgentToVersion(sb, { ...okArgs, changeSummary: '' }))
+      .rejects.toThrow(/changeSummary required/);
+  });
+
+  it('calls revert_agent_to_version_v1 RPC with correct args', async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: 4, error: null });
+    const sb = makeSupabase({ rpcMock });
+
+    const result = await revertAgentToVersion(sb, okArgs);
+
+    expect(rpcMock).toHaveBeenCalledWith('revert_agent_to_version_v1', {
+      p_agent_id:       'a1',
+      p_target_version: 1,
+      p_change_summary: 'Revert to v1',
+    });
+    expect(result).toBe(4);
+  });
+
+  it('propagates RPC errors (no-op revert blocked, etc.)', async () => {
+    const rpcMock = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'no-op revert blocked', code: '22023' },
+    });
+    const sb = makeSupabase({ rpcMock });
+    await expect(revertAgentToVersion(sb, okArgs)).rejects.toMatchObject({ code: '22023' });
+  });
+});
+
+describe('isVersionConflict', () => {
+  it('detects by sqlstate P0001', () => {
+    expect(isVersionConflict({ code: 'P0001' })).toBe(true);
+  });
+  it('detects by message substring (defense in depth)', () => {
+    expect(isVersionConflict({ message: 'agent_version_conflict: expected ...' })).toBe(true);
+  });
+  it('returns false for other errors', () => {
+    expect(isVersionConflict({ code: '42501' })).toBe(false);
+    expect(isVersionConflict({ message: 'some other error' })).toBe(false);
+    expect(isVersionConflict(null)).toBe(false);
+    expect(isVersionConflict(undefined)).toBe(false);
   });
 });
 

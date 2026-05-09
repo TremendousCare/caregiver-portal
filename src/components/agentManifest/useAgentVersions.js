@@ -1,14 +1,18 @@
-// Phase 0.5 PR A — agent-version-history hook.
+// Phase 0.5 — agent-version-history hook.
 //
 // Loads `agent_versions` for one agent_id, ordered newest first.
-// Re-fetches when agentId changes (e.g. when the user expands a
-// different row in the list).
+// Re-fetches when agentId OR refreshKey changes. The refreshKey
+// argument lets parents force a re-fetch after a save / revert that
+// keeps the same agentId but moves the agent forward to a new
+// version (Codex P2 on PR #300: previously the history would show
+// stale data until the row was collapsed and re-expanded). The
+// current version number is the natural refresh signal.
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { loadAgentVersions } from './queries';
 
-export function useAgentVersions(agentId) {
+export function useAgentVersions(agentId, refreshKey = null) {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -32,7 +36,10 @@ export function useAgentVersions(agentId) {
     }
   }, [agentId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Fetch on mount, on agentId change, and any time refreshKey moves
+  // (used by AgentVersionHistory to re-fetch after a save bumps the
+  // current version even though the agentId is unchanged).
+  useEffect(() => { refresh(); }, [refresh, refreshKey]);
 
   return { versions, loading, error, refresh };
 }

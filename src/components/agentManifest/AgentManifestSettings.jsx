@@ -1,12 +1,12 @@
-// Phase 0.5 PR A — top-level Settings UI for AI agent manifests.
+// Phase 0.5 — top-level Settings UI for AI agent manifests.
 //
 // Slotted into AdminSettings between AutonomySettings and
 // BusinessContextSettings. Lists every agent visible to the current
-// org (RLS-scoped), with kill_switch / shadow_mode toggles on each
-// row and an in-page accordion (locked §9 D9) for the read-only
-// detail view.
+// org (RLS-scoped). Per locked §9 D9, expansion is in-page accordion
+// rather than full-screen modal.
 //
-// PR A is read-only for manifest fields. PR B adds editing + revert.
+// PR A: read-only manifest detail + kill/shadow toggles.
+// PR B: full editing + version-history diff + revert.
 
 import { useState } from 'react';
 import { CollapsibleCard } from '../../shared/components/CollapsibleCard';
@@ -14,7 +14,7 @@ import { useAgents } from './useAgents';
 import { AgentManifestRow } from './AgentManifestRow';
 
 export function AgentManifestSettings({ showToast }) {
-  const { agents, loading, error, savingId, handleToggle } = useAgents();
+  const { agents, loading, error, savingId, handleToggle, refresh } = useAgents();
   const [expandedId, setExpandedId] = useState(null);
 
   const onToggleExpand = (agentId) => {
@@ -36,7 +36,7 @@ export function AgentManifestSettings({ showToast }) {
   return (
     <CollapsibleCard
       title="AI Agents"
-      description="Edit per-agent kill switches and view manifest details."
+      description="Edit per-agent prompts, tool allowlists, kill switches, and version history."
     >
       <div style={{ padding: '16px 24px 24px', minHeight: 600 }}>
         {loading && (
@@ -61,6 +61,8 @@ export function AgentManifestSettings({ showToast }) {
                 expanded={expandedId === agent.id}
                 onToggleExpand={() => onToggleExpand(agent.id)}
                 onToggleFlag={(flag, nextValue) => onToggleFlag(agent, flag, nextValue)}
+                onSaved={refresh}
+                showToast={showToast}
                 saving={
                   savingId === `${agent.id}:kill_switch` ? 'kill_switch' :
                   savingId === `${agent.id}:shadow_mode` ? 'shadow_mode' :
