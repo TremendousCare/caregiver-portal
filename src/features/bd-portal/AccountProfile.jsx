@@ -138,22 +138,58 @@ export function AccountProfile() {
           <div>
             {contacts.map((c) => (
               <div key={c.id} className={s.contactRow}>
-                <div style={{ minWidth: 0 }}>
+                <button
+                  type="button"
+                  className={s.contactRowBody}
+                  onClick={() => navigate(`/bd/accounts/${account.id}/contact/${c.id}/edit`)}
+                  aria-label={`Edit ${c.name}`}
+                >
                   <div className={s.contactName}>
                     {c.name}
                     {c.is_primary && <span className={`${s.roleBadge} ${s.primaryBadge}`}>primary</span>}
                     {c.role && <span className={s.roleBadge}>{c.role.replaceAll('_', ' ')}</span>}
                   </div>
                   {c.title && <div className={s.contactRole}>{c.title}</div>}
-                </div>
-                <div>
-                  {c.phone_mobile && <a className={s.linkBtn} href={`tel:${c.phone_mobile}`}>📞</a>}
-                  {c.email && <a className={s.linkBtn} href={`mailto:${c.email}`}>✉️</a>}
+                  {!c.phone_mobile && !c.phone_office && !c.email && (
+                    <div className={s.contactMissing}>Tap to add phone / email</div>
+                  )}
+                </button>
+                <div className={s.contactActions}>
+                  {c.phone_mobile && (
+                    <a
+                      className={s.linkBtn}
+                      href={`tel:${c.phone_mobile}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >📞</a>
+                  )}
+                  {c.email && (
+                    <a
+                      className={s.linkBtn}
+                      href={`mailto:${c.email}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >✉️</a>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
+        <div className={s.contactAddRow}>
+          <button
+            type="button"
+            className={s.addContactLink}
+            onClick={() => navigate(`/bd/accounts/${account.id}/contact/new`)}
+          >
+            + Add contact manually
+          </button>
+          <button
+            type="button"
+            className={s.addContactLink}
+            onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
+          >
+            📷 Snap a card
+          </button>
+        </div>
       </div>
 
       {/* Timeline */}

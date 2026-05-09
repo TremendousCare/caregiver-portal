@@ -416,3 +416,65 @@ export async function createContact(supabase, { orgId, draft, createdBy }) {
     duplicate: false,
   };
 }
+
+// ─── Contact update ─────────────────────────────────────────────
+//
+// Updates a single bd_account_contacts row. Same validation rules as
+// createContact (name required, role must be in the CHECK domain,
+// email shape sanity check) so the rep gets the same guardrails
+// whether she's adding or editing.
+
+export async function updateContact(supabase, { contactId, draft }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  if (!contactId) return { data: null, error: new Error('Missing contact id.') };
+
+  // Reuse the create validator — fields that aren't touched by an
+  // edit (account_id) still need to satisfy the schema, so we synth
+  // an account_id of "*" just to pass the truthiness check; the
+  // UPDATE itself never touches the column.
+  const validation = validateContactDraft({ ...draft, account_id: draft.account_id ?? '*' });
+  if (!validation.ok) return { data: null, error: new Error(validation.error) };
+
+  const patch = {
+    name:         draft.name?.trim() || null,
+    title:        draft.title?.trim()         ?? null,
+    role:         draft.role || null,
+    email:        draft.email?.trim()         || null,
+    phone_mobile: draft.phone_mobile?.trim()  || null,
+    phone_office: draft.phone_office?.trim()  || null,
+    notes:        draft.notes?.trim()         || null,
+    is_primary:   Boolean(draft.is_primary),
+    updated_at:   new Date().toISOString(),
+  };
+  // Don't allow blanking the name — name is NOT NULL on the table.
+  if (!patch.name) {
+    return { data: null, error: new Error('Name cannot be empty.') };
+  }
+
+  // If is_primary is being set to true, demote any other primary
+  // contact on the same account first so we don't end up with
+  // multiple "primary" rows. Best-effort — failure here doesn't
+  // surface to the user.
+  if (patch.is_primary && draft.account_id) {
+    try {
+      await supabase
+        .from('bd_account_contacts')
+        .update({ is_primary: false })
+        .eq('account_id', draft.account_id)
+        .eq('is_primary', true)
+        .neq('id', contactId);
+    } catch (e) {
+      console.warn('demote-other-primary failed:', e);
+    }
+  }
+
+  const updateRes = await supabase
+    .from('bd_account_contacts')
+    .update(patch)
+    .eq('id', contactId)
+    .select('id, name, role, title, email, phone_mobile, phone_office, is_primary, notes')
+    .single();
+  if (updateRes.error) return { data: null, error: updateRes.error };
+
+  return { data: updateRes.data, error: null };
+}

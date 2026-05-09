@@ -16,6 +16,7 @@ import {
   normalizeContactRole,
   validateContactDraft,
   createContact,
+  updateContact,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -663,5 +664,127 @@ describe('createContact', () => {
     expect(insertOp.row.name).toBe('Sarah');
     expect(insertOp.row.email).toBe(null);
     expect(insertOp.row.phone_office).toBe(null);
+  });
+});
+
+// ─── Contact update ───
+function makeUpdateStub({
+  updateResult       = { data: { id: 'c-1', name: 'Sarah Connor', role: 'case_manager' }, error: null },
+  observed           = [],
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table !== 'bd_account_contacts') throw new Error(`unexpected ${table}`);
+      return {
+        update(patch) {
+          observed.push({ op: 'update', patch });
+          return {
+            // Two chain shapes: terminal `.eq().eq().neq()` for the
+            // demote-other-primary path, and `.eq().select().single()`
+            // for the row update.
+            eq() { return this; },
+            neq() { return Promise.resolve({ error: null }); },
+            select() { return this; },
+            single: () => Promise.resolve(updateResult),
+          };
+        },
+      };
+    },
+  };
+}
+
+describe('updateContact', () => {
+  it('rejects without supabase', async () => {
+    const r = await updateContact(null, { contactId: 'c-1', draft: { name: 'X' } });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects without a contact id', async () => {
+    const stub = makeUpdateStub();
+    const r = await updateContact(stub, { contactId: null, draft: { name: 'X' } });
+    expect(r.error?.message).toMatch(/contact id/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects when name is blanked out (NOT NULL on the table)', async () => {
+    const stub = makeUpdateStub();
+    const r = await updateContact(stub, { contactId: 'c-1', draft: { name: '   ' } });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects an unknown role', async () => {
+    const stub = makeUpdateStub();
+    const r = await updateContact(stub, {
+      contactId: 'c-1',
+      draft: { name: 'Sarah', role: 'archivist' },
+    });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects an obviously bad email', async () => {
+    const stub = makeUpdateStub();
+    const r = await updateContact(stub, {
+      contactId: 'c-1',
+      draft: { name: 'Sarah', email: 'not-an-email' },
+    });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('writes the patch with whitespace-trimmed and null-on-empty fields', async () => {
+    const observed = [];
+    const stub = makeUpdateStub({ observed });
+    await updateContact(stub, {
+      contactId: 'c-1',
+      draft: {
+        name:         '  Sarah Connor ',
+        title:        '  RN, BSN ',
+        role:         'case_manager',
+        email:        '   ',
+        phone_mobile: '555-0001',
+        phone_office: '',
+        is_primary:   false,
+      },
+    });
+    const updateOp = observed.find((o) => o.op === 'update');
+    expect(updateOp.patch.name).toBe('Sarah Connor');
+    expect(updateOp.patch.title).toBe('RN, BSN');
+    expect(updateOp.patch.email).toBe(null);
+    expect(updateOp.patch.phone_office).toBe(null);
+    expect(updateOp.patch.is_primary).toBe(false);
+    expect(updateOp.patch.role).toBe('case_manager');
+    expect(typeof updateOp.patch.updated_at).toBe('string');
+  });
+
+  it('demotes other primaries when is_primary=true and account_id is provided', async () => {
+    const observed = [];
+    const stub = makeUpdateStub({ observed });
+    await updateContact(stub, {
+      contactId: 'c-1',
+      draft: {
+        name: 'Sarah Connor',
+        is_primary: true,
+        account_id: 'a-1',
+      },
+    });
+    // Two `update` ops: the demote (is_primary=false) + the actual edit.
+    const updates = observed.filter((o) => o.op === 'update');
+    expect(updates.length).toBe(2);
+    expect(updates[0].patch.is_primary).toBe(false);  // demote
+    expect(updates[1].patch.is_primary).toBe(true);   // promote target
+  });
+
+  it('skips the demote when is_primary stays false', async () => {
+    const observed = [];
+    const stub = makeUpdateStub({ observed });
+    await updateContact(stub, {
+      contactId: 'c-1',
+      draft: { name: 'Sarah', is_primary: false, account_id: 'a-1' },
+    });
+    const updates = observed.filter((o) => o.op === 'update');
+    expect(updates.length).toBe(1);
   });
 });
