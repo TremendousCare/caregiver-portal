@@ -11,27 +11,40 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(in progress — PR open)*
+**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(shipped 2026-05-04 PR #254 — staged rollout in progress, cleanup PR pending bake)*
 
-**Status**: Phase 0.3 shipped 2026-05-01 via PR #247. **No mandatory pre-bake before 0.4.** Decision (2026-05-01, owner): inter-phase bakes are evidence-driven, not calendar-driven. Phase 0.3 has zero production callers (the runtime sits in `_shared/operations/` and no edge function imports it yet), so a calendar-only bake before 0.4 has nothing to verify. Bakes still apply where they buy real insurance — specifically, **after** 0.4 ships before removing the `*_legacy.ts` rollback siblings, and **before** any phase that exposes new behavior to caregivers (Phase 2 sub-phases each bake ≥ 14 days as designed).
+**Rollout state (as of 2026-05-09):**
 
-**What 0.3 delivered (2026-05-01)**: `_shared/operations/agentRuntime.ts` (orchestrator) + `agentRuntime/manifest.ts` (typed loader, requires `orgId` — fixed during review per Codex P1 because `agents.unique = (org_id, slug)`) + `agentRuntime/anthropic.ts` (retry helper) + `agentRuntime/handlers.ts` (chat / planner / router internal handlers). Three test files: `agentRuntime.test.js` (Layer A unit, 62 specs), `agentRuntimeParity.test.js` (Layer B byte-equal parity, 22 specs across 11 fixtures), `agentRuntimeLive.test.js` (Layer C live Anthropic smoke, 3 specs, gated on `ANTHROPIC_API_KEY` and now configured in repo secrets). 87 runtime specs total.
+| Shell | Flag flipped | Status | Notes |
+|---|---|---|---|
+| `ai_planner` | 2026-05-04 ~19:00 UTC | ✅ baking clean (5 days) | All `proactive` + `event_triggered` `ai_suggestions` carrying `agent_id`. 1 transient 529 cluster on 5/6 — runtime retried successfully. |
+| `message_router` | 2026-05-09 ~05:20 UTC | ✅ baking clean (~9h) | First-day verification: 50 stamped / 0 unstamped on inbound SMS. 0 errors, 0 queue backlog. |
+| `ai_chat` | 2026-05-09 (today) | 🟡 just flipped — manual smoke pending | Riskiest flip: Kevin's daily driver. 5-scenario manual smoke + DB verification documented in PR #254 thread. |
+
+**Pre-merge readiness checklist for Phase 0.4** (all items met):
+1. ✅ Edge functions deploy cleanly in Deno — verified via `Deploy Edge Functions` workflow on merge to `main`.
+2. ✅ Manual smoke post-deploy — planner + router verified with production data; chat in progress as of 2026-05-09.
+3. ✅ `agent_id` populates on every new row in `events` / `action_outcomes` / `ai_suggestions` / `context_memory`. Pre-flip the unstamped post-0.2 leak was ~100 inbound_sms rows/day; post-router-flip it's zero.
+4. ✅ Token cost within ±10% of pre-cutover baseline — runtime adds retry (more resilient on Anthropic 529s, same model otherwise).
+5. ✅ `*_legacy.ts` rollback siblings ship via `app_settings.agent_runtime_cutover` jsonb — flippable from any SQL surface, no redeploy required.
+
+**Cleanup PR gate**: ≥ 7 days clean from the **last** flag flip (chat = 2026-05-09). Earliest cleanup PR open date: **2026-05-16**. Cleanup removes the three `*_legacy.ts` files, inlines each shell into `index.ts`, drops the `agent_runtime_cutover` row from `app_settings`. Not before that.
+
+**Gate to Phase 0.5**: cleanup PR shipped and baked ≥ 7 more days. Earliest start of 0.5: **~2026-05-23**.
+**Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
+**Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
+
+---
+
+## What 0.3 delivered (2026-05-01, retained for reference)
+
+`_shared/operations/agentRuntime.ts` (orchestrator) + `agentRuntime/manifest.ts` (typed loader, requires `orgId` — fixed during review per Codex P1 because `agents.unique = (org_id, slug)`) + `agentRuntime/anthropic.ts` (retry helper) + `agentRuntime/handlers.ts` (chat / planner / router internal handlers). Three test files: `agentRuntime.test.js` (Layer A unit, 62 specs), `agentRuntimeParity.test.js` (Layer B byte-equal parity, 22 specs across 11 fixtures), `agentRuntimeLive.test.js` (Layer C live Anthropic smoke, 3 specs, gated on `ANTHROPIC_API_KEY` and now configured in repo secrets). 87 runtime specs total.
 
 **Parity strategy revision (2026-05-01)**: The original "30-day replay against legacy code" framing in `docs/AGENT_PLATFORM.md` Phase 0.3 was replaced with a three-layer strategy after auditing what's actually persisted in production. `ai-chat` doesn't persist chat sessions, planner/router inputs have moved on since they were captured. With Anthropic mocked and identical inputs, byte-equal parity (Layer B) replaces the 2%-drift hedge from the original plan; Layer C catches mock-vs-reality drift via a small live API spend (~$0.10/PR). Full rationale in `docs/AGENT_PLATFORM.md` → Phase 0.3 → "Parity strategy".
 
 **Parallel context**:
 - SaaS retrofit Phase B is in progress (B2b baked, B3 next). Phase 0.x is intentionally safe to run in parallel.
 - Owner is implementing the Microsoft 365 Bookings webhook integration (per `docs/AGENT_PLATFORM_PROCESS.md` → "Microsoft 365 Bookings integration spec"); needed by Phase 2.2.
-
-**Pre-merge readiness checklist for Phase 0.4** (replaces the prior calendar-bake gate):
-1. Edge functions deploy cleanly in Deno (Layer A/B run in Node — Layer C is the only check that exercises the real edge runtime).
-2. Manual smoke test post-deploy: chatbot UI responds (recruiting agent), inbound SMS gets classified (router), planner cron drops a suggestion at next 14:00 UTC tick.
-3. `agent_id` populates on every new row in `events` / `action_outcomes` / `ai_suggestions` / `context_memory` (the 20 unstamped post-0.2 rows we saw in audit should stop accumulating).
-4. Token cost within ±10% of pre-cutover baseline.
-5. `*_legacy.ts` rollback siblings ship in the PR with a feature flag (env var or `app_settings`) controlling which path runs — flip-without-redeploy required.
-
-**Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
-**Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
 
 ---
 
@@ -42,7 +55,7 @@ This file is the living tracker. Update it in the same PR that advances the plat
 | 0.1 | `agents` + `agent_versions` tables, seed 3 agents, RLS | **Shipped** | 2026-04-30 (PR #240) | 3 agents seeded for Tremendous Care, 8 RLS policies, 36 Vitest specs. |
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
 | 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
-| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Ready to start** | — | No pre-bake required (0.3 had zero production callers — bakes are evidence-driven not calendar-driven). Pre-merge readiness checklist above. Post-merge: bake ≥ 7 days before removing `*_legacy.ts` siblings; nightly drift check via Layer C on PRs. |
+| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped (rollout in progress)** | 2026-05-04 (PR #254) | Per-shell `app_settings.agent_runtime_cutover` flag enables staged rollout without redeploy. Planner flipped 5/4 (5 days clean), router 5/9 (~9h clean), chat 5/9 (today, smoking now). Cleanup PR (remove `*_legacy.ts` siblings, inline shells) gated on ≥7 days clean from last flip — earliest 2026-05-16. |
 | 0.5 | Settings UI for manifest editing | Not started | — | Kill switch + shadow mode + prompt + allowlist edits, no deploy. |
 | 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
@@ -106,8 +119,57 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-04-30 | #240 | 0.1 | `agents` + `agent_versions` tables, RLS, seed 3 agents (recruiting / proactive_planner / inbound_router). 36 Vitest specs. |
 | 2026-04-30 | #244 | 0.2 | `agent_id` columns + deterministic backfill on `events`/`action_outcomes`/`ai_suggestions`/`context_memory`. 29 Vitest specs. |
 | 2026-05-01 | #247 | 0.3 | `agentRuntime.ts` orchestrator + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness (Layer A unit / Layer B byte-equal fixtures / Layer C live Anthropic smoke). 87 new specs across the runtime test files (total suite now 2,454 incl. Layer C). Codex P1 fixed in-PR: `loadManifest` requires `orgId` because `agents.unique = (org_id, slug)`. Pure additive — no edge function or production behavior change. |
+| 2026-05-04 | #254 | 0.4 | Edge function cutover with feature-flag rollback. Each of `ai-chat` / `ai-planner` / `message-router` split into `index.ts` (Deno.serve dispatcher, reads `app_settings.agent_runtime_cutover`) + `shell.ts` (testable runtime path, calls `runAgent`) + `index_legacy.ts` (verbatim pre-0.4 code, kept as rollback sibling). Optional `agentId` parameter threaded through `logEvent` / `logAction` / `createSuggestion`; `executeSuggestion` reads `agent_id` from the suggestion row. 60 new specs across 5 files; full suite 2,543 passing. Default-off flag means merge is a no-op until SQL flip — flippable per-shell without redeploy. |
 
 (Add a row when each subsequent PR ships.)
+
+---
+
+## Phase 0.4 rollout runbook (active 2026-05-04 → 2026-05-16+)
+
+The feature flag for Phase 0.4 lives in `public.app_settings.value` (jsonb) under key `agent_runtime_cutover`. Three independent boolean fields (`ai_chat`, `ai_planner`, `message_router`) gate which path each edge function runs. Default-off — owner flips per-shell with a one-line SQL `UPDATE`, no redeploy.
+
+**Flip cadence (designed)**: planner first (lowest blast radius — daily cron) → router second (every-5-min cron, ~150 inbound SMS/day) → chat last (Kevin's daily driver, biggest UX surface). ≥48h bake between flips; ≥7 days clean from the last flip before opening the cleanup PR.
+
+**Verification SQL after each flip:**
+```sql
+-- Planner (after next 14:00 UTC tick)
+SELECT COUNT(*) FILTER (WHERE agent_id IS NOT NULL) AS stamped,
+       COUNT(*) FILTER (WHERE agent_id IS NULL) AS unstamped
+  FROM ai_suggestions
+ WHERE source_type = 'proactive' AND created_at >= CURRENT_DATE;
+
+-- Router (within ~15 min of inbound traffic)
+SELECT COUNT(*) FILTER (WHERE agent_id IS NOT NULL), COUNT(*) FILTER (WHERE agent_id IS NULL)
+  FROM ai_suggestions
+ WHERE source_type IN ('inbound_sms','inbound_email')
+   AND created_at >= '<flip_timestamp>';
+
+-- Chat (after a deliberate session: briefing + read + write + multi-turn)
+SELECT 'events' AS tbl,
+       COUNT(*) FILTER (WHERE agent_id IS NOT NULL) AS stamped,
+       COUNT(*) FILTER (WHERE agent_id IS NULL) AS unstamped
+  FROM events
+ WHERE created_at >= now() - interval '1 hour'
+   AND event_type IN ('ai_chat_request','sms_sent','email_sent','note_added',
+                       'phase_changed','task_completed','docusign_sent','calendar_event_created')
+UNION ALL
+SELECT 'action_outcomes',
+       COUNT(*) FILTER (WHERE agent_id IS NOT NULL),
+       COUNT(*) FILTER (WHERE agent_id IS NULL)
+  FROM action_outcomes
+ WHERE created_at >= now() - interval '1 hour';
+```
+
+**Rollback (per shell, no redeploy):**
+```sql
+UPDATE app_settings
+   SET value = jsonb_set(value, '{<shell_name>}', 'false'::jsonb)
+ WHERE key = 'agent_runtime_cutover';
+```
+Effective on the next request (cron tick or chat invocation).
+
+**Cleanup PR (≥ 2026-05-16 if all three shells stay clean)** removes `index_legacy.ts` × 3, inlines each `shell.ts` into `index.ts`, deletes the `agent_runtime_cutover` row + `cutoverFlag.ts` helper. Phase 0.4 is then formally **closed**, and Phase 0.5 (Settings UI for manifest editing) is unblocked after a further ≥7-day bake.
 
 ---
 
