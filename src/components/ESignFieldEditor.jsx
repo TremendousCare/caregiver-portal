@@ -2,6 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import btn from '../styles/buttons.module.css';
 import { isRadioGroupMember, groupCheckboxFields } from '../lib/esignCheckboxGroups.js';
+import {
+  clampFieldRect,
+  computeDraggedPosition,
+  computeResizedField,
+} from '../lib/esignFieldGeometry.js';
 
 // Use the bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -47,6 +52,15 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
   const [scale, setScale] = useState(1);
   const containerRef = useRef(null);
   const canvasRefs = useRef({});
+
+  // Refs mirroring the latest fields/onFieldsChange so the drag and resize
+  // effects can read fresh values without including them in deps. The effects
+  // would otherwise tear down and re-attach window listeners on every tick,
+  // which can drop a fast mouseup and leave a field stuck to the cursor.
+  const fieldsRef = useRef(fields);
+  const onFieldsChangeRef = useRef(onFieldsChange);
+  useEffect(() => { fieldsRef.current = fields; }, [fields]);
+  useEffect(() => { onFieldsChangeRef.current = onFieldsChange; }, [onFieldsChange]);
 
   // Render PDF pages
   useEffect(() => {
@@ -128,14 +142,24 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
     const pdfY = Math.round(clickY / pageData.scale);
 
     const size = DEFAULT_SIZES[placingType];
-    const newField = {
-      id: `${placingType}_${Date.now().toString(36)}`,
-      type: placingType,
-      page: pageNum,
+    // Keep the newly placed field fully on-page even if the user clicked near
+    // the right or bottom edge.
+    const placed = clampFieldRect({
       x: pdfX,
       y: pdfY,
       w: size.w,
       h: size.h,
+      pageWidth: pageData.width,
+      pageHeight: pageData.height,
+    });
+    const newField = {
+      id: `${placingType}_${Date.now().toString(36)}`,
+      type: placingType,
+      page: pageNum,
+      x: placed.x,
+      y: placed.y,
+      w: placed.w,
+      h: placed.h,
       required: placingType !== 'checkbox',
       label: '',
       ...(placingType === 'checkbox' ? { group: '' } : {}),
@@ -176,38 +200,59 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
     setSelectedField(fieldId);
   }, [fields, pages, readOnly]);
 
-  // Handle mouse move (drag)
+  // Handle mouse move (drag). Depends only on `dragging` so the listeners
+  // are attached once per drag and not torn down every tick.
   useEffect(() => {
     if (!dragging) return;
 
+    const endDrag = () => setDragging(null);
+
     const handleMove = (e) => {
-      const pageEl = document.querySelector(`[data-page="${fields.find((f) => f.id === dragging.fieldId)?.page}"]`);
+      // Safety net: if the user released the mouse outside the window we may
+      // have missed mouseup. e.buttons reflects the current state.
+      if (e.buttons === 0) {
+        endDrag();
+        return;
+      }
+
+      const currentFields = fieldsRef.current;
+      const field = currentFields.find((f) => f.id === dragging.fieldId);
+      if (!field) return;
+
+      const pageEl = document.querySelector(`[data-page="${field.page}"]`);
       if (!pageEl) return;
 
       const rect = pageEl.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const newX = Math.max(0, Math.round((mouseX - dragging.offsetX) / dragging.pageData.scale));
-      const newY = Math.max(0, Math.round((mouseY - dragging.offsetY) / dragging.pageData.scale));
+      const { x, y } = computeDraggedPosition({
+        mouseX,
+        mouseY,
+        offsetX: dragging.offsetX,
+        offsetY: dragging.offsetY,
+        scale: dragging.pageData.scale,
+        pageWidth: dragging.pageData.width,
+        pageHeight: dragging.pageData.height,
+        fieldW: field.w,
+        fieldH: field.h,
+      });
 
-      const updated = fields.map((f) =>
-        f.id === dragging.fieldId ? { ...f, x: newX, y: newY } : f
+      const updated = currentFields.map((f) =>
+        f.id === dragging.fieldId ? { ...f, x, y } : f
       );
-      onFieldsChange?.(updated);
-    };
-
-    const handleUp = () => {
-      setDragging(null);
+      onFieldsChangeRef.current?.(updated);
     };
 
     window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('mouseup', endDrag);
+    window.addEventListener('blur', endDrag);
     return () => {
       window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('mouseup', endDrag);
+      window.removeEventListener('blur', endDrag);
     };
-  }, [dragging, fields, onFieldsChange]);
+  }, [dragging]);
 
   // Handle resize handle mouse down
   const handleResizeMouseDown = useCallback((e, fieldId, handle) => {
@@ -235,41 +280,50 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
     setSelectedField(fieldId);
   }, [fields, pages, readOnly]);
 
-  // Handle resize mouse move
+  // Handle resize mouse move. Depends only on `resizing` for the same reason
+  // as the drag effect above.
   useEffect(() => {
     if (!resizing) return;
 
+    const endResize = () => setResizing(null);
+
     const handleMove = (e) => {
-      const { handle, startMouseX, startMouseY, startW, startH, startX, startY, pageData } = resizing;
-      const dx = Math.round((e.clientX - startMouseX) / pageData.scale);
-      const dy = Math.round((e.clientY - startMouseY) / pageData.scale);
+      if (e.buttons === 0) {
+        endResize();
+        return;
+      }
 
-      let newW = startW;
-      let newH = startH;
-      let newX = startX;
-      let newY = startY;
+      const next = computeResizedField({
+        handle: resizing.handle,
+        startMouseX: resizing.startMouseX,
+        startMouseY: resizing.startMouseY,
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        scale: resizing.pageData.scale,
+        startW: resizing.startW,
+        startH: resizing.startH,
+        startX: resizing.startX,
+        startY: resizing.startY,
+        pageWidth: resizing.pageData.width,
+        pageHeight: resizing.pageData.height,
+      });
 
-      // Adjust based on which handle is being dragged
-      if (handle.includes('e')) newW = Math.max(16, startW + dx);
-      if (handle.includes('w')) { newW = Math.max(16, startW - dx); newX = startX + (startW - newW); }
-      if (handle.includes('s')) newH = Math.max(12, startH + dy);
-      if (handle.includes('n')) { newH = Math.max(12, startH - dy); newY = startY + (startH - newH); }
-
-      const updated = fields.map((f) =>
-        f.id === resizing.fieldId ? { ...f, w: newW, h: newH, x: newX, y: newY } : f
+      const currentFields = fieldsRef.current;
+      const updated = currentFields.map((f) =>
+        f.id === resizing.fieldId ? { ...f, w: next.w, h: next.h, x: next.x, y: next.y } : f
       );
-      onFieldsChange?.(updated);
+      onFieldsChangeRef.current?.(updated);
     };
-
-    const handleUp = () => setResizing(null);
 
     window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('mouseup', endResize);
+    window.addEventListener('blur', endResize);
     return () => {
       window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('mouseup', endResize);
+      window.removeEventListener('blur', endResize);
     };
-  }, [resizing, fields, onFieldsChange]);
+  }, [resizing]);
 
   // Delete selected field
   const deleteSelected = useCallback(() => {
