@@ -19,7 +19,11 @@ import s from './AccountingPage.module.css';
  */
 export function AccountingPage() {
   const { isAdmin, currentOrgRole, currentOrgSettings } = useApp();
-  const isStaff = isAdmin || currentOrgRole === 'admin' || currentOrgRole === 'member';
+  // PR #288 (RBAC 3 of 3) restricted payroll & invoicing tables to
+  // admins only at the RLS layer. Match that here so members get a
+  // polite empty state rather than RLS-blocked SELECTs producing an
+  // unexplained empty UI.
+  const isStaff = isAdmin || currentOrgRole === 'admin';
   const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
   const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
 

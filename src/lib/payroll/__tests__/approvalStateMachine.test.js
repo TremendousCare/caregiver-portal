@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   canTransition,
+  canTransitionPayrollRun,
   evaluateApprovalAction,
   evaluateExportEligibility,
+  evaluateMarkAsPaidAction,
+  PAYROLL_RUN_STATUS,
   selectApprovableIds,
   TIMESHEET_STATUS,
 } from '../approvalStateMachine.js';
@@ -321,5 +324,115 @@ describe('evaluateExportEligibility', () => {
     });
     expect(r.ok).toBe(false);
     expect(r.code).toBe('missing_org_id');
+  });
+});
+
+// ─── canTransitionPayrollRun (Phase 4 PR #3) ───────────────────────
+
+describe('canTransitionPayrollRun', () => {
+  it('allows exported → completed (Mark as Paid)', () => {
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.EXPORTED, PAYROLL_RUN_STATUS.COMPLETED)).toBe(true);
+  });
+
+  it('allows submitted → completed (Phase 5 webhook path)', () => {
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.SUBMITTED, PAYROLL_RUN_STATUS.COMPLETED)).toBe(true);
+  });
+
+  it('allows exported → failed (something went wrong post-export)', () => {
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.EXPORTED, PAYROLL_RUN_STATUS.FAILED)).toBe(true);
+  });
+
+  it('allows failed → exported (re-export after fix)', () => {
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.FAILED, PAYROLL_RUN_STATUS.EXPORTED)).toBe(true);
+  });
+
+  it('refuses completed → anything (terminal)', () => {
+    for (const s of Object.values(PAYROLL_RUN_STATUS)) {
+      expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.COMPLETED, s)).toBe(false);
+    }
+  });
+
+  it('refuses draft → completed (must export first)', () => {
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.DRAFT, PAYROLL_RUN_STATUS.COMPLETED)).toBe(false);
+  });
+
+  it('rejects unknown statuses', () => {
+    expect(canTransitionPayrollRun('frobnicated', PAYROLL_RUN_STATUS.COMPLETED)).toBe(false);
+    expect(canTransitionPayrollRun(PAYROLL_RUN_STATUS.EXPORTED, 'frobnicated')).toBe(false);
+  });
+});
+
+// ─── evaluateMarkAsPaidAction (Phase 4 PR #3) ──────────────────────
+
+describe('evaluateMarkAsPaidAction', () => {
+  // Use a date well in the past so the "in the future" guard doesn't
+  // interfere with status-machine testing.
+  const PAST_PAID_DATE = '2026-01-01';
+
+  it('allows marking an exported run as paid with a valid past date', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'exported' },
+      paidDate: PAST_PAID_DATE,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.nextStatus).toBe(PAYROLL_RUN_STATUS.COMPLETED);
+  });
+
+  it('allows marking a submitted run as paid (Phase 5 alt path)', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'submitted' },
+      paidDate: PAST_PAID_DATE,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('refuses to mark a draft run as paid', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'draft' },
+      paidDate: PAST_PAID_DATE,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('invalid_from_status');
+  });
+
+  it('refuses to re-mark an already-completed run', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'completed' },
+      paidDate: PAST_PAID_DATE,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('invalid_from_status');
+  });
+
+  it('refuses a run with no status', () => {
+    const r = evaluateMarkAsPaidAction({ run: {}, paidDate: PAST_PAID_DATE });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('invalid_run');
+  });
+
+  it('refuses an invalid paid_date format', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'exported' },
+      paidDate: '04/30/2026',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('invalid_paid_date');
+  });
+
+  it('refuses a missing paid_date', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'exported' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('invalid_paid_date');
+  });
+
+  it('refuses a paid_date in the future (typo guard)', () => {
+    const r = evaluateMarkAsPaidAction({
+      run: { status: 'exported' },
+      paidDate: '2099-12-31',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('paid_date_in_future');
   });
 });

@@ -188,6 +188,98 @@ export function selectApprovableIds({ timesheets, exceptionsByTimesheetId }) {
 }
 
 /**
+ * Payroll-run status transitions (separate state machine from the
+ * per-timesheet one above). Phase 4 PR #3 only exercises:
+ *   exported  → completed   (Mark as Paid)
+ *   exported  → failed      (something went wrong post-export)
+ *
+ * Phase 5 will add `submitted` / `processing` for the API path; those
+ * are documented in `payroll_runs.status` CHECK constraint already.
+ */
+export const PAYROLL_RUN_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  EXPORTED: 'exported',
+  SUBMITTED: 'submitted',
+  PROCESSING: 'processing',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+});
+
+const ALL_RUN_STATUSES = new Set(Object.values(PAYROLL_RUN_STATUS));
+
+const RUN_ALLOWED = new Map([
+  [PAYROLL_RUN_STATUS.DRAFT, new Set([
+    PAYROLL_RUN_STATUS.EXPORTED,
+    PAYROLL_RUN_STATUS.FAILED,
+  ])],
+  [PAYROLL_RUN_STATUS.EXPORTED, new Set([
+    PAYROLL_RUN_STATUS.COMPLETED,
+    PAYROLL_RUN_STATUS.SUBMITTED,
+    PAYROLL_RUN_STATUS.FAILED,
+  ])],
+  [PAYROLL_RUN_STATUS.SUBMITTED, new Set([
+    PAYROLL_RUN_STATUS.PROCESSING,
+    PAYROLL_RUN_STATUS.COMPLETED,
+    PAYROLL_RUN_STATUS.FAILED,
+  ])],
+  [PAYROLL_RUN_STATUS.PROCESSING, new Set([
+    PAYROLL_RUN_STATUS.COMPLETED,
+    PAYROLL_RUN_STATUS.FAILED,
+  ])],
+  [PAYROLL_RUN_STATUS.COMPLETED, new Set()], // terminal
+  [PAYROLL_RUN_STATUS.FAILED, new Set([
+    PAYROLL_RUN_STATUS.DRAFT,
+    PAYROLL_RUN_STATUS.EXPORTED,
+  ])],
+]);
+
+export function canTransitionPayrollRun(from, to) {
+  if (!ALL_RUN_STATUSES.has(from) || !ALL_RUN_STATUSES.has(to)) return false;
+  if (from === to) return false;
+  const allowed = RUN_ALLOWED.get(from);
+  return allowed ? allowed.has(to) : false;
+}
+
+/**
+ * Validate a "Mark as Paid in Paychex" action on a payroll run.
+ *
+ * Args:
+ *   run: { status, ... }
+ *   paidDate: 'YYYY-MM-DD' string. Required. Must not be in the
+ *     future (sanity guard) and not before the run's pay_period_end.
+ *
+ * Returns { ok, code, message, nextStatus? }.
+ */
+export function evaluateMarkAsPaidAction({ run, paidDate }) {
+  if (!run || typeof run.status !== 'string') {
+    return { ok: false, code: 'invalid_run', message: 'Payroll run has no status.' };
+  }
+  if (typeof paidDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return { ok: false, code: 'invalid_paid_date', message: 'paid_date must be a YYYY-MM-DD string.' };
+  }
+  if (run.status !== PAYROLL_RUN_STATUS.EXPORTED
+      && run.status !== PAYROLL_RUN_STATUS.SUBMITTED) {
+    return {
+      ok: false,
+      code: 'invalid_from_status',
+      message: `Only exported or submitted runs can be marked paid; got "${run.status}".`,
+    };
+  }
+  // Defense: paid_date should not be far in the future (typo guard).
+  // Compare lexicographically via string compare, which works for
+  // YYYY-MM-DD and avoids tz-related off-by-one errors.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  if (paidDate > todayIso) {
+    return {
+      ok: false,
+      code: 'paid_date_in_future',
+      message: `paid_date "${paidDate}" is in the future. Use today (${todayIso}) or earlier.`,
+    };
+  }
+  return { ok: true, nextStatus: PAYROLL_RUN_STATUS.COMPLETED };
+}
+
+/**
  * Evaluate whether a list of approved timesheets is eligible to be
  * batched into a payroll run + exported. Used by the "Generate Run"
  * action and the payroll-export-run edge function.

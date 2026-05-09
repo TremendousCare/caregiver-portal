@@ -130,14 +130,16 @@ async function assertStaff(
   supabase: ReturnType<typeof createClient>,
   email: string | null,
 ) {
-  if (!email) return { ok: false, status: 403, error: "Staff access required." } as const;
+  if (!email) return { ok: false, status: 403, error: "Admin access required." } as const;
   const { data: roleRow } = await supabase
     .from("user_roles")
     .select("role")
     .eq("email", email.toLowerCase())
     .maybeSingle();
-  if (!roleRow || !["admin", "member"].includes((roleRow as { role: string }).role)) {
-    return { ok: false, status: 403, error: "Staff access required." } as const;
+  // PR #288 tightened payroll tables to admins only at the RLS layer.
+  // Edge functions use service-role; enforce the same admin check here.
+  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+    return { ok: false, status: 403, error: "Admin access required." } as const;
   }
   return { ok: true } as const;
 }
@@ -588,6 +590,12 @@ Deno.serve(async (req: Request) => {
         .update({
           status: TIMESHEET_STATUS.EXPORTED,
           exported_at: exportedAt,
+          // Phase 4 PR #3: link each member timesheet back to its run
+          // so PayrollRunsView and Mark-as-Paid can find them
+          // deterministically (no fuzzy join on pay_period_start +
+          // status). Pre-PR-3 exported rows have NULL here; the runs
+          // view + mark-as-paid tolerate that (see migration comment).
+          payroll_run_id: payrollRunId,
         })
         .eq("id", t.id)
         .eq("org_id", orgId)
@@ -619,6 +627,7 @@ Deno.serve(async (req: Request) => {
           .update({
             status: TIMESHEET_STATUS.APPROVED,
             exported_at: null,
+            payroll_run_id: null,
           })
           .eq("id", flippedId)
           .eq("org_id", orgId)

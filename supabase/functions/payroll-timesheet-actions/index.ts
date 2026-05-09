@@ -132,15 +132,18 @@ async function assertStaff(
   email: string | null,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   if (!email) {
-    return { ok: false, status: 403, error: "Staff access required." };
+    return { ok: false, status: 403, error: "Admin access required." };
   }
   const { data: roleRow } = await supabase
     .from("user_roles")
     .select("role")
     .eq("email", email.toLowerCase())
     .maybeSingle();
-  if (!roleRow || !["admin", "member"].includes((roleRow as { role: string }).role)) {
-    return { ok: false, status: 403, error: "Staff access required." };
+  // PR #288 (RBAC 3 of 3) tightened payroll/invoicing tables to admins
+  // only via RESTRICTIVE RLS. Edge functions use service-role and
+  // bypass RLS, so we enforce the same admin-only check here.
+  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+    return { ok: false, status: 403, error: "Admin access required." };
   }
   return { ok: true };
 }
