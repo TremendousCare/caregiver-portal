@@ -1,8 +1,8 @@
-// Phase 0.5 PR A — one row in the agent manifest list.
+// Phase 0.5 — one row in the agent manifest list.
 //
 // Header line shows: name, version chip, status dot, kill/shadow
-// toggles, expand chevron. Expanded body shows the read-only manifest
-// detail view + version history accordion.
+// toggles, expand chevron. Expanded body shows the editable manifest
+// detail view (PR B) + version history accordion.
 
 import { AgentManifestEditor } from './AgentManifestEditor';
 import { agentStatus, summariseAgent } from './queries';
@@ -12,7 +12,9 @@ export function AgentManifestRow({
   expanded,
   onToggleExpand,
   onToggleFlag,
-  saving, // 'kill_switch' | 'shadow_mode' | null
+  onSaved,            // (PR B) called after a successful save / revert → parent refreshes
+  showToast,
+  saving,             // 'kill_switch' | 'shadow_mode' | null
 }) {
   const status = agentStatus(agent);
 
@@ -99,7 +101,11 @@ export function AgentManifestRow({
             background: '#F9FAFB',
           }}
         >
-          <AgentManifestEditor agent={agent} />
+          <AgentManifestEditor
+            agent={agent}
+            showToast={showToast}
+            onSaved={onSaved}
+          />
         </div>
       )}
     </div>
