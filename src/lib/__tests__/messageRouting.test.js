@@ -1,7 +1,7 @@
 /**
  * Tests for inbound message routing and graduated autonomy framework.
  * Tests pure functions and logic that can run in Node/Vitest.
- * DB-calling functions (classifyMessage, executeSuggestion) are verified via production testing.
+ * DB-calling functions (executeSuggestion) are verified via production testing.
  */
 
 import { describe, it, expect } from 'vitest';

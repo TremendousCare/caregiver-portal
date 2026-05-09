@@ -1,0 +1,22 @@
+-- Phase 0.4 cleanup — drop the agent_runtime_cutover feature flag.
+--
+-- The flag (seeded by `20260506000000_agent_platform_phase_0_4_cutover_flag.sql`)
+-- gated each of the three legacy edge functions between their pre-0.4
+-- monolithic implementation and the new `runAgent`-based shell. All three
+-- shells were flipped clean (planner 2026-05-04, router 2026-05-09 ~05:20
+-- UTC, chat 2026-05-09 ~16:15 UTC) and stayed clean for ≥ 7 days.
+--
+-- This migration ships alongside the cleanup PR that:
+--   * deletes `index_legacy.ts` from each of `ai-chat`, `ai-planner`,
+--     `message-router`
+--   * inlines each shell as the sole `index.ts` entry path (no flag check)
+--   * deletes `_shared/operations/cutoverFlag.ts` and its test
+--
+-- The flag row is now vestigial — no edge function reads it after this
+-- migration and PR ship together. Deleting it keeps `app_settings`
+-- truthful (every row in there should reflect a live setting).
+--
+-- Idempotent: re-running this migration on a database where the row is
+-- already absent is a no-op. Safe to include in `supabase db push --include-all`.
+
+DELETE FROM public.app_settings WHERE key = 'agent_runtime_cutover';

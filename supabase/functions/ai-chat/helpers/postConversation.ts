@@ -1,13 +1,9 @@
 // ─── Post-conversation helpers ───
 //
-// Pure functions extracted from the legacy `ai-chat/index.ts` so both the
-// `index_legacy.ts` rollback sibling and the new `shell.ts` runtime path
-// can share them. Neutral imports only — directly importable from Vitest
-// in Node for the shell unit tests.
-//
-// Phase 0.4: factored out as part of the cutover. Behaviour identical to
-// the previous in-file definitions; the byte-equal Layer B parity
-// fixtures + the new `aiChatShell.test.js` cover the contract.
+// Pure functions used by `ai-chat/shell.ts` after a chat turn completes
+// (per-tool event logging + topic extraction for the session snapshot).
+// Neutral imports only — directly importable from Vitest in Node for the
+// shell unit tests.
 
 /**
  * Map a tool name to the `events.event_type` used by post-conversation

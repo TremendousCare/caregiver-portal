@@ -1,26 +1,20 @@
-// ─── message-router Phase 0.4 cutover shell ───
+// ─── message-router shell ───
 //
-// Drop-in replacement for the legacy router Deno.serve body, gated by
-// `app_settings.agent_runtime_cutover.message_router`.
+// Deno-free, testable handler for the message-router edge function. The
+// `index.ts` Deno entry point creates a service-role client, then calls
+// `runMessageRouterShell(req, deps)`. Tests import directly from this file
+// (no Deno.serve, no esm.sh URLs).
 //
-// Behavioural contract (must match `index_legacy.ts` byte-equal):
-//   * Pulls pending entries from `message_routing_queue` (FIFO, MAX_BATCH_SIZE)
-//   * CAS-style mark-as-processing
+// Behavioural contract (locked by `messageRouterShell.test.js` and the
+// Layer B parity fixtures from Phase 0.3):
+//   * FIFO pull from `message_routing_queue` with CAS-style mark-as-processing
 //   * Per-entry: shift-offer matching → entity context → classifier →
 //     autonomy lookup → queue update → dedup → suggestion → optional
 //     auto-execute
 //   * Same final ProcessResults shape returned in JSON body
 //
-// Phase 0.4 changes:
-//   * Replaces `classifyMessage()` direct fetch with
-//     `runAgent({ shape: "router" })` using `buildClassifierUserMessage` +
-//     `CLASSIFIER_SYSTEM_PROMPT` to produce a byte-equal request body.
-//   * Stamps `ai_suggestions.agent_id` (createSuggestion + the inline
-//     unknown-sender alert insert).
-//   * `executeSuggestion` reads agent_id from the suggestion row and
-//     stamps action_outcomes accordingly (no per-call wiring needed).
-//
-// Test surface: `src/lib/__tests__/messageRouterShell.test.js`.
+// Phase 0.4 closeout: the cutover flag and `index_legacy.ts` rollback
+// sibling have been removed. This module is the single source of truth.
 
 import { runAgent } from "../_shared/operations/agentRuntime.ts";
 import {
@@ -89,7 +83,7 @@ export async function runMessageRouterShell(
       { headers: { ...ROUTER_CORS_HEADERS, "Content-Type": "application/json" } },
     );
   } catch (err) {
-    console.error("[message-router shell] error:", err);
+    console.error("[message-router] error:", err);
     return new Response(
       JSON.stringify({ error: (err as Error).message }),
       { status: 500, headers: { ...ROUTER_CORS_HEADERS, "Content-Type": "application/json" } },
@@ -187,7 +181,7 @@ async function processEntry(
 ): Promise<void> {
   const supabase = deps.supabase;
 
-  // Unknown-sender alert path (legacy parity)
+  // Unknown-sender alert path
   if (!entry.matched_entity_id || !entry.matched_entity_type) {
     const alertRow: Record<string, any> = {
       source_type: entry.channel === "sms" ? "inbound_sms" : "inbound_email",
@@ -248,7 +242,7 @@ async function processEntry(
     }
   }
 
-  // Entity context fetch (legacy parity)
+  // Entity context fetch
   const entityContext = await fetchEntityContext(
     supabase,
     entry.matched_entity_type,
@@ -269,7 +263,7 @@ async function processEntry(
     return;
   }
 
-  // ── Classify via runAgent (replaces direct classifyMessage call) ──
+  // ── Classify via runAgent ──
   const doneClassify = startTimer(supabase, "message-router", "classification");
   const userPrompt = buildClassifierUserMessage(
     entityContext,
@@ -334,7 +328,7 @@ async function processEntry(
     return;
   }
 
-  // ── Autonomy lookup (legacy parity) ──
+  // ── Autonomy lookup ──
   const actionType = classification.suggested_action !== "none"
     ? classification.suggested_action
     : "add_note";
