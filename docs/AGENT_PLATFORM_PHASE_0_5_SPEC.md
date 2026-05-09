@@ -20,7 +20,7 @@ The doc closes with a sign-off gate (§9) listing decisions the owner must lock 
 3. An admin can view the version history for any agent and revert to a prior version. Revert creates a new version (N+1) with the prior version's content — never edits or deletes a historical row.
 4. Concurrent edits from two admins do not silently overwrite each other.
 5. Every save and revert is captured in `agent_versions` with `changed_by` populated from the JWT.
-6. The runtime continues to behave correctly on a mid-flight `kill_switch` flip — the existing defense-in-depth check inside `runAgent` already covers this; the UI just needs to communicate it clearly.
+6. `kill_switch` propagation semantics are honestly communicated in the UI: the flip takes effect on the **next** `runAgent` invocation, not on any in-flight invocation. A mid-flight chat session with multiple tool-use iterations completes; the next request hits the killed manifest. (Hard mid-flight stop is a runtime change, deferred to a separate phase if a customer ever needs it.)
 
 ### Non-goals
 
@@ -113,7 +113,7 @@ All three RPCs run with `SECURITY DEFINER` and explicit role checks against `use
 
 - **Trigger**: admin clicks toggle in agent list row OR detail view header.
 - **Saved immediately**: no confirmation dialog.
-- **Effect on running invocations**: the existing `runAgent()` loads the manifest at the start of every invocation and checks `kill_switch`. If a cron agent is mid-flight when the flip happens, the next iteration of its tool-use loop hits the killed manifest. The chat agent picks up the new value on the next request (no in-flight chat session is gradient-killed mid-loop, but pending requests will see it). **No behavior change from Phase 0.4.**
+- **Effect on running invocations**: the runtime checks `kill_switch` exactly **once per `runAgent` call**, immediately after manifest load (`supabase/functions/_shared/operations/agentRuntime.ts:219`). The handlers (chat / planner / router) do not re-read the manifest during the tool-use loop. So a flip during a long-running invocation does **not** stop that invocation; only the next `runAgent` call hits the new value. The UI must communicate this honestly: "Kill switch engaged. New invocations will be skipped; any invocation currently in progress will complete." For chat (short, single-call interactions) this is rarely visible. For planner (single-shot per cron tick) it doesn't matter. For long multi-iteration chat sessions with tool use, it can mean a few extra tool calls finish after the flip. If we ever want a hard mid-flight stop, that's a runtime change (per-iteration manifest reread or a check before each Claude call) and it'd ship as a separate phase, not 0.5. **No behavior change from Phase 0.4.**
 - **UI feedback**: optimistic update + toast. On failure, revert and show error.
 - **Audit**: written to `events` table (event_type = `agent_kill_switch_toggled`, payload = `{flag: 'kill_switch', value: true|false, prior_value: ...}`, agent_id stamped). **Decision needed (§9 D5).** Not written to `agent_versions` (operational lever, not manifest change).
 
@@ -310,10 +310,28 @@ All under `src/components/agentManifest/` (new directory):
 DB-layer helpers live in:
 - `src/lib/queries/agents.js` (new) — typed wrappers for `get_agents`, `get_agent_versions`, plus the three RPC calls.
 
-Migration:
-- `supabase/migrations/2026XXXXXXXXXX_phase_0_5_agent_manifest_rpcs.sql` — defines `update_agent_manifest_v1`, `toggle_agent_flag_v1`, `revert_agent_to_version_v1`, with `SECURITY DEFINER` and admin-role checks. `+_rollback/...down.sql` drops them.
+Migrations (two files):
 
-The new RPCs are the sole write path the UI uses. Direct INSERT/UPDATE on `agents` from the frontend remains blocked by the strict RLS UPDATE policy (which gates on `org_id` only — so client-side updates would technically pass for same-org rows; the RPCs add the admin-role gate and the version-conflict check). **The frontend should not issue raw UPDATE on `agents`** even though RLS allows it; this is a conventional discipline reinforced by code review.
+1. `supabase/migrations/2026XXXXXXXXXX_phase_0_5_agent_manifest_rpcs.sql` — defines `update_agent_manifest_v1`, `toggle_agent_flag_v1`, `revert_agent_to_version_v1`, with `SECURITY DEFINER` and admin-role checks.
+
+2. `supabase/migrations/2026XXXXXXXXX1_phase_0_5_agent_table_write_lockdown.sql` — **closes a Phase 0.1 RLS gap**. The original Phase 0.1 policies on `agents` and `agent_versions` allow `INSERT`/`UPDATE`/`DELETE` `TO authenticated` for any user whose JWT `org_id` matches the row, with no role check. That means a non-admin user could craft a `supabase.from('agents').update(...)` and bypass the RPCs entirely. This migration tightens the gap by **revoking direct write privileges from `authenticated` on both tables**:
+
+    ```sql
+    REVOKE INSERT, UPDATE, DELETE ON public.agents          FROM authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON public.agent_versions  FROM authenticated;
+    ```
+
+    `SELECT` privileges and the org-scoped read policies stay — admins and non-admins can still read rows. All writes funnel through the three `SECURITY DEFINER` RPCs from migration 1, which run as `postgres` (or whatever owns them) and bypass `authenticated`-revoked privileges. The RPCs themselves enforce the admin-role check and the org_id match.
+
+    Rollback (`_rollback/..._down.sql`) re-grants the privileges, restoring Phase 0.1 behavior. Idempotent.
+
+    **Decision needed (§9 D11)** — alternative is to tighten the existing RLS policies to `org_id match AND admin role check` instead of revoking privileges. Both achieve the same outcome; revoking is cleaner because RLS stays focused on tenant isolation and authz lives in the RPC layer (matches the `payroll-export-run` admin-gate pattern).
+
+`+_rollback/...down.sql` for both. Idempotent on re-run via `IF EXISTS` / `IF NOT EXISTS` and `CREATE OR REPLACE`.
+
+The two migrations are intentionally separate so the RPC migration can ship in PR A (read-only path uses none of them), the lockdown migration ships in PR B (alongside the first write RPC). PR B is the moment the lockdown is *required* — any earlier and there are no RPCs for legitimate writes to use.
+
+Once both migrations land, the RPCs are the *enforced* sole write path, not a discipline.
 
 ---
 
@@ -354,15 +372,15 @@ End-to-end save flow:
 Two PRs (recommended):
 
 ### PR A — read-only foundation + toggles
-- Migration: `toggle_agent_flag_v1` RPC.
+- Migration: `toggle_agent_flag_v1` RPC. (The RLS lockdown does NOT ship in PR A — see PR B and §9 D11. During PR A's bake, direct writes on `agents` are technically still possible from any authenticated same-org user; the toggle RPC is the *recommended* path but not yet the *enforced* one. The pre-existing exposure is from Phase 0.1, not introduced by this PR. PR B closes it within ~3-4 days.)
 - Components: `AgentManifestSettings`, `AgentManifestRow`, read-only `AgentManifestEditor` (no edit modals yet), kill/shadow toggle wires, version history accordion (read-only — no diff or revert yet).
 - Tests: hooks for `useAgents`, `useAgentVersions`, `useToggleAgentFlag`. Smoke: kill switch flip works.
 - Risk surface: tiny. The `kill_switch` and `shadow_mode` columns are already honored by `runAgent` (Phase 0.3); we're just exposing them in the UI.
 
-### PR B — full manifest editing + revert
-- Migration: `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs.
+### PR B — full manifest editing + revert + RLS lockdown
+- Migrations: `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs, **plus** the `agent_table_write_lockdown` migration that revokes `authenticated` write privileges on `agents` / `agent_versions`. The lockdown lands here (not in PR A) because PR A's `toggle_agent_flag_v1` RPC needs to exist as a legitimate write path before we revoke direct writes; otherwise we'd have a window where toggle saves fail.
 - Components: `ManifestFieldEdit`, `ManifestDiff`, `SaveConfirmationDialog`, `RevertConfirmationDialog`, full editor wires, hooks for `useUpdateAgent` and `useRevertAgent`.
-- Tests: diff renderer snapshots, validators, integration save-flow test, version-conflict path.
+- Tests: diff renderer snapshots, validators, integration save-flow test, version-conflict path. **Plus a security regression test** that asserts a direct `supabase.from('agents').update(...)` from an authenticated non-admin context fails with `permission denied for table agents` after the lockdown migration ships.
 - Risk surface: medium. This is the first UI that mutates the agent manifest live. The agents are seeded with `kill_switch=false`, so editing the recruiting prompt and saving immediately changes Kevin's daily-driver chat behavior. **Pre-merge requirement: enable `shadow_mode` on the agent being edited during smoke tests, then disable.**
 
 **Why two PRs (not one):**
@@ -390,6 +408,7 @@ The following must be locked by the owner before PR A starts. Most are small UX 
 | **D8** | JSON diff style for `autonomy_profile` / `context_recipe` / `outcome_definition`? | **Canonical-JSON unified diff** (simpler to ship). Tree-style JSON diff is nicer but ~3x more code to build right. | Phase 1.4 wraps these in a typed UI anyway, so the raw-JSON diff is short-lived. |
 | **D9** | Detail view UX: in-page accordion or full-screen modal? | **In-page accordion** matching AutomationSettings / ActionItemRuleSettings pattern in `AdminSettings.jsx`. | Consistent with the rest of the settings page. |
 | **D10** | One PR or two (PR A read-only + toggles, PR B full edit + revert)? | **Two PRs.** Risk asymmetry and bake compression argue for splitting. | Owner can override; if so, single PR is fine but the diff will be ~600 lines. |
+| **D11** | Lock down direct writes on `agents` / `agent_versions`: revoke `authenticated` privileges, OR tighten the existing RLS policies to also require admin role? | **Revoke privileges.** RLS stays focused on tenant isolation; authz lives in the RPC layer. Matches the `payroll-export-run` admin-gate pattern. | Either approach closes the Phase 0.1 gap Codex flagged. Revoke is fewer policy lines and easier to reason about; admin-gate-RLS is closer to a least-change patch. |
 
 ---
 
