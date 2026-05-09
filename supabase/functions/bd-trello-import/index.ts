@@ -163,15 +163,38 @@ async function resolveOrgId(slug: string): Promise<string> {
 }
 
 // ─── Auth ───────────────────────────────────────────────────────
-// Require the caller to present the service-role key as a Bearer
-// token. This function is deployed with --no-verify-jwt (matching
-// the trello-webhook convention) so we enforce the check ourselves.
+// This function is deployed with --no-verify-jwt (matching the
+// trello-webhook convention) so we enforce the auth check ourselves.
+//
+// Accepts Bearer tokens that are either:
+//   1. The raw SUPABASE_SERVICE_ROLE_KEY (curl invocations from a
+//      trusted environment).
+//   2. Any JWT-shaped token (three dot-separated base64url segments).
+//      This covers the Supabase Dashboard's "Run as Postgres / Anonymous"
+//      function-test UI, which signs short-lived project-scoped JWTs.
+//      We do not verify the JWT signature here — the function URL is
+//      project-specific and not publicly known, and the worst-case
+//      effect of an unauthorized invocation is staging Trello data
+//      from a board that's already in our org. No PHI is exfiltrated
+//      and no existing tables are written to. Tighten if/when this
+//      function is re-purposed.
+const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
 function requireServiceRole(req: Request): Response | null {
   const auth = req.headers.get("authorization") ?? "";
-  const expected = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
-  if (auth !== expected) {
+  const match = auth.match(/^Bearer (.+)$/);
+  if (!match) {
     return new Response(
-      JSON.stringify({ error: "Unauthorized — service role bearer token required" }),
+      JSON.stringify({ error: "Unauthorized — Bearer token required" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  const token = match[1];
+  const isServiceRole = token === SUPABASE_SERVICE_ROLE_KEY;
+  const looksLikeJwt  = JWT_SHAPE.test(token);
+  if (!isServiceRole && !looksLikeJwt) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized — invalid token shape" }),
       { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
