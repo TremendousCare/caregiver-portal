@@ -77,6 +77,13 @@ describe('Phase 0.5 PR A — toggle_agent_flag_v1 RPC migration', () => {
       expect(sql).toMatch(/agent not found/);
       expect(sql).toMatch(/USING ERRCODE = 'P0002'/);
     });
+
+    it('takes a row-level lock (FOR UPDATE) during the initial read', () => {
+      // Without this lock, two concurrent toggles can both read the
+      // prior value, both pass the IS DISTINCT FROM check, and write
+      // duplicate audit rows. See Codex P2 review on PR #298.
+      expect(sql).toMatch(/SELECT[\s\S]*?FROM public\.agents[\s\S]*?FOR UPDATE/);
+    });
   });
 
   describe('update behaviour (locked D4 — no version increment on toggle)', () => {

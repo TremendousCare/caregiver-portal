@@ -73,10 +73,21 @@ BEGIN
     RAISE EXCEPTION 'JWT missing org_id claim' USING ERRCODE = '42501';
   END IF;
 
-  -- 4. Load the agent and verify cross-org access is blocked.
+  -- 4. Load the agent and verify cross-org access is blocked. We take
+  --    a row-level lock (FOR UPDATE) during the initial read so that
+  --    concurrent toggles on the same agent serialize. Without the
+  --    lock, two near-simultaneous toggle calls (e.g. from two admin
+  --    sessions or from a frontend retry race) could both read the
+  --    same prior value, both pass the v_prior_value IS DISTINCT FROM
+  --    p_value check below, and write duplicate `agent_flag_toggled`
+  --    audit rows even though only the first call caused a real
+  --    transition. The lock funnels them: the second waits for the
+  --    first to commit, then sees the post-first-call state and
+  --    correctly classifies its own toggle as a no-op.
   SELECT a.id, a.org_id, a.kill_switch, a.shadow_mode INTO v_agent
     FROM public.agents a
-   WHERE a.id = p_agent_id;
+   WHERE a.id = p_agent_id
+   FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'agent not found: %', p_agent_id USING ERRCODE = 'P0002';
   END IF;
