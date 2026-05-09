@@ -11,28 +11,31 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.4 — Edge function cutover (recruiting / planner / router → `runAgent`)** *(shipped 2026-05-04 PR #254 — staged rollout in progress, cleanup PR pending bake)*
+**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
 
-**Rollout state (as of 2026-05-09):**
+**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — closes with a sign-off gate listing 10 decisions to lock before PR A starts.
 
-| Shell | Flag flipped | Status | Notes |
-|---|---|---|---|
-| `ai_planner` | 2026-05-04 ~19:00 UTC | ✅ baking clean (5 days) | All `proactive` + `event_triggered` `ai_suggestions` carrying `agent_id`. 1 transient 529 cluster on 5/6 — runtime retried successfully. |
-| `message_router` | 2026-05-09 ~05:20 UTC | ✅ baking clean (~9h) | First-day verification: 50 stamped / 0 unstamped on inbound SMS. 0 errors, 0 queue backlog. |
-| `ai_chat` | 2026-05-09 (today) | 🟡 just flipped — manual smoke pending | Riskiest flip: Kevin's daily driver. 5-scenario manual smoke + DB verification documented in PR #254 thread. |
+**Implementation start**: earliest **2026-05-17** (cleanup PR #291 merged 2026-05-09, +7 days).
 
-**Pre-merge readiness checklist for Phase 0.4** (all items met):
-1. ✅ Edge functions deploy cleanly in Deno — verified via `Deploy Edge Functions` workflow on merge to `main`.
-2. ✅ Manual smoke post-deploy — planner + router verified with production data; chat in progress as of 2026-05-09.
-3. ✅ `agent_id` populates on every new row in `events` / `action_outcomes` / `ai_suggestions` / `context_memory`. Pre-flip the unstamped post-0.2 leak was ~100 inbound_sms rows/day; post-router-flip it's zero.
-4. ✅ Token cost within ±10% of pre-cutover baseline — runtime adds retry (more resilient on Anthropic 529s, same model otherwise).
-5. ✅ `*_legacy.ts` rollback siblings ship via `app_settings.agent_runtime_cutover` jsonb — flippable from any SQL surface, no redeploy required.
+---
 
-**Cleanup PR gate**: ≥ 7 days clean from the **last** flag flip (chat = 2026-05-09). Earliest cleanup PR open date: **2026-05-16**. Cleanup removes the three `*_legacy.ts` files, inlines each shell into `index.ts`, drops the `agent_runtime_cutover` row from `app_settings`. Not before that.
+## What 0.4 delivered (shipped + closed 2026-05-09)
 
-**Gate to Phase 0.5**: cleanup PR shipped and baked ≥ 7 more days. Earliest start of 0.5: **~2026-05-23**.
-**Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
-**Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
+Edge function cutover: each of `ai-chat`, `ai-planner`, `message-router` now dispatches through `runAgent({ shape })` against the manifest, with `agent_id` stamped on every write to `events` / `action_outcomes` / `ai_suggestions` / `context_memory`.
+
+**Rollout timeline:**
+- 2026-05-04 ~19:00 UTC — `ai_planner` flag flipped → 5 days clean.
+- 2026-05-09 ~05:20 UTC — `message_router` flag flipped → 12h clean before cleanup.
+- 2026-05-09 ~16:15 UTC — `ai_chat` flag flipped → 1.5h clean before cleanup.
+- 2026-05-09 ~17:50 UTC — cleanup PR #291 merged after live verification (router 85/0, planner proactive 25/0, planner event_triggered 195/0, chat events 11/0, chat action_outcomes 1/0). Owner authorized early merge after reviewing fresh stamping numbers — calendar gate at 2026-05-16 was advisory, not contractual; the actual gate was "is stamping clean across all three shells right now?" which it was.
+
+Cleanup PR #291 removed:
+- `supabase/functions/{ai-chat,ai-planner,message-router}/index_legacy.ts` × 3 (1,391 lines of rollback siblings)
+- `supabase/functions/_shared/operations/cutoverFlag.ts` + its test (134 lines)
+- Dead `classifyMessage()` in `_shared/operations/routing.ts` (only consumer was `index_legacy.ts`)
+- `app_settings.agent_runtime_cutover` row (via migration `20260510000000_…_drop_cutover_flag.sql`)
+
+Net diff: **−1,651 lines**. CI green, 2,915 tests passing.
 
 ---
 
@@ -55,8 +58,8 @@ This file is the living tracker. Update it in the same PR that advances the plat
 | 0.1 | `agents` + `agent_versions` tables, seed 3 agents, RLS | **Shipped** | 2026-04-30 (PR #240) | 3 agents seeded for Tremendous Care, 8 RLS policies, 36 Vitest specs. |
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
 | 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
-| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped (rollout in progress)** | 2026-05-04 (PR #254) | Per-shell `app_settings.agent_runtime_cutover` flag enables staged rollout without redeploy. Planner flipped 5/4 (5 days clean), router 5/9 (~9h clean), chat 5/9 (today, smoking now). Cleanup PR (remove `*_legacy.ts` siblings, inline shells) gated on ≥7 days clean from last flip — earliest 2026-05-16. |
-| 0.5 | Settings UI for manifest editing | Not started | — | Kill switch + shadow mode + prompt + allowlist edits, no deploy. |
+| 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped + closed** | 2026-05-04 (PR #254) + 2026-05-09 (cleanup PR #291) | All three shells flipped clean. Cleanup removed `*_legacy.ts` siblings, `cutoverFlag.ts` helper, dead `classifyMessage()`, and the `agent_runtime_cutover` row. Owner-authorized early cleanup merge after live verification showed zero unstamped across all three shells post-flip. |
+| 0.5 | Settings UI for manifest editing | **Spec drafted** | — | `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. Two-PR slicing recommended (read-only + toggles, then full edit + revert). 10 decisions pending owner sign-off before implementation starts. Implementation gate: cleanup baked ≥ 7 days (earliest 2026-05-17). |
 | 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
 | 1.3 | Per-(agent × org) kill switch + shadow mode hardening | Not started | — | Defense in depth; toggles audited. |
@@ -120,12 +123,16 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-04-30 | #244 | 0.2 | `agent_id` columns + deterministic backfill on `events`/`action_outcomes`/`ai_suggestions`/`context_memory`. 29 Vitest specs. |
 | 2026-05-01 | #247 | 0.3 | `agentRuntime.ts` orchestrator + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness (Layer A unit / Layer B byte-equal fixtures / Layer C live Anthropic smoke). 87 new specs across the runtime test files (total suite now 2,454 incl. Layer C). Codex P1 fixed in-PR: `loadManifest` requires `orgId` because `agents.unique = (org_id, slug)`. Pure additive — no edge function or production behavior change. |
 | 2026-05-04 | #254 | 0.4 | Edge function cutover with feature-flag rollback. Each of `ai-chat` / `ai-planner` / `message-router` split into `index.ts` (Deno.serve dispatcher, reads `app_settings.agent_runtime_cutover`) + `shell.ts` (testable runtime path, calls `runAgent`) + `index_legacy.ts` (verbatim pre-0.4 code, kept as rollback sibling). Optional `agentId` parameter threaded through `logEvent` / `logAction` / `createSuggestion`; `executeSuggestion` reads `agent_id` from the suggestion row. 60 new specs across 5 files; full suite 2,543 passing. Default-off flag means merge is a no-op until SQL flip — flippable per-shell without redeploy. |
+| 2026-05-09 | #291 | 0.4 cleanup | Removed the cutover flag and `*_legacy.ts` rollback siblings after planner flipped 5/4 + router and chat flipped 5/9 with zero unstamped post-flip across all three shells. Each `index.ts` is now a thin Deno wrapper around its `shell.ts`. Migration `20260510000000_…_drop_cutover_flag.sql` deletes the vestigial `app_settings.agent_runtime_cutover` row. Net diff −1,651 lines; 2,915 tests passing. Owner authorized early merge after live verification (planner proactive 25/0, planner event_triggered 195/0, router post-flip 85/0, chat events 11/0, chat action_outcomes 1/0). |
 
 (Add a row when each subsequent PR ships.)
 
 ---
 
-## Phase 0.4 rollout runbook (active 2026-05-04 → 2026-05-16+)
+## Phase 0.4 rollout runbook (historical, 2026-05-04 → 2026-05-09)
+
+> **This section is preserved for reference — the cutover and cleanup are both complete as of PR #291 (2026-05-09). Do not flip `agent_runtime_cutover`; the row no longer exists and the flag-reading code is gone. Edge functions now route directly through `runAgent` from their thin `index.ts` wrappers.**
+
 
 The feature flag for Phase 0.4 lives in `public.app_settings.value` (jsonb) under key `agent_runtime_cutover`. Three independent boolean fields (`ai_chat`, `ai_planner`, `message_router`) gate which path each edge function runs. Default-off — owner flips per-shell with a one-line SQL `UPDATE`, no redeploy.
 
@@ -169,7 +176,7 @@ UPDATE app_settings
 ```
 Effective on the next request (cron tick or chat invocation).
 
-**Cleanup PR (≥ 2026-05-16 if all three shells stay clean)** removes `index_legacy.ts` × 3, inlines each `shell.ts` into `index.ts`, deletes the `agent_runtime_cutover` row + `cutoverFlag.ts` helper. Phase 0.4 is then formally **closed**, and Phase 0.5 (Settings UI for manifest editing) is unblocked after a further ≥7-day bake.
+**Cleanup PR** (PR #291, merged 2026-05-09) removed `index_legacy.ts` × 3, inlined each `shell.ts` into `index.ts`, deleted the `agent_runtime_cutover` row + `cutoverFlag.ts` helper. Phase 0.4 is **closed**. Phase 0.5 (Settings UI for manifest editing) is unblocked after a ≥7-day cleanup bake (earliest 2026-05-17).
 
 ---
 
