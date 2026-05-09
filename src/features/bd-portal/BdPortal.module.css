@@ -391,6 +391,52 @@
 }
 .contactRow:last-child { border-bottom: none; }
 
+.contactRowBody {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+
+.contactActions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.contactMissing {
+  font-size: 11px;
+  color: #2E4E8D;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.contactAddRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #E0E4EA;
+}
+
+.addContactLink {
+  background: #EEF1F6;
+  color: #2E4E8D;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.addContactLink:active { background: #DCE2EC; }
+
 .contactName {
   font-size: 15px;
   font-weight: 600;

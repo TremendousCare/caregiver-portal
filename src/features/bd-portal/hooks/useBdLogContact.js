@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
-import { createContact } from '../lib/bdMutations';
+import { createContact, updateContact } from '../lib/bdMutations';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 
@@ -72,6 +72,61 @@ export function useBdLogContact() {
       setSubmitting(false);
     }
   }, []);
+
+  return { submitting, error, submit };
+}
+
+// Loads a single contact by id. Returns { loading, contact, error,
+// refresh } shaped like the other detail hooks.
+export function useBdContact(contactId) {
+  const [loading, setLoading] = useState(true);
+  const [contact, setContact] = useState(null);
+  const [error, setError]     = useState(null);
+
+  const load = useCallback(async () => {
+    if (!contactId) { setLoading(false); return; }
+    if (!supabase) { setLoading(false); return; }
+    setLoading(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('bd_account_contacts')
+      .select('id, account_id, name, title, role, email, phone_mobile, phone_office, notes, is_primary, is_active')
+      .eq('id', contactId)
+      .single();
+    if (err) {
+      setError(err);
+      setContact(null);
+    } else {
+      setContact(data ?? null);
+    }
+    setLoading(false);
+  }, [contactId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return { loading, contact, error, refresh: load };
+}
+
+// Wraps updateContact, exposes { submitting, error, submit(draft) }
+// where submit returns the updated row.
+export function useBdUpdateContact(contactId) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]           = useState(null);
+
+  const submit = useCallback(async (draft) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { data, error: err } = await updateContact(supabase, { contactId, draft });
+      if (err) throw err;
+      return data;
+    } catch (e) {
+      setError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [contactId]);
 
   return { submitting, error, submit };
 }
