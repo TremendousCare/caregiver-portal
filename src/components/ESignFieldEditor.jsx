@@ -4,7 +4,7 @@ import btn from '../styles/buttons.module.css';
 import { isRadioGroupMember, groupCheckboxFields } from '../lib/esignCheckboxGroups.js';
 import {
   clampFieldRect,
-  computeDraggedPosition,
+  computeDraggedRect,
   computeResizedField,
 } from '../lib/esignFieldGeometry.js';
 
@@ -45,22 +45,32 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedField, setSelectedField] = useState(null);
-  const [dragging, setDragging] = useState(null); // { fieldId, offsetX, offsetY }
-  const [resizing, setResizing] = useState(null); // { fieldId, handle, startX, startY, startW, startH, startFieldX, startFieldY }
   const [activePage, setActivePage] = useState(1);
   const [placingType, setPlacingType] = useState(null); // field type being placed
   const [scale, setScale] = useState(1);
   const containerRef = useRef(null);
   const canvasRefs = useRef({});
 
-  // Refs mirroring the latest fields/onFieldsChange so the drag and resize
-  // effects can read fresh values without including them in deps. The effects
-  // would otherwise tear down and re-attach window listeners on every tick,
-  // which can drop a fast mouseup and leave a field stuck to the cursor.
+  // Drag and resize state live in refs, not React state. Pointer capture
+  // (set in pointerdown) guarantees the matching pointermove/pointerup events
+  // are delivered to the captured element regardless of where the cursor goes,
+  // so we don't need React state to keep window listeners alive. Keeping the
+  // gesture state out of state also means parent re-renders triggered by
+  // onFieldsChange don't disturb the in-flight gesture.
+  const dragStateRef = useRef(null);
+  const resizeStateRef = useRef(null);
+
+  // Mirror latest props in refs so pointer handlers see fresh values.
+  // Assigning in the render body (instead of an effect) is the documented
+  // pattern for derived refs and avoids a one-frame staleness window.
   const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
   const onFieldsChangeRef = useRef(onFieldsChange);
-  useEffect(() => { fieldsRef.current = fields; }, [fields]);
-  useEffect(() => { onFieldsChangeRef.current = onFieldsChange; }, [onFieldsChange]);
+  onFieldsChangeRef.current = onFieldsChange;
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
 
   // Render PDF pages
   useEffect(() => {
@@ -171,159 +181,155 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
     setPlacingType(null); // Stop placing after one click
   }, [placingType, fields, onFieldsChange, pages, readOnly]);
 
-  // Handle mouse down on a field (start drag)
-  const handleFieldMouseDown = useCallback((e, fieldId) => {
-    if (readOnly) return;
+  // ─── Drag (move) using Pointer Events + setPointerCapture ───
+  //
+  // Why pointer events: the DOM guarantees that once we capture a pointer in
+  // pointerdown, all subsequent pointermove/pointerup/pointercancel events for
+  // that pointer are delivered to the captured element, in order. No window
+  // listeners, no missed mouseup, no e.buttons heuristics. Layout shifts
+  // don't break the math because we only use pointer-delta from the start.
+
+  const handleFieldPointerDown = useCallback((e, fieldId) => {
+    if (readOnlyRef.current) return;
+    // Only react to the primary mouse button / primary pointer.
+    if (e.button !== 0) return;
     e.stopPropagation();
-    e.preventDefault();
 
-    const field = fields.find((f) => f.id === fieldId);
+    const field = fieldsRef.current.find((f) => f.id === fieldId);
     if (!field) return;
-
-    const pageData = pages.find((p) => p.pageNum === field.page);
+    const pageData = pagesRef.current.find((p) => p.pageNum === field.page);
     if (!pageData) return;
 
-    const rect = e.currentTarget.closest('[data-page]').getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Field position in display coordinates
-    const fieldDisplayX = field.x * pageData.scale;
-    const fieldDisplayY = field.y * pageData.scale;
-
-    setDragging({
+    dragStateRef.current = {
+      pointerId: e.pointerId,
       fieldId,
-      offsetX: mouseX - fieldDisplayX,
-      offsetY: mouseY - fieldDisplayY,
-      pageData,
-    });
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startFieldX: field.x,
+      startFieldY: field.y,
+      scale: pageData.scale,
+      pageWidth: pageData.width,
+      pageHeight: pageData.height,
+      moved: false,
+    };
+
+    // Capture this pointer to the field element. All future pointermove /
+    // pointerup / pointercancel events for this pointerId are guaranteed
+    // to fire on this same element until release.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* unsupported */ }
     setSelectedField(fieldId);
-  }, [fields, pages, readOnly]);
+  }, []);
 
-  // Handle mouse move (drag). Depends only on `dragging` so the listeners
-  // are attached once per drag and not torn down every tick.
-  useEffect(() => {
-    if (!dragging) return;
+  const handleFieldPointerMove = useCallback((e) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
 
-    const endDrag = () => setDragging(null);
-
-    const handleMove = (e) => {
-      // Safety net: if the user released the mouse outside the window we may
-      // have missed mouseup. e.buttons reflects the current state.
-      if (e.buttons === 0) {
-        endDrag();
-        return;
-      }
-
-      const currentFields = fieldsRef.current;
-      const field = currentFields.find((f) => f.id === dragging.fieldId);
-      if (!field) return;
-
-      const pageEl = document.querySelector(`[data-page="${field.page}"]`);
-      if (!pageEl) return;
-
-      const rect = pageEl.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const { x, y } = computeDraggedPosition({
-        mouseX,
-        mouseY,
-        offsetX: dragging.offsetX,
-        offsetY: dragging.offsetY,
-        scale: dragging.pageData.scale,
-        pageWidth: dragging.pageData.width,
-        pageHeight: dragging.pageData.height,
-        fieldW: field.w,
-        fieldH: field.h,
-      });
-
-      const updated = currentFields.map((f) =>
-        f.id === dragging.fieldId ? { ...f, x, y } : f
-      );
-      onFieldsChangeRef.current?.(updated);
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', endDrag);
-    window.addEventListener('blur', endDrag);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', endDrag);
-      window.removeEventListener('blur', endDrag);
-    };
-  }, [dragging]);
-
-  // Handle resize handle mouse down
-  const handleResizeMouseDown = useCallback((e, fieldId, handle) => {
-    if (readOnly) return;
-    e.stopPropagation();
-    e.preventDefault();
-
-    const field = fields.find((f) => f.id === fieldId);
+    const field = fieldsRef.current.find((f) => f.id === drag.fieldId);
     if (!field) return;
 
-    const pageData = pages.find((p) => p.pageNum === field.page);
+    // Mark that movement happened so we can distinguish click vs. drag.
+    if (e.clientX !== drag.startClientX || e.clientY !== drag.startClientY) {
+      drag.moved = true;
+    }
+
+    const next = computeDraggedRect({
+      startClientX: drag.startClientX,
+      startClientY: drag.startClientY,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      startFieldX: drag.startFieldX,
+      startFieldY: drag.startFieldY,
+      scale: drag.scale,
+      pageWidth: drag.pageWidth,
+      pageHeight: drag.pageHeight,
+      fieldW: field.w,
+      fieldH: field.h,
+    });
+
+    if (next.x === field.x && next.y === field.y) return; // no-op
+
+    const updated = fieldsRef.current.map((f) =>
+      f.id === drag.fieldId ? { ...f, x: next.x, y: next.y } : f
+    );
+    onFieldsChangeRef.current?.(updated);
+  }, []);
+
+  const handleFieldPointerEnd = useCallback((e) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) { /* ok */ }
+    dragStateRef.current = null;
+  }, []);
+
+  // ─── Resize using the same pointer-capture pattern, per handle ───
+
+  const handleHandlePointerDown = useCallback((e, fieldId, handle) => {
+    if (readOnlyRef.current) return;
+    if (e.button !== 0) return;
+    e.stopPropagation();
+
+    const field = fieldsRef.current.find((f) => f.id === fieldId);
+    if (!field) return;
+    const pageData = pagesRef.current.find((p) => p.pageNum === field.page);
     if (!pageData) return;
 
-    setResizing({
+    resizeStateRef.current = {
+      pointerId: e.pointerId,
       fieldId,
-      handle, // 'se', 'sw', 'ne', 'nw', 'e', 'w', 'n', 's'
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
+      handle,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
       startW: field.w || 100,
       startH: field.h || 20,
       startX: field.x,
       startY: field.y,
-      pageData,
-    });
+      scale: pageData.scale,
+      pageWidth: pageData.width,
+      pageHeight: pageData.height,
+    };
+
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* ok */ }
     setSelectedField(fieldId);
-  }, [fields, pages, readOnly]);
+  }, []);
 
-  // Handle resize mouse move. Depends only on `resizing` for the same reason
-  // as the drag effect above.
-  useEffect(() => {
-    if (!resizing) return;
+  const handleHandlePointerMove = useCallback((e) => {
+    const rs = resizeStateRef.current;
+    if (!rs || rs.pointerId !== e.pointerId) return;
 
-    const endResize = () => setResizing(null);
+    const next = computeResizedField({
+      handle: rs.handle,
+      startMouseX: rs.startClientX,
+      startMouseY: rs.startClientY,
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      scale: rs.scale,
+      startW: rs.startW,
+      startH: rs.startH,
+      startX: rs.startX,
+      startY: rs.startY,
+      pageWidth: rs.pageWidth,
+      pageHeight: rs.pageHeight,
+    });
 
-    const handleMove = (e) => {
-      if (e.buttons === 0) {
-        endResize();
-        return;
-      }
+    const field = fieldsRef.current.find((f) => f.id === rs.fieldId);
+    if (!field) return;
+    if (
+      next.x === field.x && next.y === field.y &&
+      next.w === field.w && next.h === field.h
+    ) return;
 
-      const next = computeResizedField({
-        handle: resizing.handle,
-        startMouseX: resizing.startMouseX,
-        startMouseY: resizing.startMouseY,
-        mouseX: e.clientX,
-        mouseY: e.clientY,
-        scale: resizing.pageData.scale,
-        startW: resizing.startW,
-        startH: resizing.startH,
-        startX: resizing.startX,
-        startY: resizing.startY,
-        pageWidth: resizing.pageData.width,
-        pageHeight: resizing.pageData.height,
-      });
+    const updated = fieldsRef.current.map((f) =>
+      f.id === rs.fieldId ? { ...f, x: next.x, y: next.y, w: next.w, h: next.h } : f
+    );
+    onFieldsChangeRef.current?.(updated);
+  }, []);
 
-      const currentFields = fieldsRef.current;
-      const updated = currentFields.map((f) =>
-        f.id === resizing.fieldId ? { ...f, w: next.w, h: next.h, x: next.x, y: next.y } : f
-      );
-      onFieldsChangeRef.current?.(updated);
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', endResize);
-    window.addEventListener('blur', endResize);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', endResize);
-      window.removeEventListener('blur', endResize);
-    };
-  }, [resizing]);
+  const handleHandlePointerEnd = useCallback((e) => {
+    const rs = resizeStateRef.current;
+    if (!rs || rs.pointerId !== e.pointerId) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) { /* ok */ }
+    resizeStateRef.current = null;
+  }, []);
 
   // Delete selected field
   const deleteSelected = useCallback(() => {
@@ -504,8 +510,18 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
             return (
               <div
                 key={field.id}
-                onMouseDown={(e) => handleFieldMouseDown(e, field.id)}
-                onClick={(e) => { e.stopPropagation(); setSelectedField(field.id); }}
+                onPointerDown={(e) => handleFieldPointerDown(e, field.id)}
+                onPointerMove={handleFieldPointerMove}
+                onPointerUp={handleFieldPointerEnd}
+                onPointerCancel={handleFieldPointerEnd}
+                onClick={(e) => {
+                  // Don't bubble click to the page (which would try to place
+                  // a new field if placingType is set).
+                  e.stopPropagation();
+                  // If the user actually dragged the field, suppress the
+                  // selection click so we don't fight with focus changes.
+                  setSelectedField(field.id);
+                }}
                 style={{
                   position: 'absolute',
                   left: displayX,
@@ -557,29 +573,31 @@ export function ESignFieldEditor({ pdfUrl, fields = [], onFieldsChange, readOnly
                   </div>
                 )}
 
-                {/* Resize handles — only on selected field */}
-                {isSelected && !readOnly && (
-                  <>
-                    {/* Corners */}
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'nw')}
-                      style={{ ...handleStyle('nw-resize'), top: -5, left: -5 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'ne')}
-                      style={{ ...handleStyle('ne-resize'), top: -5, right: -5 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'sw')}
-                      style={{ ...handleStyle('sw-resize'), bottom: -5, left: -5 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'se')}
-                      style={{ ...handleStyle('se-resize'), bottom: -5, right: -5 }} />
-                    {/* Edge midpoints */}
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'n')}
-                      style={{ ...handleStyle('n-resize'), top: -5, left: '50%', marginLeft: -4 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 's')}
-                      style={{ ...handleStyle('s-resize'), bottom: -5, left: '50%', marginLeft: -4 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'w')}
-                      style={{ ...handleStyle('w-resize'), top: '50%', left: -5, marginTop: -4 }} />
-                    <div onMouseDown={(e) => handleResizeMouseDown(e, field.id, 'e')}
-                      style={{ ...handleStyle('e-resize'), top: '50%', right: -5, marginTop: -4 }} />
-                  </>
-                )}
+                {/* Resize handles — only on selected field. Each handle owns
+                    its own pointer capture so the resize gesture is decoupled
+                    from the field's drag handler. */}
+                {isSelected && !readOnly && (() => {
+                  const handleProps = (h) => ({
+                    onPointerDown: (e) => handleHandlePointerDown(e, field.id, h),
+                    onPointerMove: handleHandlePointerMove,
+                    onPointerUp: handleHandlePointerEnd,
+                    onPointerCancel: handleHandlePointerEnd,
+                  });
+                  return (
+                    <>
+                      {/* Corners */}
+                      <div {...handleProps('nw')} style={{ ...handleStyle('nw-resize'), top: -5, left: -5 }} />
+                      <div {...handleProps('ne')} style={{ ...handleStyle('ne-resize'), top: -5, right: -5 }} />
+                      <div {...handleProps('sw')} style={{ ...handleStyle('sw-resize'), bottom: -5, left: -5 }} />
+                      <div {...handleProps('se')} style={{ ...handleStyle('se-resize'), bottom: -5, right: -5 }} />
+                      {/* Edge midpoints */}
+                      <div {...handleProps('n')} style={{ ...handleStyle('n-resize'), top: -5, left: '50%', marginLeft: -4 }} />
+                      <div {...handleProps('s')} style={{ ...handleStyle('s-resize'), bottom: -5, left: '50%', marginLeft: -4 }} />
+                      <div {...handleProps('w')} style={{ ...handleStyle('w-resize'), top: '50%', left: -5, marginTop: -4 }} />
+                      <div {...handleProps('e')} style={{ ...handleStyle('e-resize'), top: '50%', right: -5, marginTop: -4 }} />
+                    </>
+                  );
+                })()}
               </div>
             );
           })}

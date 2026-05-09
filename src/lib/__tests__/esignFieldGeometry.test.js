@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   clampFieldRect,
-  computeDraggedPosition,
+  computeDraggedRect,
   computeResizedField,
 } from '../esignFieldGeometry.js';
 
@@ -15,8 +15,7 @@ describe('clampFieldRect', () => {
 
   it('clamps a field that overflows the right edge', () => {
     const r = clampFieldRect({ x: 500, y: 100, w: 200, h: 50, ...PAGE });
-    // 612 - 200 = 412 — the rightmost x that keeps the field in-page
-    expect(r.x).toBe(412);
+    expect(r.x).toBe(412); // 612 - 200
     expect(r.y).toBe(100);
   });
 
@@ -44,47 +43,60 @@ describe('clampFieldRect', () => {
   });
 });
 
-describe('computeDraggedPosition', () => {
-  // A field at PDF (200, 300), 200x50, scale 0.8.
-  // Display position: (160, 240). Field display size: 160x40.
-  // User clicks at page-relative display (220, 260) — 60px right, 20px below
-  // the field's top-left. So offsetX=60, offsetY=20.
+describe('computeDraggedRect', () => {
+  // A field at PDF (200, 300), 200x50, displayed at scale 0.8.
+  // Delta-based: starting pointer at clientX=400, clientY=500.
   const base = {
-    offsetX: 60,
-    offsetY: 20,
+    startClientX: 400,
+    startClientY: 500,
+    startFieldX: 200,
+    startFieldY: 300,
     scale: 0.8,
     fieldW: 200,
     fieldH: 50,
     ...PAGE,
   };
 
-  it('returns the original position when the mouse has not moved', () => {
-    // Mouse still at (220, 260) → expect ~(200, 300) PDF
-    const r = computeDraggedPosition({ ...base, mouseX: 220, mouseY: 260 });
-    expect(r).toEqual({ x: 200, y: 300 });
+  it('returns the start position when the pointer has not moved', () => {
+    const r = computeDraggedRect({ ...base, clientX: 400, clientY: 500 });
+    expect(r.x).toBe(200);
+    expect(r.y).toBe(300);
   });
 
-  it('moves the field to follow the mouse', () => {
-    // Mouse at (320, 340) — moved 100/80 display px → 125/100 PDF px
-    const r = computeDraggedPosition({ ...base, mouseX: 320, mouseY: 340 });
-    expect(r.x).toBe(325);
-    expect(r.y).toBe(400);
+  it('moves the field by the pointer delta, scaled to PDF units', () => {
+    // Pointer moved 80 right, 40 down → 100 PDF right, 50 PDF down at scale 0.8
+    const r = computeDraggedRect({ ...base, clientX: 480, clientY: 540 });
+    expect(r.x).toBe(300);
+    expect(r.y).toBe(350);
   });
 
   it('clamps to the right page edge instead of disappearing off-page', () => {
-    // Mouse way off to the right
-    const r = computeDraggedPosition({ ...base, mouseX: 5000, mouseY: 260 });
+    const r = computeDraggedRect({ ...base, clientX: 100_000, clientY: 500 });
     expect(r.x).toBe(412); // 612 - 200
   });
 
   it('clamps to the bottom page edge', () => {
-    const r = computeDraggedPosition({ ...base, mouseX: 220, mouseY: 5000 });
+    const r = computeDraggedRect({ ...base, clientX: 400, clientY: 100_000 });
     expect(r.y).toBe(742); // 792 - 50
   });
 
-  it('clamps negatives to 0 (mouse dragged above-left of page)', () => {
-    const r = computeDraggedPosition({ ...base, mouseX: -1000, mouseY: -1000 });
-    expect(r).toEqual({ x: 0, y: 0 });
+  it('clamps to (0,0) when dragged far above-left', () => {
+    const r = computeDraggedRect({ ...base, clientX: -100_000, clientY: -100_000 });
+    expect(r.x).toBe(0);
+    expect(r.y).toBe(0);
+  });
+
+  it('is layout-shift safe: result depends only on the delta, not page rect', () => {
+    // Same delta → same result, regardless of any "page rect" we never touched.
+    const a = computeDraggedRect({ ...base, clientX: 450, clientY: 520 });
+    const b = computeDraggedRect({
+      ...base,
+      startClientX: 1000, // page could have shifted; only delta matters
+      startClientY: 2000,
+      clientX: 1050,
+      clientY: 2020,
+    });
+    expect(a).toEqual(b);
   });
 });
 

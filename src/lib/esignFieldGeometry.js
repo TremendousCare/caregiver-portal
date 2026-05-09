@@ -1,13 +1,13 @@
 // Geometry helpers for the eSign template field editor.
 // Pure functions — no DOM, no React. Easy to unit test.
 //
-// All inputs/outputs are in PDF coordinates (the units that get persisted).
-// The visual editor multiplies by `pageData.scale` for rendering.
+// All field coordinates are in PDF units (the units that get persisted).
+// Display = PDF * pageData.scale.
 
 /**
  * Clamp a field rectangle so it stays fully inside the page.
- * If the field is larger than the page in either axis, we still keep the
- * top-left corner at 0 rather than allowing negative coords.
+ * If the field is larger than the page in either axis, we cap dimensions
+ * to the page and pin the corner to 0 instead of allowing negative coords.
  */
 export function clampFieldRect({ x, y, w, h, pageWidth, pageHeight }) {
   const safeW = Math.min(w, pageWidth);
@@ -23,38 +23,50 @@ export function clampFieldRect({ x, y, w, h, pageWidth, pageHeight }) {
 }
 
 /**
- * Compute a new field position from a drag-in-progress mouse event.
- * mouseX/mouseY are page-relative display coordinates.
- * offsetX/offsetY were captured at drag start (display coords, mouse-to-field).
+ * Compute a field's new rectangle from a drag-in-progress pointer event,
+ * using the delta from the captured drag-start position.
+ *
+ * This is layout-shift safe: clientX/clientY are viewport-relative, so the
+ * delta is independent of where the page itself happens to be on screen.
+ *
+ * Inputs:
+ *   startClientX/Y — pointer viewport coords at pointerdown
+ *   clientX/Y      — pointer viewport coords for this pointermove
+ *   startFieldX/Y  — field PDF coords at pointerdown
+ *   scale          — display scale (display px per PDF unit)
+ *   pageWidth/Height — page size in PDF units
+ *   fieldW/H       — current field size in PDF units
  */
-export function computeDraggedPosition({
-  mouseX,
-  mouseY,
-  offsetX,
-  offsetY,
+export function computeDraggedRect({
+  startClientX,
+  startClientY,
+  clientX,
+  clientY,
+  startFieldX,
+  startFieldY,
   scale,
   pageWidth,
   pageHeight,
   fieldW,
   fieldH,
 }) {
-  const rawX = Math.round((mouseX - offsetX) / scale);
-  const rawY = Math.round((mouseY - offsetY) / scale);
-  const clamped = clampFieldRect({
-    x: rawX,
-    y: rawY,
+  const dx = (clientX - startClientX) / scale;
+  const dy = (clientY - startClientY) / scale;
+  return clampFieldRect({
+    x: Math.round(startFieldX + dx),
+    y: Math.round(startFieldY + dy),
     w: fieldW,
     h: fieldH,
     pageWidth,
     pageHeight,
   });
-  return { x: clamped.x, y: clamped.y };
 }
 
 /**
  * Compute the new rectangle for a field being resized via a corner/edge handle.
- * Mirrors the pattern in ESignFieldEditor: the handle name encodes which edges
- * are moving (n/e/s/w; corners are two letters like "ne").
+ * Same delta-from-start approach as drag, layout-shift safe.
+ *
+ * `handle` encodes which edges move: combinations of n/e/s/w (e.g. "ne", "s").
  */
 export function computeResizedField({
   handle,
