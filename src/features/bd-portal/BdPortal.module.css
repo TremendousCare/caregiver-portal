@@ -525,12 +525,25 @@
   color: #FFFFFF;
   border: none;
   border-radius: 12px;
-  padding: 12px 16px;
-  font-size: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(46, 78, 141, 0.18);
+}
+
+.referCta {
+  background: linear-gradient(135deg, #F0B43A, #E08F1A);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(224, 143, 26, 0.24);
 }
 
 /* ─── Center FAB in bottom nav ─── */

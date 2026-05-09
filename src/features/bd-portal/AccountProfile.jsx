@@ -75,7 +75,14 @@ export function AccountProfile() {
           onClick={() => navigate(`/bd/accounts/${account.id}/log`)}
           style={{ marginLeft: 'auto' }}
         >
-          + Log activity
+          + Activity
+        </button>
+        <button
+          type="button"
+          className={s.referCta}
+          onClick={() => navigate(`/bd/accounts/${account.id}/refer`)}
+        >
+          ⭐ Refer
         </button>
       </div>
 

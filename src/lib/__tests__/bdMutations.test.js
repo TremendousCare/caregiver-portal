@@ -6,6 +6,11 @@ import {
   insertActivity,
   QUICK_CAPTURE_TYPES,
   SPEND_CATEGORIES,
+  splitName,
+  validateReferralDraft,
+  generateClientId,
+  createReferral,
+  REFERRAL_LOSS_REASONS,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -215,5 +220,259 @@ describe('QUICK_CAPTURE_TYPES + SPEND_CATEGORIES', () => {
   it('match the bd_activities CHECK constraint domain', () => {
     expect(QUICK_CAPTURE_TYPES).toEqual(['visit', 'call', 'email', 'drop_off', 'note']);
     expect(SPEND_CATEGORIES).toEqual(['meal', 'gift', 'swag', 'event', 'other']);
+  });
+});
+
+// ─── Referral intake (PR #5) ───────────────────────────────────
+
+describe('splitName', () => {
+  it('splits "First Last" into the obvious parts', () => {
+    expect(splitName('Mary Johnson')).toEqual({ first_name: 'Mary', last_name: 'Johnson' });
+  });
+  it('joins multi-token last names', () => {
+    expect(splitName('Maria Del Rio')).toEqual({ first_name: 'Maria', last_name: 'Del Rio' });
+  });
+  it('handles single-token names by leaving last_name empty', () => {
+    expect(splitName('Mom')).toEqual({ first_name: 'Mom', last_name: '' });
+  });
+  it('trims excess whitespace', () => {
+    expect(splitName('   Sarah   Connor  ')).toEqual({ first_name: 'Sarah', last_name: 'Connor' });
+  });
+  it('returns empty fields for empty / non-string input', () => {
+    expect(splitName('')).toEqual({ first_name: '', last_name: '' });
+    expect(splitName(null)).toEqual({ first_name: '', last_name: '' });
+    expect(splitName(undefined)).toEqual({ first_name: '', last_name: '' });
+    expect(splitName(123)).toEqual({ first_name: '', last_name: '' });
+  });
+});
+
+const validReferralDraft = () => ({
+  account_id: 'a-1',
+  contact_id: null,
+  prospective_name: 'Mary Johnson',
+  prospective_phone: '555-0001',
+  prospective_notes: 'Discharge expected Friday.',
+  referred_at: new Date('2026-05-09T12:00:00').toISOString(),
+});
+
+describe('validateReferralDraft', () => {
+  it('accepts a minimal valid draft', () => {
+    expect(validateReferralDraft(validReferralDraft())).toEqual({ ok: true });
+  });
+  it('requires an account', () => {
+    expect(validateReferralDraft({ ...validReferralDraft(), account_id: null }).ok).toBe(false);
+  });
+  it('requires a non-empty prospective name', () => {
+    expect(validateReferralDraft({ ...validReferralDraft(), prospective_name: '' }).ok).toBe(false);
+    expect(validateReferralDraft({ ...validReferralDraft(), prospective_name: '   ' }).ok).toBe(false);
+  });
+  it('rejects invalid timestamps', () => {
+    expect(validateReferralDraft({ ...validReferralDraft(), referred_at: '' }).ok).toBe(false);
+    expect(validateReferralDraft({ ...validReferralDraft(), referred_at: 'garbage' }).ok).toBe(false);
+  });
+});
+
+describe('generateClientId', () => {
+  it('returns a non-empty string', () => {
+    expect(typeof generateClientId()).toBe('string');
+    expect(generateClientId().length).toBeGreaterThan(8);
+  });
+  it('returns unique values across calls', () => {
+    const a = generateClientId();
+    const b = generateClientId();
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('REFERRAL_LOSS_REASONS', () => {
+  it('matches the bd_referrals.loss_reason CHECK constraint domain', () => {
+    expect(REFERRAL_LOSS_REASONS).toEqual([
+      'insurance_denied',
+      'chose_other_agency',
+      'patient_passed',
+      'did_not_qualify',
+      'lost_contact',
+      'cost',
+      'other',
+    ]);
+  });
+});
+
+// ─── createReferral with stubbed supabase ───
+function makeReferralStub({
+  clientResult        = { data: { id: 'c-new', first_name: 'Mary', last_name: 'Johnson' }, error: null },
+  referralResult      = { data: { id: 'r-new', account_id: 'a-1', client_id: 'c-new', status: 'new' }, error: null },
+  activityInsertOk    = true,
+  accountSelectResult = { data: { last_activity_at: '2026-04-01T00:00:00Z' }, error: null },
+  observed            = [],
+  clientDeleteFails   = false,
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table === 'clients') {
+        return {
+          insert(row) {
+            observed.push({ table, op: 'insert', row });
+            return {
+              select() { return this; },
+              single: () => Promise.resolve(clientResult),
+            };
+          },
+          delete() {
+            return {
+              eq: (_col, _val) => Promise.resolve(
+                clientDeleteFails ? { error: new Error('rollback failed') } : { error: null },
+              ),
+            };
+          },
+        };
+      }
+      if (table === 'bd_referrals') {
+        return {
+          insert(row) {
+            observed.push({ table, op: 'insert', row });
+            return {
+              select() { return this; },
+              single: () => Promise.resolve(referralResult),
+            };
+          },
+        };
+      }
+      if (table === 'bd_activities') {
+        return {
+          insert(row) {
+            observed.push({ table, op: 'insert', row });
+            return {
+              select() { return this; },
+              single: () => Promise.resolve(
+                activityInsertOk
+                  ? { data: { id: 'act-new', account_id: row.account_id, occurred_at: row.occurred_at, activity_type: row.activity_type }, error: null }
+                  : { data: null, error: new Error('activity insert blocked') },
+              ),
+            };
+          },
+        };
+      }
+      if (table === 'bd_accounts') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          single: () => Promise.resolve(accountSelectResult),
+          update() {
+            observed.push({ table, op: 'update' });
+            return { eq: () => Promise.resolve({ error: null }) };
+          },
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  };
+}
+
+describe('createReferral', () => {
+  it('rejects when client is missing', async () => {
+    const r = await createReferral(null, { orgId: 'o', draft: validReferralDraft(), createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects when validation fails', async () => {
+    const stub = makeReferralStub();
+    const r = await createReferral(stub, { orgId: 'o', draft: { ...validReferralDraft(), account_id: null }, createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects when org_id is missing', async () => {
+    const stub = makeReferralStub();
+    const r = await createReferral(stub, { orgId: null, draft: validReferralDraft(), createdBy: 'u' });
+    expect(r.error?.message).toMatch(/org/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('inserts client, referral, and an activity row on the happy path', async () => {
+    const observed = [];
+    const stub = makeReferralStub({ observed });
+    const r = await createReferral(stub, {
+      orgId: 'org-1',
+      draft: validReferralDraft(),
+      createdBy: 'Sasha',
+      accountName: 'Hoag Hospital',
+      contactName: 'Sarah Connor',
+    });
+    expect(r.error).toBe(null);
+    expect(r.data?.client?.id).toBe('c-new');
+    expect(r.data?.referral?.id).toBe('r-new');
+    const ops = observed.map((o) => `${o.table}:${o.op}`);
+    expect(ops).toContain('clients:insert');
+    expect(ops).toContain('bd_referrals:insert');
+    expect(ops).toContain('bd_activities:insert');
+  });
+
+  it('seeds clients.notes with referral context (referral_source = account name)', async () => {
+    const observed = [];
+    const stub = makeReferralStub({ observed });
+    await createReferral(stub, {
+      orgId: 'org-1',
+      draft: validReferralDraft(),
+      createdBy: 'Sasha',
+      accountName: 'Hoag Hospital',
+      contactName: 'Sarah Connor',
+    });
+    const clientInsert = observed.find((o) => o.table === 'clients' && o.op === 'insert');
+    expect(clientInsert.row.referral_source).toBe('Hoag Hospital');
+    expect(clientInsert.row.first_name).toBe('Mary');
+    expect(clientInsert.row.last_name).toBe('Johnson');
+    expect(clientInsert.row.phase).toBe('new_lead');
+    expect(Array.isArray(clientInsert.row.notes)).toBe(true);
+    expect(clientInsert.row.notes[0].text).toContain('Hoag Hospital');
+    expect(clientInsert.row.notes[0].text).toContain('Sarah Connor');
+    expect(clientInsert.row.notes[0].text).toContain('Discharge expected Friday.');
+  });
+
+  it('rolls back the client when the bd_referrals insert fails', async () => {
+    const observed = [];
+    const referralErr = new Error('rls denied');
+    const stub = makeReferralStub({
+      observed,
+      referralResult: { data: null, error: referralErr },
+    });
+    const r = await createReferral(stub, {
+      orgId: 'org-1',
+      draft: validReferralDraft(),
+      createdBy: 'Sasha',
+      accountName: 'Hoag',
+    });
+    expect(r.error).toBe(referralErr);
+    // The activity insert should NOT have run.
+    expect(observed.find((o) => o.table === 'bd_activities')).toBeUndefined();
+  });
+
+  it('still succeeds if the optional activity log fails', async () => {
+    const stub = makeReferralStub({ activityInsertOk: false });
+    const r = await createReferral(stub, {
+      orgId: 'org-1',
+      draft: validReferralDraft(),
+      createdBy: 'Sasha',
+      accountName: 'Hoag',
+    });
+    expect(r.error).toBe(null);
+    expect(r.data?.referral?.id).toBe('r-new');
+  });
+
+  it('uses a generated client_id when one is not supplied', async () => {
+    const observed = [];
+    const stub = makeReferralStub({ observed });
+    await createReferral(stub, {
+      orgId: 'org-1',
+      draft: validReferralDraft(),
+      createdBy: 'Sasha',
+      accountName: 'Hoag',
+    });
+    const clientInsert = observed.find((o) => o.table === 'clients' && o.op === 'insert');
+    expect(typeof clientInsert.row.id).toBe('string');
+    expect(clientInsert.row.id.length).toBeGreaterThan(8);
+    const referralInsert = observed.find((o) => o.table === 'bd_referrals' && o.op === 'insert');
+    expect(referralInsert.row.client_id).toBe(clientInsert.row.id);
   });
 });

@@ -3,9 +3,12 @@ import s from './BdPortal.module.css';
 
 export function BottomNav() {
   const location = useLocation();
-  // The capture screen is "modal" — we don't show the bottom nav
-  // there so the form gets the full screen.
-  if (location.pathname === '/bd/log' || location.pathname.endsWith('/log')) return null;
+  // The capture and referral screens are "modal" — we don't show the
+  // bottom nav there so the form gets the full screen.
+  const p = location.pathname;
+  if (p === '/bd/log' || p.endsWith('/log') || p === '/bd/refer' || p.endsWith('/refer')) {
+    return null;
+  }
 
   return (
     <nav className={`${s.bottomNav} ${s.bottomNav3}`} aria-label="BD portal navigation">
