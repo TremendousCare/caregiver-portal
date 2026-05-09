@@ -19,18 +19,18 @@ This file is the living tracker. Update it in the same PR that advances the plat
 |---|---|---|---|
 | `ai_planner` | 2026-05-04 ~19:00 UTC | ✅ baking clean (5 days) | All `proactive` + `event_triggered` `ai_suggestions` carrying `agent_id`. 1 transient 529 cluster on 5/6 — runtime retried successfully. |
 | `message_router` | 2026-05-09 ~05:20 UTC | ✅ baking clean (~9h) | First-day verification: 50 stamped / 0 unstamped on inbound SMS. 0 errors, 0 queue backlog. |
-| `ai_chat` | 2026-05-09 (today) | 🟡 just flipped — manual smoke pending | Riskiest flip: Kevin's daily driver. 5-scenario manual smoke + DB verification documented in PR #254 thread. |
+| `ai_chat` | 2026-05-09 ~late evening UTC | ✅ baking clean (smoke passed) | 5-scenario manual smoke completed clean. DB verification: 9/0 stamped events, 1/0 stamped action_outcomes in the hour after flip — every observability write from the test session carries `agent_id`. Bakes through 2026-05-16. |
 
 **Pre-merge readiness checklist for Phase 0.4** (all items met):
 1. ✅ Edge functions deploy cleanly in Deno — verified via `Deploy Edge Functions` workflow on merge to `main`.
-2. ✅ Manual smoke post-deploy — planner + router verified with production data; chat in progress as of 2026-05-09.
+2. ✅ Manual smoke post-deploy — planner + router + chat all verified with production data (chat verification 2026-05-09 evening: 9/0 stamped events, 1/0 stamped action_outcomes).
 3. ✅ `agent_id` populates on every new row in `events` / `action_outcomes` / `ai_suggestions` / `context_memory`. Pre-flip the unstamped post-0.2 leak was ~100 inbound_sms rows/day; post-router-flip it's zero.
 4. ✅ Token cost within ±10% of pre-cutover baseline — runtime adds retry (more resilient on Anthropic 529s, same model otherwise).
 5. ✅ `*_legacy.ts` rollback siblings ship via `app_settings.agent_runtime_cutover` jsonb — flippable from any SQL surface, no redeploy required.
 
-**Cleanup PR gate**: ≥ 7 days clean from the **last** flag flip (chat = 2026-05-09). Earliest cleanup PR open date: **2026-05-16**. Cleanup removes the three `*_legacy.ts` files, inlines each shell into `index.ts`, drops the `agent_runtime_cutover` row from `app_settings`. Not before that.
+**Cleanup PR gate**: ≥ 7 days clean from the **last** flag flip (chat = 2026-05-09). Earliest cleanup PR **merge** date: **2026-05-16**. Cleanup removes the three `*_legacy.ts` files, inlines each shell into `index.ts`, drops the `agent_runtime_cutover` row from `app_settings`. Cleanup PR may be **opened earlier as a draft** — diff is mechanical and reviewable now; the bake gate applies to merging, not opening.
 
-**Gate to Phase 0.5**: cleanup PR shipped and baked ≥ 7 more days. Earliest start of 0.5: **~2026-05-23**.
+**Gate to Phase 0.5**: cleanup PR shipped and baked ≥ 7 more days. Earliest **implementation** start of 0.5: **~2026-05-23**. Phase 0.5 **spec/design work** is unblocked now and welcome during the bake — see `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` if drafted.
 **Gate to Phase 1**: Phase 0.5 shipped and baked ≥ 7 days.
 **Gate to Phase 2 (Recruiting graduation)**: SaaS Phase B5 baked on every AI-tier table + Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
 
