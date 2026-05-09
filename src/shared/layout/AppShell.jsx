@@ -105,6 +105,7 @@ export function AppShell() {
         items: [
           { id: 'bd-portal',  path: '/bd',         icon: '📱', label: 'BD Portal' },
           { id: 'bd-funnel',  path: '/bd-funnel',  icon: '📊', label: 'Funnel Report' },
+          { id: 'bd-goals',   path: '/bd-goals',   icon: '🎯', label: 'Goals' },
         ],
       },
       // Future:
