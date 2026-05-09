@@ -111,3 +111,92 @@ export async function fetchAccountsWithActivity(supabase) {
 
   return { data: enriched, error: null, _allActivities: activityRes.data ?? [] };
 }
+
+// ─── Account profile fetchers ──────────────────────────────────────
+//
+// Three small, single-table reads. Kept as separate functions so the
+// hook can fan them out in parallel — total round-trip is one round-
+// trip's worth instead of three.
+
+export async function fetchAccount(supabase, accountId) {
+  if (!supabase || !accountId) return { data: null, error: null };
+  return await supabase
+    .from('bd_accounts')
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_active, out_of_territory, tier_override, last_activity_at, created_at')
+    .eq('id', accountId)
+    .single();
+}
+
+export async function fetchAccountContacts(supabase, accountId) {
+  if (!supabase || !accountId) return { data: [], error: null };
+  return await supabase
+    .from('bd_account_contacts')
+    .select('id, name, title, role, email, phone_mobile, phone_office, notes, is_primary, is_active, last_activity_at')
+    .eq('account_id', accountId)
+    .eq('is_active', true)
+    .order('is_primary', { ascending: false })
+    .order('name',       { ascending: true });
+}
+
+export async function fetchAccountActivities(supabase, accountId, { limit = 200 } = {}) {
+  if (!supabase || !accountId) return { data: [], error: null };
+  return await supabase
+    .from('bd_activities')
+    .select('id, activity_type, occurred_at, duration_minutes, spend_cents, spend_category, notes, source, created_by, contact_id')
+    .eq('account_id', accountId)
+    .order('occurred_at', { ascending: false })
+    .limit(limit);
+}
+
+// ─── Display helpers ───────────────────────────────────────────────
+
+export const ACTIVITY_TYPE_ICONS = {
+  visit:             '🏥',
+  call:              '📞',
+  email:             '✉️',
+  sms:               '💬',
+  drop_off:          '🎁',
+  event:             '🎤',
+  referral_received: '⭐',
+  note:              '📝',
+};
+
+export const ACTIVITY_TYPE_LABELS = {
+  visit:             'Visit',
+  call:              'Call',
+  email:             'Email',
+  sms:               'Text',
+  drop_off:          'Drop-off',
+  event:             'Event',
+  referral_received: 'Referral',
+  note:              'Note',
+};
+
+export function formatActivityDate(iso, now = new Date()) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0)  return 'Today';
+  if (diffDays === 1)  return 'Yesterday';
+  if (diffDays < 7)    return `${diffDays} days ago`;
+  // Same calendar year → omit the year.
+  if (day.getFullYear() === today.getFullYear()) {
+    return day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function formatAccountSubtitle(account) {
+  if (!account) return '';
+  const kind =
+    account.account_type === 'professional'
+      ? (account.professional_subtype ?? 'Professional')
+      : (account.facility_subtype ?? 'Facility');
+  const place = [account.city, account.state].filter(Boolean).join(', ');
+  return [kind, place].filter(Boolean).join(' · ');
+}

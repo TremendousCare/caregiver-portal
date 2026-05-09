@@ -331,3 +331,161 @@
   color: #5A6B85;
   font-size: 14px;
 }
+
+/* ─── Account profile ─── */
+
+.profileTitle {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.profileSubtitle {
+  font-size: 13px;
+  color: #5A6B85;
+  margin: 0 0 4px;
+  text-transform: capitalize;
+}
+
+.profileMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profileMetaItem {
+  font-size: 12px;
+  color: #5A6B85;
+}
+
+.linkBtn {
+  background: #EEF1F6;
+  color: #2E4E8D;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-block;
+  margin-right: 6px;
+  margin-top: 8px;
+}
+
+.contactRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #EEF1F6;
+}
+.contactRow:last-child { border-bottom: none; }
+
+.contactName {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1A2332;
+}
+
+.contactRole {
+  font-size: 12px;
+  color: #5A6B85;
+  margin-top: 2px;
+  text-transform: capitalize;
+}
+
+.roleBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #DCEDF7;
+  color: #1F4E72;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+  margin-left: 6px;
+}
+
+.primaryBadge {
+  background: #DCF7E3;
+  color: #1F723E;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.timelineItem {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #EEF1F6;
+}
+.timelineItem:last-child { border-bottom: none; }
+
+.timelineIcon {
+  font-size: 20px;
+  width: 32px;
+  flex-shrink: 0;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.timelineBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.timelineHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.timelineType {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1A2332;
+  text-transform: capitalize;
+}
+
+.timelineDate {
+  font-size: 12px;
+  color: #5A6B85;
+  white-space: nowrap;
+}
+
+.timelineNotes {
+  font-size: 14px;
+  color: #1A2332;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.timelineAuthor {
+  font-size: 11px;
+  color: #5A6B85;
+  margin-top: 4px;
+}
+
+.spend {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #FFE8C6;
+  color: #7A4F0E;
+  margin-left: 6px;
+}
