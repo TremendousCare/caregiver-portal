@@ -99,6 +99,14 @@ export function AppShell() {
           ...boardItems,
         ],
       },
+      {
+        id: 'bd',
+        label: 'Business Development',
+        items: [
+          { id: 'bd-portal',  path: '/bd',         icon: '📱', label: 'BD Portal' },
+          { id: 'bd-funnel',  path: '/bd-funnel',  icon: '📊', label: 'Funnel Report' },
+        ],
+      },
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];

@@ -1,6 +1,6 @@
 # Business Development Module — Vision, Scope, and Build Plan
 
-**Status**: Design locked, build not yet started.
+**Status**: Phase 0 shipped. Phase 1 shipped (PRs #275, #276, #277, #278, #279). Phase 2 in planning.
 **Owner**: Tremendous Care
 **Branch**: `claude/design-bd-portal-Jde8c`
 **First user**: New BD representative starting the week of 2026-05-11.
@@ -301,28 +301,66 @@ Three areas worth naming:
 
 Designed to land an end-to-end usable tool by the rep's start date, then layer enrichment over the following weeks.
 
-### Phase 0 — Pre-start (this week)
+### Phase 0 — Pre-start (shipped)
 - [x] Trello API access — using existing `trello-webhook` credentials. BD board: `iykstkqZ`.
-- [x] Migration scaffolding for `bd_accounts`, `bd_account_contacts`, `bd_activities`, `bd_referrals`, `bd_goals`, `bd_trello_import_staging`. Org-scoped, RLS in place. (`supabase/migrations/20260508120000_bd_module_phase_0_foundation.sql` — pending review and `Deploy Database Migrations` workflow run.)
-- [ ] Run **stratified Trello import** (see "Trello import strategy" section below).
-- [ ] Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search.
-- [ ] Backfill 6–12 months of inferred referrals from existing client records → baseline metrics.
-- [ ] Insert her starter goals (see "Goals trajectory" section).
-- [ ] **(Deferred)** Lock territory zip-code list — not blocking; defaults to no territory filter.
+- [x] Migration scaffolding for `bd_accounts`, `bd_account_contacts`, `bd_activities`, `bd_referrals`, `bd_goals`, `bd_trello_import_staging`. Org-scoped, RLS in place. (`supabase/migrations/20260508120000_bd_module_phase_0_foundation.sql`, deployed via `Deploy Database Migrations` workflow.)
+- [x] Run **stratified Trello import** — three-step pipeline:
+  - [x] `bd-trello-import` (PR #272) — fetches the BD board into `bd_trello_import_staging`.
+  - [x] `bd-trello-extract` — Claude Haiku 4.5 extracts account name/type/contacts onto staging rows.
+  - [x] `bd-trello-load` (PR #274) — loads extracted data into live `bd_accounts` / `bd_account_contacts` / `bd_activities`. **Result: 99 accounts, 332 contacts, 340 activities loaded** with one card skipped as `<UNKNOWN>` (junk card).
+- [ ] **(Deferred)** Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search. The Trello import landed enough volume (~99 accounts) that the rep is fully provisioned for day one.
+- [ ] **(Deferred)** Backfill 6–12 months of inferred referrals from existing client records.
+- [ ] **(Deferred)** Insert starter goals — `bd_goals` table exists but no rows yet. Phase 2 ships the goals editor.
+- [ ] **(Deferred)** Territory zip-code filter — `bd_accounts.out_of_territory` defaults to `false` so the filter can flip on later without a migration.
 
-### Phase 1 — Day one (her first week)
-- [ ] Today screen (mobile) — briefing, route, counters.
-- [ ] Account profile (mobile) — header, funnel, contacts, timeline, AI summary.
-- [ ] Quick capture (mobile) — visit log, voice memo, photo upload.
-- [ ] Referral intake (mobile) — log referral, link to client lead.
-- [ ] Goals stored per-user; weekly counters update live.
+### Phase 1 — Day one (shipped)
 
-### Phase 2 — Weeks 2–4
-- [ ] Funnel report (desktop) — by account/contact/week, lost-reason breakdown.
-- [ ] Email auto-logging via O365.
-- [ ] Cold-account list with configurable threshold.
-- [ ] Compliance export (per-contact spend annual report).
-- [ ] Account profile on desktop (parity with mobile).
+Phase 1 ships the rep's full vertical: see her territory, get an AI briefing, drill into any account's complete relationship history, log every visit/call/drop-off in seconds, and intake referrals back into the existing client pipeline. **The funnel — visit → referral → start of care — is closed end-to-end.**
+
+- [x] **PR #275** — `/bd` PWA shell, Today screen, Account list. Lazy-loaded into its own bundle so admin/caregiver portals don't pull it.
+- [x] **PR #276** — Account profile (header, contacts, timeline). Tap-to-call / tap-to-email / Apple Maps directions deep links.
+- [x] **PR #277** — `bd-briefing` edge function. Claude Sonnet 4.6 writes a 2-3 sentence morning briefing naming specific accounts and what's worth knowing right now. Graceful degradation when Claude is unreachable.
+- [x] **PR #278** — Quick capture (visit log). Center "+" FAB, 5-button activity-type row, account search, spend tracking, GPS auto-capture for visits / drop-offs.
+- [x] **PR #279** — Referral intake. "⭐ Refer" CTA on the account profile creates a `clients` lead + `bd_referrals` row + a `referral_received` activity (so the source account's timeline reflects the referral). `referral_source` is set to the account name for attribution.
+
+Deferred from Phase 1, scheduled into Phase 2:
+- Voice memo dictation on Quick Capture (Whisper transcription).
+- Photo / business-card OCR on Quick Capture.
+- Goals editor + weekly counters vs goal (table exists, UI doesn't).
+- AI relationship summary on the account profile (the activity timeline is fully visible; the AI summary layer is the polish).
+
+### Phase 2 — Owner visibility + rep polish (next)
+
+Phase 2 is split into two parallel tracks. The **owner track** (funnel report, goals, compliance export) gives Tremendous Care leadership visibility into how the rep is performing. The **rep track** (voice memo, OCR, email auto-log) reduces her logging friction to near-zero so the data quality on which the AI eventually learns is strong.
+
+#### Owner track (priority — funnel visibility)
+- [ ] **Funnel report (desktop)** — visits → referrals → SOCs by account, contact, week. Lost-referral reason breakdown. Cold-account list (>21d, configurable).
+- [ ] **Goals editor + weekly counters** — owner sets weekly visit / referral / SOC targets per rep in `bd_goals`. Today screen counters render as `12 / 35 visits`.
+- [ ] **Per-contact spend annual export** — CSV export of spend totals by contact for compliance review. Soft warning at $400/contact/year (configurable).
+
+#### Rep track (priority — logging friction)
+- [ ] **Voice memo dictation** — record on the Quick Capture form, OpenAI Whisper transcription, Claude extracts who/what/next-steps into structured fields. Audio saved to Supabase Storage with 90d retention then transcript-only.
+- [ ] **Photo / business-card OCR** — snap a card, Claude Vision extracts contact fields and creates a `bd_account_contacts` row.
+- [ ] **Email auto-logging via O365** — connect the rep's `email_accounts` row, parse inbound/outbound emails, auto-create `bd_activities` of type `email` for known contacts. L1 autonomy (no auto-replies).
+
+#### Phase 2 done state
+- Owner can answer "is she productive?" without asking her.
+- Rep logs activities in <10 seconds (currently ~30 with the keyboard form).
+- Trello board can be turned off — every signal it captured is now in the portal, and new signal flows in passively from email + voice.
+
+### Phase 3 — Outcome learning + L2 autonomy (after 60–90 days of clean Phase 2 data)
+
+Promotion conditions in the doc above (the "Promotion to L2+ autonomy" trigger). Capabilities sequenced for Phase 3:
+- [ ] Outcome analysis cron extended to BD activities (semantic memories about what works for *her* — facility vs professional referrals, visit cadence by account type, contact role conversion rates).
+- [ ] L2 autonomy: auto-draft thank-you notes after a logged referral; auto-schedule follow-up calendar holds; rep approves with one tap.
+- [ ] Cadences / multi-touch sequences (new SNF onboarding, dormant revival, post-event).
+- [ ] Lost-referral coaching ("Riverside is losing 40% to insurance denial — pre-screen earlier").
+- [ ] AI relationship summary on the account profile, regenerated weekly from the timeline.
+
+### Phase 4 — When SaaS Phase D ships
+- [ ] Per-org branding and templates for the BD module (configurable account taxonomies, goal defaults, compliance thresholds).
+- [ ] Multi-rep support: territory enforcement, leaderboards, manager review surface.
+- [ ] CMS claims-data integration (Trella or alternative) for market intelligence — gated by per-org licensing.
 
 ### Phase 3 — Months 2–3 (data accumulation)
 - [ ] Outcome analysis cron extended to BD activities — generate semantic memories about what works for *her*.
@@ -447,3 +485,21 @@ The owner explicitly approved locked-in MVP scope and deferred items as listed a
 - **Phase 1 split into two PRs** for safety: A.1 fetch-only (this PR), A.2 AI extraction + CSV review report (next PR after we inspect real card shapes).
 - **Decisions locked for AI extraction (A.2)**: Claude Haiku 4.5; manual trigger; CSV review output.
 - **Edge function written**: `supabase/functions/bd-trello-import/index.ts` — fetches board `iykstkqZ` from Trello via the existing `TRELLO_API_KEY` / `TRELLO_TOKEN` credentials and upserts board / lists / cards / actions / members into `bd_trello_import_staging`. Idempotent on `(org_id, kind, trello_id)`. Service-role auth required.
+
+### Round 7 (next session, 2026-05-09) — Trello load fix + Phase 1 ship
+
+- **`bd-trello-load` fix shipped (PR #274)**: the deployed loader was 500-ing on every call because both upserts (`bd_accounts(org_id, trello_card_id)` and `bd_activities(trello_action_id)`) targeted partial unique indexes (`WHERE col IS NOT NULL`), and Postgres requires the partial-index predicate to be repeated in `ON CONFLICT (...) WHERE …` — which `supabase-js`'s `.upsert(..., { onConflict })` doesn't expose. Replaced both with the SELECT-then-INSERT/UPDATE pattern. The function source was also hand-deployed only; this PR commits it to `supabase/functions/bd-trello-load/` so it auto-deploys with the rest.
+- **Trello import complete**: 99 accounts, 332 contacts, 340 activities. One card skipped (a title-only "Follow Up" with no description — junk).
+- **Phase 1 shipped end-to-end** in five sequential PRs (#275 → #279):
+  - PR #275: `/bd` shell + Today + Account list (mobile PWA, lazy-loaded).
+  - PR #276: Account profile (header, contacts, full timeline, tap-to-call/email/directions).
+  - PR #277: `bd-briefing` edge function (Claude Sonnet 4.6, graceful degradation).
+  - PR #278: Quick capture (visit log, GPS auto-fill, spend tracking, "+" FAB).
+  - PR #279: Referral intake (creates `clients` lead + `bd_referrals` + `referral_received` activity, with rollback on partial failure).
+- **Test coverage**: BD-specific test count grew from 0 to 86 across `bdQueries.test.js` (36) and `bdMutations.test.js` (43, +schema-domain assertion). Total suite 2,713 → 2,792.
+- **Phase 1 deferred items**: voice memo, photo OCR, goals editor, AI relationship summary. All scheduled into Phase 2.
+- **Branching discipline note**: PR #277 and PR #278 were initially committed onto the wrong feature branch and recovered via cherry-pick + `--force-with-lease`. Established a hard rule going forward: every new PR starts with an explicit `git checkout main && git pull && git checkout -b feature/<name>` before any file edit. PR #279 followed this and shipped clean.
+
+### Round 8 (same session) — Phase 2 outline
+
+Phase 2 splits into an **owner track** (funnel report, goals editor, compliance export) and a **rep track** (voice memo, photo OCR, email auto-log). The owner track is prioritised first because the rep is fully functional today — the marginal utility of voice-memo speed is lower than the marginal utility of giving the owner pipeline visibility. See the Phase 2 section above for the full list and done-state criteria.

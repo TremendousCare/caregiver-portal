@@ -1,0 +1,282 @@
+/* BD Funnel Report — owner-facing desktop view. */
+
+.page {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: #1A2332;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #5A6B85;
+  margin: 0;
+}
+
+.periodTabs {
+  display: flex;
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.periodTab {
+  background: transparent;
+  border: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5A6B85;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.periodTab.active {
+  background: #2E4E8D;
+  color: #FFFFFF;
+}
+
+.funnelRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.metricCard {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.metricLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5A6B85;
+  margin: 0 0 8px;
+}
+
+.metricValue {
+  font-size: 36px;
+  font-weight: 700;
+  color: #2E4E8D;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  line-height: 1;
+}
+
+.metricSub {
+  font-size: 12px;
+  color: #5A6B85;
+  margin-top: 6px;
+}
+
+.metricSub strong {
+  color: #1A2332;
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .row2 { grid-template-columns: 1fr; }
+}
+
+.card {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.cardSub {
+  font-size: 12px;
+  color: #5A6B85;
+  margin: -8px 0 12px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5A6B85;
+  padding: 8px 8px;
+  border-bottom: 1px solid #E0E4EA;
+}
+
+.table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #F0F2F6;
+  vertical-align: middle;
+}
+
+.table tr:last-child td { border-bottom: none; }
+
+.table tr:hover td { background: #F7F8FB; cursor: pointer; }
+
+.numCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #EEF1F6;
+  color: #5A6B85;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 6px;
+}
+
+.tagCold {
+  background: #F0C674;
+  color: #5A4319;
+}
+
+.lossBar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lossRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.lossLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1A2332;
+}
+
+.lossCount {
+  font-size: 12px;
+  color: #5A6B85;
+  font-variant-numeric: tabular-nums;
+}
+
+.lossBarTrack {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: #EEF1F6;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lossBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #B83232, #F0B43A);
+  border-radius: 4px;
+}
+
+.empty {
+  text-align: center;
+  color: #5A6B85;
+  padding: 32px 12px;
+  font-size: 14px;
+}
+
+.error {
+  background: #FEEEEE;
+  color: #B83232;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.refreshBtn {
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  color: #5A6B85;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.refreshBtn:hover { background: #F7F8FB; }
+
+.coldList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.coldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #FFF9EE;
+  border: 1px solid #F0E2BF;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.coldRow:hover { background: #FFF4DC; }
+
+.coldName { font-weight: 600; color: #1A2332; }
+.coldDays { color: #7A4F0E; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.openInBd {
+  display: inline-block;
+  margin-top: 2px;
+  background: linear-gradient(135deg, #29BEE4, #2E4E8D);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  font-family: inherit;
+}
