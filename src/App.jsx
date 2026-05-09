@@ -21,6 +21,9 @@ const SurveyPage = lazy(() =>
 const CaregiverApp = lazy(() =>
   import('./features/caregiver-portal/CaregiverApp').then((m) => ({ default: m.CaregiverApp })),
 );
+const BDApp = lazy(() =>
+  import('./features/bd-portal/BDApp').then((m) => ({ default: m.BDApp })),
+);
 
 function RouteFallback() {
   return (
@@ -75,6 +78,16 @@ export default function App() {
     return (
       <Suspense fallback={<RouteFallback />}>
         <CaregiverApp />
+      </Suspense>
+    );
+  }
+  // BD PWA — separate mobile-first surface for the BD rep.
+  // Same auth as the admin portal (Supabase session) but rendered
+  // without the admin shell.
+  if (location.pathname === '/bd' || location.pathname.startsWith('/bd/')) {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <BDApp />
       </Suspense>
     );
   }

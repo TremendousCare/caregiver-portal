@@ -1,0 +1,333 @@
+/* BD PWA — mobile-first, big tap targets. Same design tokens as the
+   caregiver portal (navy #2E4E8D, cyan #29BEE4, Plus Jakarta Sans) so
+   the BD app feels like the same brand. */
+
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px 16px 96px; /* bottom space for nav */
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: #1A2332;
+  min-height: 100vh;
+  background: #F7F8FB;
+}
+
+.centered {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #F7F8FB;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: #1A2332;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.greeting {
+  font-size: 14px;
+  color: #5A6B85;
+  margin: 0;
+}
+
+.pageTitle {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 4px 0 0;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.signOutBtn {
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  color: #5A6B85;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.signOutBtn:active { background: #EEF1F6; }
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #E0E4EA;
+  border-top-color: #2E4E8D;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card {
+  background: #FFFFFF;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.06);
+  margin-bottom: 12px;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5A6B85;
+  margin: 0 0 8px;
+}
+
+.briefingText {
+  font-size: 15px;
+  line-height: 1.5;
+  color: #1A2332;
+  margin: 0;
+}
+
+.counters {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.counter {
+  text-align: center;
+  background: #F7F8FB;
+  border-radius: 10px;
+  padding: 10px 6px;
+}
+
+.counterValue {
+  font-size: 22px;
+  font-weight: 700;
+  color: #2E4E8D;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.counterLabel {
+  font-size: 11px;
+  color: #5A6B85;
+  margin-top: 2px;
+}
+
+.searchRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.searchInput {
+  flex: 1;
+  background: #FFFFFF;
+  border: 1.5px solid #E0E4EA;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #1A2332;
+}
+.searchInput:focus { outline: none; border-color: #2E4E8D; }
+
+.accountList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.accountCard {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.accountCard:active { background: #F7F8FB; }
+
+.accountCardCold {
+  border-color: #F0C674;
+  background: #FFF9EE;
+}
+
+.accountName {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1A2332;
+  margin: 0;
+}
+
+.accountMeta {
+  font-size: 12px;
+  color: #5A6B85;
+  margin-top: 2px;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #EEF1F6;
+  color: #5A6B85;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 6px;
+}
+
+.tagCold {
+  background: #F0C674;
+  color: #5A4319;
+}
+
+.lastSeen {
+  font-size: 12px;
+  color: #5A6B85;
+  white-space: nowrap;
+}
+
+.empty {
+  text-align: center;
+  color: #5A6B85;
+  padding: 24px;
+  font-size: 14px;
+}
+
+.error {
+  background: #FEEEEE;
+  color: #B83232;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.bottomNav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #FFFFFF;
+  border-top: 1px solid #E0E4EA;
+  display: flex;
+  z-index: 10;
+}
+
+.navItem {
+  flex: 1;
+  text-align: center;
+  padding: 10px 4px 14px;
+  font-size: 11px;
+  color: #5A6B85;
+  text-decoration: none;
+  font-family: inherit;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.navItem.active { color: #2E4E8D; }
+.navItemIcon { font-size: 20px; display: block; line-height: 1; margin-bottom: 4px; }
+
+.loginCard {
+  width: 100%;
+  max-width: 380px;
+  background: #FFFFFF;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 6px 20px rgba(46, 78, 141, 0.10);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loginLogo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2E4E8D, #29BEE4);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  margin: 0 auto 4px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.loginTitle {
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  margin: 0;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.loginSubtitle {
+  font-size: 13px;
+  text-align: center;
+  color: #5A6B85;
+  margin: 0 0 8px;
+}
+
+.input {
+  background: #F7F8FB;
+  border: 1.5px solid #E0E4EA;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #1A2332;
+  width: 100%;
+  box-sizing: border-box;
+}
+.input:focus { outline: none; border-color: #2E4E8D; background: #FFFFFF; }
+
+.button {
+  background: linear-gradient(135deg, #2E4E8D, #2E4E8D);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.button:disabled { opacity: 0.5; cursor: default; }
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.backBtn {
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  color: #2E4E8D;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.muted {
+  color: #5A6B85;
+  font-size: 14px;
+}
