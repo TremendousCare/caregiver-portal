@@ -11,6 +11,7 @@ import { SmsOptOutList } from './SmsOptOutList';
 import { PausedCheckInsList } from './PausedCheckInsList';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
+import { AgentManifestSettings } from './agentManifest/AgentManifestSettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
@@ -2577,6 +2578,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* AI Autonomy Levels */}
       <div style={{ marginBottom: 20 }}>
         <AutonomySettings showToast={showToast} />
+      </div>
+
+      {/* AI Agents (Phase 0.5 PR A — kill switch + shadow mode toggles, read-only manifest detail) */}
+      <div style={{ marginBottom: 20 }}>
+        <AgentManifestSettings showToast={showToast} />
       </div>
 
       {/* AI Business Context */}
