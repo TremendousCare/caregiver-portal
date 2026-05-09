@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdLogActivity, getCurrentPosition } from './hooks/useBdLogActivity';
@@ -10,7 +10,16 @@ import {
   SPEND_CATEGORIES,
 } from './lib/bdMutations';
 import { searchAccounts } from './lib/bdQueries';
+import {
+  VoiceRecorder,
+  formatDuration,
+  isRecordingSupported,
+  MAX_RECORDING_SECONDS,
+} from './lib/voiceRecorder';
+import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 
 // Build a `<input type="datetime-local">` value for "right now" in
 // the user's local timezone. The native input doesn't accept ISO with
@@ -38,6 +47,15 @@ export function QuickCapture() {
   const [formError, setFormError]       = useState('');
   const [success, setSuccess]           = useState(null);
 
+  // Voice memo recording state. Recorder lives in a ref so React
+  // re-renders don't tear it down mid-recording.
+  const recorderRef = useRef(null);
+  const tickRef = useRef(null);
+  const [recState, setRecState] = useState('idle'); // idle | recording | transcribing | error
+  const [recElapsed, setRecElapsed] = useState(0);
+  const [recError, setRecError] = useState('');
+  const voiceSupported = isRecordingSupported();
+
   const lockedAccount = useMemo(
     () => (lockedAccountId ? accounts.find((a) => a.id === lockedAccountId) : null),
     [accounts, lockedAccountId],
@@ -60,6 +78,108 @@ export function QuickCapture() {
   }, [accounts, accountSearch, lockedAccount]);
 
   const spendCents = parseDollarsToCents(spendInput);
+
+  // ─── Voice memo handlers ───────────────────────────────────
+
+  async function handleStartRecording() {
+    setRecError('');
+    setFormError('');
+    if (!voiceSupported) {
+      setRecError('Voice recording is not supported on this device.');
+      return;
+    }
+    const recorder = new VoiceRecorder();
+    recorderRef.current = recorder;
+    try {
+      await recorder.start();
+    } catch (e) {
+      setRecError(e?.message ?? 'Could not start recording.');
+      recorderRef.current = null;
+      return;
+    }
+    setRecState('recording');
+    setRecElapsed(0);
+    tickRef.current = setInterval(() => {
+      const elapsed = recorder.elapsedSeconds();
+      setRecElapsed(elapsed);
+      // Hard stop at the cap so a forgotten recording doesn't run all
+      // afternoon and overflow Whisper's per-request budget.
+      if (elapsed >= MAX_RECORDING_SECONDS) handleStopRecording();
+    }, 250);
+  }
+
+  async function handleStopRecording() {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    setRecState('transcribing');
+    let blob;
+    try {
+      blob = await recorder.stop();
+    } catch (e) {
+      setRecError(e?.message ?? 'Recording failed.');
+      setRecState('error');
+      recorderRef.current = null;
+      return;
+    }
+    if (!blob || blob.size === 0) {
+      setRecError('No audio captured. Try again.');
+      setRecState('error');
+      recorderRef.current = null;
+      return;
+    }
+    try {
+      const transcript = await transcribeBlob(blob);
+      // Append to any text the rep has already typed so we don't
+      // clobber a manual draft.
+      setNotes((prev) => (prev?.trim() ? `${prev.trim()}\n\n${transcript}` : transcript));
+      setRecState('idle');
+    } catch (e) {
+      setRecError(e?.message ?? 'Transcription failed.');
+      setRecState('error');
+    } finally {
+      recorderRef.current = null;
+    }
+  }
+
+  function handleCancelRecording() {
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
+    setRecState('idle');
+    setRecElapsed(0);
+  }
+
+  // Clean up if the component unmounts mid-recording (e.g. user
+  // navigates away). Keeps the microphone from staying live.
+  useEffect(() => {
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      recorderRef.current?.cancel();
+    };
+  }, []);
+
+  async function transcribeBlob(blob) {
+    if (!supabase || !SUPABASE_URL) {
+      throw new Error('Supabase not configured.');
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('Not signed in.');
+    const form = new FormData();
+    form.append('file', blob, `memo${blob.type.includes('mp4') ? '.mp4' : '.webm'}`);
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/bd-transcribe`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      throw new Error(`Transcription failed (${resp.status}): ${t.slice(0, 160)}`);
+    }
+    const j = await resp.json();
+    return (j.transcript ?? '').trim();
+  }
 
   async function handleSubmit() {
     setFormError('');
@@ -180,6 +300,54 @@ export function QuickCapture() {
       {/* Notes */}
       <div className={s.card}>
         <div className={s.sectionTitle}>Notes</div>
+
+        {voiceSupported && (
+          <div className={s.voiceRow}>
+            {recState === 'idle' && (
+              <button
+                type="button"
+                className={s.voiceStartBtn}
+                onClick={handleStartRecording}
+              >
+                🎤 Record memo
+              </button>
+            )}
+            {recState === 'recording' && (
+              <>
+                <button
+                  type="button"
+                  className={s.voiceStopBtn}
+                  onClick={handleStopRecording}
+                >
+                  ⏹ Stop · {formatDuration(recElapsed)}
+                </button>
+                <button
+                  type="button"
+                  className={s.voiceCancelBtn}
+                  onClick={handleCancelRecording}
+                >
+                  Cancel
+                </button>
+                <span className={s.voiceHint}>Recording — tap stop when done.</span>
+              </>
+            )}
+            {recState === 'transcribing' && (
+              <span className={s.voiceHint}>Transcribing your memo…</span>
+            )}
+            {recState === 'error' && (
+              <button
+                type="button"
+                className={s.voiceStartBtn}
+                onClick={handleStartRecording}
+              >
+                🎤 Try again
+              </button>
+            )}
+          </div>
+        )}
+
+        {recError && <div className={s.error} style={{ marginBottom: 8 }}>{recError}</div>}
+
         <textarea
           className={s.input}
           rows={4}

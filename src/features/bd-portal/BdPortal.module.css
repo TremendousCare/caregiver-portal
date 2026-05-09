@@ -526,6 +526,65 @@
   gap: 8px;
 }
 
+.voiceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.voiceStartBtn {
+  background: linear-gradient(135deg, #B83232, #DC4949);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(184, 50, 50, 0.18);
+}
+
+.voiceStopBtn {
+  background: linear-gradient(135deg, #1A2332, #2E4E8D);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.24);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.voiceCancelBtn {
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  color: #5A6B85;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.voiceHint {
+  font-size: 12px;
+  color: #5A6B85;
+  flex: 1;
+}
+
+@keyframes pulse {
+  0%   { box-shadow: 0 2px 8px rgba(184, 50, 50, 0.30); }
+  50%  { box-shadow: 0 2px 16px rgba(184, 50, 50, 0.55); }
+  100% { box-shadow: 0 2px 8px rgba(184, 50, 50, 0.30); }
+}
+
 .logCta {
   background: linear-gradient(135deg, #29BEE4, #2E4E8D);
   color: #FFFFFF;
