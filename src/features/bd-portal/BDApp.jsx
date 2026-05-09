@@ -6,6 +6,7 @@ import { AccountList } from './AccountList';
 import { AccountProfile } from './AccountProfile';
 import { QuickCapture } from './QuickCapture';
 import { ReferralIntake } from './ReferralIntake';
+import { ContactCardCapture } from './ContactCardCapture';
 import { BottomNav } from './BottomNav';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
@@ -45,6 +46,7 @@ export function BDApp() {
         <Route path="/bd/accounts/:accountId"          element={<AccountProfile />} />
         <Route path="/bd/accounts/:accountId/log"      element={<QuickCapture />} />
         <Route path="/bd/accounts/:accountId/refer"    element={<ReferralIntake />} />
+        <Route path="/bd/accounts/:accountId/contact"  element={<ContactCardCapture />} />
         <Route path="/bd/*"                            element={<Navigate to="/bd" replace />} />
       </Routes>
       <BottomNav />
