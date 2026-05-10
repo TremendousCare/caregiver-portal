@@ -75,6 +75,14 @@ export interface AutonomyProfileEntryV2 {
   lockout_hours_after_demote?: number;
   /** ISO timestamp; promotion is locked until now() >= this. Set on demote. */
   lockout_until?: string | null;
+  /**
+   * ISO timestamp of the harmful action that triggered the most recent
+   * demote, if any. We refuse to re-demote on the same (or older)
+   * harmful action — without this, a single harmful row sitting in the
+   * 50-action lookback would walk an agent from L4 → L1 over the next
+   * few normal outcomes (Codex P2 #r3214228070).
+   */
+  last_demote_at?: string | null;
 }
 
 /** The shape of a row in `agent_actions` that this module reads. */
@@ -103,11 +111,15 @@ export interface PromotionVerdict {
   metrics: EvaluationMetrics;
   /** Echo of the entry the verdict was computed against (with defaults applied). */
   entry: Required<
-    Omit<AutonomyProfileEntryV2, "current_level" | "max_level" | "lockout_until">
+    Omit<
+      AutonomyProfileEntryV2,
+      "current_level" | "max_level" | "lockout_until" | "last_demote_at"
+    >
   > & {
     current_level: AutonomyLevel;
     max_level: AutonomyLevel;
     lockout_until: string | null;
+    last_demote_at: string | null;
   };
 }
 
@@ -145,6 +157,7 @@ export function normalizeEntry(
         ? entry.lockout_hours_after_demote
         : DEFAULT_LOCKOUT_HOURS,
     lockout_until: entry?.lockout_until ?? null,
+    last_demote_at: entry?.last_demote_at ?? null,
   };
 }
 
@@ -185,7 +198,18 @@ export function evaluatePromotion(
   const metrics = computeMetrics(windowedActions);
 
   // ── Demote-on-harm path takes precedence over everything else. ──
-  if (entry.demote_on_harmful && metrics.harmful_present) {
+  // We only fire on a harmful action that is *strictly newer* than
+  // `last_demote_at`. Without this guard, a single harmful row that sits
+  // in the lookback window (typically 50 actions = days of traffic) would
+  // re-trigger on every subsequent call and walk an agent from L4 → L1
+  // over the next few normal outcomes. The lockout marker doesn't help on
+  // its own because it's only ~24h while the harmful row stays in the
+  // window for much longer (Codex P2 #r3214228070).
+  if (
+    entry.demote_on_harmful &&
+    metrics.harmful_present &&
+    isStrictlyAfter(metrics.harmful_at, entry.last_demote_at)
+  ) {
     const prev = DEMOTION_PREV[entry.current_level];
     if (prev) {
       return {
@@ -309,6 +333,25 @@ export function evaluatePromotion(
     metrics,
     entry,
   };
+}
+
+/**
+ * Returns true if `a` is a parseable ISO timestamp strictly after `b`.
+ * If `b` is null/undefined/unparseable, treats `a` as newer (so the
+ * first-ever harmful action always triggers a demote). If `a` itself is
+ * null/unparseable, returns false.
+ */
+function isStrictlyAfter(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a) return false;
+  const aMs = Date.parse(a);
+  if (!Number.isFinite(aMs)) return false;
+  if (!b) return true;
+  const bMs = Date.parse(b);
+  if (!Number.isFinite(bMs)) return true;
+  return aMs > bMs;
 }
 
 function computeMetrics(actions: AgentActionRow[]): EvaluationMetrics {
@@ -471,25 +514,34 @@ export async function recordAutonomyOutcomeV2(
     if (verdict.shouldDemote) {
       const lockMs = Date.now() + (verdict.entry.lockout_hours_after_demote * 3600_000);
       nextEntry.lockout_until = new Date(lockMs).toISOString();
+      // Remember the harmful action that triggered this demote so we
+      // don't re-demote on the same row as it sits in the lookback
+      // window (Codex P2 #r3214228070).
+      nextEntry.last_demote_at = verdict.metrics.harmful_at ?? new Date().toISOString();
     } else if (verdict.shouldPromote) {
       // Promotion clears any prior lockout marker — the system has
       // re-earned trust by climbing through the threshold.
       nextEntry.lockout_until = null;
     }
 
-    const nextProfile = { ...profile, [args.actionType]: nextEntry };
-
-    const { error: updateErr } = await supabase
-      .from("agents")
-      .update({
-        autonomy_profile: nextProfile,
-        updated_by: "system:autonomy_v2",
-      })
-      .eq("id", args.agentId);
-    if (updateErr) {
+    // Atomic single-key UPDATE via SECURITY DEFINER RPC. The previous
+    // read-modify-write of the whole `autonomy_profile` raced concurrent
+    // outcomes for *different* action types — second write would drop
+    // the first (Codex P2 #r3214228075). The RPC's `jsonb_set` merges
+    // into the live column rather than overwriting it.
+    const { error: rpcErr } = await supabase.rpc(
+      "update_autonomy_profile_entry_v1",
+      {
+        p_agent_id:    args.agentId,
+        p_action_type: args.actionType,
+        p_entry:       nextEntry,
+        p_updated_by:  "system:autonomy_v2",
+      },
+    );
+    if (rpcErr) {
       console.error(
         `[autonomy v2] Failed to update autonomy_profile for ${args.agentId}/${args.actionType}:`,
-        updateErr.message,
+        rpcErr.message,
       );
       return HOLD;
     }

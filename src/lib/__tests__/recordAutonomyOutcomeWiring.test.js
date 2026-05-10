@@ -58,10 +58,11 @@ function makeLegacySupabase() {
           }),
         };
       }
-      // v2 path also reads agents + agent_actions and writes events; we
-      // don't need to verify those here (autonomyV2.test.js owns that
-      // contract). Return a no-op stub for any other table the v2 wrapper
-      // touches so it doesn't throw.
+      // v2 path reads agents + agent_actions, writes via the
+      // `update_autonomy_profile_entry_v1` RPC, and inserts events. We
+      // don't verify those here (autonomyV2.test.js owns that contract).
+      // Return a no-op stub for any table the v2 wrapper touches so it
+      // doesn't throw.
       if (table === 'agents') {
         return {
           select: vi.fn(() => ({
@@ -77,7 +78,6 @@ function makeLegacySupabase() {
               })),
             })),
           })),
-          update: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })),
         };
       }
       if (table === 'agent_actions') {
@@ -98,6 +98,7 @@ function makeLegacySupabase() {
       }
       throw new Error(`unmocked table: ${table}`);
     }),
+    rpc: vi.fn(async () => ({ data: null, error: null })),
     _legacyUpdates: updates,
   };
 }
