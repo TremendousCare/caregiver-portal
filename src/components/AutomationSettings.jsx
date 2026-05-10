@@ -2148,6 +2148,8 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
 
 // ─── Execution Log ───
 function ExecutionLog({ logs, loading, collapsed, onToggleCollapse }) {
+  const [expandedErrorId, setExpandedErrorId] = useState(null);
+
   const formatTimestamp = (ts) => {
     const d = new Date(ts);
     const now = new Date();
@@ -2212,35 +2214,60 @@ function ExecutionLog({ logs, loading, collapsed, onToggleCollapse }) {
               <span>Status</span>
             </div>
 
-            {logs.map((log, i) => (
-              <div key={log.id} style={{
-                display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
-                alignItems: 'center', padding: '10px 16px',
-                borderBottom: i < logs.length - 1 ? '1px solid #F0F3F7' : 'none',
-                background: '#fff',
-              }}>
-                <div style={{ fontSize: 11, color: '#7A8BA0', fontWeight: 500 }}>
-                  {formatTimestamp(log.executed_at)}
+            {logs.map((log, i) => {
+              const isExpanded = expandedErrorId === log.id;
+              return (
+                <div key={log.id} style={{
+                  display: 'grid', gridTemplateColumns: '100px 1fr 1fr 70px 70px',
+                  alignItems: 'start', padding: '10px 16px',
+                  borderBottom: i < logs.length - 1 ? '1px solid #F0F3F7' : 'none',
+                  background: '#fff',
+                }}>
+                  <div style={{ fontSize: 11, color: '#7A8BA0', fontWeight: 500, paddingTop: 2 }}>
+                    {formatTimestamp(log.executed_at)}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: 2 }}>
+                    {log.rule_name || log.rule_id}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: 2 }}>
+                    {log.caregiver_name || log.caregiver_id}
+                  </div>
+                  <div style={{ paddingTop: 2 }}><ActionBadge type={log.action_type} /></div>
+                  <div style={{ minWidth: 0 }}>
+                    <StatusBadge status={log.status} />
+                    {log.error_detail && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedErrorId(isExpanded ? null : log.id)}
+                        aria-expanded={isExpanded}
+                        title={isExpanded ? 'Hide details' : 'Show full error'}
+                        style={{
+                          marginTop: 2,
+                          padding: 0,
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          display: 'block',
+                          width: '100%',
+                          fontFamily: 'inherit',
+                          fontSize: 10,
+                          color: '#DC2626',
+                          textDecoration: 'underline',
+                          textDecorationStyle: 'dotted',
+                          textUnderlineOffset: 2,
+                          ...(isExpanded
+                            ? { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+                            : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                        }}
+                      >
+                        {log.error_detail}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {log.rule_name || log.rule_id}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#0F1724', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {log.caregiver_name || log.caregiver_id}
-                </div>
-                <div><ActionBadge type={log.action_type} /></div>
-                <div>
-                  <StatusBadge status={log.status} />
-                  {log.error_detail && (
-                    <div style={{ fontSize: 10, color: '#DC2626', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={log.error_detail}
-                    >
-                      {log.error_detail}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
