@@ -11,15 +11,30 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 0.5 — Settings UI for agent manifest editing** *(spec drafted; **all 11 decisions locked 2026-05-09**; implementation gated on cleanup bake ≥ 7 days from 2026-05-09)*
+**Phase 1.2 — Tightened autonomy promotion algorithm v2** *(not started; ready to begin)*
 
-**Spec doc**: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md` — §9 lists 11 decisions, all locked. PR A and PR B implement to those answers; deviations stop and ask.
+**Why this is next:** Phases 0.x and 1.1 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs 1.2 + 1.3 + 1.5 before it can ship. 1.2 unblocks safe auto-execute promotion which is foundational for 2.
 
-**Implementation start**: earliest **2026-05-17** (cleanup PR #291 merged 2026-05-09, +7 days).
+**Scope** (per `docs/AGENT_PLATFORM.md` → 1.2): replace the legacy `autonomy_config` consecutive-counter promotion with `evaluatePromotion(agentId, actionType, recentOutcomes)` that reads from `autonomy_profile` jsonb (already in `agents` row from Phase 0.1; underused until now). Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Locked decisions in `AGENT_PLATFORM.md` → "Decisions locked".
 
-**Slicing** (locked D10): PR A = read-only foundation + kill_switch/shadow_mode toggles + read-only version history + `toggle_agent_flag_v1` RPC. PR B = full manifest editing + revert + `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs + the `agent_table_write_lockdown` migration that revokes `INSERT/UPDATE/DELETE` on `agents` / `agent_versions` from `authenticated`.
+**Velocity option from compressed plan:** 1.1 + 1.3 + 1.4 don't strictly depend on each other. We can ship 1.2 in parallel with 1.3 (kill-switch hardening) if it speeds up Phase 2 unblock.
 
-**Architecturally locked**: D3 (optimistic locking with `agent_version_conflict` sqlstate) and D11 (revoke privileges, RPC-only write path; **no admin-check in any RLS policy on these tables** to prevent recursion regressions like the 2026-05-09 user_roles incident).
+---
+
+## What 0.5 + 1.1 delivered (shipped 2026-05-09 → 2026-05-10)
+
+### Phase 0.5 — Settings UI for agent manifest editing (closed 2026-05-09)
+- PR #298 (PR A): read-only foundation + kill_switch / shadow_mode toggles + read-only version history + `toggle_agent_flag_v1` RPC
+- PR #300 (PR B): full manifest editing (system_prompt, tool_allowlist, autonomy_profile, etc.) + version history with diff + revert + `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs + `agent_table_write_lockdown` migration that revokes `INSERT/UPDATE/DELETE` on `agents` / `agent_versions` from `authenticated`
+- Spec doc: `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. All 11 §9 decisions locked.
+- Owner verified: post-deploy smoke green; admin can toggle / edit / revert; lockdown enforces RPC-only write path.
+
+### Phase 1.1 — `agent_actions` audit log (closed 2026-05-10)
+- PR #301 (1.1.A): `agent_actions` table (15 columns + hash chain + Ed25519 signature column + `chain_seq` IDENTITY for strict ordering) + `record_agent_action_v1` RPC + crypto helpers (`agentActionsCrypto.ts`) + `recordAgentAction` wrapper
+- PR #302 (1.1.B): `agent-actions-verify` edge function + daily 13:30 UTC `pg_cron` + first dual-write call site (`agent-flag-toggle` wrapper edge function) + `agentActionsVerify.ts` helper + anon privilege cleanup
+- PR #303 (1.1.C): dual-write extended to chat shell tool loop, chat shell confirmAction, planner shell suggestion creation, router shell classification, and `executeSuggestion` in routing.ts. Plus `agent-actions-export` edge function streaming NDJSON with full-chain verification + service-role auth gate + 50K row cap.
+- **Tamper-evident audit log** of every agent action is now live in production. Daily cron walks the chain; chain breaks surface as `events.event_type='agent_actions_chain_break'`. Manual NDJSON export available for compliance dumps.
+- Codex caught + fixed inline: 5 P1/P2s across the three PRs (chain-conflict race, JWT-org check, created_at hash drift, RPC over-grant, chain_seq strict ordering, export auth gate, full-chain verification semantics).
 
 ---
 
@@ -63,9 +78,9 @@ Net diff: **−1,651 lines**. CI green, 2,915 tests passing.
 | 0.2 | `agent_id` columns + deterministic backfill on 4 AI-tier tables | **Shipped** | 2026-04-30 (PR #244) | 3,847 ai_suggestions + 11 action_outcomes stamped. 29 Vitest specs. |
 | 0.3 | `agentRuntime.ts` + parity harness | **Shipped** | 2026-05-01 (PR #247) | `runAgent` + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness: 62 Layer A unit specs + 22 Layer B byte-equal fixture specs + 3 Layer C live Anthropic specs (gated on `ANTHROPIC_API_KEY`, configured in repo secrets). Pure additive — legacy edge functions untouched. Codex P1 caught + fixed: `loadManifest` requires `orgId` (agents.unique = (org_id, slug)). |
 | 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped + closed** | 2026-05-04 (PR #254) + 2026-05-09 (cleanup PR #291) | All three shells flipped clean. Cleanup removed `*_legacy.ts` siblings, `cutoverFlag.ts` helper, dead `classifyMessage()`, and the `agent_runtime_cutover` row. Owner-authorized early cleanup merge after live verification showed zero unstamped across all three shells post-flip. |
-| 0.5 | Settings UI for manifest editing | **Spec drafted, decisions locked** | — | `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. Two-PR slicing locked (PR A read-only + toggles + read-only version history; PR B full edit + revert + RLS lockdown). All 11 decisions in §9 locked 2026-05-09. Implementation gate: cleanup baked ≥ 7 days (earliest 2026-05-17). |
-| 1.1 | `agent_actions` billing-grade audit log | Not started | — | Hash-chained Ed25519-signed records, daily verifier cron. |
-| 1.2 | Tightened autonomy promotion algorithm v2 | Not started | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. |
+| 0.5 | Settings UI for manifest editing | **Shipped + closed** | 2026-05-09 (PR #298 + #300) | Spec doc + 11 locked decisions in `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. PR A: read-only + toggles + version history. PR B: full edit + revert + lockdown migration. Compressed bake — manual smoke + DB-level verification stood in for the calendar bake per CEO directive. |
+| 1.1 | `agent_actions` billing-grade audit log | **Shipped + closed** | 2026-05-10 (PRs #301 + #302 + #303) | Three-PR slicing: 1.1.A foundation (table + RPC + crypto), 1.1.B verifier + cron + first dual-write, 1.1.C dual-write everywhere + NDJSON export. Hash-chained SHA-256 + Ed25519 signing, `chain_seq` IDENTITY for strict ordering, daily 13:30 UTC verifier cron writes `events.event_type='agent_actions_chain_break'` on tampering. Service-role-gated NDJSON export at `/functions/v1/agent-actions-export`. Tamper-evident audit log of every agent action is live. |
+| **1.2** | **Tightened autonomy promotion algorithm v2** | **Next** | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Replaces legacy `autonomy_config` consecutive-counter with `evaluatePromotion(agentId, actionType, recentOutcomes)` reading `autonomy_profile` jsonb. **Required before Phase 2 ships any auto-execute behavior at scale.** |
 | 1.3 | Per-(agent × org) kill switch + shadow mode hardening | Not started | — | Defense in depth; toggles audited. |
 | 1.4 | Per-agent metrics dashboard | Not started | — | "Is this agent earning its keep?" surface. |
 | **1.5** | **Retrospective grading UI** | Not started | — | New phase (added 2026-04-30). Calibrates accumulated `ai_suggestions` for Phase 2. |
@@ -128,6 +143,13 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-05-01 | #247 | 0.3 | `agentRuntime.ts` orchestrator + manifest loader + retry helper + chat/planner/router handlers. Three-layer parity harness (Layer A unit / Layer B byte-equal fixtures / Layer C live Anthropic smoke). 87 new specs across the runtime test files (total suite now 2,454 incl. Layer C). Codex P1 fixed in-PR: `loadManifest` requires `orgId` because `agents.unique = (org_id, slug)`. Pure additive — no edge function or production behavior change. |
 | 2026-05-04 | #254 | 0.4 | Edge function cutover with feature-flag rollback. Each of `ai-chat` / `ai-planner` / `message-router` split into `index.ts` (Deno.serve dispatcher, reads `app_settings.agent_runtime_cutover`) + `shell.ts` (testable runtime path, calls `runAgent`) + `index_legacy.ts` (verbatim pre-0.4 code, kept as rollback sibling). Optional `agentId` parameter threaded through `logEvent` / `logAction` / `createSuggestion`; `executeSuggestion` reads `agent_id` from the suggestion row. 60 new specs across 5 files; full suite 2,543 passing. Default-off flag means merge is a no-op until SQL flip — flippable per-shell without redeploy. |
 | 2026-05-09 | #291 | 0.4 cleanup | Removed the cutover flag and `*_legacy.ts` rollback siblings after planner flipped 5/4 + router and chat flipped 5/9 with zero unstamped post-flip across all three shells. Each `index.ts` is now a thin Deno wrapper around its `shell.ts`. Migration `20260510000000_…_drop_cutover_flag.sql` deletes the vestigial `app_settings.agent_runtime_cutover` row. Net diff −1,651 lines; 2,915 tests passing. Owner authorized early merge after live verification (planner proactive 25/0, planner event_triggered 195/0, router post-flip 85/0, chat events 11/0, chat action_outcomes 1/0). |
+| 2026-05-09 | #292 | docs (0.5 spec) | Phase 0.5 spec doc + STATUS.md update to reflect 0.4 closed. Markdown only. |
+| 2026-05-09 | #295 | docs (0.5 lock) | Locked all 11 §9 decisions on the spec doc. Codex P2 caught a stale "decisions needed" callout drift; fixed in the same PR. |
+| 2026-05-09 | #298 | 0.5 PR A | Settings UI read-only foundation + kill_switch / shadow_mode toggles + read-only version history + `toggle_agent_flag_v1` RPC. New `src/components/agentManifest/` directory. 60 new specs. Codex P2 caught a row-lock-on-toggle race (duplicate audit rows on concurrent toggles); fixed via `FOR UPDATE` on the agent SELECT. |
+| 2026-05-09 | #300 | 0.5 PR B | Full manifest editing (system_prompt, tool_allowlist, autonomy_profile, etc.) + version history with diff viewer + revert. `update_agent_manifest_v1` + `revert_agent_to_version_v1` RPCs. `agent_table_write_lockdown` migration revokes `INSERT/UPDATE/DELETE` on `agents` / `agent_versions` from `authenticated`. 119 new specs (3,101 passing). Codex P2 caught stale version-history after save; fixed via `currentVersion` refresh signal on the hook. |
+| 2026-05-10 | #301 | 1.1.A | `agent_actions` table + `record_agent_action_v1` RPC + crypto helpers (canonical JSON, SHA-256 chain hash, Ed25519 sign/verify via Web Crypto). 77 new specs. Codex P1 caught two: (1) `created_at` drift between signed timestamp and stored DEFAULT now() — fixed by adding `p_created_at` parameter + ±5min anti-backdate bound. (2) `record_agent_action_v1` over-granted to `authenticated` — fixed by REVOKE + grant only to `service_role`. Pure infrastructure (no callers yet). |
+| 2026-05-10 | #302 | 1.1.B | `agent-actions-verify` edge function + daily 13:30 UTC `pg_cron` + first dual-write call site (new `agent-flag-toggle` wrapper edge function). Anon privilege cleanup migration. `chain_seq` IDENTITY column added (Codex P1 fix for false `broken_chain_link` reports on same-millisecond rows). Frontend toggle path now routes through edge function for atomic toggle + audit dual-write. First production audit row: chain_seq=1 at 02:02 UTC on 2026-05-10. |
+| 2026-05-10 | #303 | 1.1.C | Dual-write extended to chat shell tool loop, confirmAction, planner shell, router shell, and `executeSuggestion`. NDJSON export endpoint at `/functions/v1/agent-actions-export` with full-chain verification + service-role auth gate. Codex P1 + P2 caught: missing auth gate on export, false integrity reports on filtered exports — both fixed inline. 3,244 specs passing. **Phase 1.1 closed.** |
 
 (Add a row when each subsequent PR ships.)
 
