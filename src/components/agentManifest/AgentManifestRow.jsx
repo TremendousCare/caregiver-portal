@@ -14,7 +14,7 @@ export function AgentManifestRow({
   onToggleFlag,
   onSaved,            // (PR B) called after a successful save / revert → parent refreshes
   showToast,
-  saving,             // 'kill_switch' | 'shadow_mode' | null
+  saving,             // 'kill_switch' | 'shadow_mode' | 'read_only_mode' | null
 }) {
   const status = agentStatus(agent);
 
@@ -75,6 +75,15 @@ export function AgentManifestRow({
               ? 'Click to exit shadow mode (live execution)'
               : 'Click to put this agent in shadow mode (no side-effects)'}
           />
+          <ToggleButton
+            label="Read-only"
+            active={!!agent.read_only_mode}
+            saving={saving === 'read_only_mode'}
+            onClick={() => onToggleFlag('read_only_mode', !agent.read_only_mode)}
+            title={agent.read_only_mode
+              ? 'Click to exit read-only mode (tools resume)'
+              : 'Click to put this agent in read-only mode (all tool calls suppressed)'}
+          />
         </div>
 
         {/* Chevron */}
@@ -131,10 +140,11 @@ function VersionChip({ version }) {
 
 function StatusDot({ status }) {
   const colors = {
-    live:    { bg: '#10B981', label: 'live' },
-    dormant: { bg: '#9CA3AF', label: 'dormant (kill switch on)' },
-    shadow:  { bg: '#F59E0B', label: 'shadow mode' },
-    unknown: { bg: '#D1D5DB', label: 'unknown' },
+    live:      { bg: '#10B981', label: 'live' },
+    dormant:   { bg: '#9CA3AF', label: 'dormant (kill switch on)' },
+    shadow:    { bg: '#F59E0B', label: 'shadow mode' },
+    read_only: { bg: '#3B82F6', label: 'read-only (tools suppressed)' },
+    unknown:   { bg: '#D1D5DB', label: 'unknown' },
   };
   const c = colors[status] || colors.unknown;
   return (

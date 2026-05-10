@@ -47,7 +47,7 @@ const corsHeaders = {
 
 interface RequestBody {
   agent_id?: string;
-  flag?:     'kill_switch' | 'shadow_mode';
+  flag?:     'kill_switch' | 'shadow_mode' | 'read_only_mode';
   value?:    boolean;
 }
 
@@ -95,8 +95,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!body.agent_id || typeof body.agent_id !== 'string') {
       return jsonResponse(400, { error: 'agent_id required' });
     }
-    if (body.flag !== 'kill_switch' && body.flag !== 'shadow_mode') {
-      return jsonResponse(400, { error: 'flag must be kill_switch or shadow_mode' });
+    if (
+      body.flag !== 'kill_switch' &&
+      body.flag !== 'shadow_mode' &&
+      body.flag !== 'read_only_mode'
+    ) {
+      return jsonResponse(400, {
+        error: 'flag must be kill_switch, shadow_mode, or read_only_mode',
+      });
     }
     if (typeof body.value !== 'boolean') {
       return jsonResponse(400, { error: 'value must be a boolean' });

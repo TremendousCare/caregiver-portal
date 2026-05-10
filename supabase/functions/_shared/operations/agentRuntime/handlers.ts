@@ -20,8 +20,10 @@
 import { callAnthropic } from "./anthropic.ts";
 import {
   AgentManifest,
+  AgentRuntimeFlags,
   isToolAllowed,
   levelForAction,
+  loadAgentFlags,
   recipeLayers,
 } from "./manifest.ts";
 
@@ -37,6 +39,16 @@ export interface HandlerDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Now() override for deterministic tests. */
   now?: () => number;
+  /**
+   * Phase 1.3 — per-iteration flag recheck override. Tests inject a
+   * stub that flips kill_switch / shadow_mode / read_only_mode between
+   * iterations to verify the loop respects mid-flight admin toggles.
+   * Production paths use the default `loadAgentFlags` import.
+   */
+  loadAgentFlagsImpl?: (
+    supabase: any,
+    agentId: string,
+  ) => Promise<AgentRuntimeFlags | null>;
 }
 
 export interface HandlerCost {
@@ -54,7 +66,7 @@ export interface HandlerSuggestion {
 }
 
 export interface HandlerResult {
-  status: "ok" | "shadow" | "iteration_limit" | "error" | "skipped";
+  status: "ok" | "shadow" | "read_only" | "killed_mid_flight" | "iteration_limit" | "error" | "skipped";
   reply?: string;
   pendingConfirmation?: any;
   toolResults?: Array<{ tool: string; input: any; result: any }>;
@@ -139,7 +151,23 @@ export async function runChatHandler(
 
   let systemPrompt = manifest.system_prompt;
   let contextHealth: any = null;
-  if (req.assembleSystemPrompt) {
+  // Phase 1.3 — under read_only_mode, skip the assembler entirely.
+  // The assembler reads situational / memory / thread layers from
+  // Supabase before the loop. Read-only mode's user-facing guarantee
+  // is "the agent runs from prior context only, no DB access" — that
+  // would be a broken promise if the per-session context-assembly
+  // reads still fired. We use the manifest's static system_prompt as
+  // the only context, mirroring the buildFallbackPrompt path's minimal
+  // shape (Codex P2 #r3214997663).
+  if (manifest.read_only_mode) {
+    contextHealth = {
+      status: "read_only",
+      layersLoaded: ["identity", "guidelines"],
+      layersFailed: [],
+      layersSkipped: ["situational", "memories", "threads", "viewing"],
+      tokenEstimate: 0,
+    };
+  } else if (req.assembleSystemPrompt) {
     try {
       const result = await req.assembleSystemPrompt({
         supabase: deps.supabase,
@@ -187,9 +215,71 @@ export async function runChatHandler(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let exitedWithoutResponse = false;
+  // Phase 1.3 — runtime mode wrapping is decided here, against the raw
+  // `req.executeTool`. Doing it here (rather than at the dispatch site
+  // in `agentRuntime.ts`) means the per-iteration recheck below can
+  // *unwrap* when an admin clears the flag mid-flight by simply
+  // re-running `chooseExecuteTool` with the live snapshot — without
+  // this, a session that started in shadow/read_only could never
+  // restore live tool execution because we'd be re-wrapping the
+  // already-wrapped executor (Codex P2 #r3214997666).
+  //
+  // Initial snapshot mirrors the manifest as seen by the dispatcher;
+  // recheck on subsequent iterations updates it.
+  let flagsSnapshot: AgentRuntimeFlags = {
+    kill_switch:    !!manifest.kill_switch,
+    shadow_mode:    !!manifest.shadow_mode,
+    read_only_mode: !!manifest.read_only_mode,
+  };
+  let activeExecuteTool = chooseExecuteTool(req, manifest, flagsSnapshot);
+  let killedMidFlight = false;
+  const flagsImpl = deps.loadAgentFlagsImpl ?? loadAgentFlags;
 
   while (iterations < manifest.max_iterations) {
     iterations++;
+
+    // ── Phase 1.3 — per-iteration runtime-flag recheck. ──
+    // The startup-time kill_switch check in `runAgent` only stops a
+    // brand-new invocation; without this, an admin who flips kill
+    // mid-flight would still see this loop drain to its
+    // max_iterations cap (≤15 iterations × ~5–15s/iter = up to a
+    // couple of minutes of wasted Claude tokens + tool side effects).
+    //
+    // Recheck happens AFTER iterations++ so the cost stays bounded
+    // (we still cap at max_iterations) but BEFORE the Claude call so
+    // a kill flip prevents the next round-trip.
+    //
+    // Skip on iteration 1 — the dispatcher just loaded the manifest,
+    // and a recheck here would be a wasted DB hit. From iteration 2
+    // onward we re-fetch (small SELECT — three boolean columns).
+    if (iterations > 1 && manifest.id) {
+      const live = await flagsImpl(deps.supabase, manifest.id);
+      if (live) {
+        // Kill switch flipped on mid-flight → break out of the loop
+        // immediately. We surface the partial reply if we already
+        // have one (so the user sees what we managed to say) but do
+        // NOT execute any further tools.
+        if (live.kill_switch && !flagsSnapshot.kill_switch) {
+          killedMidFlight = true;
+          break;
+        }
+        // Mode flips (shadow / read_only) — re-wrap activeExecuteTool
+        // so subsequent tool calls honor the new mode. The wrappers
+        // here mirror the ones in `agentRuntime.ts`; we keep them
+        // inline rather than importing to avoid a circular dep.
+        if (
+          live.read_only_mode !== flagsSnapshot.read_only_mode ||
+          live.shadow_mode !== flagsSnapshot.shadow_mode
+        ) {
+          activeExecuteTool = chooseExecuteTool(req, manifest, live);
+        }
+        flagsSnapshot = live;
+      }
+      // live === null means the recheck SELECT failed transiently.
+      // Fall through with the prior snapshot — failing closed (e.g.
+      // forcing a kill) on a transient DB hiccup would create a worse
+      // failure mode than the bug this recheck prevents.
+    }
 
     const requestBody = {
       model: req.modelOverride ?? manifest.model,
@@ -270,7 +360,10 @@ export async function runChatHandler(
       }
 
       if (req.confirmTools.has(toolName)) {
-        const result = await req.executeTool(toolName, toolInput, ctx);
+        // Phase 1.3 — `activeExecuteTool` reflects the latest wrapper
+        // (live / shadow / read_only) chosen by the per-iteration
+        // recheck above. Initial value mirrors `req.executeTool`.
+        const result = await activeExecuteTool(toolName, toolInput, ctx);
         if (result?.requires_confirmation) {
           pendingConfirmation = result;
           toolResultBlocks.push({
@@ -289,7 +382,7 @@ export async function runChatHandler(
           });
         }
       } else if (req.autoExecuteTools.has(toolName)) {
-        const result = await req.executeTool(toolName, toolInput, ctx);
+        const result = await activeExecuteTool(toolName, toolInput, ctx);
         toolResults.push({ tool: toolName, input: toolInput, result });
         toolResultBlocks.push({
           type: "tool_result",
@@ -315,9 +408,23 @@ export async function runChatHandler(
     exitedWithoutResponse = true;
   }
 
+  // Phase 1.3 — surface a mid-flight kill flip as `killed_mid_flight`
+  // so the orchestrator in `agentRuntime.ts` can normalize it to
+  // the same `killed` status callers already understand.
+  let status: HandlerResult["status"];
+  if (killedMidFlight) {
+    status = "killed_mid_flight";
+  } else if (exitedWithoutResponse) {
+    status = "iteration_limit";
+  } else {
+    status = "ok";
+  }
+
   return {
-    status: exitedWithoutResponse ? "iteration_limit" : "ok",
-    reply: finalReply,
+    status,
+    reply: killedMidFlight && !finalReply
+      ? "Agent stopped mid-flight (kill switch flipped). No further action taken."
+      : finalReply,
     pendingConfirmation,
     toolResults,
     cost: {
@@ -328,6 +435,50 @@ export async function runChatHandler(
     },
     contextHealth,
   };
+}
+
+/**
+ * Phase 1.3 — pick the executeTool wrapper for the current iteration
+ * based on the latest flag snapshot. Mirrors the wrappers in
+ * `agentRuntime.ts:wrapChatRequestForShadow / ForReadOnly` but is
+ * defined inline here to avoid a circular import (handlers.ts is
+ * imported by agentRuntime.ts, not the other way round).
+ *
+ * Precedence: `read_only_mode > shadow_mode > live`. Read-only is
+ * strictly more restrictive than shadow (suppresses auto-tier reads
+ * too) so it wins when both are on.
+ */
+function chooseExecuteTool(
+  req: ChatHandlerRequest,
+  manifest: AgentManifest,
+  flags: AgentRuntimeFlags,
+): ChatHandlerRequest["executeTool"] {
+  if (flags.read_only_mode) {
+    return async (name: string, _input: any, _ctx: any) => ({
+      status: "read_only",
+      message:
+        `Read-only mode: ${name} was suppressed. The agent must respond from prior context only.`,
+      read_only: true,
+      agent_id: manifest.id,
+      agent_slug: manifest.slug,
+    });
+  }
+  if (flags.shadow_mode) {
+    const original = req.executeTool;
+    return async (name: string, input: any, ctx: any) => {
+      if (req.confirmTools.has(name)) {
+        return {
+          status: "shadow",
+          message: `Shadow mode: ${name} would have been suggested for confirmation.`,
+          shadow: true,
+          agent_id: manifest.id,
+          agent_slug: manifest.slug,
+        };
+      }
+      return await original(name, input, ctx);
+    };
+  }
+  return req.executeTool;
 }
 
 // ─── Planner handler ───

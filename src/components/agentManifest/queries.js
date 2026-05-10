@@ -19,6 +19,7 @@ const AGENT_COLUMNS = `
   max_iterations,
   kill_switch,
   shadow_mode,
+  read_only_mode,
   outcome_definition,
   triggers,
   created_at,
@@ -84,7 +85,12 @@ export async function loadAgentVersions(supabase, agentId) {
 // a gap that the verifier (1.1.C will detect) might surface later.
 export async function toggleAgentFlag(supabase, { agentId, flag, value }) {
   if (!agentId) throw new Error('toggleAgentFlag: agentId required');
-  if (flag !== 'kill_switch' && flag !== 'shadow_mode') {
+  // Phase 1.3 added 'read_only_mode' alongside the original two flags.
+  if (
+    flag !== 'kill_switch' &&
+    flag !== 'shadow_mode' &&
+    flag !== 'read_only_mode'
+  ) {
     throw new Error(`toggleAgentFlag: invalid flag "${flag}"`);
   }
 
@@ -146,7 +152,7 @@ export async function updateAgentManifest(supabase, {
 
 // Revert an agent's editable fields to a prior version's snapshot via
 // the revert_agent_to_version_v1 RPC. Excluded fields (kill_switch,
-// shadow_mode, slug, identity, triggers) are never touched.
+// shadow_mode, read_only_mode, slug, identity, triggers) are never touched.
 //
 // Errors:
 //   - sqlstate 42501 — not admin / cross-org
@@ -204,12 +210,17 @@ export function summariseAgent(agent) {
 }
 
 // Status helper: which color/state dot to show for an agent row.
-//   live    — kill_switch=false, shadow_mode=false (normal operation)
-//   dormant — kill_switch=true (return-immediately, no Claude call)
-//   shadow  — shadow_mode=true (loop runs but writes go to ai_suggestions)
+//   live      — all three flags false (normal operation)
+//   dormant   — kill_switch=true (return-immediately, no Claude call)
+//   read_only — read_only_mode=true (Claude runs, all tool calls suppressed)
+//   shadow    — shadow_mode=true (loop runs but confirm-tier writes routed
+//               to ai_suggestions instead of executing)
+//
+// Precedence is the same as the runtime: kill > read_only > shadow.
 export function agentStatus(agent) {
   if (!agent) return 'unknown';
   if (agent.kill_switch) return 'dormant';
+  if (agent.read_only_mode) return 'read_only';
   if (agent.shadow_mode) return 'shadow';
   return 'live';
 }

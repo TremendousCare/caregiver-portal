@@ -37,7 +37,12 @@ export function useAgents() {
   // savingId tracks which agent is mid-flight so the row's spinner
   // shows while the network call runs.
   const handleToggle = useCallback(async (agentId, flag, nextValue) => {
-    if (flag !== 'kill_switch' && flag !== 'shadow_mode') {
+    // Phase 1.3 added 'read_only_mode' alongside the original two flags.
+    if (
+      flag !== 'kill_switch' &&
+      flag !== 'shadow_mode' &&
+      flag !== 'read_only_mode'
+    ) {
       throw new Error(`useAgents.handleToggle: invalid flag "${flag}"`);
     }
     setSavingId(`${agentId}:${flag}`);

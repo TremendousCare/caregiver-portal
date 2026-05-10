@@ -25,7 +25,11 @@ export function AgentManifestSettings({ showToast }) {
     const result = await handleToggle(agent.id, flag, nextValue);
     if (result.success) {
       const verb = nextValue ? 'enabled' : 'disabled';
-      const label = flag === 'kill_switch' ? 'Kill switch' : 'Shadow mode';
+      const label =
+        flag === 'kill_switch'    ? 'Kill switch' :
+        flag === 'shadow_mode'    ? 'Shadow mode' :
+        flag === 'read_only_mode' ? 'Read-only mode' :
+        flag;
       showToast?.(`${label} ${verb} for ${agent.name}`);
     } else {
       const code = result.error?.code || result.error?.message || 'unknown';
@@ -64,8 +68,9 @@ export function AgentManifestSettings({ showToast }) {
                 onSaved={refresh}
                 showToast={showToast}
                 saving={
-                  savingId === `${agent.id}:kill_switch` ? 'kill_switch' :
-                  savingId === `${agent.id}:shadow_mode` ? 'shadow_mode' :
+                  savingId === `${agent.id}:kill_switch`    ? 'kill_switch'    :
+                  savingId === `${agent.id}:shadow_mode`    ? 'shadow_mode'    :
+                  savingId === `${agent.id}:read_only_mode` ? 'read_only_mode' :
                   null
                 }
               />

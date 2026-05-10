@@ -78,7 +78,7 @@ export interface AgentRequest {
 }
 
 export interface AgentResult {
-  status: "ok" | "killed" | "shadow" | "iteration_limit" | "error" | "skipped";
+  status: "ok" | "killed" | "shadow" | "read_only" | "iteration_limit" | "error" | "skipped";
   reply?: string;
   pendingConfirmation?: any;
   toolResults?: Array<{ tool: string; input: any; result: any }>;
@@ -274,13 +274,16 @@ export async function runAgent(
         if (!request.chat) {
           return shapeMismatch("chat", agentRef, manifest.shadow_mode);
         }
-        // In shadow mode, swap the executeTool wrapper so confirm-tier tools
-        // never reach side effects. The chat agent's "auto" tools are reads
-        // only; they stay live (matches Phase 1.3's described behaviour).
-        const chatReq = manifest.shadow_mode
-          ? wrapChatRequestForShadow(request.chat, manifest)
-          : request.chat;
-        handlerResult = await runChatHandler(manifest, handlerDeps, chatReq);
+        // Phase 1.3 — wrapping the executeTool fn for shadow / read_only
+        // is now done INSIDE `runChatHandler` (via `chooseExecuteTool`)
+        // rather than here. Reason: the per-iteration recheck needs to
+        // be able to *unwrap* when an admin clears the flag mid-flight,
+        // and that requires the handler to keep a reference to the raw
+        // executor `req.executeTool`. If we pre-wrap here, the handler
+        // sees only the wrapper and can't restore live behaviour
+        // (Codex P2 #r3214997666). The exported wrappers below remain
+        // for unit tests of the wrap shape itself.
+        handlerResult = await runChatHandler(manifest, handlerDeps, request.chat);
         break;
       }
       case "planner": {
@@ -330,13 +333,22 @@ export async function runAgent(
     };
   }
 
-  // Apply shadow status override at the orchestrator boundary so callers can
-  // distinguish "the agent ran successfully but in shadow mode" from a regular
-  // ok. We never silently downgrade an iteration_limit or error — those still
-  // propagate.
+  // Apply shadow / read-only status override at the orchestrator boundary
+  // so callers can distinguish "the agent ran successfully under a runtime
+  // restriction" from a regular ok. Phase 1.3: read_only is its own
+  // surface and supersedes shadow when both are on (read_only is strictly
+  // more restrictive — see Prime Directive #6 + the wrap precedence in
+  // the chat dispatch above). We never silently downgrade an
+  // iteration_limit or error — those still propagate.
   let finalStatus = handlerResult.status;
-  if (manifest.shadow_mode && finalStatus === "ok") {
-    finalStatus = "shadow";
+  if (finalStatus === "ok") {
+    if (manifest.read_only_mode) finalStatus = "read_only";
+    else if (manifest.shadow_mode) finalStatus = "shadow";
+  } else if (finalStatus === "killed_mid_flight") {
+    // Phase 1.3 — handler-level kill flip mid-iteration. Surface as
+    // killed so the caller treats it identically to a kill_switch
+    // tripped before dispatch.
+    finalStatus = "killed";
   }
 
   return {
@@ -381,7 +393,7 @@ function shapeMismatch(
  * The runtime owns this wrap (rather than asking every caller to do it)
  * because shadow mode is a runtime guarantee, not a caller convention.
  */
-function wrapChatRequestForShadow(
+export function wrapChatRequestForShadow(
   req: ChatHandlerRequest,
   manifest: AgentManifest,
 ): ChatHandlerRequest {
@@ -405,10 +417,39 @@ function wrapChatRequestForShadow(
   return { ...req, executeTool: wrappedExecute };
 }
 
+/**
+ * Phase 1.3 — read-only mode wrapper. Suppresses *every* tool call (auto
+ * AND confirm tier) and returns a synthetic result. Used when an agent
+ * needs to run against prior context only — privacy mode, debugging
+ * without side effects, or agents pinned to historical-only context.
+ *
+ * Distinct from shadow mode (which only intercepts confirm-tier writes
+ * and lets auto-tier reads through). Read-only is strictly more
+ * restrictive: a read-only agent makes zero DB queries beyond what the
+ * shell already loaded into the request payload.
+ */
+export function wrapChatRequestForReadOnly(
+  req: ChatHandlerRequest,
+  manifest: AgentManifest,
+): ChatHandlerRequest {
+  const wrappedExecute = async (name: string, _input: any, _ctx: any) => {
+    return {
+      status: "read_only",
+      message:
+        `Read-only mode: ${name} was suppressed. The agent must respond from prior context only.`,
+      read_only: true,
+      agent_id: manifest.id,
+      agent_slug: manifest.slug,
+    };
+  };
+  return { ...req, executeTool: wrappedExecute };
+}
+
 // ─── Test-only re-exports ───
 
 export const __testables = {
   ZERO_COST,
   SHADOW_SUGGESTION_STATUS,
   wrapChatRequestForShadow,
+  wrapChatRequestForReadOnly,
 };

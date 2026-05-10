@@ -30,6 +30,17 @@ export interface AgentManifest {
 
   kill_switch: boolean;
   shadow_mode: boolean;
+  /**
+   * Phase 1.3 — when true, every tool call (auto AND confirm tier) is
+   * suppressed and returns a synthetic "tool suppressed" result. The
+   * agent still runs and replies from prior context, but performs no
+   * DB reads, no DB writes, and creates no `ai_suggestions` rows.
+   * Distinct from `shadow_mode` (which only reroutes confirm-tier
+   * writes) and `kill_switch` (which prevents the agent from running
+   * at all). Defaults false on every existing row via the
+   * `20260510150000_…_read_only_mode_column.sql` migration.
+   */
+  read_only_mode: boolean;
 
   outcome_definition: Record<string, any>;
   triggers: Record<string, any>;
@@ -91,7 +102,7 @@ export async function loadManifest(
   const { data, error } = await supabase
     .from("agents")
     .select(
-      "id, org_id, slug, name, version, system_prompt, tool_allowlist, autonomy_profile, context_recipe, model, max_iterations, kill_switch, shadow_mode, outcome_definition, triggers",
+      "id, org_id, slug, name, version, system_prompt, tool_allowlist, autonomy_profile, context_recipe, model, max_iterations, kill_switch, shadow_mode, read_only_mode, outcome_definition, triggers",
     )
     .eq("slug", slug)
     .eq("org_id", options.orgId)
@@ -106,6 +117,56 @@ export async function loadManifest(
   }
 
   return data as AgentManifest;
+}
+
+/**
+ * Phase 1.3 — runtime flag snapshot. Returned by `loadAgentFlags` for
+ * the per-iteration recheck inside the chat handler tool-use loop.
+ *
+ * Three booleans, one tiny SELECT — fast enough to call on every
+ * iteration without blowing the latency budget. (1 round-trip per
+ * iteration × max_iterations × chat_sessions/day = small overhead;
+ * see Phase 1.3's risk note in `docs/AGENT_PLATFORM.md`.)
+ */
+export interface AgentRuntimeFlags {
+  kill_switch: boolean;
+  shadow_mode: boolean;
+  read_only_mode: boolean;
+}
+
+/**
+ * Re-reads the three runtime safety flags for an already-loaded agent.
+ *
+ * Used by `runChatHandler` at the top of each tool-use iteration so
+ * that an admin flipping `kill_switch` / `shadow_mode` /
+ * `read_only_mode` mid-flight takes effect on the *next* iteration,
+ * not just the next chat invocation.
+ *
+ * Failure semantics: returns `null` on any error. Callers MUST treat
+ * a null result as "keep going with the prior snapshot" — failing
+ * closed (e.g. forcing kill on transient DB errors) would create a
+ * worse failure mode than the bug we're trying to prevent.
+ */
+export async function loadAgentFlags(
+  supabase: any,
+  agentId: string,
+): Promise<AgentRuntimeFlags | null> {
+  if (!agentId) return null;
+  try {
+    const { data, error } = await supabase
+      .from("agents")
+      .select("kill_switch, shadow_mode, read_only_mode")
+      .eq("id", agentId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      kill_switch:    !!data.kill_switch,
+      shadow_mode:    !!data.shadow_mode,
+      read_only_mode: !!data.read_only_mode,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
