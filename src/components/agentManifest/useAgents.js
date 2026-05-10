@@ -51,7 +51,7 @@ export function useAgents() {
     }));
 
     try {
-      const newValue = await toggleAgentFlag(supabase, {
+      const { newValue, auditFailed } = await toggleAgentFlag(supabase, {
         agentId,
         flag,
         value: nextValue,
@@ -60,7 +60,13 @@ export function useAgents() {
       setAgents(prev => prev.map(a => (
         a.id === agentId ? { ...a, [flag]: newValue } : a
       )));
-      return { success: true };
+      // Phase 1.1.B: surface audit-write failures but don't fail
+      // the toggle — the toggle itself landed. Hook caller logs
+      // a console warning so we notice gaps in the audit chain.
+      if (auditFailed) {
+        console.warn(`[useAgents] toggle_agent_flag_v1 succeeded but audit row write failed (chain gap on ${agentId})`);
+      }
+      return { success: true, auditFailed };
     } catch (err) {
       console.error(`Failed to toggle ${flag} on agent ${agentId}:`, err);
       // Revert local state.
