@@ -169,9 +169,20 @@ async function getRCFromNumber(): Promise<string | null> {
 // retry can never cause a duplicate message: if we never got a token, no
 // message was ever transmitted to RingCentral.
 //
+// Caches the access token per-JWT for the lifetime of the warm isolate.
+// RingCentral's OAuth endpoint throttles aggressively (CMN-301 "Request
+// rate exceeded"); without caching, automation-cron's batched sends fan
+// out into a token request per send and exhaust the quota mid-batch.
+// Tokens are valid ~1 hour; we expire SAFETY_MS early to dodge clock skew.
+//
 // Accepts the JWT as an argument so the caller can pick which extension to
 // authenticate as — either the global env-var JWT (legacy path) or a
 // per-route JWT fetched from Supabase Vault (category path).
+type RcTokenCacheEntry = { token: string; expiresAt: number };
+const rcTokenCache = new Map<string, RcTokenCacheEntry>();
+const rcTokenInFlight = new Map<string, Promise<string>>();
+const RC_TOKEN_SAFETY_MS = 60_000;
+
 async function getRingCentralAccessToken(jwt: string): Promise<string> {
   if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
     throw new Error("RingCentral client credentials not configured");
@@ -180,47 +191,72 @@ async function getRingCentralAccessToken(jwt: string): Promise<string> {
     throw new Error("RingCentral JWT not provided");
   }
 
-  const maxAttempts = 3;
-  const backoffMs = [500, 1500];
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let retriable = true;
-    try {
-      const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-        },
-        body: new URLSearchParams({
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: jwt,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.access_token;
-      }
-
-      retriable = response.status >= 500 || response.status === 429;
-      const errorText = await response.text();
-      lastError = new Error(`RingCentral auth failed (${response.status}): ${errorText}`);
-    } catch (err) {
-      // Network error (DNS, timeout, connection reset) — always retriable
-      lastError = err as Error;
-    }
-
-    if (!retriable || attempt === maxAttempts) throw lastError;
-
-    console.warn(
-      `[RC auth] transient failure on attempt ${attempt}/${maxAttempts}, retrying: ${lastError.message}`,
-    );
-    await new Promise((r) => setTimeout(r, backoffMs[attempt - 1]));
+  const cached = rcTokenCache.get(jwt);
+  if (cached && Date.now() < cached.expiresAt - RC_TOKEN_SAFETY_MS) {
+    return cached.token;
   }
 
-  throw lastError ?? new Error("RingCentral auth failed after retries");
+  const inFlight = rcTokenInFlight.get(jwt);
+  if (inFlight) return inFlight;
+
+  const fetchPromise = (async (): Promise<string> => {
+    try {
+      const maxAttempts = 3;
+      const backoffMs = [500, 1500];
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        let retriable = true;
+        try {
+          const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Authorization": `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
+            },
+            body: new URLSearchParams({
+              grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              assertion: jwt,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const expiresInSec =
+              typeof data.expires_in === "number" && data.expires_in > 0
+                ? data.expires_in
+                : 3600;
+            rcTokenCache.set(jwt, {
+              token: data.access_token,
+              expiresAt: Date.now() + expiresInSec * 1000,
+            });
+            return data.access_token;
+          }
+
+          retriable = response.status >= 500 || response.status === 429;
+          const errorText = await response.text();
+          lastError = new Error(`RingCentral auth failed (${response.status}): ${errorText}`);
+        } catch (err) {
+          // Network error (DNS, timeout, connection reset) — always retriable
+          lastError = err as Error;
+        }
+
+        if (!retriable || attempt === maxAttempts) throw lastError;
+
+        console.warn(
+          `[RC auth] transient failure on attempt ${attempt}/${maxAttempts}, retrying: ${lastError.message}`,
+        );
+        await new Promise((r) => setTimeout(r, backoffMs[attempt - 1]));
+      }
+
+      throw lastError ?? new Error("RingCentral auth failed after retries");
+    } finally {
+      rcTokenInFlight.delete(jwt);
+    }
+  })();
+
+  rcTokenInFlight.set(jwt, fetchPromise);
+  return fetchPromise;
 }
 
 // Resolve (fromNumber, jwt) for a send based on an optional route category.

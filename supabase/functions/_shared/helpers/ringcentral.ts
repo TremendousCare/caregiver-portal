@@ -16,6 +16,23 @@ export async function getRingCentralAccessToken(): Promise<string> {
   return getRingCentralAccessTokenWithJwt(jwtToken);
 }
 
+// Module-level cache of access tokens keyed by JWT. RingCentral's OAuth
+// endpoint throttles aggressively (CMN-301 "Request rate exceeded") and a
+// batched send loop — e.g. automation-cron firing 30+ "Send Screening Survey
+// Reminder" SMS in 30s — will burn through the quota and fail mid-batch
+// without this. Tokens are valid ~1 hour; we expire SAFETY_MS before the
+// stated lifetime to avoid race-with-clock-skew failures.
+type RcTokenCacheEntry = { token: string; expiresAt: number };
+const rcTokenCache = new Map<string, RcTokenCacheEntry>();
+const rcTokenInFlight = new Map<string, Promise<string>>();
+const RC_TOKEN_SAFETY_MS = 60_000;
+
+// Test-only: reset the cache between cases. Not part of the public API.
+export function _resetRcTokenCacheForTests() {
+  rcTokenCache.clear();
+  rcTokenInFlight.clear();
+}
+
 // Category-aware helper: takes a JWT as a parameter so the caller can
 // decide which RingCentral extension to authenticate as. Used by the
 // sendSMS shared operation after a route lookup via
@@ -33,25 +50,50 @@ export async function getRingCentralAccessTokenWithJwt(
     throw new Error("RingCentral JWT not provided");
   }
 
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
+  const cached = rcTokenCache.get(jwt);
+  if (cached && Date.now() < cached.expiresAt - RC_TOKEN_SAFETY_MS) {
+    return cached.token;
   }
 
-  const data = await response.json();
-  return data.access_token;
+  const inFlight = rcTokenInFlight.get(jwt);
+  if (inFlight) return inFlight;
+
+  const fetchPromise = (async (): Promise<string> => {
+    try {
+      const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          assertion: jwt,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`RingCentral auth failed (${response.status}): ${error}`);
+      }
+
+      const data = await response.json();
+      const expiresInSec =
+        typeof data.expires_in === "number" && data.expires_in > 0
+          ? data.expires_in
+          : 3600;
+      rcTokenCache.set(jwt, {
+        token: data.access_token,
+        expiresAt: Date.now() + expiresInSec * 1000,
+      });
+      return data.access_token;
+    } finally {
+      rcTokenInFlight.delete(jwt);
+    }
+  })();
+
+  rcTokenInFlight.set(jwt, fetchPromise);
+  return fetchPromise;
 }
 
 /**
