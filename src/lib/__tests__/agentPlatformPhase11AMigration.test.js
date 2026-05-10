@@ -117,10 +117,30 @@ describe('Phase 1.1.A — agent_actions table migration', () => {
 
 describe('Phase 1.1.A — record_agent_action_v1 RPC migration', () => {
   describe('signature', () => {
-    it('has 13 parameters in the locked order', () => {
+    it('has 14 parameters in the locked order (including p_created_at)', () => {
+      // p_created_at was added to fix Codex P1 #1: the hash includes
+      // created_at_ns, so the timestamp the caller signs must equal
+      // what the row stores. Pre-fix the RPC let DEFAULT now() fill
+      // created_at, drifting from the signed value.
       expect(rpcSql).toMatch(
-        /CREATE OR REPLACE FUNCTION public\.record_agent_action_v1\([\s\S]*?p_org_id\s+uuid,[\s\S]*?p_agent_id\s+uuid,[\s\S]*?p_agent_version\s+integer,[\s\S]*?p_action_type\s+text,[\s\S]*?p_phase\s+text,[\s\S]*?p_entity_type\s+text,[\s\S]*?p_entity_id\s+uuid,[\s\S]*?p_actor\s+text,[\s\S]*?p_payload\s+jsonb,[\s\S]*?p_outcome_id\s+uuid,[\s\S]*?p_claimed_prev_hash\s+text,[\s\S]*?p_row_hash\s+text,[\s\S]*?p_signature\s+text/
+        /CREATE OR REPLACE FUNCTION public\.record_agent_action_v1\([\s\S]*?p_org_id\s+uuid,[\s\S]*?p_agent_id\s+uuid,[\s\S]*?p_agent_version\s+integer,[\s\S]*?p_action_type\s+text,[\s\S]*?p_phase\s+text,[\s\S]*?p_entity_type\s+text,[\s\S]*?p_entity_id\s+uuid,[\s\S]*?p_actor\s+text,[\s\S]*?p_payload\s+jsonb,[\s\S]*?p_outcome_id\s+uuid,[\s\S]*?p_created_at\s+timestamptz,[\s\S]*?p_claimed_prev_hash\s+text,[\s\S]*?p_row_hash\s+text,[\s\S]*?p_signature\s+text/
       );
+    });
+
+    it('INSERTs p_created_at explicitly (no DEFAULT now() drift)', () => {
+      // The INSERT must include the created_at column so the
+      // caller-supplied (and signed) timestamp lands on the row.
+      expect(rpcSql).toMatch(/INSERT INTO public\.agent_actions[\s\S]*?created_at,[\s\S]*?\)\s*VALUES[\s\S]*?p_created_at/);
+    });
+
+    it('rejects NULL p_created_at', () => {
+      expect(rpcSql).toMatch(/p_created_at IS NULL/);
+      expect(rpcSql).toMatch(/p_created_at is required/);
+    });
+
+    it('bounds p_created_at to ±5 minutes from server now() (anti-backdate)', () => {
+      expect(rpcSql).toMatch(/abs\(extract\(epoch from \(now\(\) - p_created_at\)\)\) > 300/);
+      expect(rpcSql).toMatch(/p_created_at out of range/);
     });
 
     it('returns uuid (the new row id)', () => {
@@ -182,10 +202,25 @@ describe('Phase 1.1.A — record_agent_action_v1 RPC migration', () => {
     });
   });
 
-  describe('grants', () => {
-    it('revokes from PUBLIC and grants to authenticated + service_role', () => {
-      expect(rpcSql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.record_agent_action_v1/);
-      expect(rpcSql).toMatch(/GRANT EXECUTE ON FUNCTION public\.record_agent_action_v1[\s\S]*?TO authenticated, service_role/);
+  describe('grants (Codex P1 #2: service_role only — authenticated cannot poison the chain directly)', () => {
+    it('revokes from PUBLIC', () => {
+      expect(rpcSql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.record_agent_action_v1[\s\S]*?FROM PUBLIC/);
+    });
+
+    it('explicitly revokes from authenticated', () => {
+      // SECURITY DEFINER chains called from inside other SECURITY
+      // DEFINER functions still work because the caller runs as
+      // postgres (the function owner), which has implicit EXECUTE.
+      // This REVOKE blocks direct supabase.rpc() calls under an
+      // authenticated client — which is what would let a non-admin
+      // forge audit rows.
+      expect(rpcSql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.record_agent_action_v1[\s\S]*?FROM authenticated/);
+    });
+
+    it('grants ONLY to service_role', () => {
+      expect(rpcSql).toMatch(/GRANT EXECUTE ON FUNCTION public\.record_agent_action_v1[\s\S]*?TO service_role/);
+      // Negative: must not grant back to authenticated.
+      expect(rpcSql).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.record_agent_action_v1[\s\S]*?TO authenticated\b/);
     });
   });
 
@@ -197,8 +232,8 @@ describe('Phase 1.1.A — record_agent_action_v1 RPC migration', () => {
   });
 
   describe('rollback', () => {
-    it('drops the function with the full signature', () => {
-      expect(rpcDownSql).toMatch(/DROP FUNCTION IF EXISTS public\.record_agent_action_v1\(\s*uuid,\s*uuid,\s*integer,\s*text,\s*text,\s*text,\s*uuid,\s*text,\s*jsonb,\s*uuid,\s*text,\s*text,\s*text\s*\)/);
+    it('drops the function with the full signature (14 params including timestamptz)', () => {
+      expect(rpcDownSql).toMatch(/DROP FUNCTION IF EXISTS public\.record_agent_action_v1\(\s*uuid,\s*uuid,\s*integer,\s*text,\s*text,\s*text,\s*uuid,\s*text,\s*jsonb,\s*uuid,\s*timestamptz,\s*text,\s*text,\s*text\s*\)/);
     });
   });
 });

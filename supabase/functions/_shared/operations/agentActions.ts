@@ -162,33 +162,15 @@ export async function recordAgentAction(
     const rowHash = await computeRowHash(chainInputs);
     const signature = await signHex(signingKey, rowHash);
 
-    // 3. Call the RPC. created_at is set server-side via DEFAULT
-    //    now(); we sign nowIso passed in (or generated above) and
-    //    accept that the row's actual created_at may differ by
-    //    micros. The verifier reads the stored created_at and
-    //    re-computes; if our nowIso drifts from the server clock,
-    //    the chain still verifies because verification reads from
-    //    the row, not from the original input.
-    //
-    //    To avoid that drift, we INSERT with explicit created_at
-    //    too. (record_agent_action_v1 doesn't override; the
-    //    DEFAULT only fires when the column is omitted.) Wait —
-    //    the RPC signature doesn't accept created_at. We rely on
-    //    the verifier reading the stored created_at instead. The
-    //    verifier helper in PR 1.1.B will re-derive the input ns
-    //    timestamp from the stored column.
-    //
-    //    Bottom line: this implementation hashes against the
-    //    timestamp WE pass in; the row stores DEFAULT now(); the
-    //    verifier reads the row's actual created_at and derives
-    //    the input ns from there. As long as our nowIso == the
-    //    row's actual created_at, verification passes. We achieve
-    //    this by passing nowIso explicitly and updating the RPC
-    //    in a follow-up to accept created_at if drift turns out
-    //    to be a problem in practice. For 1.1.A we accept the
-    //    simplification: the RPC's row will be timestamped
-    //    server-side, the verifier reads server-side timestamps,
-    //    and the hash inputs match.
+    // 3. Call the RPC. We pass nowIso as p_created_at so the row
+    //    stores the EXACT timestamp the hash was computed against
+    //    — the verifier (PR 1.1.B) reads stored created_at and
+    //    recomputes; the hashes only match if the timestamps are
+    //    bit-identical. Codex P1 on the original PR caught that an
+    //    earlier draft let DEFAULT now() populate created_at, which
+    //    drifted from nowIso by milliseconds and would have failed
+    //    every row at verification. The RPC bounds p_created_at to
+    //    ±5 minutes from server now() to prevent backdating.
     const { data: insertedId, error: rpcErr } = await supabase.rpc('record_agent_action_v1', {
       p_org_id:            input.orgId,
       p_agent_id:          input.agentId,
@@ -200,6 +182,7 @@ export async function recordAgentAction(
       p_actor:             input.actor,
       p_payload:           input.payload ?? {},
       p_outcome_id:        input.outcomeId,
+      p_created_at:        nowIso,
       p_claimed_prev_hash: claimedPrevHash,
       p_row_hash:          rowHash,
       p_signature:         signature,

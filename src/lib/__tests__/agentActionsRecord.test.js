@@ -119,6 +119,9 @@ describe('recordAgentAction — happy path', () => {
     expect(calls[0].args.p_agent_id).toBe(baseInput.agentId);
     expect(calls[0].args.p_agent_version).toBe(3);
     expect(calls[0].args.p_phase).toBe('executed');
+    // p_created_at must equal the same nowIso the hash was computed
+    // against — Codex P1 #1: anything else and the verifier fails.
+    expect(calls[0].args.p_created_at).toBe('2026-05-09T21:00:00Z');
     // row_hash is 64 hex chars (SHA-256)
     expect(calls[0].args.p_row_hash).toMatch(/^[0-9a-f]{64}$/);
     // signature is 128 hex chars (Ed25519, 64 bytes)

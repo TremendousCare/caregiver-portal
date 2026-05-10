@@ -25,14 +25,35 @@
 -- be selecting). Advisory lock per org is the cleanest way to make
 -- the read-then-insert atomic.
 --
--- Granted to authenticated AND service_role: the runtime calls this
--- in two contexts. Most callers (chat shell, planner, router) run
--- with service_role. The Settings UI's toggle path (PR 1.1.B will
--- wire this) runs with the user's authenticated JWT — but only
--- after toggle_agent_flag_v1 (admin-gated SECURITY DEFINER) has
--- already validated the caller. So this RPC's own admin gate would
--- be redundant. It does, however, verify org_id consistency
--- between the JWT (when present) and the agent.
+-- Grant scope: service_role only (Codex P1 on PR #301). The earlier
+-- design granted EXECUTE to authenticated as well, on the assumption
+-- that the JWT-org check would prevent abuse. Wrong: an authenticated
+-- non-admin caller could supply arbitrary p_actor / p_payload /
+-- p_row_hash / p_signature and poison the chain — subsequent
+-- legitimate writes would build on forged rows. The verifier (PR
+-- 1.1.B) catches forgery in retrospect, but prevention is cheaper
+-- than detection.
+--
+-- Why service_role-only is sufficient: SECURITY DEFINER functions
+-- called BY authenticated context (e.g. toggle_agent_flag_v1) run
+-- as the function OWNER (postgres), and postgres has implicit
+-- EXECUTE on functions in public — the chain call works without
+-- any explicit grant on this RPC. Edge functions that need to write
+-- audit rows directly (PR 1.1.B's verifier callers, PR 1.1.C's
+-- expanded dual-write) run with the service_role client per the
+-- existing pattern in ai-chat / ai-planner / message-router shells.
+-- Anyone with the service_role key can already do anything; no new
+-- attack surface.
+--
+-- Created_at handling (Codex P1 on PR #301): the row_hash includes
+-- created_at_ns, so the timestamp the caller signs MUST be the one
+-- stored on the row. Pre-fix, the RPC let DEFAULT now() populate
+-- created_at, drifting from the caller's locally-generated ISO
+-- string and breaking verification. Post-fix, the caller passes
+-- p_created_at explicitly and we INSERT it. The DB-side sanity
+-- bound (±5 min from server now()) prevents malicious backdating
+-- that would let someone insert "old" forged events that pre-date
+-- a known-good chain segment.
 
 CREATE OR REPLACE FUNCTION public.record_agent_action_v1(
   p_org_id              uuid,
@@ -45,6 +66,7 @@ CREATE OR REPLACE FUNCTION public.record_agent_action_v1(
   p_actor               text,
   p_payload             jsonb,
   p_outcome_id          uuid,
+  p_created_at          timestamptz,
   p_claimed_prev_hash   text,
   p_row_hash            text,
   p_signature           text
@@ -76,6 +98,19 @@ BEGIN
      OR p_claimed_prev_hash IS NULL THEN
     -- claimed_prev_hash may be empty string (genesis row) but not NULL.
     RAISE EXCEPTION 'row_hash, signature, and claimed_prev_hash are required' USING ERRCODE = '22023';
+  END IF;
+  IF p_created_at IS NULL THEN
+    RAISE EXCEPTION 'p_created_at is required (must equal the timestamp used to compute row_hash)'
+      USING ERRCODE = '22023';
+  END IF;
+  -- Sanity bound: the caller's signed timestamp must be within ±5
+  -- minutes of the server's clock. Prevents someone with the
+  -- service_role key from backdating forged rows to slot before a
+  -- known-good chain segment. 5 min is generous for clock skew
+  -- between edge functions and Postgres.
+  IF abs(extract(epoch from (now() - p_created_at))) > 300 THEN
+    RAISE EXCEPTION 'p_created_at out of range (>5 min from server now())'
+      USING ERRCODE = '22023';
   END IF;
 
   -- 2. Tenant isolation. When a JWT is present (authenticated path),
@@ -115,16 +150,17 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- 6. Insert. The advisory lock prevents another writer from
-  --    racing past this point with the same prev_hash.
+  -- 6. Insert with the caller-supplied created_at (so the verifier's
+  --    recomputed hash matches). The advisory lock prevents another
+  --    writer from racing past this point with the same prev_hash.
   INSERT INTO public.agent_actions (
     org_id, agent_id, agent_version, action_type, phase,
     entity_type, entity_id, actor, payload, outcome_id,
-    prev_hash, row_hash, signature
+    created_at, prev_hash, row_hash, signature
   ) VALUES (
     p_org_id, p_agent_id, p_agent_version, p_action_type, p_phase,
     p_entity_type, p_entity_id, p_actor, COALESCE(p_payload, '{}'::jsonb), p_outcome_id,
-    p_claimed_prev_hash, p_row_hash, p_signature
+    p_created_at, p_claimed_prev_hash, p_row_hash, p_signature
   )
   RETURNING id INTO v_inserted_id;
 
@@ -133,11 +169,14 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.record_agent_action_v1(
-  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, text, text, text
+  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, timestamptz, text, text, text
 ) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.record_agent_action_v1(
+  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, timestamptz, text, text, text
+) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.record_agent_action_v1(
-  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, text, text, text
-) TO authenticated, service_role;
+  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, timestamptz, text, text, text
+) TO service_role;
 
 DO $$
 BEGIN

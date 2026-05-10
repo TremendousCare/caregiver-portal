@@ -4,5 +4,5 @@
 -- rollback if Phase 1.1 is being abandoned wholesale.
 
 DROP FUNCTION IF EXISTS public.record_agent_action_v1(
-  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, text, text, text
+  uuid, uuid, integer, text, text, text, uuid, text, jsonb, uuid, timestamptz, text, text, text
 );
