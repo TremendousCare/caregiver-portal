@@ -17,6 +17,7 @@
 // sibling have been removed. This module is the single source of truth.
 
 import { runAgent } from "../_shared/operations/agentRuntime.ts";
+import { recordAgentAction } from "../_shared/operations/agentActions.ts";
 import {
   fetchEntityContext,
   lookupAutonomyLevel,
@@ -390,6 +391,33 @@ async function processEntry(
 
   if (suggestionResult.success) {
     results.suggestions_created++;
+  }
+
+  // Phase 1.1.C dual-write: tamper-evident audit row for the
+  // classified inbound message + the suggested response. Phase
+  // 'suggested' (router proposed it) regardless of L3/L4 — the
+  // execution row writes its own audit entry below.
+  if (agentId && classification.suggested_action !== "none") {
+    recordAgentAction(supabase, {
+      orgId,
+      agentId,
+      agentVersion: agentResult.agent?.version ?? 0,
+      actionType: classification.suggested_action,
+      phase: "suggested",
+      entityType: entry.matched_entity_type as "caregiver" | "client",
+      entityId: entry.matched_entity_id,
+      actor: "system:message-router",
+      payload: {
+        source_type: entry.channel === "sms" ? "inbound_sms" : "inbound_email",
+        source_id: entry.id,
+        intent: classification.intent,
+        confidence: classification.confidence,
+        autonomy_level: autonomyLevel,
+      },
+      outcomeId: null,
+    }).catch((err: unknown) =>
+      console.error("[message-router audit] record_agent_action failed:", err),
+    );
   }
 
   // ── Auto-execute if L3/L4 ──

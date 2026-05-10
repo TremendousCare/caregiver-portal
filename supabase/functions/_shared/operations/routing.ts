@@ -1149,5 +1149,59 @@ export async function executeSuggestion(
     })
     .eq("id", suggestionId);
 
+  // Phase 1.1.C dual-write: tamper-evident audit row for the
+  // execution. Only fires on success — failed executions don't
+  // produce a row in the chain. (We could chain "rejected" rows
+  // for failures but that conflates "user rejected" with "tool
+  // errored." Phase 1.2's promotion-algorithm work clarifies the
+  // semantics of failed executions.)
+  //
+  // Phase classification:
+  //   - 'auto_executed' if the original suggestion was auto-fired
+  //     (status was 'auto_executed' before this RPC ran)
+  //   - 'executed'      if a human approved + clicked execute
+  // We read the suggestion's prior status (captured into
+  // `suggestion` at the top of this function) to disambiguate.
+  if (result.success && suggestion.agent_id) {
+    try {
+      // Need the agent's current version for the chain hash; fetch
+      // alongside the org_id for the audit row's tenancy.
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("org_id, version")
+        .eq("id", suggestion.agent_id)
+        .maybeSingle();
+
+      if (agentRow?.org_id && typeof agentRow.version === "number") {
+        const phase = suggestion.status === "auto_executed"
+          ? "auto_executed" as const
+          : "executed" as const;
+
+        const { recordAgentAction } = await import("./agentActions.ts");
+        recordAgentAction(supabase, {
+          orgId:        agentRow.org_id,
+          agentId:      suggestion.agent_id,
+          agentVersion: agentRow.version,
+          actionType:   suggestion.action_type,
+          phase,
+          entityType:   (entityType === "caregiver" || entityType === "client") ? entityType : null,
+          entityId,
+          actor:        executedBy,
+          payload: {
+            suggestion_id:   suggestionId,
+            source_type:     suggestion.source_type,
+            autonomy_level:  suggestion.autonomy_level,
+            ...(suggestion.action_params || {}),
+          },
+          outcomeId: null,
+        }).catch((err: Error) =>
+          console.error(`[routing audit] record_agent_action failed for ${suggestionId}:`, err),
+        );
+      }
+    } catch (err) {
+      console.error(`[routing audit] outer error for ${suggestionId}:`, err);
+    }
+  }
+
   return result;
 }

@@ -17,6 +17,7 @@
 // sibling have been removed. This module is the single source of truth.
 
 import { runAgent } from "../_shared/operations/agentRuntime.ts";
+import { recordAgentAction } from "../_shared/operations/agentActions.ts";
 import {
   buildPipelineSummary,
   formatPipelineSummaryForPrompt,
@@ -432,6 +433,34 @@ export async function runAiPlannerShell(
       }
 
       created++;
+
+      // Phase 1.1.C dual-write: tamper-evident audit row for the
+      // suggestion. Phase 'suggested' (the planner produced it) or
+      // 'auto_executed' (autonomy says fire it now). Fire-and-forget
+      // — a failed audit must not roll back the suggestion insert.
+      if (agentId) {
+        recordAgentAction(supabase, {
+          orgId,
+          agentId,
+          agentVersion: agentResult.agent?.version ?? 0,
+          actionType: sug.action_type,
+          phase: status === "auto_executed" ? "auto_executed" : "suggested",
+          entityType: sug.entity_type as "caregiver" | "client" | null,
+          entityId: sug.entity_id,
+          actor: "system:ai-planner",
+          payload: {
+            suggestion_id: inserted?.id,
+            source_type: sourceType,
+            priority: sug.priority,
+            title: sug.title,
+            autonomy_level: autonomyLevel,
+            ...sug.action_params,
+          },
+          outcomeId: null,
+        }).catch((err: unknown) =>
+          console.error("[ai-planner audit] record_agent_action failed:", err),
+        );
+      }
 
       if (status === "auto_executed" && inserted?.id) {
         const execResult = await executeSuggestion(
