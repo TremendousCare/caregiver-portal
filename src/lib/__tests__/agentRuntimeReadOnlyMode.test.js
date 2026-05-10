@@ -200,6 +200,90 @@ describe('runAgent — read_only_mode at startup', () => {
     expect(result.status).toBe('read_only');
   });
 
+  it('skips assembleSystemPrompt entirely under read_only_mode (Codex P2 #r3214997663)', async () => {
+    // Read-only's user-facing guarantee is "no DB reads". The assembler
+    // performs Supabase reads for situational/memory/thread layers
+    // before the loop runs — those must NOT fire under read_only or
+    // the privacy-mode promise is broken.
+    const manifest = makeManifest({ read_only_mode: true });
+    const supabase = makeSupabase(manifest);
+
+    const assembleSystemPrompt = vi.fn(async () => ({
+      prompt: 'assembled',
+      health: { status: 'full' },
+    }));
+    const buildFallbackPrompt = vi.fn(() => 'fallback');
+
+    const claude = vi.fn(async () => ({
+      ok: true, status: 200, attempts: 1,
+      data: { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } },
+    }));
+
+    await runAgent(
+      supabase,
+      'recruiting',
+      {
+        shape: 'chat',
+        chat: {
+          messages: [{ role: 'user', content: 'hi' }],
+          toolDefinitions: [],
+          autoExecuteTools: new Set(),
+          confirmTools: new Set(),
+          executeTool: async () => ({}),
+          assembleSystemPrompt,
+          buildFallbackPrompt,
+        },
+      },
+      { orgId: ORG_ID, apiKey: 'test', callAnthropicImpl: claude },
+    );
+
+    expect(assembleSystemPrompt).not.toHaveBeenCalled();
+    expect(buildFallbackPrompt).not.toHaveBeenCalled();
+
+    // The Claude system prompt must be the manifest's static template
+    // (no assembled context). We assert against the request body the
+    // canned Claude received via the call mock.
+    const body = claude.mock.calls[0][0].body;
+    expect(body.system).toBe(manifest.system_prompt);
+  });
+
+  it('shadow_mode (without read_only) still calls the assembler', async () => {
+    // Sanity check: only read_only short-circuits the assembler.
+    // Shadow runs the full context-assembly path because shadow's
+    // semantics are "side-effects suppressed", not "no DB reads".
+    const manifest = makeManifest({ read_only_mode: false, shadow_mode: true });
+    const supabase = makeSupabase(manifest);
+
+    const assembleSystemPrompt = vi.fn(async () => ({
+      prompt: 'assembled-via-shadow',
+      health: { status: 'full' },
+    }));
+
+    const claude = vi.fn(async () => ({
+      ok: true, status: 200, attempts: 1,
+      data: { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } },
+    }));
+
+    await runAgent(
+      supabase,
+      'recruiting',
+      {
+        shape: 'chat',
+        chat: {
+          messages: [{ role: 'user', content: 'hi' }],
+          toolDefinitions: [],
+          autoExecuteTools: new Set(),
+          confirmTools: new Set(),
+          executeTool: async () => ({}),
+          assembleSystemPrompt,
+        },
+      },
+      { orgId: ORG_ID, apiKey: 'test', callAnthropicImpl: claude },
+    );
+
+    expect(assembleSystemPrompt).toHaveBeenCalledTimes(1);
+  });
+
   it('kill_switch supersedes read_only (kill is the strictest gate)', async () => {
     const manifest = makeManifest({ kill_switch: true, read_only_mode: true });
     const supabase = makeSupabase(manifest);

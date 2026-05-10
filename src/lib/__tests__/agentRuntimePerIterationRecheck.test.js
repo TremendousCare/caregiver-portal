@@ -404,6 +404,135 @@ describe('per-iteration recheck — failure modes', () => {
     expect(executeTool.mock.calls.length).toBe(2);
   });
 
+  it('clearing read_only mid-flight restores live tool execution (Codex P2 #r3214997666)', async () => {
+    // Session starts with read_only_mode=true. Iteration 1: tool
+    // suppressed (synthetic read_only result). Iteration 2: admin
+    // disables read_only via flagsImpl returning all-false. Iteration
+    // 2's tool MUST hit the real executeTool, not the synthetic
+    // suppressor.
+    const manifest = makeManifest({ read_only_mode: true });
+
+    let recheckCount = 0;
+    const flagsImpl = vi.fn(async () => {
+      recheckCount++;
+      // Iter 2 onward: clear all flags.
+      return { kill_switch: false, shadow_mode: false, read_only_mode: false };
+    });
+
+    const executeTool = vi.fn(async (name) => ({ status: 'ok', tool: name }));
+    let turn = 0;
+    const claude = vi.fn(async () => {
+      turn++;
+      // Tool on turns 1 and 2, then text.
+      if (turn <= 2) {
+        return {
+          ok: true, status: 200, attempts: 1,
+          data: {
+            content: [
+              { type: 'tool_use', id: `tu-${turn}`, name: 'send_sms', input: { i: turn } },
+            ],
+            usage: { input_tokens: 5, output_tokens: 5 },
+          },
+        };
+      }
+      return {
+        ok: true, status: 200, attempts: 1,
+        data: {
+          content: [{ type: 'text', text: 'done' }],
+          usage: { input_tokens: 5, output_tokens: 5 },
+        },
+      };
+    });
+
+    const { runChatHandler } = await import(
+      '../../../supabase/functions/_shared/operations/agentRuntime/handlers.ts'
+    );
+
+    const supabase = makeSupabase(manifest);
+
+    await runChatHandler(
+      manifest,
+      {
+        supabase,
+        apiKey: 'test',
+        callAnthropicImpl: claude,
+        loadAgentFlagsImpl: flagsImpl,
+        sleep: async () => {},
+      },
+      {
+        messages: [{ role: 'user', content: 'hi' }],
+        toolDefinitions: [{ name: 'send_sms', input_schema: { type: 'object' } }],
+        autoExecuteTools: new Set(),
+        confirmTools: new Set(['send_sms']),
+        executeTool,
+      },
+    );
+
+    // Iter 1: read_only on, tool suppressed → executeTool not called.
+    // Iter 2: flags cleared, real executeTool called for the second
+    // tool_use block.
+    expect(executeTool.mock.calls.length).toBe(1);
+    expect(executeTool.mock.calls[0][0]).toBe('send_sms');
+  });
+
+  it('clearing shadow mid-flight restores live confirm-tier execution', async () => {
+    const manifest = makeManifest({ shadow_mode: true });
+
+    const flagsImpl = vi.fn(async () => ({
+      kill_switch: false, shadow_mode: false, read_only_mode: false,
+    }));
+
+    const executeTool = vi.fn(async () => ({ status: 'ok' }));
+    let turn = 0;
+    const claude = vi.fn(async () => {
+      turn++;
+      if (turn <= 2) {
+        return {
+          ok: true, status: 200, attempts: 1,
+          data: {
+            content: [{ type: 'tool_use', id: `tu-${turn}`, name: 'send_sms', input: {} }],
+            usage: { input_tokens: 5, output_tokens: 5 },
+          },
+        };
+      }
+      return {
+        ok: true, status: 200, attempts: 1,
+        data: {
+          content: [{ type: 'text', text: 'done' }],
+          usage: { input_tokens: 5, output_tokens: 5 },
+        },
+      };
+    });
+
+    const { runChatHandler } = await import(
+      '../../../supabase/functions/_shared/operations/agentRuntime/handlers.ts'
+    );
+
+    const supabase = makeSupabase(manifest);
+
+    await runChatHandler(
+      manifest,
+      {
+        supabase,
+        apiKey: 'test',
+        callAnthropicImpl: claude,
+        loadAgentFlagsImpl: flagsImpl,
+        sleep: async () => {},
+      },
+      {
+        messages: [{ role: 'user', content: 'hi' }],
+        toolDefinitions: [{ name: 'send_sms', input_schema: { type: 'object' } }],
+        autoExecuteTools: new Set(),
+        confirmTools: new Set(['send_sms']),
+        executeTool,
+      },
+    );
+
+    // Iter 1: shadow on, confirm-tier suppressed.
+    // Iter 2: shadow cleared, real executeTool called.
+    expect(executeTool.mock.calls.length).toBe(1);
+  });
+
   it('does not call flagsImpl on iteration 1 (manifest just loaded)', async () => {
     const manifest = makeManifest();
     const flagsImpl = vi.fn(async () => ({

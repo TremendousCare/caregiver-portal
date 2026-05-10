@@ -274,20 +274,16 @@ export async function runAgent(
         if (!request.chat) {
           return shapeMismatch("chat", agentRef, manifest.shadow_mode);
         }
-        // Phase 1.3 — three-flag precedence: read_only_mode > shadow_mode.
-        // (kill_switch was already handled above; we never reach this
-        // branch with kill_switch=true.) When read_only_mode is on, ALL
-        // tool calls are suppressed — read_only's wrapper supersedes
-        // shadow's because read_only is strictly more restrictive
-        // (suppresses both auto-tier and confirm-tier; shadow only
-        // touches confirm-tier).
-        let chatReq: ChatHandlerRequest = request.chat;
-        if (manifest.read_only_mode) {
-          chatReq = wrapChatRequestForReadOnly(chatReq, manifest);
-        } else if (manifest.shadow_mode) {
-          chatReq = wrapChatRequestForShadow(chatReq, manifest);
-        }
-        handlerResult = await runChatHandler(manifest, handlerDeps, chatReq);
+        // Phase 1.3 — wrapping the executeTool fn for shadow / read_only
+        // is now done INSIDE `runChatHandler` (via `chooseExecuteTool`)
+        // rather than here. Reason: the per-iteration recheck needs to
+        // be able to *unwrap* when an admin clears the flag mid-flight,
+        // and that requires the handler to keep a reference to the raw
+        // executor `req.executeTool`. If we pre-wrap here, the handler
+        // sees only the wrapper and can't restore live behaviour
+        // (Codex P2 #r3214997666). The exported wrappers below remain
+        // for unit tests of the wrap shape itself.
+        handlerResult = await runChatHandler(manifest, handlerDeps, request.chat);
         break;
       }
       case "planner": {

@@ -151,7 +151,23 @@ export async function runChatHandler(
 
   let systemPrompt = manifest.system_prompt;
   let contextHealth: any = null;
-  if (req.assembleSystemPrompt) {
+  // Phase 1.3 — under read_only_mode, skip the assembler entirely.
+  // The assembler reads situational / memory / thread layers from
+  // Supabase before the loop. Read-only mode's user-facing guarantee
+  // is "the agent runs from prior context only, no DB access" — that
+  // would be a broken promise if the per-session context-assembly
+  // reads still fired. We use the manifest's static system_prompt as
+  // the only context, mirroring the buildFallbackPrompt path's minimal
+  // shape (Codex P2 #r3214997663).
+  if (manifest.read_only_mode) {
+    contextHealth = {
+      status: "read_only",
+      layersLoaded: ["identity", "guidelines"],
+      layersFailed: [],
+      layersSkipped: ["situational", "memories", "threads", "viewing"],
+      tokenEstimate: 0,
+    };
+  } else if (req.assembleSystemPrompt) {
     try {
       const result = await req.assembleSystemPrompt({
         supabase: deps.supabase,
@@ -199,19 +215,23 @@ export async function runChatHandler(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let exitedWithoutResponse = false;
-  // Phase 1.3 — track which executeTool wrapper to use this iteration.
-  // Starts at the wrapper the dispatcher in `agentRuntime.ts` chose
-  // (live / shadow / read_only). If the per-iteration recheck below
-  // detects a flag flip, we re-wrap mid-loop so subsequent tool calls
-  // honor the new mode without waiting for the next chat invocation.
-  let activeExecuteTool = req.executeTool;
-  // Cached snapshot of the flags at the start of the current iteration.
-  // Initial snapshot mirrors the manifest the dispatcher saw.
+  // Phase 1.3 — runtime mode wrapping is decided here, against the raw
+  // `req.executeTool`. Doing it here (rather than at the dispatch site
+  // in `agentRuntime.ts`) means the per-iteration recheck below can
+  // *unwrap* when an admin clears the flag mid-flight by simply
+  // re-running `chooseExecuteTool` with the live snapshot — without
+  // this, a session that started in shadow/read_only could never
+  // restore live tool execution because we'd be re-wrapping the
+  // already-wrapped executor (Codex P2 #r3214997666).
+  //
+  // Initial snapshot mirrors the manifest as seen by the dispatcher;
+  // recheck on subsequent iterations updates it.
   let flagsSnapshot: AgentRuntimeFlags = {
     kill_switch:    !!manifest.kill_switch,
     shadow_mode:    !!manifest.shadow_mode,
     read_only_mode: !!manifest.read_only_mode,
   };
+  let activeExecuteTool = chooseExecuteTool(req, manifest, flagsSnapshot);
   let killedMidFlight = false;
   const flagsImpl = deps.loadAgentFlagsImpl ?? loadAgentFlags;
 
