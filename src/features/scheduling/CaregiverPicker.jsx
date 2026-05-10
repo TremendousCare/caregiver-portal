@@ -7,6 +7,7 @@ import {
 import {
   rankCaregiversForShift,
   splitRankedList,
+  filterRankedBySearch,
   formatEligibleReason,
   weekBoundsContaining,
 } from './eligibilityRanking';
@@ -47,6 +48,7 @@ export function CaregiverPicker({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [showFiltered, setShowFiltered] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Stabilize the caregiver id list so effects don't loop.
   const caregiverIds = useMemo(
@@ -155,7 +157,21 @@ export function CaregiverPicker({
     assignmentsByCaregiverId,
   ]);
 
-  const { eligible, filtered } = useMemo(() => splitRankedList(ranked), [ranked]);
+  // Apply free-text search across BOTH eligible and filtered groups,
+  // so a scheduler can pick a specific caregiver by name even if they
+  // would normally be hidden under the "Filtered out" section.
+  const visibleRanked = useMemo(
+    () => filterRankedBySearch(ranked, searchQuery),
+    [ranked, searchQuery],
+  );
+  const { eligible, filtered } = useMemo(
+    () => splitRankedList(visibleRanked),
+    [visibleRanked],
+  );
+
+  // When searching, auto-expand filtered so any matches there are visible.
+  const isSearching = searchQuery.trim().length > 0;
+  const showFilteredEffective = showFiltered || isSearching;
 
   const isNotReady = !clientId || !proposedStartTime || !proposedEndTime;
 
@@ -176,7 +192,11 @@ export function CaregiverPicker({
     <div className={s.picker}>
       <div className={s.header}>
         <div className={s.headerTitle}>
-          {loading ? 'Loading caregivers…' : `${eligible.length} eligible`}
+          {loading
+            ? 'Loading caregivers…'
+            : isSearching
+              ? `${eligible.length + filtered.length} match${eligible.length + filtered.length === 1 ? '' : 'es'}`
+              : `${eligible.length} eligible`}
         </div>
         <button
           type="button"
@@ -188,13 +208,36 @@ export function CaregiverPicker({
         </button>
       </div>
 
+      <div className={s.searchRow}>
+        <input
+          type="text"
+          className={s.searchInput}
+          placeholder="Search any caregiver by name or email…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Search caregivers"
+        />
+        {isSearching && (
+          <button
+            type="button"
+            className={s.searchClearBtn}
+            onClick={() => setSearchQuery('')}
+            aria-label="Clear search"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
       {loadError && <div className={s.error}>{loadError}</div>}
 
       {!loading && eligible.length === 0 && filtered.length === 0 && (
-        <div className={s.empty}>No caregivers available to assign.</div>
+        <div className={s.empty}>
+          {isSearching ? 'No caregivers match this search.' : 'No caregivers available to assign.'}
+        </div>
       )}
 
-      {!loading && eligible.length === 0 && filtered.length > 0 && (
+      {!loading && !isSearching && eligible.length === 0 && filtered.length > 0 && (
         <div className={s.empty}>
           No eligible caregivers for this shift. See filtered section below to override.
         </div>
@@ -214,18 +257,19 @@ export function CaregiverPicker({
         </ul>
       )}
 
-      {/* ─── Filtered out, collapsible ─── */}
+      {/* ─── Filtered out, collapsible (auto-expanded when searching) ─── */}
       {filtered.length > 0 && (
         <div className={s.filteredBlock}>
           <button
             type="button"
             className={s.filteredToggle}
             onClick={() => setShowFiltered((v) => !v)}
-            aria-expanded={showFiltered}
+            aria-expanded={showFilteredEffective}
+            disabled={isSearching}
           >
-            {showFiltered ? '▾' : '▸'} Filtered out ({filtered.length})
+            {showFilteredEffective ? '▾' : '▸'} {isSearching ? 'Other matches' : 'Filtered out'} ({filtered.length})
           </button>
-          {showFiltered && (
+          {showFilteredEffective && (
             <ul className={s.list}>
               {filtered.map((entry) => (
                 <PickerRow

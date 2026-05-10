@@ -103,6 +103,93 @@
   color: #5A6B80;
 }
 
+/* ─── Assigned caregiver chip in header ─── */
+
+.assignmentRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.assignedChip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.assignedChipEmpty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #FEF9E6;
+  border: 1px dashed #F5E1A4;
+  border-radius: 8px;
+}
+
+.assignedAvatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2E4E8D;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.3px;
+}
+
+.assignedName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1E40AF;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unassignedLabel {
+  flex: 1;
+  font-size: 12px;
+  color: #92400E;
+  font-style: italic;
+}
+
+.assignedActions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.assignmentPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: #F8FAFC;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+}
+
+.assignmentPickerHint {
+  margin: 0;
+  font-size: 11px;
+  color: #7A8BA0;
+  font-style: italic;
+}
+
 .body {
   padding: 18px 22px;
   flex: 1;

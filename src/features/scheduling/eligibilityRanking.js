@@ -293,6 +293,32 @@ export function splitRankedList(ranked) {
 }
 
 /**
+ * Filter ranked picker entries by a free-text search query (matched
+ * against first name, last name, full name, and email). When the
+ * query is empty, returns the input unchanged. Used to let schedulers
+ * find a specific caregiver even if they would otherwise be hidden in
+ * the collapsed "filtered out" section.
+ */
+export function filterRankedBySearch(ranked, query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return ranked || [];
+  return (ranked || []).filter((entry) => {
+    const cg = entry?.caregiver;
+    if (!cg) return false;
+    const first = (cg.firstName || '').toLowerCase();
+    const last = (cg.lastName || '').toLowerCase();
+    const full = `${first} ${last}`.trim();
+    const email = (cg.email || '').toLowerCase();
+    return (
+      first.includes(q) ||
+      last.includes(q) ||
+      full.includes(q) ||
+      email.includes(q)
+    );
+  });
+}
+
+/**
  * Generate a short human-readable reason string for an eligible
  * caregiver, shown in the picker row under their name.
  * Example: "Primary · 12 hrs this week"

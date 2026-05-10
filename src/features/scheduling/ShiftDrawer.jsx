@@ -18,6 +18,7 @@ import {
   validateShiftDraft,
 } from './shiftHelpers';
 import { ShiftForm } from './ShiftForm';
+import { CaregiverPicker } from './CaregiverPicker';
 import { ConfirmAssignDialog } from './ConfirmAssignDialog';
 import { ClockEventsPanel } from './ClockEventsPanel';
 import { ShiftCarePlanLog } from '../care-plans/ShiftCarePlanLog';
@@ -61,6 +62,9 @@ export function ShiftDrawer({
   const [applyToFutureEdits, setApplyToFutureEdits] = useState(false);
   const [applyToFutureCancel, setApplyToFutureCancel] = useState(false);
   const [offers, setOffers] = useState([]);
+  // When true, the inline caregiver picker is shown directly in the
+  // header so the scheduler can change/assign without scrolling.
+  const [showAssignmentPicker, setShowAssignmentPicker] = useState(false);
 
   useEffect(() => {
     setDraft(shift);
@@ -71,6 +75,7 @@ export function ShiftDrawer({
     setNoShowNote('');
     setApplyToFutureEdits(false);
     setApplyToFutureCancel(false);
+    setShowAssignmentPicker(false);
   }, [shift]);
 
   // Phase 7: is this shift part of a recurring series?
@@ -132,6 +137,24 @@ export function ShiftDrawer({
   const noShowEligible = canMarkShiftNoShow(shift);
 
   const statusColors = shiftStatusColors(draft?.status);
+
+  // Resolve the currently-assigned caregiver from the live draft so
+  // the header chip updates the moment the inline picker selects a
+  // new person (before "Save changes" is clicked).
+  const assignedCaregiver = useMemo(() => {
+    if (!draft?.assignedCaregiverId) return null;
+    return caregivers?.find((c) => c.id === draft.assignedCaregiverId) || null;
+  }, [draft?.assignedCaregiverId, caregivers]);
+
+  const assignedDisplayName = assignedCaregiver
+    ? `${assignedCaregiver.firstName || ''} ${assignedCaregiver.lastName || ''}`.trim() ||
+      assignedCaregiver.id
+    : null;
+
+  const assignedInitials = assignedCaregiver
+    ? `${(assignedCaregiver.firstName || '').charAt(0)}${(assignedCaregiver.lastName || '').charAt(0)}`
+        .toUpperCase() || '?'
+    : null;
 
   const handleSave = async () => {
     const validationError = validateShiftDraft(draft);
@@ -406,6 +429,78 @@ export function ShiftDrawer({
               </span>
               <span className={s.timeRange}>{formatShiftTimeRange(draft, DEFAULT_APP_TIMEZONE)}</span>
             </div>
+
+            {/* ── Assigned caregiver chip + inline picker ──
+                Promoted to the header so scheduler can see who is
+                assigned at a glance and reassign without scrolling. */}
+            {(assignedCaregiver || !isTerminal) && (
+            <div className={s.assignmentRow}>
+              {assignedCaregiver ? (
+                <div className={s.assignedChip}>
+                  <span className={s.assignedAvatar} aria-hidden>
+                    {assignedInitials}
+                  </span>
+                  <span className={s.assignedName}>{assignedDisplayName}</span>
+                  {!isTerminal && (
+                    <div className={s.assignedActions}>
+                      <button
+                        type="button"
+                        className={s.linkBtn}
+                        onClick={() => setShowAssignmentPicker((v) => !v)}
+                        disabled={saving}
+                      >
+                        {showAssignmentPicker ? 'Done' : 'Change'}
+                      </button>
+                      <button
+                        type="button"
+                        className={s.linkBtnDanger}
+                        onClick={() => {
+                          setDraft((d) => ({ ...d, assignedCaregiverId: null }));
+                          setShowAssignmentPicker(false);
+                        }}
+                        disabled={saving}
+                      >
+                        Unassign
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                !isTerminal && (
+                  <div className={s.assignedChipEmpty}>
+                    <span className={s.unassignedLabel}>No caregiver assigned</span>
+                    <button
+                      type="button"
+                      className={s.linkBtn}
+                      onClick={() => setShowAssignmentPicker((v) => !v)}
+                      disabled={saving}
+                    >
+                      {showAssignmentPicker ? 'Close' : 'Assign caregiver'}
+                    </button>
+                  </div>
+                )
+              )}
+
+              {showAssignmentPicker && !isTerminal && (
+                <div className={s.assignmentPicker}>
+                  <CaregiverPicker
+                    caregivers={caregivers}
+                    clientId={draft.clientId}
+                    proposedStartTime={draft.startTime}
+                    proposedEndTime={draft.endTime}
+                    shiftId={draft.id}
+                    value={draft.assignedCaregiverId || null}
+                    onChange={(id) =>
+                      setDraft((d) => ({ ...d, assignedCaregiverId: id }))
+                    }
+                  />
+                  <p className={s.assignmentPickerHint}>
+                    Click "Save changes" below to apply.
+                  </p>
+                </div>
+              )}
+            </div>
+            )}
           </div>
         </header>
 
@@ -546,9 +641,13 @@ export function ShiftDrawer({
               <ul className={s.offersList}>
                 {offers.map((offer) => {
                   const cg = caregivers?.find((c) => c.id === offer.caregiverId);
-                  const name = cg
-                    ? `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id
-                    : offer.caregiverId;
+                  const cgName = cg
+                    ? `${cg.firstName || ''} ${cg.lastName || ''}`.trim()
+                    : '';
+                  // If we can't resolve the caregiver record (deleted,
+                  // not yet loaded, or roster scope mismatch) fall back
+                  // to a friendly label rather than dumping the raw UUID.
+                  const name = cgName || 'Unknown caregiver';
                   const canAssign =
                     offer.status === 'accepted' &&
                     !isTerminal &&
@@ -620,6 +719,7 @@ export function ShiftDrawer({
             caregivers={caregivers}
             servicePlans={servicePlans}
             errorMessage={error}
+            hideAssignment
           />
 
           {!isTerminal && showCancelForm && (

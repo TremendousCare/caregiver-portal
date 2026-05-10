@@ -22,7 +22,15 @@ import s from './ShiftForm.module.css';
 // (modal vs. drawer) without duplicating field logic.
 // ═══════════════════════════════════════════════════════════════
 
-export function ShiftForm({ draft, onChange, clients, caregivers, servicePlans, errorMessage }) {
+export function ShiftForm({
+  draft,
+  onChange,
+  clients,
+  caregivers,
+  servicePlans,
+  errorMessage,
+  hideAssignment = false,
+}) {
   const [skillsInput, setSkillsInput] = useState(formatSkillsInput(draft.requiredSkills || []));
 
   // Keep the skills input in sync when the parent resets the draft
@@ -201,20 +209,22 @@ export function ShiftForm({ draft, onChange, clients, caregivers, servicePlans, 
       </div>
 
       {/* ── Assignment ── */}
-      <div className={s.row}>
-        <div className={s.fieldWide}>
-          Assigned caregiver <span className={s.hint}>(leave blank for open)</span>
-          <CaregiverPicker
-            caregivers={caregivers}
-            clientId={draft.clientId}
-            proposedStartTime={draft.startTime}
-            proposedEndTime={draft.endTime}
-            shiftId={draft.id}
-            value={draft.assignedCaregiverId || null}
-            onChange={(id) => setField('assignedCaregiverId', id)}
-          />
+      {!hideAssignment && (
+        <div className={s.row}>
+          <div className={s.fieldWide}>
+            Assigned caregiver <span className={s.hint}>(leave blank for open)</span>
+            <CaregiverPicker
+              caregivers={caregivers}
+              clientId={draft.clientId}
+              proposedStartTime={draft.startTime}
+              proposedEndTime={draft.endTime}
+              shiftId={draft.id}
+              value={draft.assignedCaregiverId || null}
+              onChange={(id) => setField('assignedCaregiverId', id)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Location ── */}
       <div className={s.row}>

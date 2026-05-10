@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   rankCaregiversForShift,
   splitRankedList,
+  filterRankedBySearch,
   formatEligibleReason,
   weekBoundsContaining,
   sumHoursInWindow,
@@ -514,5 +515,54 @@ describe('formatEligibleReason', () => {
       hoursThisWeek: 3.75,
     });
     expect(text).toContain('3.8');
+  });
+});
+
+// ─── filterRankedBySearch ───────────────────────────────────────
+
+describe('filterRankedBySearch', () => {
+  const sampleRanked = [
+    { caregiver: { id: '1', firstName: 'Maria', lastName: 'Gonzalez', email: 'maria@x.com' } },
+    { caregiver: { id: '2', firstName: 'Bob', lastName: 'Smith', email: 'bob@x.com' } },
+    { caregiver: { id: '3', firstName: 'Alex', lastName: 'GONZALES', email: 'alex@y.com' } },
+  ];
+
+  it('returns the input unchanged when query is empty', () => {
+    expect(filterRankedBySearch(sampleRanked, '')).toEqual(sampleRanked);
+    expect(filterRankedBySearch(sampleRanked, '   ')).toEqual(sampleRanked);
+    expect(filterRankedBySearch(sampleRanked, null)).toEqual(sampleRanked);
+  });
+
+  it('matches first name case-insensitively', () => {
+    const out = filterRankedBySearch(sampleRanked, 'mar');
+    expect(out).toHaveLength(1);
+    expect(out[0].caregiver.id).toBe('1');
+  });
+
+  it('matches last name case-insensitively (different case in data)', () => {
+    const out = filterRankedBySearch(sampleRanked, 'gonzal');
+    expect(out.map((e) => e.caregiver.id).sort()).toEqual(['1', '3']);
+  });
+
+  it('matches full name spanning the space', () => {
+    const out = filterRankedBySearch(sampleRanked, 'maria gonz');
+    expect(out).toHaveLength(1);
+    expect(out[0].caregiver.id).toBe('1');
+  });
+
+  it('matches by email', () => {
+    const out = filterRankedBySearch(sampleRanked, 'bob@');
+    expect(out).toHaveLength(1);
+    expect(out[0].caregiver.id).toBe('2');
+  });
+
+  it('returns empty when nothing matches', () => {
+    expect(filterRankedBySearch(sampleRanked, 'zzz')).toHaveLength(0);
+  });
+
+  it('handles missing or malformed entries safely', () => {
+    expect(filterRankedBySearch([null, { caregiver: null }, ...sampleRanked], 'maria')).toHaveLength(1);
+    expect(filterRankedBySearch(null, 'maria')).toEqual([]);
+    expect(filterRankedBySearch(undefined, '')).toEqual([]);
   });
 });
