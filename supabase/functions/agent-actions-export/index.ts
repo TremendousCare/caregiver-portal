@@ -6,15 +6,26 @@
 // the full verifier themselves.
 //
 // Query params:
-//   ?agent_id=<uuid>        — optional. Filter to a single agent.
+//   ?agent_id=<uuid>        — optional. Filter the OUTPUT to a single agent.
 //   ?from=<iso>             — optional. Inclusive lower bound on created_at.
 //   ?to=<iso>               — optional. Inclusive upper bound on created_at.
-//   ?limit=<n>              — optional. Cap result count (default + max 10000).
+//   ?limit=<n>              — optional. Cap output to the most recent N (after
+//                             filter); default + max 10000.
 //
-// Auth: requires the service-role key (this returns the entire audit
-// log including signatures, which is sensitive). The caller is
-// expected to be either the cron job or an admin running an export
-// from a one-off script.
+// Auth (Codex P1 on PR #303): requires the service-role key as the
+// Bearer token. We compare against SUPABASE_SERVICE_ROLE_KEY directly.
+// Any authenticated user JWT (which Supabase's default JWT verification
+// would otherwise accept) is rejected with 403. This endpoint dumps
+// the full audit chain including signatures and payloads — only the
+// cron + scripted admin exports should reach it.
+//
+// Verification semantics (Codex P2 on PR #303): the verifier ALWAYS
+// runs against the full chain for the org, regardless of output
+// filters. Otherwise filtered exports would falsely report
+// `broken_chain_link` for rows whose predecessor was filtered out.
+// We then apply the output filters when streaming. A safety cap on
+// total chain size (VERIFY_CAP) prevents OOM on a future huge org;
+// chunked verification is a follow-up if it ever matters.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
@@ -31,6 +42,7 @@ const SIGNING_SEED_HEX = Deno.env.get('AGENT_ACTIONS_ED25519_SEED');
 const DEFAULT_ORG_SLUG = 'tremendous-care';
 const DEFAULT_LIMIT = 10000;
 const MAX_LIMIT = 10000;
+const VERIFY_CAP = 50000;  // hard cap on full-chain verification; bigger chains need a chunked verifier
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,6 +57,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     if (!SIGNING_SEED_HEX) {
       throw new Error('AGENT_ACTIONS_ED25519_SEED env var is not set');
+    }
+
+    // Codex P1 on PR #303: explicit auth gate. Reject anything that
+    // isn't the service-role key. Even Supabase's default JWT
+    // verification accepts authenticated user JWTs; we need stricter
+    // here because the export bypasses RLS and dumps signatures +
+    // payloads.
+    const authHeader = req.headers.get('Authorization') || '';
+    const presentedToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!presentedToken || presentedToken !== SUPABASE_SERVICE_ROLE_KEY) {
+      return jsonResponse(403, {
+        error: 'service-role key required for agent_actions export',
+      });
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -73,53 +98,71 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    // Build the base query. We always order by chain_seq ASC so the
-    // verifier can walk the result in chain order — even when the
-    // user filtered by agent_id (which means we're verifying a
-    // SUBSET of the chain; some prev_hash links will reference
-    // rows outside the filter, and we report those as
-    // 'broken_chain_link' with detail "out_of_filter" so the
-    // consumer can distinguish "real corruption" from "filtered
-    // out".
-    let query = supabase
+    // ── Verification step (Codex P2 on PR #303) ──
+    //
+    // Verification ALWAYS runs against the full chain for the org,
+    // regardless of output filters. If we verified only the filtered
+    // subset, rows whose predecessors were filtered out would be
+    // reported as 'broken_chain_link' even when the chain is intact.
+    //
+    // Safety: count first; refuse if the chain exceeds VERIFY_CAP
+    // rather than silently truncating. Future chunked-verification
+    // implementation can lift this cap.
+    const { count: chainCount, error: countErr } = await supabase
+      .from('agent_actions')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId);
+    if (countErr) {
+      throw new Error(`agent_actions count failed: ${countErr.message}`);
+    }
+    if ((chainCount ?? 0) > VERIFY_CAP) {
+      return jsonResponse(413, {
+        error: `Chain too large for inline verification (${chainCount} rows > ${VERIFY_CAP} cap). Use a chunked verifier — not yet implemented.`,
+      });
+    }
+
+    // Load the FULL chain for the org in chain order.
+    const { data: allRows, error: readErr } = await supabase
       .from('agent_actions')
       .select('id, chain_seq, org_id, agent_id, agent_version, action_type, phase, entity_type, entity_id, actor, payload, outcome_id, created_at, prev_hash, row_hash, signature')
       .eq('org_id', orgId)
-      .order('chain_seq', { ascending: true })
-      .limit(limit);
-
-    if (agentId)  query = query.eq('agent_id', agentId);
-    if (fromIso)  query = query.gte('created_at', fromIso);
-    if (toIso)    query = query.lte('created_at', toIso);
-
-    const { data: rows, error } = await query;
-    if (error) {
-      throw new Error(`agent_actions read failed: ${error.message}`);
+      .order('chain_seq', { ascending: true });
+    if (readErr) {
+      throw new Error(`agent_actions read failed: ${readErr.message}`);
     }
 
     const verifyKey = await deriveVerifyKeyFromSeed(hexToBytes(SIGNING_SEED_HEX));
-
-    // Run the verifier across the (filtered) rows. The verifier
-    // expects rows in chain_seq ASC order — already done above.
-    // For filtered exports the chain may have apparent breaks at
-    // filter boundaries; the consumer needs to know which.
     const report = await verifyAgentActionsChain(
-      (rows || []) as AgentActionRow[],
+      (allRows || []) as AgentActionRow[],
       verifyKey,
       orgId,
     );
 
-    // Build a per-row verification map for O(1) annotation as we stream.
+    // Build a per-row verification map for O(1) annotation. Errors
+    // come from the full-chain walk so a filtered output still has
+    // accurate per-row verified status.
     const errorByRowId = new Map<string, { reason: string; detail: string }>();
     for (const e of report.errors) {
       errorByRowId.set(e.row_id, { reason: e.reason, detail: e.detail });
     }
 
+    // ── Output filter step (purely about which rows to stream) ──
+    let outputRows = (allRows || []) as AgentActionRow[];
+    if (agentId) outputRows = outputRows.filter(r => r.agent_id === agentId);
+    if (fromIso) outputRows = outputRows.filter(r => r.created_at >= fromIso);
+    if (toIso)   outputRows = outputRows.filter(r => r.created_at <= toIso);
+    // Limit takes the most recent N (matches typical export UX —
+    // "give me the last 1000 audit rows for this agent").
+    if (outputRows.length > limit) {
+      outputRows = outputRows.slice(outputRows.length - limit);
+    }
+
     // Stream NDJSON. Each line is { row, verified, error? }.
-    // Begin with a header line summarising the export so the
-    // consumer can validate the boundary without scanning every
-    // row.
+    // Header line summarises the FULL-CHAIN verification result
+    // (so the consumer sees overall integrity even when their
+    // filter is narrow) plus the OUTPUT-row count (after filter).
     const encoder = new TextEncoder();
+    const outputRowCount = outputRows.length;
     const stream = new ReadableStream({
       async start(controller) {
         const header = {
@@ -129,16 +172,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
             from:        fromIso,
             to:          toIso,
             limit,
-            total_rows:  report.total_rows,
-            verified:    report.verified,
-            first_break_at:     report.first_break_at,
-            first_break_reason: report.first_break_reason,
-            generated_at: new Date().toISOString(),
+            // Full-chain verification stats (always computed against
+            // the unfiltered chain for the org).
+            chain_total_rows:     report.total_rows,
+            chain_verified_rows:  report.verified,
+            first_break_at:       report.first_break_at,
+            first_break_reason:   report.first_break_reason,
+            // Filtered output count.
+            output_rows:          outputRowCount,
+            generated_at:         new Date().toISOString(),
           },
         };
         controller.enqueue(encoder.encode(JSON.stringify(header) + '\n'));
 
-        for (const row of (rows || []) as AgentActionRow[]) {
+        for (const row of outputRows) {
           const err = errorByRowId.get(row.id);
           const line = {
             row,
@@ -167,6 +214,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   }
 });
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
 
 function clampLimit(raw: string | null): number {
   if (!raw) return DEFAULT_LIMIT;

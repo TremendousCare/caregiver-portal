@@ -35,10 +35,38 @@ describe('agent-actions-export edge function — structural assertions', () => {
     expect(exportSrc).toMatch(/new TextEncoder/);
   });
 
-  it('emits a header line before per-row lines', () => {
+  it('emits a header line before per-row lines, with full-chain verification stats', () => {
     expect(exportSrc).toMatch(/export_meta:/);
-    expect(exportSrc).toMatch(/total_rows:\s*report\.total_rows/);
+    // Codex P2 fix on PR #303: header reports FULL-CHAIN verification,
+    // not just the filtered output. Otherwise filtered exports
+    // would mis-report integrity.
+    expect(exportSrc).toMatch(/chain_total_rows:\s*report\.total_rows/);
+    expect(exportSrc).toMatch(/chain_verified_rows:\s*report\.verified/);
     expect(exportSrc).toMatch(/first_break_at:\s*report\.first_break_at/);
+    expect(exportSrc).toMatch(/output_rows:\s*outputRowCount/);
+  });
+
+  it('verifies the FULL chain regardless of output filters (Codex P2 fix)', () => {
+    // The verifier runs against `allRows`, not the filtered subset.
+    expect(exportSrc).toMatch(
+      /verifyAgentActionsChain\(\s*\(allRows \|\| \[\]\)/
+    );
+    // The output stream uses outputRows (filtered).
+    expect(exportSrc).toMatch(/for \(const row of outputRows\)/);
+    // Filters are applied after verification, not before.
+    expect(exportSrc).toMatch(/outputRows = outputRows\.filter\(r => r\.agent_id === agentId\)/);
+  });
+
+  it('caps full-chain verification at VERIFY_CAP rows (returns 413 if exceeded)', () => {
+    expect(exportSrc).toMatch(/VERIFY_CAP\s*=\s*50000/);
+    expect(exportSrc).toMatch(/Chain too large for inline verification/);
+    expect(exportSrc).toMatch(/jsonResponse\(413/);
+  });
+
+  it('requires service-role key in Authorization header (Codex P1 fix)', () => {
+    expect(exportSrc).toMatch(/presentedToken !== SUPABASE_SERVICE_ROLE_KEY/);
+    expect(exportSrc).toMatch(/service-role key required/);
+    expect(exportSrc).toMatch(/jsonResponse\(403/);
   });
 
   it('annotates each row with verified=true|false + error detail', () => {
