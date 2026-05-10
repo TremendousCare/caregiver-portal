@@ -23,6 +23,7 @@ import {
   runAgent,
   type AgentResult,
 } from "../_shared/operations/agentRuntime.ts";
+import { recordAgentAction } from "../_shared/operations/agentActions.ts";
 import {
   getToolDefinitions,
   getAutoExecuteSet,
@@ -143,7 +144,26 @@ export async function runAiChatShell(
     // for the writes that happen *outside* runAgent (briefing, confirmAction,
     // post-conversation logEvent/logAction). On lookup failure we fall back
     // to NULL stamping rather than 500-ing — safety over visibility.
+    //
+    // Phase 1.1.C also needs the agent's current version for the
+    // agent_actions audit row (confirmAction path doesn't have a
+    // runAgent result to read it from). One extra cheap SELECT here
+    // beats a new helper file. Falls back to 0 ("unknown") if the
+    // lookup fails — recordAgentAction tolerates 0 and the verifier
+    // surfaces it in the report. Result.agent.version from runAgent
+    // is preferred where available (chat path post-conversation loop).
     const agentId = await resolveAgentIdSafe(supabase, RECRUITING_AGENT_SLUG, orgId);
+    let agentVersionFromDb = 0;
+    if (agentId) {
+      try {
+        const { data } = await supabase
+          .from("agents")
+          .select("version")
+          .eq("id", agentId)
+          .maybeSingle();
+        agentVersionFromDb = (data && typeof data.version === "number") ? data.version : 0;
+      } catch (_) { /* fallback 0 */ }
+    }
 
     // ── Rate Limiting (fails open) ──
     try {
@@ -248,6 +268,32 @@ export async function runAiChatShell(
               { action: confirmAction.action, confirmed: true, ...confirmAction.params },
               "ai_chat",
               agentId,
+            );
+          }
+
+          // Phase 1.1.C dual-write: confirmed user action ran. Phase
+          // 'confirmed' (the human approved) is conceptually distinct
+          // from 'executed' (the side-effect ran). Per locked spec we
+          // emit 'executed' here because by the time we're past
+          // executeConfirmedAction, the side-effect has already
+          // happened. Phase 1.1.C-future could split into two rows
+          // (suggested → confirmed → executed) but for 1.1.C the
+          // 1-row-per-action shorthand matches existing events
+          // semantics.
+          if (agentId && orgId) {
+            recordAgentAction(supabase, {
+              orgId,
+              agentId,
+              agentVersion: agentVersionFromDb,
+              actionType: eventType,
+              phase: "executed",
+              entityType: entityType as "caregiver" | "client" | null,
+              entityId,
+              actor: `user:${currentUser || "User"}`,
+              payload: { action: confirmAction.action, confirmed: true, ...confirmAction.params },
+              outcomeId: null,
+            }).catch((err: unknown) =>
+              console.error("[ai-chat audit confirmAction] record_agent_action failed:", err),
             );
           }
         }
@@ -415,6 +461,32 @@ export async function runAiChatShell(
                 },
                 "ai_chat",
                 agentId,
+              );
+            }
+
+            // Phase 1.1.C dual-write: tamper-evident audit row. Fire-
+            // and-forget — a failed audit must not roll back the
+            // events/action_outcomes write (those have their own
+            // value); the verifier (PR 1.1.B daily cron) reports
+            // chain gaps in retrospect.
+            if (agentId && orgId) {
+              recordAgentAction(supabase, {
+                orgId,
+                agentId,
+                agentVersion: result.agent?.version ?? 0,
+                actionType: eventType,
+                phase: "executed",
+                entityType: entityType as "caregiver" | "client" | null,
+                entityId,
+                actor: `user:${currentUser || "User"}`,
+                payload: {
+                  tool: tr.tool,
+                  entity_name: tr.result?.entity_name || null,
+                  ...tr.input,
+                },
+                outcomeId: null,
+              }).catch((err: unknown) =>
+                console.error("[ai-chat audit] record_agent_action failed:", err),
               );
             }
           }
