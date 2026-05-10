@@ -57,6 +57,7 @@ function recruitingManifest() {
     max_iterations: 5,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: { invocation_modes: ['chat', 'briefing', 'confirmed_action'] },
   };
@@ -83,6 +84,7 @@ function plannerManifest() {
     max_iterations: 1,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: { invocation_modes: ['cron_daily', 'event_triggered'] },
   };
@@ -109,6 +111,7 @@ function routerManifest() {
     max_iterations: 1,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: { invocation_modes: ['cron'] },
   };

@@ -105,6 +105,25 @@ describe('toggleAgentFlag (Phase 1.1.B: routes through agent-flag-toggle edge fu
       .rejects.toThrow(/invalid flag/);
   });
 
+  it('accepts read_only_mode (Phase 1.3) alongside kill_switch and shadow_mode', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({
+      data: { success: true, new_value: true, audit_failed: false },
+      error: null,
+    });
+    const sb = makeSupabase({ invokeMock });
+
+    const result = await toggleAgentFlag(sb, {
+      agentId: 'agent-uuid',
+      flag: 'read_only_mode',
+      value: true,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('agent-flag-toggle', {
+      body: { agent_id: 'agent-uuid', flag: 'read_only_mode', value: true },
+    });
+    expect(result.newValue).toBe(true);
+  });
+
   it('invokes agent-flag-toggle edge function with the right body', async () => {
     const invokeMock = vi.fn().mockResolvedValue({
       data: { success: true, new_value: true, audit_id: 'aa-1', audit_failed: false },
@@ -335,17 +354,28 @@ describe('summariseAgent', () => {
 });
 
 describe('agentStatus', () => {
-  it('returns "live" for kill_switch=false, shadow_mode=false', () => {
-    expect(agentStatus({ kill_switch: false, shadow_mode: false })).toBe('live');
+  it('returns "live" for all flags false', () => {
+    expect(agentStatus({
+      kill_switch: false, shadow_mode: false, read_only_mode: false,
+    })).toBe('live');
   });
 
-  it('returns "dormant" when kill_switch is true (regardless of shadow)', () => {
-    expect(agentStatus({ kill_switch: true,  shadow_mode: false })).toBe('dormant');
-    expect(agentStatus({ kill_switch: true,  shadow_mode: true })).toBe('dormant');
+  it('returns "dormant" when kill_switch is true (regardless of other flags)', () => {
+    expect(agentStatus({ kill_switch: true,  shadow_mode: false, read_only_mode: false })).toBe('dormant');
+    expect(agentStatus({ kill_switch: true,  shadow_mode: true,  read_only_mode: false })).toBe('dormant');
+    expect(agentStatus({ kill_switch: true,  shadow_mode: false, read_only_mode: true  })).toBe('dormant');
+    expect(agentStatus({ kill_switch: true,  shadow_mode: true,  read_only_mode: true  })).toBe('dormant');
   });
 
-  it('returns "shadow" when shadow_mode=true and kill_switch=false', () => {
-    expect(agentStatus({ kill_switch: false, shadow_mode: true })).toBe('shadow');
+  it('returns "read_only" when read_only_mode=true and kill_switch=false (precedence over shadow)', () => {
+    // Phase 1.3: read_only > shadow because read_only is strictly more
+    // restrictive (suppresses all tool calls; shadow only confirms-tier).
+    expect(agentStatus({ kill_switch: false, shadow_mode: false, read_only_mode: true })).toBe('read_only');
+    expect(agentStatus({ kill_switch: false, shadow_mode: true,  read_only_mode: true })).toBe('read_only');
+  });
+
+  it('returns "shadow" when shadow_mode=true and other flags false', () => {
+    expect(agentStatus({ kill_switch: false, shadow_mode: true, read_only_mode: false })).toBe('shadow');
   });
 
   it('returns "unknown" for null', () => {

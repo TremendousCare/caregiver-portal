@@ -51,6 +51,7 @@ function liveRecruitingManifest() {
     max_iterations: 1,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: {},
   };
@@ -72,6 +73,7 @@ function livePlannerManifest() {
     max_iterations: 1,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: {},
   };
@@ -93,6 +95,7 @@ function liveRouterManifest() {
     max_iterations: 1,
     kill_switch: false,
     shadow_mode: false,
+    read_only_mode: false,
     outcome_definition: {},
     triggers: {},
   };

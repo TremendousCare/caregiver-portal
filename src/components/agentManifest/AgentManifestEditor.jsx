@@ -364,7 +364,7 @@ const EMPTY_DRAFT = {
   autonomy_profile: {}, context_recipe: {}, outcome_definition: {},
   triggers: {},
   model: '', max_iterations: 1,
-  kill_switch: false, shadow_mode: false,
+  kill_switch: false, shadow_mode: false, read_only_mode: false,
   created_at: null, updated_at: null, created_by: null, updated_by: null,
 };
 
