@@ -63,34 +63,48 @@ export async function loadAgentVersions(supabase, agentId) {
   return data || [];
 }
 
-// Flip kill_switch or shadow_mode on an agent. Calls the
-// toggle_agent_flag_v1 RPC which (a) enforces admin-only via is_admin(),
-// (b) verifies the JWT org matches the agent's org, (c) writes an
-// audit row to events on real state transitions. Returns the new value
-// the function set on the row.
+// Flip kill_switch or shadow_mode on an agent. Phase 1.1.B routes
+// this through the `agent-flag-toggle` edge function so the toggle
+// (toggle_agent_flag_v1) and the tamper-evident audit row
+// (record_agent_action_v1) happen server-side in a single request.
+//
+// Pre-1.1.B this called supabase.rpc('toggle_agent_flag_v1') directly.
+// That still works at the database layer, but bypasses the audit-log
+// dual-write — the chain would have a gap. The edge function is now
+// the canonical client surface.
 //
 // Errors:
-//   - sqlstate 42501 — caller is not an admin or org mismatch
-//   - sqlstate 22023 — invalid flag name (frontend validates first;
-//     this is defense-in-depth)
-//   - sqlstate P0002 — agent not found
+//   - 401 — missing/invalid session
+//   - 403 — non-admin or wrong org
+//   - 400 — bad request shape
+//   - 500 — internal (toggle RPC failure surfaced as 500 unless 42501)
 //
-// We surface the underlying error to the caller; the hook decides how
-// to render it (toast, inline message, etc).
+// Returns: { new_value, audit_id?, audit_failed }. audit_failed=true
+// means the toggle landed but the audit row didn't — the chain has
+// a gap that the verifier (1.1.C will detect) might surface later.
 export async function toggleAgentFlag(supabase, { agentId, flag, value }) {
   if (!agentId) throw new Error('toggleAgentFlag: agentId required');
   if (flag !== 'kill_switch' && flag !== 'shadow_mode') {
     throw new Error(`toggleAgentFlag: invalid flag "${flag}"`);
   }
 
-  const { data, error } = await supabase.rpc('toggle_agent_flag_v1', {
-    p_agent_id: agentId,
-    p_flag: flag,
-    p_value: !!value,
+  const { data, error } = await supabase.functions.invoke('agent-flag-toggle', {
+    body: { agent_id: agentId, flag, value: !!value },
   });
 
   if (error) throw error;
-  return data; // boolean — the new value the function set
+  if (!data || data.success !== true) {
+    const err = new Error(data?.error || 'agent-flag-toggle failed');
+    err.code = data?.code;
+    throw err;
+  }
+  // Surface but don't fail on audit-write hiccups — the toggle
+  // landed correctly. The hook decides how to render.
+  return {
+    newValue:    data.new_value,
+    auditId:     data.audit_id,
+    auditFailed: !!data.audit_failed,
+  };
 }
 
 // Save manifest edits via the update_agent_manifest_v1 RPC. The RPC

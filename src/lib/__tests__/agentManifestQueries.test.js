@@ -26,10 +26,13 @@ function makeChain({ data = null, error = null }) {
   return chain;
 }
 
-function makeSupabase({ tableMocks = {}, rpcMock } = {}) {
+function makeSupabase({ tableMocks = {}, rpcMock, invokeMock } = {}) {
   return {
     from: vi.fn((table) => tableMocks[table] || makeChain({ data: [] })),
     rpc: rpcMock || vi.fn(),
+    functions: {
+      invoke: invokeMock || vi.fn(),
+    },
   };
 }
 
@@ -89,22 +92,25 @@ describe('loadAgentVersions', () => {
   });
 });
 
-describe('toggleAgentFlag', () => {
+describe('toggleAgentFlag (Phase 1.1.B: routes through agent-flag-toggle edge function)', () => {
   it('rejects without agentId', async () => {
     const sb = makeSupabase();
     await expect(toggleAgentFlag(sb, { agentId: null, flag: 'kill_switch', value: true }))
       .rejects.toThrow(/agentId required/);
   });
 
-  it('rejects unknown flag names (defense in depth — RPC also validates)', async () => {
+  it('rejects unknown flag names (defense in depth — edge function also validates)', async () => {
     const sb = makeSupabase();
     await expect(toggleAgentFlag(sb, { agentId: 'a', flag: 'evil_mode', value: true }))
       .rejects.toThrow(/invalid flag/);
   });
 
-  it('calls toggle_agent_flag_v1 RPC with correct args and returns the new value', async () => {
-    const rpcMock = vi.fn().mockResolvedValue({ data: true, error: null });
-    const sb = makeSupabase({ rpcMock });
+  it('invokes agent-flag-toggle edge function with the right body', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({
+      data: { success: true, new_value: true, audit_id: 'aa-1', audit_failed: false },
+      error: null,
+    });
+    const sb = makeSupabase({ invokeMock });
 
     const result = await toggleAgentFlag(sb, {
       agentId: 'agent-uuid',
@@ -112,17 +118,18 @@ describe('toggleAgentFlag', () => {
       value: true,
     });
 
-    expect(rpcMock).toHaveBeenCalledWith('toggle_agent_flag_v1', {
-      p_agent_id: 'agent-uuid',
-      p_flag:     'kill_switch',
-      p_value:    true,
+    expect(invokeMock).toHaveBeenCalledWith('agent-flag-toggle', {
+      body: { agent_id: 'agent-uuid', flag: 'kill_switch', value: true },
     });
-    expect(result).toBe(true);
+    expect(result).toEqual({ newValue: true, auditId: 'aa-1', auditFailed: false });
   });
 
-  it('coerces truthy/falsy value to strict boolean before RPC', async () => {
-    const rpcMock = vi.fn().mockResolvedValue({ data: false, error: null });
-    const sb = makeSupabase({ rpcMock });
+  it('coerces truthy/falsy value to strict boolean before invoke', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({
+      data: { success: true, new_value: false, audit_failed: false },
+      error: null,
+    });
+    const sb = makeSupabase({ invokeMock });
 
     await toggleAgentFlag(sb, {
       agentId: 'agent-uuid',
@@ -130,21 +137,48 @@ describe('toggleAgentFlag', () => {
       value: 0, // falsy non-bool
     });
 
-    const callArgs = rpcMock.mock.calls[0][1];
-    expect(callArgs.p_value).toBe(false);
-    expect(typeof callArgs.p_value).toBe('boolean');
+    const body = invokeMock.mock.calls[0][1].body;
+    expect(body.value).toBe(false);
+    expect(typeof body.value).toBe('boolean');
   });
 
-  it('propagates RPC errors (admin gate, org mismatch, etc.)', async () => {
-    const rpcMock = vi.fn().mockResolvedValue({
+  it('propagates errors from supabase.functions.invoke', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({
       data: null,
-      error: { message: 'permission denied: not an admin', code: '42501' },
+      error: { message: 'invoke failed', code: 'NETWORK' },
     });
-    const sb = makeSupabase({ rpcMock });
+    const sb = makeSupabase({ invokeMock });
+
+    await expect(
+      toggleAgentFlag(sb, { agentId: 'a', flag: 'kill_switch', value: true })
+    ).rejects.toMatchObject({ message: 'invoke failed' });
+  });
+
+  it('propagates app-level error responses (success=false from edge function)', async () => {
+    const invokeMock = vi.fn().mockResolvedValue({
+      data: { error: 'permission denied: not an admin', code: '42501' },
+      error: null,
+    });
+    const sb = makeSupabase({ invokeMock });
 
     await expect(
       toggleAgentFlag(sb, { agentId: 'a', flag: 'kill_switch', value: true })
     ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('returns audit_failed=true when edge function says toggle landed but audit row failed', async () => {
+    // This is the "chain has a gap" case the verifier will catch later.
+    const invokeMock = vi.fn().mockResolvedValue({
+      data: { success: true, new_value: true, audit_failed: true },
+      error: null,
+    });
+    const sb = makeSupabase({ invokeMock });
+
+    const result = await toggleAgentFlag(sb, {
+      agentId: 'a', flag: 'kill_switch', value: true,
+    });
+    expect(result.auditFailed).toBe(true);
+    expect(result.newValue).toBe(true);
   });
 });
 
