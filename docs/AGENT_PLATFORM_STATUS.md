@@ -13,11 +13,17 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 **Phase 1.2 — Tightened autonomy promotion algorithm v2** *(not started; ready to begin)*
 
-**Why this is next:** Phases 0.x and 1.1 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs 1.2 + 1.3 + 1.5 before it can ship. 1.2 unblocks safe auto-execute promotion which is foundational for 2.
+**Why this is next:** Phases 0.x and 1.1 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs **1.2 + 1.3 + 1.4 + 1.5** before it can ship, per the locked phase chain in `docs/AGENT_PLATFORM.md`:
+- Phase 2 gates on **1.5** (retrospective grading UI baked + ≥ 100 graded suggestions in the calibration set).
+- Phase 1.5 gates on **1.4** (metrics dashboard provides the surface where grading lives).
+- Phase 1.5's promotion-v2 algorithm in **1.2** consumes graded outcomes as input; without 1.2, Phase 2 has no autonomy decision-maker.
+- Phase **1.3** hardens kill-switch + shadow-mode at the runtime layer; required before any agent is granted L3/L4 autonomy.
 
-**Scope** (per `docs/AGENT_PLATFORM.md` → 1.2): replace the legacy `autonomy_config` consecutive-counter promotion with `evaluatePromotion(agentId, actionType, recentOutcomes)` that reads from `autonomy_profile` jsonb (already in `agents` row from Phase 0.1; underused until now). Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Locked decisions in `AGENT_PLATFORM.md` → "Decisions locked".
+So all four 1.x sub-phases (1.2, 1.3, 1.4, 1.5) are on the critical path to Phase 2. The CEO directive ("don't skip features, just compress bakes") keeps every one of them in scope.
 
-**Velocity option from compressed plan:** 1.1 + 1.3 + 1.4 don't strictly depend on each other. We can ship 1.2 in parallel with 1.3 (kill-switch hardening) if it speeds up Phase 2 unblock.
+**Scope of 1.2** (per `docs/AGENT_PLATFORM.md` → 1.2): replace the legacy `autonomy_config` consecutive-counter promotion with `evaluatePromotion(agentId, actionType, recentOutcomes)` that reads from `autonomy_profile` jsonb (already in `agents` row from Phase 0.1; underused until now). Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Locked decisions in `AGENT_PLATFORM.md` → "Decisions locked".
+
+**Parallelization option:** 1.2 and 1.3 don't depend on each other. We can ship them concurrently to compress the critical path. 1.4 depends on having graded data flowing (which 1.5 produces); 1.5 depends on 1.4's UI surface. Those two are sequential.
 
 ---
 
