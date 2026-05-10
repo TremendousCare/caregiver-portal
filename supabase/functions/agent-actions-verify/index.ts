@@ -63,13 +63,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    // Load every row for this org in chain order.
+    // Load every row for this org in chain order. We walk by
+    // chain_seq (a strictly monotonic IDENTITY column added in
+    // 20260510090000) to avoid the false-break issue where two
+    // rows in the same millisecond sort by random UUID id and
+    // disagree with insertion order. Codex P1 on PR #302.
     const { data: rows, error } = await supabase
       .from('agent_actions')
-      .select('id, org_id, agent_id, agent_version, action_type, phase, entity_type, entity_id, actor, payload, outcome_id, created_at, prev_hash, row_hash, signature')
+      .select('id, chain_seq, org_id, agent_id, agent_version, action_type, phase, entity_type, entity_id, actor, payload, outcome_id, created_at, prev_hash, row_hash, signature')
       .eq('org_id', orgId)
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true });
+      .order('chain_seq', { ascending: true });
 
     if (error) {
       throw new Error(`agent_actions read failed: ${error.message}`);
