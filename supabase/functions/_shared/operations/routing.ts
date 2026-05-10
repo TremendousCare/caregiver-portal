@@ -281,8 +281,39 @@ export async function lookupAutonomyLevel(
 // ─── Autonomy Outcome Recording ───
 
 /**
+ * Optional v2 inputs. Wiring per Phase 1.2: when the caller knows the
+ * `agent_id` for the suggestion, the legacy autonomy_config update path
+ * still runs as before, AND the new per-(agent × action) v2 evaluator
+ * fires (fire-and-forget) against `agents.autonomy_profile` +
+ * `agent_actions`. Callers without an agent_id (legacy/cron paths during
+ * transition) skip v2 cleanly.
+ */
+export interface RecordAutonomyOutcomeV2Hooks {
+  agentId?: string;
+  /**
+   * The agent_actions phase that just landed (or would land) for this
+   * outcome. v2 uses this as the latest data point so a brand-new
+   * approval is reflected in the verdict before the dual-write to
+   * agent_actions completes.
+   */
+  latestPhase?: string;
+  /**
+   * Set to "harmful" when an operator override marks an action harmful
+   * (e.g. they reversed an auto-execute and flagged it harmful in the
+   * UI). Triggers the demote-on-harm path.
+   */
+  severity?: "harmful" | string;
+}
+
+/**
  * Record an approval or rejection, handle auto-promotion/demotion.
  * Returns the new autonomy level after any changes.
+ *
+ * Phase 1.2: legacy `autonomy_config` consecutive-counter logic stays
+ * intact (so `AutonomySettings.jsx` keeps working) and the new v2
+ * per-(agent × action) evaluator runs alongside it when an `agentId` is
+ * supplied via `v2`. v2 is fire-and-forget — its result is ignored here
+ * because the legacy return shape is what existing callers consume.
  */
 export async function recordAutonomyOutcome(
   supabase: any,
@@ -290,7 +321,30 @@ export async function recordAutonomyOutcome(
   entityType: string,
   context: string,
   approved: boolean,
+  v2?: RecordAutonomyOutcomeV2Hooks,
 ): Promise<{ newLevel: string; promoted: boolean; demoted: boolean }> {
+  // ── Fire v2 in parallel (fire-and-forget). Loaded lazily so the
+  //    autonomy module is only pulled in when an agentId is supplied,
+  //    keeping legacy callers' import graph unchanged. ──
+  if (v2?.agentId) {
+    import("./autonomy.ts")
+      .then(({ recordAutonomyOutcomeV2 }) =>
+        recordAutonomyOutcomeV2(supabase, {
+          agentId: v2.agentId!,
+          actionType,
+          latest: v2.latestPhase
+            ? { phase: v2.latestPhase, severity: v2.severity }
+            : undefined,
+        }),
+      )
+      .catch((err: Error) =>
+        console.error(
+          `[routing] autonomy v2 failed for ${v2.agentId}/${actionType}:`,
+          err,
+        ),
+      );
+  }
+
   const config = await lookupAutonomyLevel(supabase, actionType, entityType, context);
 
   if (!config.id) {
@@ -1125,14 +1179,21 @@ export async function executeSuggestion(
   // ─── Record autonomy outcome (fire-and-forget) ───
   // Tracks trust signals for auto-promotion/demotion of autonomy levels.
   // Human approvals and auto-executions both count as successful outcomes.
+  // Phase 1.2: pass `agentId` through so the v2 evaluator can update
+  // the per-(agent × action) `autonomy_profile`. Legacy `autonomy_config`
+  // path inside `recordAutonomyOutcome` still runs unchanged.
   if (result.success && suggestion.action_type) {
     const autonomyContext = suggestion.source_type === "proactive" ? "proactive" : "inbound_routing";
+    const latestPhase = suggestion.status === "auto_executed" ? "auto_executed" : "executed";
     recordAutonomyOutcome(
       supabase,
       suggestion.action_type,
       entityType,
       autonomyContext,
       true,
+      suggestion.agent_id
+        ? { agentId: suggestion.agent_id, latestPhase }
+        : undefined,
     ).catch((err: Error) =>
       console.error(`[routing] Failed to record autonomy outcome:`, err)
     );

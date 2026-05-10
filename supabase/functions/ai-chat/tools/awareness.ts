@@ -940,7 +940,10 @@ registerTool(
 
         if (updateErr) throw updateErr;
 
-        // Record rejection for autonomy tracking
+        // Record rejection for autonomy tracking. Phase 1.2: thread the
+        // suggestion's agent_id through so the v2 evaluator updates the
+        // per-(agent × action) autonomy_profile. The legacy autonomy_config
+        // path inside the helper continues to run for back-compat.
         if (suggestion.action_type) {
           await recordAutonomyOutcome(
             ctx.supabase,
@@ -948,6 +951,9 @@ registerTool(
             suggestion.entity_type || "caregiver",
             "inbound_routing",
             false,
+            suggestion.agent_id
+              ? { agentId: suggestion.agent_id, latestPhase: "rejected" }
+              : undefined,
           ).catch(() => {}); // fire-and-forget
         }
 
