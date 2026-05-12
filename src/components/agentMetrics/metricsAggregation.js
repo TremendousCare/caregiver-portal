@@ -117,27 +117,35 @@ export function aggregateSuggestionVolume(actions) {
 
 /**
  * For each action_type, compute the verified-outcome success rate.
- * An action is "verified" when its `outcome_id` references an
- * `action_outcomes` row whose `outcome_type` is non-NULL. We treat
- * `response_received`, `completed`, `advanced` as successes and
- * `no_response`, `declined`, `expired` as misses.
+ *
+ * Reads `action_outcomes` directly — that table is the source of truth
+ * for "did the side-effect work?". The shells write outcomes from the
+ * execution path independently of `agent_actions`, and the audit log's
+ * `outcome_id` column is intentionally left NULL today (the action is
+ * recorded BEFORE the outcome lands and the hash chain is immutable
+ * after write). Joining on `outcome_id` would always be empty.
+ *
+ * An outcome is "verified" when its `outcome_type` is non-NULL.
+ * Successes: `response_received`, `completed`, `advanced`.
+ * Misses:    `no_response`, `declined`, `expired`.
+ *
+ * Note: `agent_actions.action_type` ("send_sms") differs from
+ * `action_outcomes.action_type` ("sms_sent") by convention — the
+ * verbs-vs-past-tense split is intentional, so this chart reports
+ * outcome-side names. Phase 1.5 will reconcile both surfaces.
  */
 const SUCCESS_OUTCOMES = new Set(['response_received', 'completed', 'advanced']);
 
-export function aggregateVerifiedOutcomeRate(actions, outcomes) {
-  const outcomeById = new Map();
-  for (const o of outcomes || []) outcomeById.set(o.id, o);
-
+export function aggregateVerifiedOutcomeRate(outcomes) {
   const byType = new Map();
-  for (const row of actions) {
+  for (const row of outcomes || []) {
     const at = row?.action_type;
     if (!at) continue;
-    const o = row.outcome_id ? outcomeById.get(row.outcome_id) : null;
     const acc = byType.get(at) || { action_type: at, verified: 0, success: 0, pending: 0, total: 0 };
     acc.total += 1;
-    if (o && o.outcome_type) {
+    if (row.outcome_type) {
       acc.verified += 1;
-      if (SUCCESS_OUTCOMES.has(o.outcome_type)) acc.success += 1;
+      if (SUCCESS_OUTCOMES.has(row.outcome_type)) acc.success += 1;
     } else {
       acc.pending += 1;
     }
@@ -154,10 +162,17 @@ export function aggregateVerifiedOutcomeRate(actions, outcomes) {
 
 /**
  * Cost per verified outcome (USD).
- *   total_dollars / total_verified_outcomes (across all action_types)
+ *   total_dollars / total_verified_outcomes
  *
- * Returns null when nothing has been verified yet so the UI can show a
- * dash rather than divide by zero.
+ * Dollars come from `agent_actions.payload._cost`; verified count
+ * comes from `action_outcomes.outcome_type IS NOT NULL`. We don't try
+ * to attribute dollars to a specific outcome — the audit row is
+ * written before the outcome resolves, and there's no clean FK link.
+ * For "is this agent earning its keep?" the headline ratio is the
+ * right granularity.
+ *
+ * Returns null `cost_per` when nothing has been verified yet so the
+ * UI can show a dash rather than divide by zero.
  */
 export function costPerVerifiedOutcome(actions, outcomes) {
   let dollars = 0;
@@ -166,12 +181,9 @@ export function costPerVerifiedOutcome(actions, outcomes) {
     if (!cost) continue;
     dollars += computeCostUsd(cost.input_tokens, cost.output_tokens, cost.model);
   }
-  const outcomeById = new Map();
-  for (const o of outcomes || []) outcomeById.set(o.id, o);
   let verified = 0;
-  for (const row of actions) {
-    const o = row.outcome_id ? outcomeById.get(row.outcome_id) : null;
-    if (o && o.outcome_type) verified += 1;
+  for (const row of outcomes || []) {
+    if (row?.outcome_type) verified += 1;
   }
   if (verified === 0) return { dollars, verified: 0, cost_per: null };
   return { dollars, verified, cost_per: dollars / verified };

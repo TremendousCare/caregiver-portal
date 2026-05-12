@@ -62,8 +62,8 @@ export function AgentMetricsPage() {
   );
   const volume = useMemo(() => aggregateSuggestionVolume(actions), [actions]);
   const outcomeRate = useMemo(
-    () => aggregateVerifiedOutcomeRate(actions, outcomes),
-    [actions, outcomes],
+    () => aggregateVerifiedOutcomeRate(outcomes),
+    [outcomes],
   );
   const headlineTotals = useMemo(() => totals(actions), [actions]);
   const cpo = useMemo(

@@ -24,10 +24,12 @@ const OUTCOME_COLUMNS = `
   id,
   agent_id,
   action_type,
+  entity_type,
+  entity_id,
   outcome_type,
   source,
   expires_at,
-  resolved_at,
+  outcome_detected_at,
   created_at
 `;
 

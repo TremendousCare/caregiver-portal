@@ -138,37 +138,41 @@ describe('aggregateSuggestionVolume', () => {
 });
 
 describe('aggregateVerifiedOutcomeRate', () => {
-  it('joins by outcome_id and computes success rate per action_type', () => {
+  it('groups by action_type and computes success rate from action_outcomes alone', () => {
+    // Per Codex P1: agent_actions.outcome_id is always NULL today, so the
+    // dashboard reads action_outcomes directly. Naming follows the
+    // outcome-side convention (past-tense).
     const outcomes = [
-      { id: 'o1', outcome_type: 'response_received' },
-      { id: 'o2', outcome_type: 'no_response' },
-      { id: 'o3', outcome_type: 'completed' },
-      { id: 'o4', outcome_type: null }, // pending
+      { action_type: 'sms_sent', outcome_type: 'response_received' }, // success
+      { action_type: 'sms_sent', outcome_type: 'no_response' },       // miss
+      { action_type: 'email_sent', outcome_type: 'completed' },       // success
+      { action_type: 'email_sent', outcome_type: null },              // pending
+      { action_type: 'phase_changed', outcome_type: null },           // pending only
     ];
-    const rows = [
-      action({ action_type: 'send_sms', outcome_id: 'o1' }), // success
-      action({ action_type: 'send_sms', outcome_id: 'o2' }), // miss
-      action({ action_type: 'send_email', outcome_id: 'o3' }), // success
-      action({ action_type: 'send_email', outcome_id: 'o4' }), // pending
-      action({ action_type: 'add_note', outcome_id: null }),   // no outcome row
-    ];
-    const r = aggregateVerifiedOutcomeRate(rows, outcomes);
+    const r = aggregateVerifiedOutcomeRate(outcomes);
 
-    const sms = r.find((x) => x.action_type === 'send_sms');
+    const sms = r.find((x) => x.action_type === 'sms_sent');
     expect(sms).toMatchObject({ verified: 2, success: 1, pending: 0, total: 2 });
     expect(sms.success_rate).toBeCloseTo(0.5);
 
-    const email = r.find((x) => x.action_type === 'send_email');
+    const email = r.find((x) => x.action_type === 'email_sent');
     expect(email).toMatchObject({ verified: 1, success: 1, pending: 1, total: 2 });
 
-    const note = r.find((x) => x.action_type === 'add_note');
-    expect(note.success_rate).toBeNull(); // no verified
+    const phase = r.find((x) => x.action_type === 'phase_changed');
+    expect(phase.success_rate).toBeNull(); // no verified yet
   });
 
-  it('handles empty outcomes safely', () => {
-    const rows = [action({ action_type: 'send_sms' })];
-    expect(aggregateVerifiedOutcomeRate(rows, []))
-      .toEqual([{ action_type: 'send_sms', verified: 0, success: 0, pending: 1, total: 1, success_rate: null }]);
+  it('handles empty input safely', () => {
+    expect(aggregateVerifiedOutcomeRate([])).toEqual([]);
+    expect(aggregateVerifiedOutcomeRate(null)).toEqual([]);
+  });
+
+  it('treats outcome_type=advanced as success', () => {
+    const r = aggregateVerifiedOutcomeRate([
+      { action_type: 'phase_changed', outcome_type: 'advanced' },
+    ]);
+    expect(r[0].success).toBe(1);
+    expect(r[0].success_rate).toBe(1);
   });
 });
 
@@ -179,10 +183,15 @@ describe('costPerVerifiedOutcome', () => {
     expect(r.verified).toBe(0);
   });
 
-  it('divides total dollars by total verified outcomes', () => {
-    const outcomes = [{ id: 'o1', outcome_type: 'response_received' }];
+  it('divides total agent_actions dollars by total verified action_outcomes', () => {
+    // No join — dollars come from agent_actions.payload._cost, verified
+    // count comes from action_outcomes.outcome_type IS NOT NULL.
+    const outcomes = [
+      { outcome_type: 'response_received' }, // verified
+      { outcome_type: null },                // pending — does not count
+    ];
     const rows = [
-      action({ outcome_id: 'o1', payload: { _cost: { input_tokens: 1_000_000, output_tokens: 0, duration_ms: 0, model: MODEL_SONNET } } }),
+      action({ payload: { _cost: { input_tokens: 1_000_000, output_tokens: 0, duration_ms: 0, model: MODEL_SONNET } } }),
     ];
     const r = costPerVerifiedOutcome(rows, outcomes);
     expect(r.dollars).toBeCloseTo(3.0, 4);
