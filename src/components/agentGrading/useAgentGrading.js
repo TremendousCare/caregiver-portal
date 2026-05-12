@@ -14,7 +14,7 @@
 // rows. The summary breakdown reflects everything scanned, so the
 // operator can see how much grading work remains in the window.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
   loadAgentsForGrading,
