@@ -588,6 +588,30 @@ async function fireSequences(
       .limit(1);
     if (existing && existing.length > 0) continue;
 
+    // Create the enrollment row up front so the UI, response-detection, and
+    // cron step-runner can see this client as actively enrolled. Without
+    // this, log rows fire on the side but nothing keys off them and pending
+    // steps go dead-letter because the cron requires an enrollment row.
+    const { data: enrollment, error: enrollError } = await supabase
+      .from("client_sequence_enrollments")
+      .insert({
+        client_id: client.id,
+        sequence_id: sequence.id,
+        status: "active",
+        current_step: 0,
+        started_by: "system",
+        start_from_step: 0,
+      })
+      .select("id")
+      .single();
+
+    if (enrollError) {
+      console.error(`Failed to create enrollment for sequence ${sequence.id} on client ${client.id}:`, enrollError);
+      continue;
+    }
+
+    let lastExecutedStep = -1;
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       const delayHours = step.delay_hours || 0;
@@ -669,6 +693,8 @@ async function fireSequences(
           scheduled_at: nowMs,
           executed_at: nowMs,
         });
+
+        lastExecutedStep = i;
       } else {
         // Delayed -- schedule for cron
         const scheduledAt = nowMs + delayHours * 60 * 60 * 1000;
@@ -681,6 +707,21 @@ async function fireSequences(
           scheduled_at: scheduledAt,
         });
       }
+    }
+
+    // Update enrollment progress to reflect what we just fired. If every
+    // step ran inline (no delayed steps), mark the enrollment completed.
+    if (lastExecutedStep >= 0) {
+      const nextStep = lastExecutedStep + 1;
+      const isComplete = nextStep >= steps.length;
+      await supabase
+        .from("client_sequence_enrollments")
+        .update({
+          current_step: nextStep,
+          last_step_executed_at: new Date().toISOString(),
+          ...(isComplete ? { status: "completed", completed_at: new Date().toISOString() } : {}),
+        })
+        .eq("id", enrollment.id);
     }
   }
 }
