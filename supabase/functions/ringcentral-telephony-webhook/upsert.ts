@@ -47,8 +47,27 @@ export function planCallSessionUpsert(
   incoming: CallEventNormalized,
   now: Date = new Date(),
 ): CallSessionUpsertPlan {
-  const resolvedStatus = resolveTargetStatus(existing?.status, incoming.status);
-  const isLateRetransmit = !!existing && resolvedStatus !== incoming.status;
+  // ── Coerce missed → ended when the call was previously answered ──
+  // RC fires `Disconnected` events for every party at call end. Without
+  // additional context, the parser maps Disconnected → 'missed'. That's
+  // correct when the caller hung up before pickup, but WRONG when the
+  // call was already answered and is now ending normally. We catch that
+  // here using the existing row as the source of truth: if answered_at
+  // is already stamped (or the existing status is 'answered'), a
+  // subsequent 'missed' is really 'ended'. True missed calls keep
+  // 'missed' because answered_at is NULL and existing.status is
+  // 'ringing'. 'voicemail' is unaffected — only 'missed' is coerced.
+  let normalizedIncomingStatus = incoming.status;
+  if (
+    incoming.status === 'missed' &&
+    existing &&
+    (existing.answered_at || existing.status === 'answered')
+  ) {
+    normalizedIncomingStatus = 'ended';
+  }
+
+  const resolvedStatus = resolveTargetStatus(existing?.status, normalizedIncomingStatus);
+  const isLateRetransmit = !!existing && resolvedStatus !== normalizedIncomingStatus;
   const eventTimeIso = incoming.eventTime || now.toISOString();
 
   // started_at: lock in on first event, never overwrite.
