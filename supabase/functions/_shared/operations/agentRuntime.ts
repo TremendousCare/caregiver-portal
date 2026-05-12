@@ -93,7 +93,7 @@ export interface AgentResult {
     duration_ms: number;
   };
   contextHealth?: any;
-  agent: { id: string; slug: string; version: number };
+  agent: { id: string; slug: string; version: number; model: string };
   shadow: boolean;
   error?: { message: string; code?: string };
 }
@@ -155,7 +155,7 @@ export async function runAgent(
           "scope the manifest lookup to an explicit org.",
         code: "missing_org_id",
       },
-      agent: { id: "", slug, version: 0 },
+      agent: { id: "", slug, version: 0, model: "" },
       shadow: false,
       cost: { ...ZERO_COST },
     };
@@ -183,7 +183,7 @@ export async function runAgent(
       return {
         status: "error",
         error: { message: err.message, code: err.code },
-        agent: { id: "", slug, version: 0 },
+        agent: { id: "", slug, version: 0, model: "" },
         shadow: false,
         cost: { ...ZERO_COST },
       };
@@ -192,7 +192,7 @@ export async function runAgent(
       return {
         status: "error",
         error: { message: err.message, code: err.code },
-        agent: { id: "", slug, version: 0 },
+        agent: { id: "", slug, version: 0, model: "" },
         shadow: false,
         cost: { ...ZERO_COST },
       };
@@ -203,7 +203,7 @@ export async function runAgent(
         message: (err as Error).message || "manifest_load_failed",
         code: "manifest_load_failed",
       },
-      agent: { id: "", slug, version: 0 },
+      agent: { id: "", slug, version: 0, model: "" },
       shadow: false,
       cost: { ...ZERO_COST },
     };
@@ -213,6 +213,7 @@ export async function runAgent(
     id: manifest.id,
     slug: manifest.slug,
     version: manifest.version,
+    model: manifest.model,
   };
 
   // ── Kill switch — return immediately, no Claude call, no writes. ──
@@ -370,7 +371,7 @@ export async function runAgent(
 
 function shapeMismatch(
   shape: AgentInvocationShape,
-  agent: { id: string; slug: string; version: number },
+  agent: { id: string; slug: string; version: number; model: string },
   shadow: boolean,
 ): AgentResult {
   return {

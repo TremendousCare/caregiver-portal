@@ -112,6 +112,16 @@ export function AppShell() {
           ] : []),
         ],
       },
+      // Phase 1.4 — admin-only per-agent metrics dashboard. Sits as
+      // its own sidebar section so future agent-related pages (1.5
+      // grading UI, agent marketplace, etc.) have a natural home.
+      ...(isAdmin ? [{
+        id: 'ai-agents',
+        label: 'AI Agents',
+        items: [
+          { id: 'agent-metrics', path: '/agent-metrics', icon: '🤖', label: 'Agent Metrics' },
+        ],
+      }] : []),
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];

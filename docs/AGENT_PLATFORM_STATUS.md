@@ -11,19 +11,25 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 1.2 — Tightened autonomy promotion algorithm v2** *(not started; ready to begin)*
+**Phase 1.4 — Per-agent metrics dashboard** *(in progress)*
 
-**Why this is next:** Phases 0.x and 1.1 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs **1.2 + 1.3 + 1.4 + 1.5** before it can ship, per the locked phase chain in `docs/AGENT_PLATFORM.md`:
+**Why this is next:** Phases 0.x, 1.1, 1.2, and 1.3 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs **1.4 + 1.5** before it can ship, per the locked phase chain in `docs/AGENT_PLATFORM.md`:
 - Phase 2 gates on **1.5** (retrospective grading UI baked + ≥ 100 graded suggestions in the calibration set).
 - Phase 1.5 gates on **1.4** (metrics dashboard provides the surface where grading lives).
-- Phase 1.5's promotion-v2 algorithm in **1.2** consumes graded outcomes as input; without 1.2, Phase 2 has no autonomy decision-maker.
-- Phase **1.3** hardens kill-switch + shadow-mode at the runtime layer; required before any agent is granted L3/L4 autonomy.
 
-So all four 1.x sub-phases (1.2, 1.3, 1.4, 1.5) are on the critical path to Phase 2. The CEO directive ("don't skip features, just compress bakes") keeps every one of them in scope.
+**Scope of 1.4** (per `docs/AGENT_PLATFORM.md` → 1.4): admin-only `/agent-metrics` page that surfaces token cost (input/output) + latency, suggestion volume by phase, verified-outcome rate by action type, cost per verified outcome, and a placeholder for drift events. Reads from `agent_actions` (Phase 1.1) and `action_outcomes` (Phase 0.2); no writes. Browser-side CSV export. Time window control (Day / Week / 30d). Per-agent dropdown for all three Phase 0 agents.
 
-**Scope of 1.2** (per `docs/AGENT_PLATFORM.md` → 1.2): replace the legacy `autonomy_config` consecutive-counter promotion with `evaluatePromotion(agentId, actionType, recentOutcomes)` that reads from `autonomy_profile` jsonb (already in `agents` row from Phase 0.1; underused until now). Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Locked decisions in `AGENT_PLATFORM.md` → "Decisions locked".
+**Exit criterion (locked):** owner can answer "is this agent earning its keep?" in under a minute.
 
-**Parallelization option:** 1.2 and 1.3 don't depend on each other. We can ship them concurrently to compress the critical path. 1.4 depends on having graded data flowing (which 1.5 produces); 1.5 depends on 1.4's UI surface. Those two are sequential.
+**Decisions for 1.4 (locked 2026-05-12 with owner):**
+- **Chart library**: Recharts. Declarative React composition matches the codebase style; tree-shaken bundle is ~140 KB raw / ~40 KB gzipped after compression of the AdminApp chunk. If we outgrow it for a specific chart we add a specialized library *just for that chart* rather than swapping wholesale.
+- **Routing**: own sidebar section (`AI Agents → Agent Metrics`), admin-only, via the existing `<AdminOnly>` route guard. Cleaner than burying it inside the Settings accordion and gives a natural home for Phase 1.5's grading UI.
+- **Time window**: segmented control (Day / Week / 30d).
+- **Model pricing**: hardcoded per-model in `src/components/agentMetrics/modelPricing.js`. Move to `app_settings.model_prices` JSONB if/when finance needs to edit without a deploy.
+- **CSV export**: browser-side from already-fetched dataset. The existing `agent-actions-export` edge function (Phase 1.1.C, NDJSON) stays the path for compliance dumps; the dashboard's CSV is for "what's on my screen, in a spreadsheet" use.
+- **Drift events**: deferred. The consolidation pipeline that produces drift events doesn't exist yet; dashboard shows a "Not yet instrumented" placeholder card so the section is visible but explicitly empty.
+
+**Cost capture (additive, shipped in this PR):** the token cost + latency + model that the chart depends on weren't persisted anywhere before — the chat / planner / router shells discarded `runAgent.cost` after returning their response. Phase 1.4 added a `payload._cost` field to every `recordAgentAction` call in the three shells (`ai-chat/shell.ts`, `ai-planner/shell.ts`, `message-router/shell.ts`). Shape: `{ input_tokens, output_tokens, duration_ms, model }`. No schema change required (payload is already jsonb). `AgentResult.agent` extended with a `model` field (set from manifest.model). Tests in `src/lib/__tests__/agentMetricsCostCapture.test.js` pin the contract.
 
 ---
 
@@ -86,9 +92,9 @@ Net diff: **−1,651 lines**. CI green, 2,915 tests passing.
 | 0.4 | Edge function cutover (recruiting/planner/router → `runAgent`) | **Shipped + closed** | 2026-05-04 (PR #254) + 2026-05-09 (cleanup PR #291) | All three shells flipped clean. Cleanup removed `*_legacy.ts` siblings, `cutoverFlag.ts` helper, dead `classifyMessage()`, and the `agent_runtime_cutover` row. Owner-authorized early cleanup merge after live verification showed zero unstamped across all three shells post-flip. |
 | 0.5 | Settings UI for manifest editing | **Shipped + closed** | 2026-05-09 (PR #298 + #300) | Spec doc + 11 locked decisions in `docs/AGENT_PLATFORM_PHASE_0_5_SPEC.md`. PR A: read-only + toggles + version history. PR B: full edit + revert + lockdown migration. Compressed bake — manual smoke + DB-level verification stood in for the calendar bake per CEO directive. |
 | 1.1 | `agent_actions` billing-grade audit log | **Shipped + closed** | 2026-05-10 (PRs #301 + #302 + #303) | Three-PR slicing: 1.1.A foundation (table + RPC + crypto), 1.1.B verifier + cron + first dual-write, 1.1.C dual-write everywhere + NDJSON export. Hash-chained SHA-256 + Ed25519 signing, `chain_seq` IDENTITY for strict ordering, daily 13:30 UTC verifier cron writes `events.event_type='agent_actions_chain_break'` on tampering. Service-role-gated NDJSON export at `/functions/v1/agent-actions-export`. Tamper-evident audit log of every agent action is live. |
-| **1.2** | **Tightened autonomy promotion algorithm v2** | **Next** | — | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. Replaces legacy `autonomy_config` consecutive-counter with `evaluatePromotion(agentId, actionType, recentOutcomes)` reading `autonomy_profile` jsonb. **Required before Phase 2 ships any auto-execute behavior at scale.** |
-| 1.3 | Per-(agent × org) kill switch + shadow mode hardening | Not started | — | Defense in depth; toggles audited. |
-| 1.4 | Per-agent metrics dashboard | Not started | — | "Is this agent earning its keep?" surface. |
+| 1.2 | Tightened autonomy promotion algorithm v2 | **Shipped + closed** | 2026-05-10 (PR #305) | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. `evaluatePromotion(agentId, actionType, recentOutcomes)` replaces legacy consecutive-counter; `update_autonomy_profile_entry_v1` RPC for atomic profile writes; `autonomy_profile` v2 backfilled on all 3 seed agents. Codex caught two P2s in-PR (repeated demote on stale harmful row; concurrent profile write race) — both fixed. |
+| 1.3 | Per-(agent × org) kill switch + shadow mode hardening + read-only mode | **Shipped + closed** | 2026-05-10 (PR #306) | New `agents.read_only_mode` boolean — suppresses every tool call (auto + confirm tier) while keeping the agent loop alive. `toggle_agent_flag_v1` RPC extended to accept the new flag. Per-iteration recheck inside the chat handler so an admin clear takes effect mid-flight without restart. Codex caught two P2s in-PR (read_only didn't suppress assembler reads; flag-off couldn't restore raw executor) — both fixed. |
+| **1.4** | **Per-agent metrics dashboard** | **In progress** | — | Admin-only `/agent-metrics` page; Recharts; 4 charts + 1 drift placeholder; CSV export; cost/latency capture into `agent_actions.payload._cost` at all 3 shells. "Is this agent earning its keep?" surface. |
 | **1.5** | **Retrospective grading UI** | Not started | — | New phase (added 2026-04-30). Calibrates accumulated `ai_suggestions` for Phase 2. |
 | **2** | **Recruiting Agent: Autonomous Funnel Orchestration** | Not started | — | Wedge. 6 sub-phases: 2.1 funnel state machine, 2.2 Stage 1 + bookings webhook, 2.3 Stage 2-3 with bookings live, 2.4 Stage 4-5, 2.5 Stage 6, 2.6 Stage 7 + handoff. |
 | 3 | Intake (client lead management) agent | Not started | — | Second new agent. Same 5-PR pattern as before. |
@@ -156,6 +162,9 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-05-10 | #301 | 1.1.A | `agent_actions` table + `record_agent_action_v1` RPC + crypto helpers (canonical JSON, SHA-256 chain hash, Ed25519 sign/verify via Web Crypto). 77 new specs. Codex P1 caught two: (1) `created_at` drift between signed timestamp and stored DEFAULT now() — fixed by adding `p_created_at` parameter + ±5min anti-backdate bound. (2) `record_agent_action_v1` over-granted to `authenticated` — fixed by REVOKE + grant only to `service_role`. Pure infrastructure (no callers yet). |
 | 2026-05-10 | #302 | 1.1.B | `agent-actions-verify` edge function + daily 13:30 UTC `pg_cron` + first dual-write call site (new `agent-flag-toggle` wrapper edge function). Anon privilege cleanup migration. `chain_seq` IDENTITY column added (Codex P1 fix for false `broken_chain_link` reports on same-millisecond rows). Frontend toggle path now routes through edge function for atomic toggle + audit dual-write. First production audit row: chain_seq=1 at 02:02 UTC on 2026-05-10. |
 | 2026-05-10 | #303 | 1.1.C | Dual-write extended to chat shell tool loop, confirmAction, planner shell, router shell, and `executeSuggestion`. NDJSON export endpoint at `/functions/v1/agent-actions-export` with full-chain verification + service-role auth gate. Codex P1 + P2 caught: missing auth gate on export, false integrity reports on filtered exports — both fixed inline. 3,244 specs passing. **Phase 1.1 closed.** |
+| 2026-05-10 | #305 | 1.2 | Autonomy promotion v2: `evaluatePromotion()` reading `autonomy_profile` jsonb (per-transition thresholds + sliding window + min sample size + auto-demote on harm). `update_autonomy_profile_entry_v1` SECURITY DEFINER RPC for atomic profile writes. v2 schema backfilled on all 3 seed agents. Codex caught two P2s in-PR (repeated demote on stale harmful row; concurrent profile write race) — both fixed. |
+| 2026-05-10 | #306 | 1.3 | `agents.read_only_mode` boolean — suppresses every tool call while keeping the agent loop alive. `toggle_agent_flag_v1` extended to accept the new flag. Per-iteration recheck inside chat handler. Codex caught two P2s in-PR (read_only didn't suppress assembler reads; flag-off couldn't restore raw executor) — both fixed. |
+| 2026-05-11 | #309 | docs | Phase 1.4 handoff doc for the next session. Markdown only. Deleted in this PR. |
 
 (Add a row when each subsequent PR ships.)
 

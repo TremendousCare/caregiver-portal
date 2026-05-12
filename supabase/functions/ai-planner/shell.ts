@@ -438,7 +438,19 @@ export async function runAiPlannerShell(
       // suggestion. Phase 'suggested' (the planner produced it) or
       // 'auto_executed' (autonomy says fire it now). Fire-and-forget
       // — a failed audit must not roll back the suggestion insert.
+      //
+      // Phase 1.4 — stamp the planner's per-suggestion token cost +
+      // model + latency into payload._cost. The Sonnet call cost is
+      // shared across every suggestion in the response; we prorate by
+      // suggestion count so the dashboard can sum without
+      // double-counting.
       if (agentId) {
+        const perSuggestionInput = Math.round(
+          agentResult.cost.input_tokens / Math.max(1, suggestions.length),
+        );
+        const perSuggestionOutput = Math.round(
+          agentResult.cost.output_tokens / Math.max(1, suggestions.length),
+        );
         recordAgentAction(supabase, {
           orgId,
           agentId,
@@ -455,6 +467,12 @@ export async function runAiPlannerShell(
             title: sug.title,
             autonomy_level: autonomyLevel,
             ...sug.action_params,
+            _cost: {
+              input_tokens: perSuggestionInput,
+              output_tokens: perSuggestionOutput,
+              duration_ms: agentResult.cost.duration_ms,
+              model: agentResult.agent?.model || null,
+            },
           },
           outcomeId: null,
         }).catch((err: unknown) =>
