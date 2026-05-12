@@ -11,15 +11,26 @@ This file is the living tracker. Update it in the same PR that advances the plat
 
 ## Current phase
 
-**Phase 1.4 — Per-agent metrics dashboard** *(in progress)*
+**Phase 1.5 — Retrospective grading UI** *(in progress)*
 
-**Why this is next:** Phases 0.x, 1.1, 1.2, and 1.3 are closed. Phase 2 (the recruiting agent autonomous funnel — first real business value) needs **1.4 + 1.5** before it can ship, per the locked phase chain in `docs/AGENT_PLATFORM.md`:
-- Phase 2 gates on **1.5** (retrospective grading UI baked + ≥ 100 graded suggestions in the calibration set).
-- Phase 1.5 gates on **1.4** (metrics dashboard provides the surface where grading lives).
+**Why this is next:** Phases 0.x, 1.1, 1.2, 1.3, and **1.4** are closed (1.4 shipped + deployed as PR #312 merged 2026-05-11). Phase 2 (the recruiting agent autonomous funnel — first real business value) needs **1.5** before it can ship: it gates on a baked grading UI with ≥ 100 graded suggestions in the calibration set, per the locked phase chain in `docs/AGENT_PLATFORM.md`.
+
+**Scope of 1.5** (per `docs/AGENT_PLATFORM.md` → 1.5.1): new `ai_suggestion_grades` table (append-only — re-grading writes a new row, latest `graded_at` per suggestion is the current verdict), `upsert_ai_suggestion_grade_v1` SECURITY DEFINER RPC (admin-gated, JWT org-scoped), and an admin-only `/agent-grading` page with filtering (agent / source / action_type / time window / ungraded-only), three-button verdicts (good / bad / harmful), free-text rationale, bulk-grade across a multi-select, and `g` / `b` / `h` / `↑↓` keyboard shortcuts. Sits in the same `AI Agents` sidebar section as Agent Metrics.
+
+**Autonomy v2 integration (1.5)**: `recordAutonomyOutcomeV2` now fetches `ai_suggestion_grades` joined to `ai_suggestions` for the (agent_id, action_type) slice, dedupes to latest-grade-per-suggestion, and merges them into the lookback window. Verdict mapping: `good → phase=confirmed`, `bad → phase=rejected`, `harmful → phase=rejected + payload.severity='harmful'`. The pure `evaluatePromotion` evaluator is unchanged — grades enter the timeline at the data-feed layer. Grade fetch failure is non-fatal (falls back to actions-only).
+
+**Exit criterion (locked):** owner can grade ≥ 50 suggestions in an afternoon, verdicts persist, autonomy-v2 algorithm reads them.
 
 **Scope of 1.4** (per `docs/AGENT_PLATFORM.md` → 1.4): admin-only `/agent-metrics` page that surfaces token cost (input/output) + latency, suggestion volume by phase, verified-outcome rate by action type, cost per verified outcome, and a placeholder for drift events. Reads from `agent_actions` (Phase 1.1) and `action_outcomes` (Phase 0.2); no writes. Browser-side CSV export. Time window control (Day / Week / 30d). Per-agent dropdown for all three Phase 0 agents.
 
 **Exit criterion (locked):** owner can answer "is this agent earning its keep?" in under a minute.
+
+**Decisions for 1.5 (in PR):**
+- **Route**: flat `/agent-grading` (matching Phase 1.4's `/agent-metrics` pattern), under the `AI Agents` sidebar section, admin-only via existing `<AdminOnly>` guard.
+- **Append-only history, no UPDATE**: re-grading a suggestion writes a new row; the latest `graded_at` per `suggestion_id` is the current verdict. Old grades stay for audit. Mirrors `agent_versions` posture.
+- **Write path lockdown**: RPC-only, mirrors `agent_actions` posture. `REVOKE INSERT, UPDATE, DELETE ... FROM authenticated`. `upsert_ai_suggestion_grade_v1` is `SECURITY DEFINER`, calls `public.is_admin()`, validates JWT `org_id` against the suggestion's org. Sanity DO-block fails the migration if the REVOKE didn't land.
+- **Audit trail in events**: every grade insert also writes one `events` row (`event_type='ai_suggestion_graded'`) stamped with the suggestion's `agent_id`, so per-agent metrics can correlate grading activity with the agent under review. Grades do NOT write to `agent_actions` — that table's hash chain is locked to decisions made BY an agent; grading is an operator judgement ABOUT past decisions.
+- **Autonomy merge at the data feed, not in the evaluator**: pure `evaluatePromotion` stays untouched. The stateful wrapper `recordAutonomyOutcomeV2` does the fetch + merge so any caller of the pure path can opt out of grade input.
 
 **Decisions for 1.4 (locked 2026-05-12 with owner):**
 - **Chart library**: Recharts. Declarative React composition matches the codebase style; tree-shaken bundle is ~140 KB raw / ~40 KB gzipped after compression of the AdminApp chunk. If we outgrow it for a specific chart we add a specialized library *just for that chart* rather than swapping wholesale.
@@ -94,8 +105,8 @@ Net diff: **−1,651 lines**. CI green, 2,915 tests passing.
 | 1.1 | `agent_actions` billing-grade audit log | **Shipped + closed** | 2026-05-10 (PRs #301 + #302 + #303) | Three-PR slicing: 1.1.A foundation (table + RPC + crypto), 1.1.B verifier + cron + first dual-write, 1.1.C dual-write everywhere + NDJSON export. Hash-chained SHA-256 + Ed25519 signing, `chain_seq` IDENTITY for strict ordering, daily 13:30 UTC verifier cron writes `events.event_type='agent_actions_chain_break'` on tampering. Service-role-gated NDJSON export at `/functions/v1/agent-actions-export`. Tamper-evident audit log of every agent action is live. |
 | 1.2 | Tightened autonomy promotion algorithm v2 | **Shipped + closed** | 2026-05-10 (PR #305) | Per-transition thresholds + sliding window + min sample size + auto-demote on harm. `evaluatePromotion(agentId, actionType, recentOutcomes)` replaces legacy consecutive-counter; `update_autonomy_profile_entry_v1` RPC for atomic profile writes; `autonomy_profile` v2 backfilled on all 3 seed agents. Codex caught two P2s in-PR (repeated demote on stale harmful row; concurrent profile write race) — both fixed. |
 | 1.3 | Per-(agent × org) kill switch + shadow mode hardening + read-only mode | **Shipped + closed** | 2026-05-10 (PR #306) | New `agents.read_only_mode` boolean — suppresses every tool call (auto + confirm tier) while keeping the agent loop alive. `toggle_agent_flag_v1` RPC extended to accept the new flag. Per-iteration recheck inside the chat handler so an admin clear takes effect mid-flight without restart. Codex caught two P2s in-PR (read_only didn't suppress assembler reads; flag-off couldn't restore raw executor) — both fixed. |
-| **1.4** | **Per-agent metrics dashboard** | **In progress** | — | Admin-only `/agent-metrics` page; Recharts; 4 charts + 1 drift placeholder; CSV export; cost/latency capture into `agent_actions.payload._cost` at all 3 shells. "Is this agent earning its keep?" surface. |
-| **1.5** | **Retrospective grading UI** | Not started | — | New phase (added 2026-04-30). Calibrates accumulated `ai_suggestions` for Phase 2. |
+| 1.4 | Per-agent metrics dashboard | **Shipped + closed** | 2026-05-11 (PR #312) | Admin-only `/agent-metrics` page; Recharts; 4 charts + 1 drift placeholder; CSV export; cost/latency capture into `agent_actions.payload._cost` at all 3 shells. "Is this agent earning its keep?" surface. Two Codex P1s fixed in 4c211dd (action_outcomes join + column-name). |
+| **1.5** | **Retrospective grading UI** | **In progress** | — | `ai_suggestion_grades` table (append-only) + `upsert_ai_suggestion_grade_v1` SECURITY DEFINER RPC + admin-only `/agent-grading` page with filters, bulk grade, keyboard shortcuts. Autonomy v2 merges grades into lookback window via `mergeGradesIntoActions`. Calibrates accumulated `ai_suggestions` for Phase 2. |
 | **2** | **Recruiting Agent: Autonomous Funnel Orchestration** | Not started | — | Wedge. 6 sub-phases: 2.1 funnel state machine, 2.2 Stage 1 + bookings webhook, 2.3 Stage 2-3 with bookings live, 2.4 Stage 4-5, 2.5 Stage 6, 2.6 Stage 7 + handoff. |
 | 3 | Intake (client lead management) agent | Not started | — | Second new agent. Same 5-PR pattern as before. |
 | 4 | Scheduling agent | Not started | — | Third new agent. ≥ 21-day shadow bake. |
@@ -165,6 +176,7 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` ("Strategic decision
 | 2026-05-10 | #305 | 1.2 | Autonomy promotion v2: `evaluatePromotion()` reading `autonomy_profile` jsonb (per-transition thresholds + sliding window + min sample size + auto-demote on harm). `update_autonomy_profile_entry_v1` SECURITY DEFINER RPC for atomic profile writes. v2 schema backfilled on all 3 seed agents. Codex caught two P2s in-PR (repeated demote on stale harmful row; concurrent profile write race) — both fixed. |
 | 2026-05-10 | #306 | 1.3 | `agents.read_only_mode` boolean — suppresses every tool call while keeping the agent loop alive. `toggle_agent_flag_v1` extended to accept the new flag. Per-iteration recheck inside chat handler. Codex caught two P2s in-PR (read_only didn't suppress assembler reads; flag-off couldn't restore raw executor) — both fixed. |
 | 2026-05-11 | #309 | docs | Phase 1.4 handoff doc for the next session. Markdown only. Deleted in this PR. |
+| 2026-05-11 | #312 | 1.4 | Per-agent metrics dashboard: admin-only `/agent-metrics` route, Recharts visuals (token spend / latency / suggestion volume / verified-outcome rate / drift placeholder), CSV export, segmented Day/Week/30d window, cost capture into `agent_actions.payload._cost` at all 3 shells. Two Codex P1s fixed inline (4c211dd) — `action_outcomes` join shape + column-name typo. **Phase 1.4 closed.** |
 
 (Add a row when each subsequent PR ships.)
 

@@ -112,14 +112,16 @@ export function AppShell() {
           ] : []),
         ],
       },
-      // Phase 1.4 — admin-only per-agent metrics dashboard. Sits as
-      // its own sidebar section so future agent-related pages (1.5
-      // grading UI, agent marketplace, etc.) have a natural home.
+      // Phase 1.4 — admin-only per-agent metrics dashboard. Phase 1.5
+      // — retrospective grading UI. Both live under the AI Agents
+      // section; future agent-related pages (marketplace, manifest
+      // editor, etc.) get added here too.
       ...(isAdmin ? [{
         id: 'ai-agents',
         label: 'AI Agents',
         items: [
           { id: 'agent-metrics', path: '/agent-metrics', icon: '🤖', label: 'Agent Metrics' },
+          { id: 'agent-grading', path: '/agent-grading', icon: '✏️', label: 'Suggestion Grading' },
         ],
       }] : []),
       // Future:

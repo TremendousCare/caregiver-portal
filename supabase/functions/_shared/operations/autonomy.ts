@@ -92,6 +92,97 @@ export interface AgentActionRow {
   created_at: string;
 }
 
+/** Phase 1.5 — the shape of a row in `ai_suggestion_grades` we consume. */
+export interface SuggestionGradeRow {
+  suggestion_id: string;
+  verdict: "good" | "bad" | "harmful";
+  graded_at: string;
+}
+
+/**
+ * Phase 1.5 — collapse a list of grade rows (possibly multiple per
+ * suggestion from re-grading) to the latest verdict per suggestion.
+ * Append-only history means "current" is `MAX(graded_at)` per
+ * `suggestion_id`.
+ */
+export function latestGradePerSuggestion(
+  grades: SuggestionGradeRow[] | null | undefined,
+): SuggestionGradeRow[] {
+  const latest = new Map<string, SuggestionGradeRow>();
+  if (!Array.isArray(grades)) return [];
+  for (const g of grades) {
+    if (!g || !g.suggestion_id || !g.graded_at) continue;
+    const prior = latest.get(g.suggestion_id);
+    if (!prior || Date.parse(g.graded_at) > Date.parse(prior.graded_at)) {
+      latest.set(g.suggestion_id, g);
+    }
+  }
+  return Array.from(latest.values());
+}
+
+/**
+ * Phase 1.5 — map a retrospective grade onto the same
+ * `AgentActionRow` shape `evaluatePromotion` consumes. The mapping is:
+ *
+ *   'good'    → phase=confirmed (counts as a positive signal)
+ *   'bad'     → phase=rejected  (counts as a negative signal)
+ *   'harmful' → phase=rejected + payload.severity='harmful'
+ *               (triggers immediate one-level demote per spec)
+ *
+ * The grade's `graded_at` becomes the row's `created_at` so the
+ * sliding-window merge below orders grades alongside live actions by
+ * the time the operator made their judgement.
+ */
+export function gradeToActionRow(grade: SuggestionGradeRow): AgentActionRow {
+  if (grade.verdict === "good") {
+    return { phase: "confirmed", payload: {}, created_at: grade.graded_at };
+  }
+  if (grade.verdict === "harmful") {
+    return {
+      phase: "rejected",
+      payload: { severity: "harmful" },
+      created_at: grade.graded_at,
+    };
+  }
+  // 'bad'
+  return { phase: "rejected", payload: {}, created_at: grade.graded_at };
+}
+
+/**
+ * Phase 1.5 — merge live `agent_actions` rows with retrospective
+ * grades, sort most-recent-first by `created_at`, and trim to the
+ * lookback window. Pure — exported for unit tests.
+ *
+ * The merge ordering matters for two reasons:
+ *
+ *   * `consecutive_approvals` is computed from the head of the
+ *     resulting list. A late-arriving grade can break a streak.
+ *   * The demote-on-harm path fires on the most recent harmful row;
+ *     placing grades on the timeline by `graded_at` means an operator
+ *     marking an old suggestion `harmful` today *is* a fresh harmful
+ *     signal — exactly what the spec requires.
+ */
+export function mergeGradesIntoActions(
+  actions: AgentActionRow[],
+  grades: SuggestionGradeRow[],
+  lookbackWindow: number,
+): AgentActionRow[] {
+  const synthesized = latestGradePerSuggestion(grades).map(gradeToActionRow);
+  const merged = [...actions, ...synthesized];
+  merged.sort((a, b) => {
+    const am = Date.parse(a.created_at);
+    const bm = Date.parse(b.created_at);
+    // Most-recent-first. Unparseable timestamps sink to the back.
+    const aValid = Number.isFinite(am);
+    const bValid = Number.isFinite(bm);
+    if (!aValid && !bValid) return 0;
+    if (!aValid) return 1;
+    if (!bValid) return -1;
+    return bm - am;
+  });
+  return merged.slice(0, lookbackWindow);
+}
+
 export interface EvaluationMetrics {
   sample_size: number;
   consecutive_approvals: number;
@@ -491,6 +582,42 @@ export async function recordAutonomyOutcomeV2(
         },
         ...recent,
       ].slice(0, normalized.lookback_window);
+    }
+
+    // 2b. Phase 1.5 — pull retrospective grades for suggestions
+    //     associated with this (agent, action) and splice them into
+    //     the window. The JOIN against ai_suggestions filters to the
+    //     correct slice; we then dedupe to latest-grade-per-suggestion
+    //     and map onto AgentActionRow shape via the pure helpers.
+    //
+    //     Failure here is non-fatal: if the table doesn't exist yet
+    //     (migration not applied in a test environment) or the SELECT
+    //     errors, we proceed with the actions-only window and log.
+    let grades: SuggestionGradeRow[] = [];
+    try {
+      const { data: gradeRows, error: gradesErr } = await supabase
+        .from("ai_suggestion_grades")
+        .select("suggestion_id, verdict, graded_at, ai_suggestions!inner(agent_id, action_type)")
+        .eq("ai_suggestions.agent_id", args.agentId)
+        .eq("ai_suggestions.action_type", args.actionType)
+        .order("graded_at", { ascending: false })
+        .limit(normalized.lookback_window * 4); // pad for supersede dedupe
+      if (gradesErr) {
+        console.error(
+          `[autonomy v2] Failed to read ai_suggestion_grades for ${args.agentId}/${args.actionType}:`,
+          gradesErr.message,
+        );
+      } else {
+        grades = (gradeRows ?? []) as SuggestionGradeRow[];
+      }
+    } catch (err) {
+      console.error(
+        `[autonomy v2] Unexpected error reading ai_suggestion_grades:`,
+        err,
+      );
+    }
+    if (grades.length > 0) {
+      recent = mergeGradesIntoActions(recent, grades, normalized.lookback_window);
     }
 
     // 3. Evaluate.
