@@ -13,6 +13,7 @@ export const ARCHIVE_REASONS = [
   { value: 'hired', label: 'Hired & Deployed' },
   { value: 'declined_offer', label: 'Declined Offer' },
   { value: 'ghosted', label: 'Ghosted / No Response' },
+  { value: 'unable_to_contact', label: 'Unable to Contact' },
   { value: 'failed_background', label: 'Failed Background Check' },
   { value: 'withdrew', label: 'Candidate Withdrew' },
   { value: 'no_show', label: 'No-Show to Interview/Orientation' },
