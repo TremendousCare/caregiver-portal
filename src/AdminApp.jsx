@@ -11,6 +11,9 @@ import { BoardProvider, useBoards } from './shared/context/BoardContext';
 import { AuthGate } from './shared/components/AuthGate';
 import { AIChatbot } from './shared/components/AIChatbot';
 import { AppShell } from './shared/layout/AppShell';
+import { VoiceProvider } from './shared/context/VoiceContext';
+import { IncomingCallToast } from './features/voice/IncomingCallToast';
+import { ActiveCallBar } from './features/voice/ActiveCallBar';
 import { Dashboard } from './features/caregivers/Dashboard';
 import { KanbanBoard } from './features/caregivers/KanbanBoard';
 import { AddCaregiver } from './features/caregivers/AddCaregiver';
@@ -629,6 +632,9 @@ export default function AdminApp() {
       <CaregiverProvider>
         <ClientProvider>
           <BoardProviderBridge>
+            <VoiceProvider>
+            <IncomingCallToast />
+            <ActiveCallBar />
             <Routes>
               <Route element={<AppShell />}>
                 <Route index element={<DashboardPage />} />
@@ -655,6 +661,7 @@ export default function AdminApp() {
               </Route>
             </Routes>
             <AIChatbot caregiverId={null} currentUser={currentUserName} />
+            </VoiceProvider>
           </BoardProviderBridge>
         </ClientProvider>
       </CaregiverProvider>

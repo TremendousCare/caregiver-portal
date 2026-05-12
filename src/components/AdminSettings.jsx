@@ -17,6 +17,7 @@ import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
 import { MessageTemplateSettings } from './MessageTemplateSettings';
 import { CollapsibleCard } from '../shared/components/CollapsibleCard';
+import { VoiceSettings } from '../features/voice/VoiceSettings';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -2665,6 +2666,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
           />
           <WebhookStatus showToast={showToast} />
         </SettingsCard>
+      </div>
+
+      {/* Voice & Calls — screen-pop, recording, transcription, RC extension bindings */}
+      <div style={{ marginBottom: 20 }}>
+        <VoiceSettings showToast={showToast} />
       </div>
 
       {/* Communication Routes (role-based SMS routing — data entry only for now) */}
