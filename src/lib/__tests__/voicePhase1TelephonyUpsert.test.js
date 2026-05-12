@@ -167,6 +167,78 @@ describe('planCallSessionUpsert — backfill answered_at if missing', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────
+// Coerce missed → ended when the call was previously answered.
+// RC fires Disconnected for every party at normal call end; without
+// this coercion, a real-world hangup ends up as status='missed' and
+// drops out of the post-call processor's pending-transcript index.
+// ─────────────────────────────────────────────────────────────────
+
+describe('planCallSessionUpsert — terminal-status coercion', () => {
+  it('coerces missed → ended when existing.answered_at is set', () => {
+    const plan = planCallSessionUpsert(
+      existing({
+        status: 'answered',
+        answered_at: '2026-05-12T12:00:05.000Z',
+      }),
+      event({ status: 'missed', eventTime: '2026-05-12T12:07:30.000Z' }),
+    );
+    expect(plan.status).toBe('ended');
+    expect(plan.endedAt).toBe('2026-05-12T12:07:30.000Z');
+    expect(plan.durationSeconds).toBe(445); // 7 min 25 sec
+  });
+
+  it('coerces missed → ended when existing.status is answered even with answered_at NULL', () => {
+    const plan = planCallSessionUpsert(
+      existing({
+        status: 'answered',
+        answered_at: null,
+        started_at: '2026-05-12T12:00:00.000Z',
+      }),
+      event({ status: 'missed', eventTime: '2026-05-12T12:05:00.000Z' }),
+    );
+    expect(plan.status).toBe('ended');
+    // answered_at backfill should also kick in.
+    expect(plan.answeredAt).toBe('2026-05-12T12:00:00.000Z');
+  });
+
+  it('keeps true missed when there is no existing row (caller hung up before pickup)', () => {
+    const plan = planCallSessionUpsert(
+      existing({ status: 'ringing', answered_at: null }),
+      event({ status: 'missed', eventTime: '2026-05-12T12:00:18.000Z' }),
+    );
+    expect(plan.status).toBe('missed');
+    // ended_at is still stamped on the missed transition.
+    expect(plan.endedAt).toBe('2026-05-12T12:00:18.000Z');
+  });
+
+  it('does not coerce voicemail (only missed is coerced)', () => {
+    const plan = planCallSessionUpsert(
+      existing({
+        status: 'answered',
+        answered_at: '2026-05-12T12:00:05.000Z',
+      }),
+      event({ status: 'voicemail', eventTime: '2026-05-12T12:00:30.000Z' }),
+    );
+    expect(plan.status).toBe('voicemail');
+  });
+
+  it('coercion still respects the never-go-backwards rule', () => {
+    const plan = planCallSessionUpsert(
+      existing({
+        status: 'ended',
+        answered_at: '2026-05-12T12:00:05.000Z',
+        ended_at: '2026-05-12T12:02:00.000Z',
+      }),
+      event({ status: 'missed', eventTime: '2026-05-12T12:03:00.000Z' }),
+    );
+    // missed → coerced to ended → resolveTargetStatus(ended, ended) = ended.
+    expect(plan.status).toBe('ended');
+    // Original ended_at is preserved.
+    expect(plan.endedAt).toBe('2026-05-12T12:02:00.000Z');
+  });
+});
+
 describe('buildEventDedupeKey', () => {
   it('combines sessionId + partyId + status', () => {
     expect(buildEventDedupeKey(event())).toBe('tsess-1|party-1|ringing');
