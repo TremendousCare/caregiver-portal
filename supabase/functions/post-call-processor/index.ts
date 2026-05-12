@@ -94,8 +94,19 @@ async function fetchPending(): Promise<PendingCallRow[]> {
 }
 
 async function fetchTranscript(recordingId: string): Promise<string | null> {
+  // call-transcription authenticates via a `token` *query parameter*
+  // (not a Bearer header) and explicitly treats SUPABASE_SERVICE_ROLE_KEY
+  // as a trusted internal-caller credential. See call-transcription's
+  // index.ts for the auth contract. Passing only the Authorization
+  // header makes call-transcription return 401, which is what caused
+  // "No transcript returned" on every backfilled row in the first
+  // post-bugfix run.
+  const params = new URLSearchParams({
+    recordingId,
+    token: SUPABASE_SERVICE_ROLE_KEY,
+  });
   const resp = await fetch(
-    `${SUPABASE_URL}/functions/v1/call-transcription?recordingId=${encodeURIComponent(recordingId)}`,
+    `${SUPABASE_URL}/functions/v1/call-transcription?${params.toString()}`,
     {
       method: 'GET',
       headers: {
