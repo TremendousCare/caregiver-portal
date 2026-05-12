@@ -73,6 +73,7 @@ export function AgentGradingPage() {
     actionType,
     windowDays,
     limit: 200,
+    ungradedOnly,
   });
 
   // Default to the first agent once loaded.

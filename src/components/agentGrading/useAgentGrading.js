@@ -5,8 +5,16 @@
 // SECURITY DEFINER RPC and optimistically merge the result into the
 // in-memory grade map so the UI reflects the change instantly
 // (without a re-fetch round-trip).
+//
+// `ungradedOnly` pagination (Codex P2 #r3226254388 fix): a flat
+// LIMIT-based fetch hides older ungraded rows behind already-graded
+// newer rows. When `ungradedOnly` is true `fetchSuggestionsAndGrades`
+// pages backward through `created_at` until it has at least `limit`
+// ungraded suggestions or it has scanned `MAX_UNGRADED_PAGES * limit`
+// rows. The summary breakdown reflects everything scanned, so the
+// operator can see how much grading work remains in the window.
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
   loadAgentsForGrading,
@@ -15,6 +23,63 @@ import {
   upsertGrade,
   sinceIsoForDays,
 } from './queries';
+import { latestGradeBySuggestion } from './gradingHelpers';
+
+export const MAX_UNGRADED_PAGES = 5;
+
+/**
+ * Pure-ish async fetcher: handles the single-page (ungradedOnly=false)
+ * path AND the cursor-paginated path. Dependency-injected so unit
+ * tests can stub the queries module without renderHook.
+ */
+export async function fetchSuggestionsAndGrades({
+  agentId, sourceType, actionType, sinceIso, limit, ungradedOnly,
+  loaders,
+  maxPages = MAX_UNGRADED_PAGES,
+}) {
+  const accumulated = [];
+  const accumulatedGrades = [];
+  let beforeIso = null;
+  const pageCap = ungradedOnly ? maxPages : 1;
+
+  for (let page = 0; page < pageCap; page++) {
+    const sugs = await loaders.loadSuggestions({
+      agentId,
+      sourceType: sourceType || null,
+      actionType: actionType || null,
+      sinceIso,
+      beforeIso,
+      limit,
+    });
+    if (!sugs || sugs.length === 0) break;
+    accumulated.push(...sugs);
+
+    if (ungradedOnly) {
+      const ids = sugs.map((s) => s.id);
+      const pageGrades = await loaders.loadGrades({ suggestionIds: ids });
+      accumulatedGrades.push(...pageGrades);
+      const latest = latestGradeBySuggestion(accumulatedGrades);
+      const ungradedSoFar = accumulated.reduce(
+        (n, s) => (latest.has(s.id) ? n : n + 1),
+        0,
+      );
+      if (ungradedSoFar >= limit) break;
+      beforeIso = sugs[sugs.length - 1].created_at;
+    } else {
+      break;
+    }
+  }
+
+  // For the non-paginated path we still need to load grades so the
+  // per-row badges and summary breakdown are accurate.
+  const grades = ungradedOnly
+    ? accumulatedGrades
+    : (accumulated.length > 0
+      ? await loaders.loadGrades({ suggestionIds: accumulated.map((s) => s.id) })
+      : []);
+
+  return { suggestions: accumulated, grades };
+}
 
 export function useAgentGrading({
   agentId,
@@ -22,6 +87,7 @@ export function useAgentGrading({
   actionType,
   windowDays,
   limit,
+  ungradedOnly = false,
 }) {
   const [agents, setAgents] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
@@ -58,15 +124,13 @@ export function useAgentGrading({
     const sinceIso = sinceIsoForDays(windowDays);
     (async () => {
       try {
-        const sugs = await loadSuggestions(supabase, {
-          agentId,
-          sourceType: sourceType || null,
-          actionType: actionType || null,
-          sinceIso,
-          limit,
+        const { suggestions: sugs, grades: grds } = await fetchSuggestionsAndGrades({
+          agentId, sourceType, actionType, sinceIso, limit, ungradedOnly,
+          loaders: {
+            loadSuggestions: (params) => loadSuggestions(supabase, params),
+            loadGrades: (params) => loadGrades(supabase, params),
+          },
         });
-        const ids = sugs.map((s) => s.id);
-        const grds = ids.length > 0 ? await loadGrades(supabase, { suggestionIds: ids }) : [];
         if (!cancelled) {
           setSuggestions(sugs);
           setGrades(grds);
@@ -80,7 +144,7 @@ export function useAgentGrading({
       }
     })();
     return () => { cancelled = true; };
-  }, [agentId, sourceType, actionType, windowDays, limit, tick]);
+  }, [agentId, sourceType, actionType, windowDays, limit, ungradedOnly, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 

@@ -58,6 +58,10 @@ export async function loadAgentsForGrading(supabase) {
  *   - sourceType    — optional (proactive | inbound_sms | inbound_email | outcome)
  *   - actionType    — optional, exact match
  *   - sinceIso      — optional lower bound on created_at
+ *   - beforeIso     — optional upper bound on created_at, exclusive.
+ *                     The hook uses this as a paging cursor when
+ *                     `ungradedOnly` is on so older ungraded rows are
+ *                     reachable beyond the first `limit` page.
  *   - limit         — default 100, max 500
  *
  * `ungradedOnly` is applied client-side after grades are joined — keeps
@@ -69,6 +73,7 @@ export async function loadSuggestions(supabase, {
   sourceType = null,
   actionType = null,
   sinceIso = null,
+  beforeIso = null,
   limit = 100,
 }) {
   if (!agentId) return [];
@@ -81,6 +86,7 @@ export async function loadSuggestions(supabase, {
   if (sourceType) q = q.eq('source_type', sourceType);
   if (actionType) q = q.eq('action_type', actionType);
   if (sinceIso) q = q.gte('created_at', sinceIso);
+  if (beforeIso) q = q.lt('created_at', beforeIso);
   const { data, error } = await q;
   if (error) throw error;
   return data || [];
