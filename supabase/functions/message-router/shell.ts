@@ -397,6 +397,10 @@ async function processEntry(
   // classified inbound message + the suggested response. Phase
   // 'suggested' (router proposed it) regardless of L3/L4 — the
   // execution row writes its own audit entry below.
+  //
+  // Phase 1.4 — stamp the classifier's token cost + model + latency
+  // into payload._cost so the per-agent metrics dashboard can
+  // aggregate spend per inbound classification.
   if (agentId && classification.suggested_action !== "none") {
     recordAgentAction(supabase, {
       orgId,
@@ -413,6 +417,12 @@ async function processEntry(
         intent: classification.intent,
         confidence: classification.confidence,
         autonomy_level: autonomyLevel,
+        _cost: {
+          input_tokens: agentResult.cost.input_tokens,
+          output_tokens: agentResult.cost.output_tokens,
+          duration_ms: agentResult.cost.duration_ms,
+          model: agentResult.agent?.model || null,
+        },
       },
       outcomeId: null,
     }).catch((err: unknown) =>

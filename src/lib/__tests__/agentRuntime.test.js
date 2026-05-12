@@ -1241,6 +1241,7 @@ describe('runAgent — dispatches to the right handler by shape', () => {
       id: 'agent-recruiting-uuid',
       slug: 'recruiting',
       version: 1,
+      model: 'claude-sonnet-4-5-20250929',
     });
   });
 });

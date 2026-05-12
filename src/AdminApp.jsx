@@ -26,6 +26,7 @@ import { AccountingPage } from './features/accounting/AccountingPage';
 import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
 import { AdminSettings } from './components/AdminSettings';
+import { AgentMetricsPage } from './components/agentMetrics/AgentMetricsPage';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { MyCnaJobsImportModal } from './features/caregivers/MyCnaJobsImport';
 import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from './lib/utils';
@@ -647,6 +648,7 @@ export default function AdminApp() {
                 <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
                 <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
                 <Route path="settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
+                <Route path="agent-metrics" element={<AdminOnly><AgentMetricsPage /></AdminOnly>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>

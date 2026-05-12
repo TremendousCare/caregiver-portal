@@ -469,7 +469,14 @@ export async function runAiChatShell(
             // events/action_outcomes write (those have their own
             // value); the verifier (PR 1.1.B daily cron) reports
             // chain gaps in retrospect.
+            //
+            // Phase 1.4 — stamp the chat session's token cost + model +
+            // latency into payload._cost so the per-agent metrics
+            // dashboard can aggregate spend. The session cost is shared
+            // across every tool-call row from the same invocation — the
+            // dashboard de-dupes by chain_seq when summing.
             if (agentId && orgId) {
+              const sessionDurationMs = Date.now() - sessionStart;
               recordAgentAction(supabase, {
                 orgId,
                 agentId,
@@ -483,6 +490,12 @@ export async function runAiChatShell(
                   tool: tr.tool,
                   entity_name: tr.result?.entity_name || null,
                   ...tr.input,
+                  _cost: {
+                    input_tokens: result.cost.input_tokens,
+                    output_tokens: result.cost.output_tokens,
+                    duration_ms: sessionDurationMs,
+                    model: result.agent?.model || null,
+                  },
                 },
                 outcomeId: null,
               }).catch((err: unknown) =>
