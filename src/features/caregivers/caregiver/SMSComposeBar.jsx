@@ -3,6 +3,7 @@ import { supabase } from '../../../lib/supabase';
 import { useCaregivers } from '../../../shared/context/CaregiverContext';
 import { useClients } from '../../../shared/context/ClientContext';
 import { useSpeechRecognition } from '../../../shared/hooks/useSpeechRecognition';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import styles from './messaging.module.css';
 import {
   listActiveTemplates,
@@ -242,6 +243,23 @@ export function SMSComposeBar({ entity, entityType = 'caregiver', currentUser, s
           source: 'portal',
         });
       }
+
+      // Phase 1.5 follow-up — close any matching pending ai_suggestion
+      // for this (entity, send_sms) and write the agent_actions row
+      // that the autonomy v2 algorithm reads. Fire-and-forget — the
+      // SMS has already shipped, this is just feedback plumbing for
+      // the AI loop. A failure here must never affect the UX.
+      closePendingSuggestionForAction({
+        entityType,
+        entityId: recipient.id,
+        actionType: 'send_sms',
+        params: {
+          route_category: showRouteSelector && selectedCategory ? selectedCategory : null,
+          char_count: text.length,
+        },
+      }).catch((closeErr) => {
+        console.warn('[SMSComposeBar] suggestion-close failed (non-fatal):', closeErr);
+      });
 
       setMessage('');
       if (showToast) showToast('Message sent', 'success');
