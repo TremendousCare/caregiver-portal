@@ -442,6 +442,13 @@ function makeSupabaseMock({
   agentLoadError = null,
   actionsLoadError = null,
   /**
+   * Phase 1.5 — retrospective grades merged into the lookback window
+   * by `recordAutonomyOutcomeV2`. Defaults to empty so legacy tests
+   * (which predate grades) keep their semantics.
+   */
+  grades = [],
+  gradesLoadError = null,
+  /**
    * Codex P2 fix: writes go through the `update_autonomy_profile_entry_v1`
    * RPC (atomic jsonb_set) instead of read-modify-write on the whole
    * `autonomy_profile` column. The mock captures rpc args so tests can
@@ -488,6 +495,19 @@ function makeSupabaseMock({
           return { error: null };
         }),
       };
+    }
+    if (table === 'ai_suggestion_grades') {
+      // Phase 1.5 — chain depth: select → eq → eq → order → limit.
+      // The final `.limit(...)` is awaited and yields { data, error }.
+      const limitFn = vi.fn(async () => ({
+        data: gradesLoadError ? null : grades,
+        error: gradesLoadError,
+      }));
+      const orderFn = vi.fn(() => ({ limit: limitFn }));
+      const eqFn2 = vi.fn(() => ({ order: orderFn }));
+      const eqFn1 = vi.fn(() => ({ eq: eqFn2 }));
+      const selectFn = vi.fn(() => ({ eq: eqFn1 }));
+      return { select: selectFn };
     }
     throw new Error(`unmocked table: ${table}`);
   });
