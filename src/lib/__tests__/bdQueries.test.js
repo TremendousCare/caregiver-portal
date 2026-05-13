@@ -19,6 +19,9 @@ import {
   hasRoutableAddress,
   hasPreciseCoordinate,
   DEFAULT_NEARBY_RADIUS_METERS,
+  normalizeCityForMatch,
+  filterToTerritory,
+  fetchCurrentUserTerritoryCities,
 } from '../../features/bd-portal/lib/bdQueries';
 import { ACTIVITY_TYPE_ICON_TYPES } from '../../features/bd-portal/lib/activityTypeIcon';
 
@@ -534,5 +537,120 @@ describe('hasPreciseCoordinate', () => {
     expect(hasPreciseCoordinate({ lat: NaN, lng: -117.74 })).toBe(false);
     expect(hasPreciseCoordinate({ lat: 33.65 })).toBe(false);
     expect(hasPreciseCoordinate(null)).toBe(false);
+  });
+});
+
+// ─── Territory filtering ──────────────────────────────────────────
+
+describe('normalizeCityForMatch', () => {
+  it('lowercases and trims', () => {
+    expect(normalizeCityForMatch('  Mission Viejo  ')).toBe('mission viejo');
+    expect(normalizeCityForMatch('NEWPORT BEACH')).toBe('newport beach');
+  });
+  it('returns empty string for null/undefined/empty', () => {
+    expect(normalizeCityForMatch(null)).toBe('');
+    expect(normalizeCityForMatch(undefined)).toBe('');
+    expect(normalizeCityForMatch('')).toBe('');
+  });
+  it('coerces non-strings without crashing', () => {
+    expect(normalizeCityForMatch(42)).toBe('42');
+  });
+});
+
+describe('filterToTerritory', () => {
+  const SOUTH_OC = ['Mission Viejo', 'Newport Beach', 'Aliso Viejo', 'RMV', 'Rancho Mission Viejo'];
+
+  it('returns every account when the territory city list is empty', () => {
+    const accounts = [
+      { id: 'a', city: 'Huntington Beach' },
+      { id: 'b', city: 'Orange' },
+    ];
+    expect(filterToTerritory(accounts, [])).toEqual(accounts);
+  });
+
+  it('returns every account when the territory city list is null', () => {
+    const accounts = [{ id: 'a', city: 'Huntington Beach' }];
+    expect(filterToTerritory(accounts, null)).toEqual(accounts);
+  });
+
+  it('keeps accounts whose city is in the territory (case-insensitive)', () => {
+    const accounts = [
+      { id: 'a', city: 'Mission Viejo' },
+      { id: 'b', city: 'newport beach' },
+      { id: 'c', city: 'NEWPORT BEACH' },
+      { id: 'd', city: 'Huntington Beach' },
+    ];
+    const out = filterToTerritory(accounts, SOUTH_OC).map((a) => a.id);
+    expect(out).toEqual(['a', 'b', 'c']);
+  });
+
+  it('matches both formal and shorthand city variants when both are in the territory list', () => {
+    const accounts = [
+      { id: 'rmv', city: 'RMV' },
+      { id: 'rmv_long', city: 'Rancho Mission Viejo' },
+    ];
+    const out = filterToTerritory(accounts, SOUTH_OC).map((a) => a.id);
+    expect(out).toEqual(['rmv', 'rmv_long']);
+  });
+
+  it('always keeps strategic-shared accounts regardless of city', () => {
+    const accounts = [
+      { id: 'hoag', city: 'Newport Beach', is_strategic_shared: true },
+      { id: 'uci', city: 'Orange', is_strategic_shared: true },
+      { id: 'random_orange', city: 'Orange', is_strategic_shared: false },
+    ];
+    const out = filterToTerritory(accounts, SOUTH_OC).map((a) => a.id);
+    expect(out).toContain('hoag');
+    expect(out).toContain('uci'); // Out of territory but flagged strategic
+    expect(out).not.toContain('random_orange');
+  });
+
+  it('excludes accounts with no city when not strategic', () => {
+    const accounts = [
+      { id: 'nocity', city: null, is_strategic_shared: false },
+      { id: 'nocity_strategic', city: null, is_strategic_shared: true },
+    ];
+    const out = filterToTerritory(accounts, SOUTH_OC).map((a) => a.id);
+    expect(out).toEqual(['nocity_strategic']);
+  });
+
+  it('returns empty array (not crash) for null or non-array accounts input', () => {
+    expect(filterToTerritory(null, SOUTH_OC)).toEqual([]);
+    expect(filterToTerritory(undefined, SOUTH_OC)).toEqual([]);
+  });
+});
+
+describe('fetchCurrentUserTerritoryCities', () => {
+  it('returns the RPC payload as an array of cities', async () => {
+    const supabase = { rpc: async () => ({ data: ['Mission Viejo', 'Newport Beach'], error: null }) };
+    const res = await fetchCurrentUserTerritoryCities(supabase);
+    expect(res.error).toBe(null);
+    expect(res.data).toEqual(['Mission Viejo', 'Newport Beach']);
+  });
+
+  it('returns empty array when the RPC payload is null', async () => {
+    const supabase = { rpc: async () => ({ data: null, error: null }) };
+    const res = await fetchCurrentUserTerritoryCities(supabase);
+    expect(res.data).toEqual([]);
+  });
+
+  it('returns empty array (not throw) when supabase is not provided', async () => {
+    const res = await fetchCurrentUserTerritoryCities(null);
+    expect(res.data).toEqual([]);
+    expect(res.error).toBe(null);
+  });
+
+  it('surfaces an error from the RPC without exploding', async () => {
+    const supabase = { rpc: async () => ({ data: null, error: { message: 'rpc failed' } }) };
+    const res = await fetchCurrentUserTerritoryCities(supabase);
+    expect(res.error).toEqual({ message: 'rpc failed' });
+    expect(res.data).toEqual([]);
+  });
+
+  it('calls the named RPC bd_current_user_territory_cities', async () => {
+    let calledWith = null;
+    const supabase = { rpc: async (name) => { calledWith = name; return { data: [], error: null }; } };
+    await fetchCurrentUserTerritoryCities(supabase);
+    expect(calledWith).toBe('bd_current_user_territory_cities');
   });
 });
