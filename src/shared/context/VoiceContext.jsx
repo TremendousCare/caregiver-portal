@@ -23,6 +23,7 @@ import {
   useReducer,
   useRef,
   useCallback,
+  useState,
 } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import {
@@ -32,6 +33,7 @@ import {
   dismissActiveCall,
   clearRecentlyEnded,
 } from '../../lib/voice/callPopReducer';
+import { buildNewCallMessage } from '../../lib/voice/embeddableMessages';
 
 const VoiceContext = createContext(null);
 
@@ -166,13 +168,42 @@ export function VoiceProvider({ children }) {
   }, [state.recentlyEnded]);
 
   // ─── Click-to-call ───
-  // Deferred to PR 3.1. RingOut requires the user's personal callback
-  // phone (the line RC rings first before bridging to the destination),
-  // which we don't yet collect or store. Stubbed here so consumers can
-  // import a stable API surface; returns success:false until the
-  // backend ?action=ringout endpoint lands.
-  const placeCall = useCallback(async () => {
-    return { success: false, error: 'Click-to-call not yet enabled (PR 3.1)' };
+  // PR 3.4 stubbed this; Phase 2's Embeddable widget completes it.
+  // We hold a ref to the iframe element (registered by
+  // RingCentralEmbeddable on mount) and postMessage a
+  // `rc-adapter-new-call` command into it. The widget expands the
+  // dialer panel and either dials directly via WebRTC (user signed
+  // in with VoIP scope) or RingOut (user signed in but not VoIP).
+  //
+  // hasDialer is a public selector — PhoneCallButton uses it to
+  // hide itself entirely when the widget isn't available so we
+  // don't surface dead buttons.
+  const embeddableIframeRef = useRef(null);
+  const [hasDialer, setHasDialer] = useState(false);
+
+  const registerEmbeddableIframe = useCallback((iframe) => {
+    embeddableIframeRef.current = iframe;
+    setHasDialer(!!iframe);
+  }, []);
+
+  const placeCall = useCallback(async (toPhone) => {
+    const message = buildNewCallMessage(toPhone);
+    if (!message) {
+      return { success: false, error: 'Phone number required' };
+    }
+    const iframe = embeddableIframeRef.current;
+    if (!iframe || !iframe.contentWindow) {
+      return {
+        success: false,
+        error: 'Voice dialer not ready (expand the phone panel and sign in).',
+      };
+    }
+    try {
+      iframe.contentWindow.postMessage(message, '*');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message || String(err) };
+    }
   }, []);
 
   const value = useMemo(
@@ -181,8 +212,10 @@ export function VoiceProvider({ children }) {
       recentlyEnded: state.recentlyEnded,
       dismissActive: () => dispatch({ type: 'DISMISS' }),
       placeCall,
+      hasDialer,
+      registerEmbeddableIframe,
     }),
-    [state.activeCall, state.recentlyEnded, placeCall],
+    [state.activeCall, state.recentlyEnded, placeCall, hasDialer, registerEmbeddableIframe],
   );
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;

@@ -3,6 +3,7 @@ import { getClientPhase } from '../utils';
 import layout from '../../../styles/layout.module.css';
 import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
+import { PhoneCallButton } from '../../voice/PhoneCallButton';
 
 export function ClientHeader({ client, onBack, onShowArchive, onUnarchive, onShowDelete, onAddNote }) {
   const phase = getClientPhase(client);
@@ -18,7 +19,12 @@ export function ClientHeader({ client, onBack, onShowArchive, onUnarchive, onSho
           <div>
             <h1 className={layout.detailName}>{client.firstName} {client.lastName}</h1>
             <div className={layout.detailMeta}>
-              {client.phone && <span>📞 {client.phone}</span>}
+              {client.phone && (
+                <span>
+                  📞 {client.phone}
+                  <PhoneCallButton phone={client.phone} compact />
+                </span>
+              )}
               {client.email && <span style={{ marginLeft: 16 }}>✉️ {client.email}</span>}
               {client.careRecipientName && <span style={{ marginLeft: 16 }}>👤 Care for: {client.careRecipientName}</span>}
             </div>
