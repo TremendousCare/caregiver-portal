@@ -157,6 +157,54 @@
   margin-bottom: 4px;
 }
 
+.listOrderControls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 2px;
+  min-width: 28px;
+}
+
+.listOrderNumber {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--tc-cyan);
+  border-radius: 50%;
+}
+
+.listOrderBtn {
+  width: 24px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--tc-text-secondary);
+  background: transparent;
+  border: 1px solid #E0E4EA;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.listOrderBtn:hover:not(:disabled) {
+  color: var(--tc-text-primary);
+  border-color: var(--tc-cyan);
+}
+
+.listOrderBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .listRemove {
   align-self: flex-start;
   padding: 6px 10px;
@@ -259,6 +307,40 @@
 .levelActive:hover:not(:disabled) {
   color: #fff;
   background: #1fa8d4;
+}
+
+/* ── Autocomplete ───────────────────────────────────────────── */
+.autocompleteWrap {
+  position: relative;
+}
+
+.autocompleteList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 4px 0 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.autocompleteItem {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--tc-text-primary);
+  cursor: pointer;
+}
+
+.autocompleteItem:hover,
+.autocompleteItemActive {
+  background: var(--tc-bg-hover);
 }
 
 /* ── Unknown (fallback) ─────────────────────────────────────── */

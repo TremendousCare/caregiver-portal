@@ -361,3 +361,109 @@ describe('sectionIdForCategory', () => {
     expect(sectionIdForCategory(null)).toBeNull();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// Scope / policy guardrails on specific fields
+// ═══════════════════════════════════════════════════════════════
+
+describe('housekeeping_scope policy', () => {
+  it('exposes light and medium scope only — no deep clean / heavy', () => {
+    const field = getFieldById('homeAndLife', 'housekeeping_scope');
+    expect(field).toBeDefined();
+    expect(field.options).toBeDefined();
+    const joined = field.options.join(' | ').toLowerCase();
+    expect(joined).toContain('light');
+    expect(joined).toContain('medium');
+    expect(joined).not.toContain('heavy');
+    expect(joined).not.toContain('deep clean');
+    expect(joined).not.toContain('scrubbing');
+  });
+});
+
+describe('medication management — pill-box removal', () => {
+  it('does not expose pill-box fields in the editor', () => {
+    expect(getFieldById('homeAndLife', 'medMgmt_pillBox')).toBeUndefined();
+    expect(getFieldById('homeAndLife', 'medMgmt_pillBoxWeeks')).toBeUndefined();
+  });
+
+  it('still surfaces the rest of the medication management fields', () => {
+    expect(getFieldById('homeAndLife', 'medMgmt_needsReminders')).toBeDefined();
+    expect(getFieldById('homeAndLife', 'medMgmt_managedBy')).toBeDefined();
+    expect(getFieldById('homeAndLife', 'medMgmt_separateSchedule')).toBeDefined();
+  });
+});
+
+describe('nutrition_confirmEachMeal toggle', () => {
+  it('exposes the day-of toggle as a boolean', () => {
+    const field = getFieldById('dailyLiving', 'nutrition_confirmEachMeal');
+    expect(field).toBeDefined();
+    expect(field.type).toBe(FIELD_TYPES.BOOLEAN);
+  });
+
+  it('each per-meal favorites field hides when toggle is on', () => {
+    const favs = [
+      'nutrition_favorites_breakfast',
+      'nutrition_favorites_lunch',
+      'nutrition_favorites_dinner',
+      'nutrition_favorites_snack',
+    ];
+    for (const id of favs) {
+      const f = getFieldById('dailyLiving', id);
+      expect(f).toBeDefined();
+      expect(f.conditional).toEqual({
+        field: 'nutrition_confirmEachMeal',
+        notEquals: true,
+      });
+    }
+  });
+});
+
+describe('Care Team — day-to-day point of contact', () => {
+  it('exposes pointOfContact as a SELECT', () => {
+    const field = getFieldById('careTeam', 'pointOfContact');
+    expect(field).toBeDefined();
+    expect(field.type).toBe(FIELD_TYPES.SELECT);
+    expect(field.options).toContain('Client themselves');
+    expect(field.options).toContain('Primary responsible party');
+    expect(field.options).toContain('Secondary responsible party');
+  });
+
+  it('exposes a conditional Other-name field gated on the SELECT', () => {
+    const field = getFieldById('careTeam', 'pointOfContactOther');
+    expect(field).toBeDefined();
+    expect(field.conditional).toEqual({
+      field: 'pointOfContact',
+      equals: 'Other (see note)',
+    });
+  });
+});
+
+describe('Care Team — emergency contacts call order', () => {
+  it('emergencyContacts LIST is marked ordered', () => {
+    const field = getFieldById('careTeam', 'emergencyContacts');
+    expect(field).toBeDefined();
+    expect(field.type).toBe(FIELD_TYPES.LIST);
+    expect(field.ordered).toBe(true);
+  });
+
+  it('emergencyContacts subfields still include name + phone (required)', () => {
+    const field = getFieldById('careTeam', 'emergencyContacts');
+    const subIds = field.subfields.map((s) => s.id);
+    expect(subIds).toContain('name');
+    expect(subIds).toContain('phone');
+    const phone = field.subfields.find((s) => s.id === 'phone');
+    expect(phone.required).toBe(true);
+  });
+});
+
+describe('Health Profile — medications autocomplete', () => {
+  it('medications name subfield uses AUTOCOMPLETE with commonMedications source', () => {
+    const meds = getFieldById('healthProfile', 'medications');
+    expect(meds).toBeDefined();
+    const name = meds.subfields.find((s) => s.id === 'name');
+    expect(name).toBeDefined();
+    expect(name.type).toBe(FIELD_TYPES.AUTOCOMPLETE);
+    expect(name.suggestionsKey).toBe('commonMedications');
+    expect(name.required).toBe(true);
+  });
+});

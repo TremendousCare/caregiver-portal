@@ -107,10 +107,10 @@ describe('shouldRender', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('FIELD_TYPES coverage', () => {
-  it('has 13 distinct field type values', () => {
+  it('has 14 distinct field type values', () => {
     const values = Object.values(FIELD_TYPES);
     expect(new Set(values).size).toBe(values.length);
-    expect(values).toHaveLength(13);
+    expect(values).toHaveLength(14);
   });
 
   it('every declared type is a non-empty string', () => {
@@ -118,5 +118,34 @@ describe('FIELD_TYPES coverage', () => {
       expect(typeof v).toBe('string');
       expect(v.length).toBeGreaterThan(0);
     }
+  });
+
+  it('exposes AUTOCOMPLETE', () => {
+    expect(FIELD_TYPES.AUTOCOMPLETE).toBe('autocomplete');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// notEquals with boolean true — used by nutrition_confirmEachMeal
+// to hide per-meal favorites when the day-of toggle is on.
+// ═══════════════════════════════════════════════════════════════
+
+describe('shouldRender — notEquals: true (confirm-each-meal pattern)', () => {
+  const favoriteField = {
+    id: 'nutrition_favorites_lunch',
+    type: FIELD_TYPES.TEXTAREA,
+    conditional: { field: 'nutrition_confirmEachMeal', notEquals: true },
+  };
+
+  it('shows the favorite field when toggle is undefined (default off)', () => {
+    expect(shouldRender(favoriteField, {})).toBe(true);
+  });
+
+  it('shows the favorite field when toggle is explicitly false', () => {
+    expect(shouldRender(favoriteField, { nutrition_confirmEachMeal: false })).toBe(true);
+  });
+
+  it('hides the favorite field when toggle is true', () => {
+    expect(shouldRender(favoriteField, { nutrition_confirmEachMeal: true })).toBe(false);
   });
 });

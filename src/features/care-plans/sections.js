@@ -69,6 +69,10 @@ export const FIELD_TYPES = {
   LIST: 'list',
   PRN: 'prn',
   LEVEL_PICK: 'levelPick',
+  // AUTOCOMPLETE renders a text input with a filtered dropdown of
+  // suggestions sourced from `field.suggestionsKey`. Free text is
+  // always allowed — suggestions only speed up common entries.
+  AUTOCOMPLETE: 'autocomplete',
 };
 
 
@@ -231,7 +235,9 @@ export const CARE_PLAN_SECTIONS = [
         cms485: true,
         help: 'Every medication the client takes, with dose and schedule.',
         subfields: [
-          { id: 'name', label: 'Name', type: FIELD_TYPES.TEXT, required: true },
+          { id: 'name', label: 'Name', type: FIELD_TYPES.AUTOCOMPLETE,
+            required: true, suggestionsKey: 'commonMedications',
+            placeholder: 'Start typing — pick from suggestions or enter your own' },
           { id: 'dose', label: 'Dose', type: FIELD_TYPES.TEXT, placeholder: '10 mg' },
           { id: 'route', label: 'Route', type: FIELD_TYPES.SELECT,
             options: ['PO (oral)', 'Topical', 'Injection', 'Inhaled', 'Sublingual',
@@ -423,6 +429,12 @@ export const CARE_PLAN_SECTIONS = [
         type: FIELD_TYPES.MULTISELECT,
         options: ['Independent', 'Setup / cueing', 'Partial feeding assist', 'Full feeding assist',
                   'Swallowing precautions', 'Fluid encouragement'] },
+      // Confirm preferences day-of: for clients whose appetite / mood
+      // shifts daily. When on, the static per-meal favorites textareas
+      // are hidden — the caregiver confirms choice at each meal.
+      { id: 'nutrition_confirmEachMeal', label: 'Confirm meal preferences with client at each meal',
+        type: FIELD_TYPES.BOOLEAN,
+        help: 'Use this for clients whose preferences change daily. Hides the static per-meal favorites below.' },
       { id: 'nutrition_mealTimes_breakfast', label: 'Breakfast time',
         type: FIELD_TYPES.TEXT, placeholder: '7:30 am' },
       { id: 'nutrition_mealTimes_lunch', label: 'Lunch time',
@@ -432,13 +444,17 @@ export const CARE_PLAN_SECTIONS = [
       { id: 'nutrition_mealTimes_snacks', label: 'Snack times',
         type: FIELD_TYPES.TEXT, placeholder: 'Mid-morning, afternoon' },
       { id: 'nutrition_favorites_breakfast', label: 'Favorite breakfast foods',
-        type: FIELD_TYPES.TEXTAREA },
+        type: FIELD_TYPES.TEXTAREA,
+        conditional: { field: 'nutrition_confirmEachMeal', notEquals: true } },
       { id: 'nutrition_favorites_lunch', label: 'Favorite lunch foods',
-        type: FIELD_TYPES.TEXTAREA },
+        type: FIELD_TYPES.TEXTAREA,
+        conditional: { field: 'nutrition_confirmEachMeal', notEquals: true } },
       { id: 'nutrition_favorites_dinner', label: 'Favorite dinner foods',
-        type: FIELD_TYPES.TEXTAREA },
+        type: FIELD_TYPES.TEXTAREA,
+        conditional: { field: 'nutrition_confirmEachMeal', notEquals: true } },
       { id: 'nutrition_favorites_snack', label: 'Favorite snacks',
-        type: FIELD_TYPES.TEXTAREA },
+        type: FIELD_TYPES.TEXTAREA,
+        conditional: { field: 'nutrition_confirmEachMeal', notEquals: true } },
       { id: 'nutrition_dislikes', label: 'Dislikes / avoids',
         type: FIELD_TYPES.TEXTAREA },
       { id: 'nutrition_notes', label: 'Meal notes',
@@ -458,10 +474,10 @@ export const CARE_PLAN_SECTIONS = [
     usesTasksTable: true,
     fields: [
       // ── Housekeeping ────────────────────────────────────────
+      // Heavy / deep-clean is intentionally NOT offered — outside our scope of service.
       { id: 'housekeeping_scope', label: 'Housekeeping scope',
         type: FIELD_TYPES.SELECT,
-        options: ['Light (dusting, dishes, tidying)', 'Medium (vacuuming, bathroom)',
-                  'Heavy (scrubbing floors, deep clean)'] },
+        options: ['Light (dusting, dishes, tidying)', 'Medium (vacuuming, bathroom)'] },
       { id: 'housekeeping_preferences', label: 'Housekeeping preferences / standards',
         type: FIELD_TYPES.TEXTAREA,
         placeholder: 'Prefers dusting Tuesdays; doesn\'t want the office touched; use only non-scented products.' },
@@ -485,6 +501,10 @@ export const CARE_PLAN_SECTIONS = [
         type: FIELD_TYPES.TEXTAREA },
 
       // ── Medication Management ──────────────────────────────
+      // Pill-box setup is intentionally NOT offered — outside the
+      // legal scope of unlicensed caregivers in our jurisdictions.
+      // Historical pill-box values stored on existing versions are
+      // preserved in JSONB but no longer surfaced in the editor.
       { id: 'medMgmt_needsReminders', label: 'Needs medication reminders',
         type: FIELD_TYPES.BOOLEAN },
       { id: 'medMgmt_timesPerDay', label: 'How many times per day',
@@ -493,11 +513,6 @@ export const CARE_PLAN_SECTIONS = [
       { id: 'medMgmt_managedBy', label: 'Who manages the medications',
         type: FIELD_TYPES.SELECT,
         options: ['Client', 'Caregiver', 'Family', 'Pharmacy service', 'Mixed'] },
-      { id: 'medMgmt_pillBox', label: 'Medications set up in pill box',
-        type: FIELD_TYPES.BOOLEAN },
-      { id: 'medMgmt_pillBoxWeeks', label: 'Pill box covers how many weeks',
-        type: FIELD_TYPES.NUMBER,
-        conditional: { field: 'medMgmt_pillBox', equals: true } },
       { id: 'medMgmt_separateSchedule', label: 'Separate medication schedule sheet',
         type: FIELD_TYPES.BOOLEAN },
 
@@ -660,6 +675,20 @@ export const CARE_PLAN_SECTIONS = [
     order: 8,
     tiers: ['admin', 'caregiver'],
     fields: [
+      // Day-to-day point of contact — surfaced up top so office staff
+      // and caregivers know who to call about scheduling / care questions.
+      // Decision-making authority (POA / HIPAA) is still tracked under
+      // the responsible-party blocks below.
+      { id: 'pointOfContact', label: 'Day-to-day point of contact',
+        type: FIELD_TYPES.SELECT,
+        help: 'Who do we call for routine questions (schedule, supplies, day-to-day check-ins)?',
+        options: ['Client themselves', 'Primary responsible party',
+                  'Secondary responsible party', 'Other (see note)'] },
+      { id: 'pointOfContactOther', label: 'Point of contact — name & phone',
+        type: FIELD_TYPES.TEXT,
+        placeholder: 'Jane Smith (neighbor) · (555) 555-5555',
+        conditional: { field: 'pointOfContact', equals: 'Other (see note)' } },
+
       // Primary providers
       { id: 'pcpName', label: 'Primary care physician — name', type: FIELD_TYPES.TEXT, cms485: true },
       { id: 'pcpPhone', label: 'PCP phone', type: FIELD_TYPES.PHONE, cms485: true },
@@ -715,11 +744,13 @@ export const CARE_PLAN_SECTIONS = [
       { id: 'rpSecondary_healthcarePOA', label: 'Healthcare power of attorney',
         type: FIELD_TYPES.YN },
 
-      // Emergency contacts (non-RP family/friends who can help in a pinch)
+      // Emergency contacts (non-RP family/friends who can help in a pinch).
+      // List order = call order. Use the up/down controls to reorder.
       {
-        id: 'emergencyContacts', label: 'Emergency contacts',
+        id: 'emergencyContacts', label: 'Emergency contacts (in call order)',
         type: FIELD_TYPES.LIST,
-        help: 'People to reach outside the responsible parties — close neighbors, backup family.',
+        ordered: true,
+        help: 'People to reach outside the responsible parties — close neighbors, backup family. The order here is the order we call them.',
         subfields: [
           { id: 'name', label: 'Name', type: FIELD_TYPES.TEXT, required: true },
           { id: 'relationship', label: 'Relationship', type: FIELD_TYPES.TEXT },
