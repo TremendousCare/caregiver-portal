@@ -43,8 +43,7 @@ export function PhoneCallButton({ phone, label = 'Call', compact = false }) {
       title={error || `Call ${phone}`}
       aria-busy={busy}
     >
-      <span className={styles.phoneCallBtnIcon}>📞</span>
-      {!compact && <span>{busy ? 'Dialing…' : error ? 'Failed' : label}</span>}
+      <span>{busy ? 'Dialing…' : error ? 'Failed' : compact ? 'Call' : label}</span>
     </button>
   );
 }
