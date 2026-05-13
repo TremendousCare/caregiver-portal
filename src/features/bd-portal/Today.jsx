@@ -12,6 +12,7 @@ import {
   buildAppleMapsRouteUrl,
   hasRoutableAddress,
   filterToTerritory,
+  isCold,
 } from './lib/bdQueries';
 import { hydrateStops, pruneStopsAgainstAccounts } from './lib/bdRoutePlans';
 import { fetchBdGoals, findActiveGoal, progressVsTarget } from '../bd-goals/lib/goalsQueries';
@@ -140,6 +141,17 @@ export function Today({ displayName }) {
     refreshPlan();
   }
 
+  // Mode toggle. Null = auto-default ("plan" if she has saved stops,
+  // otherwise "top5"). Once the rep manually toggles, their pick
+  // sticks for the rest of the session — refreshing or saving the
+  // plan doesn't override their explicit choice.
+  const [userMode, setUserMode] = useState(null);
+  const mode = userMode ?? (planStops.length > 0 ? 'plan' : 'top5');
+  const planRoutableCount = useMemo(
+    () => planStops.filter((p) => hasRoutableAddress(p.account)).length,
+    [planStops],
+  );
+
   return (
     <div className={s.page}>
       <div className={s.header}>
@@ -167,54 +179,6 @@ export function Today({ displayName }) {
           </div>
         </button>
       )}
-
-      <div className={s.card}>
-        <div className={s.routeHeader}>
-          <div className={s.sectionTitle}>Today&rsquo;s plan</div>
-          <button
-            type="button"
-            className={s.routeBtn}
-            onClick={() => navigate('/bd/plan')}
-          >
-            <ListOrdered size={14} aria-hidden />
-            <span>{planStops.length > 0 ? 'Edit' : 'Build'}</span>
-          </button>
-        </div>
-        {planStops.length === 0 ? (
-          <div className={s.planCardEmpty}>
-            No plan yet — tap <strong>Build</strong> to pick your stops for today.
-          </div>
-        ) : (
-          <>
-            <ol className={s.planCardStops}>
-              {planStops.slice(0, 6).map(({ account }, i) => (
-                <li key={account.id} className={s.planCardStopRow}>
-                  <span className={s.planCardStopIndex}>{i + 1}</span>
-                  <span className={s.planCardStopName}>{account.name}</span>
-                </li>
-              ))}
-              {planStops.length > 6 && (
-                <li className={s.muted} style={{ fontSize: 12, marginLeft: 26 }}>
-                  +{planStops.length - 6} more
-                </li>
-              )}
-            </ol>
-            {planRouteUrl && (
-              <div className={s.planCardActions}>
-                <a
-                  className={s.routeBtn}
-                  href={planRouteUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Map size={14} aria-hidden />
-                  <span>Open in Maps ({planStops.filter((p) => hasRoutableAddress(p.account)).length})</span>
-                </a>
-              </div>
-            )}
-          </>
-        )}
-      </div>
 
       <div className={s.card}>
         <div className={s.sectionTitle}>Briefing</div>
@@ -258,21 +222,107 @@ export function Today({ displayName }) {
       </div>
 
       <div className={s.card}>
+        {/* Mode toggle — plan if she has one saved, top-5 otherwise.
+            Once the rep manually switches, their pick wins for the
+            rest of the session. Same segmented-pill pattern as the
+            territory toggle on the Accounts list so the design
+            language stays consistent. */}
+        <div className={s.territoryToggleRow}>
+          <button
+            type="button"
+            className={`${s.territoryToggle} ${mode === 'plan' ? s.territoryToggleActive : ''}`}
+            onClick={() => setUserMode('plan')}
+            aria-pressed={mode === 'plan'}
+          >
+            Today&rsquo;s plan{planStops.length > 0 ? ` (${planStops.length})` : ''}
+          </button>
+          <button
+            type="button"
+            className={`${s.territoryToggle} ${mode === 'top5' ? s.territoryToggleActive : ''}`}
+            onClick={() => setUserMode('top5')}
+            aria-pressed={mode === 'top5'}
+          >
+            Top 5
+          </button>
+        </div>
+
         <div className={s.routeHeader}>
-          <div className={s.sectionTitle}>Top 5 to visit next</div>
-          {routeUrl && (
-            <a
-              className={s.routeBtn}
-              href={routeUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Map size={14} aria-hidden />
-              <span>Plan route ({routeStops.length})</span>
-            </a>
+          {/* Section title slot stays empty — the toggle is the title.
+              Right-side action pill changes per mode. */}
+          <div />
+          {mode === 'plan' ? (
+            <div className={s.planActionGroup}>
+              <button
+                type="button"
+                className={s.routeBtn}
+                onClick={() => navigate('/bd/plan')}
+              >
+                <ListOrdered size={14} aria-hidden />
+                <span>{planStops.length > 0 ? 'Edit' : 'Build'}</span>
+              </button>
+              {planRouteUrl && (
+                <a
+                  className={s.routeBtn}
+                  href={planRouteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Map size={14} aria-hidden />
+                  <span>Open in Maps ({planRoutableCount})</span>
+                </a>
+              )}
+            </div>
+          ) : (
+            routeUrl && (
+              <a
+                className={s.routeBtn}
+                href={routeUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Map size={14} aria-hidden />
+                <span>Plan route ({routeStops.length})</span>
+              </a>
+            )
           )}
         </div>
-        {accountsLoading && !suggested.length ? (
+
+        {mode === 'plan' ? (
+          planStops.length === 0 ? (
+            <div className={s.planCardEmpty}>
+              No plan yet — tap <strong>Build</strong> to pick your stops for today.
+            </div>
+          ) : (
+            <div className={s.accountList}>
+              {planStops.map(({ account }, i) => {
+                const days  = daysSince(account.last_activity_at);
+                const cold  = isCold(account);
+                const count = account.activity_count ?? null;
+                return (
+                  <button
+                    key={account.id}
+                    type="button"
+                    className={`${s.accountCard} ${cold ? s.accountCardCold : ''}`}
+                    onClick={() => navigate(`/bd/accounts/${account.id}`)}
+                  >
+                    <span className={s.stopIndexBadge} aria-hidden>{i + 1}</span>
+                    <div className={s.stopCardBody}>
+                      <div className={s.accountName}>
+                        {account.name}
+                        {cold && <span className={`${s.tag} ${s.tagCold}`}>cold</span>}
+                        {account.is_strategic_shared && <span className={s.tag}>strategic</span>}
+                      </div>
+                      <div className={s.accountMeta}>
+                        {account.city ?? '—'}{count !== null ? ` · ${count} activities` : ''}
+                      </div>
+                    </div>
+                    <div className={s.lastSeen}>{formatDays(days)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )
+        ) : accountsLoading && !suggested.length ? (
           <p className={s.muted}>Loading…</p>
         ) : suggested.length === 0 ? (
           <p className={s.empty}>No accounts yet.</p>
