@@ -93,24 +93,73 @@ export function mapRcStatusToCallStatus(
 // ─── Direction mapping ─────────────────────────────────────────────
 
 /**
- * Derive call direction from a single RC party. RC's `direction` field is
- * already either 'Inbound' or 'Outbound' from the extension's perspective,
- * but it can be missing on older payload shapes; we fall back to a phone
- * + extensionId heuristic.
+ * Collect every extensionId we can see on a party — RC nests them in
+ * THREE possible places:
+ *   - `party.extensionId`       (the owner-extension perspective)
+ *   - `party.from.extensionId`  (the calling side, when our extension is the caller)
+ *   - `party.to.extensionId`    (the receiving side, when our extension is the callee)
+ *
+ * The early-call disconnect events for an INBOUND call typically only
+ * include `party.to.extensionId` — the originating party is external,
+ * so RC doesn't surface our extension at the root. Missing this is
+ * how the screen-pop ended up silent until the terminal event in the
+ * 2026-05-13 incident: matched_user_id was NULL on every prior event,
+ * and Realtime's `eq.<userId>` filter excluded them all.
  */
-export function deriveDirection(party: Record<string, unknown>): 'inbound' | 'outbound' {
+function collectPartyExtensionIds(party: Record<string, any>): string[] {
+  const ids: string[] = [];
+  if (party.extensionId) ids.push(String(party.extensionId));
+  const from = party.from || {};
+  const to = party.to || {};
+  if (from && from.extensionId) ids.push(String(from.extensionId));
+  if (to && to.extensionId) ids.push(String(to.extensionId));
+  return ids;
+}
+
+/**
+ * Derive call direction from RC's account perspective. Our perspective,
+ * NOT the party's. A party with `direction:'Outbound'` whose
+ * `to.extensionId` is our extension is INBOUND to us (the external
+ * caller is dialing OUR extension).
+ *
+ * Rule:
+ *   - Our extension found in `party.to`   → 'inbound'  (call coming in to us)
+ *   - Our extension found in `party.from` → 'outbound' (we are calling out)
+ *   - Otherwise fall back to the party's stated direction, then to the
+ *     existence of any extensionId in `from`/`to`.
+ *
+ * `knownExtensionIds` is the org's bound extensions
+ * (`org_memberships.ringcentral_extension_id`). Empty set means we have
+ * no binding yet — fall back to the party's stated direction so we
+ * still classify direction sensibly during initial onboarding.
+ */
+export function deriveDirection(
+  party: Record<string, unknown>,
+  knownExtensionIds: ReadonlySet<string> = new Set(),
+): 'inbound' | 'outbound' {
+  const from = (party.from || {}) as Record<string, unknown>;
+  const to = (party.to || {}) as Record<string, unknown>;
+
+  if (knownExtensionIds.size > 0) {
+    const toExt = to && to.extensionId ? String(to.extensionId) : '';
+    if (toExt && knownExtensionIds.has(toExt)) return 'inbound';
+    const fromExt = from && from.extensionId ? String(from.extensionId) : '';
+    if (fromExt && knownExtensionIds.has(fromExt)) return 'outbound';
+    const rootExt = party.extensionId ? String(party.extensionId) : '';
+    if (rootExt && knownExtensionIds.has(rootExt)) {
+      // Our extension is the owner of this party. Fall through to
+      // the party's stated direction below — RC sets it correctly
+      // from the owner's perspective.
+    }
+  }
+
   const rcDir = String(party.direction || '').toLowerCase();
   if (rcDir === 'inbound') return 'inbound';
   if (rcDir === 'outbound') return 'outbound';
 
-  // Fallback: if the party has an extensionId in `from` it's outbound; in `to`
-  // it's inbound.
-  const from = (party.from || {}) as Record<string, unknown>;
-  const to = (party.to || {}) as Record<string, unknown>;
+  // Last-resort heuristic: any extension presence on one side or the other.
   if (from && from.extensionId) return 'outbound';
   if (to && to.extensionId) return 'inbound';
-
-  // Last resort.
   return 'inbound';
 }
 
@@ -159,28 +208,41 @@ export function parseTelephonyEvent(
   if (parties.length === 0) return null;
 
   // Pick the party we care about. Preference order:
-  //   1. A party whose extensionId is in `knownExtensionIds`.
-  //   2. A party with ANY extensionId on the org's side (to/from).
+  //   1. A party where OUR extension appears anywhere
+  //      (party.extensionId, party.to.extensionId, party.from.extensionId).
+  //   2. A party with ANY extensionId on the org's side (to/from/root).
   //   3. The first party.
+  //
+  // `ourExtensionId` is the canonical extension we'll persist on the
+  // call_sessions row. It is the matched extension (i.e. the one in
+  // `knownExtensionIds`) when we found one — NOT necessarily
+  // `chosen.extensionId`, which RC may leave undefined on disconnect
+  // events even when the call's `to.extensionId` is set.
   let chosen: Record<string, any> | null = null;
+  let ourExtensionId: string | null = null;
   for (const p of parties) {
-    const extId = String(p.extensionId || '');
-    if (extId && knownExtensionIds.has(extId)) {
+    const allIds = collectPartyExtensionIds(p);
+    const matched = allIds.find((id) => knownExtensionIds.has(id));
+    if (matched) {
       chosen = p;
+      ourExtensionId = matched;
       break;
     }
   }
   if (!chosen) {
+    // No known-binding match. Fall back to "any party with extension info."
     for (const p of parties) {
-      if (p.extensionId) {
+      const allIds = collectPartyExtensionIds(p);
+      if (allIds.length > 0) {
         chosen = p;
+        ourExtensionId = allIds[0];
         break;
       }
     }
   }
   if (!chosen) chosen = parties[0];
 
-  const direction = deriveDirection(chosen);
+  const direction = deriveDirection(chosen, knownExtensionIds);
   const statusRaw = String((chosen.status || {}).code || '');
   const reasonRaw = String((chosen.status || {}).reason || '');
 
@@ -212,7 +274,12 @@ export function parseTelephonyEvent(
     status,
     fromE164,
     toE164,
-    extensionId: chosen.extensionId ? String(chosen.extensionId) : null,
+    // Use the matched extension we resolved across all three locations
+    // (root, to, from) rather than just `chosen.extensionId` — the
+    // latter is often missing on disconnect events even when the
+    // call's to.extensionId is set. This is what feeds
+    // resolveExtensionUser → matched_user_id → the Realtime filter.
+    extensionId: ourExtensionId || (chosen.extensionId ? String(chosen.extensionId) : null),
     eventTime: body.eventTime ? String(body.eventTime) : null,
     recordingId,
   };
