@@ -8,6 +8,8 @@
 // surveyReminders.ts — single source of truth, tested from the frontend
 // via a direct .ts import.
 
+import { normalizeCaregiverPhase } from "../constants.ts";
+
 export interface AvailabilityCheckInConditions {
   interval_days?: number;       // How often to re-send. Default: 14
   survey_template_id?: string;  // Which template to send (required on real rules).
@@ -116,11 +118,15 @@ export function filterActiveCaregiversForCheckIn(
   const phase = conditions.phase ?? null;
   return caregivers.filter((cg) => {
     if (!isActiveForAvailabilityCheckIn(cg)) return false;
-    const cgPhase =
+    const rawCgPhase =
       (cg.phase as string | undefined) ||
       (cg.phaseOverride as string | undefined) ||
       (cg.phase_override as string | undefined) ||
       null;
+    // Operators can place a caregiver in a sub-phase via phase_override
+    // (e.g. "intake_pending"). Normalize to the parent main phase so a
+    // rule scoped to "intake" still matches.
+    const cgPhase = rawCgPhase ? normalizeCaregiverPhase(rawCgPhase) : null;
     return matchesPhaseFilter(cgPhase, phase);
   });
 }

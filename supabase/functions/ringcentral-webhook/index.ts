@@ -4,6 +4,7 @@ import {
   RouteRow,
   summarizeRouteResults,
 } from "./subscribe-helpers.ts";
+import { normalizeCaregiverPhase } from "../_shared/constants.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -114,7 +115,7 @@ async function getJwtForRoute(category: string): Promise<string> {
 
 // ─── Caregiver Phase Helper ───
 function getCaregiverPhase(cg: Record<string, unknown>): string {
-  if (cg.phase_override) return cg.phase_override as string;
+  if (cg.phase_override) return normalizeCaregiverPhase(cg.phase_override);
   // Default logic: check phase_timestamps for latest phase
   const timestamps = (cg.phase_timestamps || {}) as Record<string, number>;
   const phases = ["intake", "interview", "onboarding", "verification", "orientation"];

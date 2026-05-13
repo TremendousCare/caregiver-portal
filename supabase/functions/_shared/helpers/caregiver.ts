@@ -1,6 +1,6 @@
 // ─── Caregiver Helper Functions ───
 
-import { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS } from "../constants.ts";
+import { CAREGIVER_PHASES, CAREGIVER_PHASE_LABELS, normalizeCaregiverPhase } from "../constants.ts";
 
 export function detectPhase(cg: any): string {
   const timestamps = cg.phase_timestamps || {};
@@ -17,7 +17,14 @@ export function getPhaseLabel(phaseId: string): string {
 }
 
 export function getPhase(cg: any): string {
-  return cg.phase_override || detectPhase(cg);
+  // phase_override may be a sub-phase id (e.g. "intake_pending") that
+  // an operator selected to put the caregiver back into a wait state.
+  // Server-side phase comparisons must see the parent main phase so
+  // automations / surveys / availability rules scoped to "intake" or
+  // "interview" still match. See src/lib/utils.js getCurrentPhase()
+  // for the frontend mirror of this logic.
+  if (cg.phase_override) return normalizeCaregiverPhase(cg.phase_override);
+  return detectPhase(cg);
 }
 
 export function getLastActivity(cg: any): number {

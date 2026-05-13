@@ -15,6 +15,30 @@ export const CAREGIVER_PHASE_LABELS: Record<string, string> = {
   orientation: "Orientation",
 };
 
+/**
+ * Sub-phase override ids → parent main phase id. Operators can put a
+ * caregiver into one of these wait states via the dropdown; server-side
+ * phase comparisons (automations, surveys, availability, merge fields)
+ * must normalize the override back to the parent main phase before
+ * evaluating any phase-scoped filter. Must mirror SUB_PHASES in
+ * src/lib/constants.js.
+ */
+export const CAREGIVER_SUB_PHASE_PARENTS: Record<string, string> = {
+  intake_pending: "intake",
+  intake_pending_non_hca: "intake",
+  interview_pending_hca: "interview",
+};
+
+/**
+ * Normalize a stored phase id (which may be a sub-phase override) to
+ * its parent main phase id. Pass-through for main phase ids and
+ * unknown values, returns "" for null/undefined.
+ */
+export function normalizeCaregiverPhase(phaseId: unknown): string {
+  if (!phaseId || typeof phaseId !== "string") return "";
+  return CAREGIVER_SUB_PHASE_PARENTS[phaseId] || phaseId;
+}
+
 /** Client pipeline phase IDs */
 export const CLIENT_PHASES = [
   "new_lead", "initial_contact", "consultation", "assessment",

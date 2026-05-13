@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getBookingUrlFromOrgSettings } from "../_shared/helpers/bookings.ts";
+import { normalizeCaregiverPhase } from "../_shared/constants.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -326,7 +327,7 @@ function resolveTemplate(
   if (caregiverFullData) {
     const phase = entityType === "client"
       ? (caregiverFullData.phase || "new_lead")
-      : (caregiverFullData.phase_override || caregiver.phase || "intake");
+      : (normalizeCaregiverPhase(caregiverFullData.phase_override) || caregiver.phase || "intake");
     const phaseStart = caregiverFullData.phase_timestamps?.[phase];
     if (phaseStart) {
       daysInPhase = String(Math.floor((Date.now() - phaseStart) / 86400000));

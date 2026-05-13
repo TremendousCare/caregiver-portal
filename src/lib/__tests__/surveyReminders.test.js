@@ -345,5 +345,31 @@ describe('surveyReminders', () => {
       expect(ruleAppliesToCaregiver({}, { phase: 'intake' })).toBe(true);
       expect(ruleAppliesToCaregiver({}, { phase: 'orientation' })).toBe(false);
     });
+
+    // Regression: when an operator places a caregiver in a sub-phase wait
+    // state via phase_override (e.g. "intake_pending"), automations scoped
+    // to the parent main phase must still match. The backend's getPhase()
+    // normalizes the sub-phase id back to the parent before comparing.
+    describe('with sub-phase overrides (regression)', () => {
+      it('matches intake automations when phase_override is intake_pending', () => {
+        const cg = { phase_override: 'intake_pending', phase_timestamps: {} };
+        expect(ruleAppliesToCaregiver(cg, { phase: 'intake' })).toBe(true);
+      });
+
+      it('matches intake automations when phase_override is intake_pending_non_hca', () => {
+        const cg = { phase_override: 'intake_pending_non_hca', phase_timestamps: {} };
+        expect(ruleAppliesToCaregiver(cg, { phase: 'intake' })).toBe(true);
+      });
+
+      it('matches interview automations when phase_override is interview_pending_hca', () => {
+        const cg = { phase_override: 'interview_pending_hca', phase_timestamps: {} };
+        expect(ruleAppliesToCaregiver(cg, { phase: 'interview' })).toBe(true);
+      });
+
+      it('does NOT match orientation automations when phase_override is intake_pending', () => {
+        const cg = { phase_override: 'intake_pending', phase_timestamps: {} };
+        expect(ruleAppliesToCaregiver(cg, { phase: 'orientation' })).toBe(false);
+      });
+    });
   });
 });

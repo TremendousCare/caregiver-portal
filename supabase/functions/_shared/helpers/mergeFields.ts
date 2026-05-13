@@ -14,6 +14,8 @@
 // through this resolver per recipient. Existing snake_case templates
 // continue to work unchanged.
 
+import { normalizeCaregiverPhase } from "../constants.ts";
+
 export interface MergeFieldEntity {
   first_name?: string | null;
   last_name?: string | null;
@@ -29,8 +31,12 @@ export function resolveMergeFields(
 ): string {
   // Caregivers store the active phase in `phase_override`; clients store
   // it directly in `phase`. {{phase}} resolves to whichever is present,
-  // preferring the caregiver field for backwards compatibility.
-  const phaseValue = entity.phase_override || entity.phase || "";
+  // preferring the caregiver field for backwards compatibility. Sub-phase
+  // override ids (e.g. "intake_pending") collapse to the parent main
+  // phase so {{phase}} surfaces a clean value in SMS bodies.
+  const phaseValue = entity.phase_override
+    ? normalizeCaregiverPhase(entity.phase_override)
+    : (entity.phase || "");
   const firstName = entity.first_name || "";
   const lastName = entity.last_name || "";
   const fullName = `${firstName} ${lastName}`.trim();

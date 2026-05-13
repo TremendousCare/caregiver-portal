@@ -41,6 +41,16 @@ describe('resolveMergeFields', () => {
     expect(out).toBe('Sam is currently in onboarding.');
   });
 
+  it('normalizes sub-phase phase_override to its parent main phase', () => {
+    // Regression: operators can place a caregiver into a sub-phase wait
+    // state (e.g. "intake_pending"). The {{phase}} merge field should
+    // surface a clean parent phase name in outbound SMS bodies, not the
+    // raw sub-phase id.
+    expect(resolveMergeFields('{{phase}}', { phase_override: 'intake_pending' })).toBe('intake');
+    expect(resolveMergeFields('{{phase}}', { phase_override: 'intake_pending_non_hca' })).toBe('intake');
+    expect(resolveMergeFields('{{phase}}', { phase_override: 'interview_pending_hca' })).toBe('interview');
+  });
+
   it('renders {{phase}} from client phase column', () => {
     const out = resolveMergeFields(
       '{{first_name}} is currently in {{phase}}.',

@@ -125,6 +125,22 @@ describe('filterActiveCaregiversForCheckIn', () => {
     expect(out.map((c) => c.id)).toEqual(['x']);
   });
 
+  it('normalizes sub-phase phase_override to its parent main phase', () => {
+    // Regression: an operator can place a caregiver in "intake_pending"
+    // via the manual phase dropdown. Availability check-in rules scoped
+    // to "intake" should still pick them up.
+    const rawRows = [
+      { id: 'pending-hca', archived: false, phase_override: 'intake_pending' },
+      { id: 'pending-non-hca', archived: false, phase_override: 'intake_pending_non_hca' },
+      { id: 'pending-interview-hca', archived: false, phase_override: 'interview_pending_hca' },
+      { id: 'not-intake', archived: false, phase_override: 'orientation' },
+    ];
+    const intakeRule = filterActiveCaregiversForCheckIn(rawRows, { phase: 'intake' });
+    expect(intakeRule.map((c) => c.id).sort()).toEqual(['pending-hca', 'pending-non-hca']);
+    const interviewRule = filterActiveCaregiversForCheckIn(rawRows, { phase: 'interview' });
+    expect(interviewRule.map((c) => c.id)).toEqual(['pending-interview-hca']);
+  });
+
   it('returns [] for non-array input', () => {
     expect(filterActiveCaregiversForCheckIn(null)).toEqual([]);
     expect(filterActiveCaregiversForCheckIn(undefined)).toEqual([]);
