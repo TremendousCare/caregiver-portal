@@ -4,12 +4,13 @@ import {
   RouteRow,
   summarizeRouteResults,
 } from "./subscribe-helpers.ts";
+import {
+  getRingCentralAccessTokenWithJwt,
+} from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RC_CLIENT_ID = Deno.env.get("RINGCENTRAL_CLIENT_ID");
-const RC_CLIENT_SECRET = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
 const RC_JWT_TOKEN = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
 const RC_API_URL = "https://platform.ringcentral.com";
 
@@ -67,32 +68,13 @@ function phoneDigits(phone: string): string {
   return d.length >= 10 ? d.slice(-10) : d;
 }
 
-// ─── Get RingCentral Access Token ───
-async function getRingCentralAccessTokenWithJwt(jwt: string): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
-    throw new Error("RingCentral client credentials not configured");
-  }
-  if (!jwt) {
-    throw new Error("RingCentral JWT not provided");
-  }
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
-  }
-  const data = await response.json();
-  return data.access_token;
-}
+// RingCentral access-token resolution now flows through the cached helper in
+// _shared/helpers/ringcentral.ts. The previous local copy here was a duplicate
+// that did NOT share the in-process token cache, so the per-route subscribe
+// loop below was firing one fresh /oauth/token call per route. With three
+// routes (some of which can share an extension), that fanned out into back-to-
+// back auth requests and contributed to CMN-301 "Request rate exceeded"
+// failures on the per-extension auth bucket (5 req / 60s, 60s penalty).
 
 // Resolve the JWT to use for subscribing a given route.
 // Per-route vault secret wins; otherwise fall back to the global env JWT
@@ -501,10 +483,21 @@ async function handleSubscribe(): Promise<Response> {
       );
     }
 
-    // Subscribe routes serially: keeps error attribution clear and avoids
-    // any RC rate-limit surprises on accounts with many extensions.
+    // Subscribe routes serially with a 12-second pause between each. The
+    // auth helper is now the shared cached one (see import at top of file),
+    // so the same JWT across iterations only triggers one /oauth/token call.
+    // The spacing protects the case where each route resolves to a DIFFERENT
+    // JWT — at 12s apart, even three back-to-back fresh auths stay under
+    // RC's 5 req/60s auth-bucket limit, which has a 60s penalty interval
+    // that previously cascaded when a busy extension's bucket was already
+    // close to empty. The first route runs immediately (no leading pause)
+    // so single-route accounts feel no slowdown.
+    const ROUTE_SUBSCRIBE_DELAY_MS = 12_000;
     const results: RouteResult[] = [];
+    let firstRoute = true;
     for (const route of routes as RouteRow[]) {
+      if (!firstRoute) await new Promise((r) => setTimeout(r, ROUTE_SUBSCRIBE_DELAY_MS));
+      firstRoute = false;
       results.push(await subscribeOneRoute(route, webhookUrl));
     }
 
