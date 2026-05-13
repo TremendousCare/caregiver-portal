@@ -1,4 +1,4 @@
-import { PHASES } from './constants';
+import { PHASES, SUB_PHASES } from './constants';
 import { getCurrentPhase, getOverallProgress, getDaysSinceApplication, getDaysInPhase, isGreenLight } from './utils';
 
 export const exportToCSV = (caregivers, filterPhase = 'all') => {
@@ -34,7 +34,11 @@ export const exportToCSV = (caregivers, filterPhase = 'all') => {
       'Specializations': cg.specializations || '',
       'Certifications': cg.certifications || '',
       'Current Phase': phaseInfo?.label || phase,
-      'Phase Override': cg.phaseOverride ? PHASES.find((p) => p.id === cg.phaseOverride)?.label || cg.phaseOverride : 'Auto',
+      'Phase Override': cg.phaseOverride
+        ? (SUB_PHASES.find((s) => s.id === cg.phaseOverride)?.label
+          || PHASES.find((p) => p.id === cg.phaseOverride)?.label
+          || cg.phaseOverride)
+        : 'Auto',
       'Overall Progress': `${progress}%`,
       'Days in Pipeline': daysTotal,
       'Days in Current Phase': daysPhase,

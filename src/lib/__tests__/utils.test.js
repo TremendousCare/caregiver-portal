@@ -31,6 +31,7 @@ const {
   isAwaitingHcaVerification,
   getInterviewEvaluationCompletedAt,
   getDaysSinceInterviewEvaluation,
+  getSubPhase,
 } = await import('../utils');
 
 // ─── isTaskDone ─────────────────────────────────────────────────
@@ -732,5 +733,111 @@ describe('getDaysSinceInterviewEvaluation', () => {
 
   it('returns null when evaluation is not complete', () => {
     expect(getDaysSinceInterviewEvaluation({ tasks: {} })).toBeNull();
+  });
+});
+
+// ─── Sub-Phase Overrides ──────────────────────────────────────
+//
+// Sub-phases (intake_pending, intake_pending_non_hca, interview_pending_hca)
+// are computed wait states by default — sidebar derives them from task
+// completion + hasHCA. They can also be set explicitly via phaseOverride
+// so an operator can put a caregiver back into the bucket after a
+// mistaken advance.
+//
+// Contract: when phase_override is a sub-phase id:
+//   - getCurrentPhase() returns the parent main phase (so existing UI
+//     that maps phase → label/tasks/color keeps working)
+//   - the matching predicate returns true regardless of task state
+//   - the sibling sub-phase predicate returns false (mutually exclusive)
+//   - the override wins over hasHCA
+
+describe('getSubPhase', () => {
+  it('returns the SUB_PHASES entry for a sub-phase override id', () => {
+    expect(getSubPhase('intake_pending')?.parent).toBe('intake');
+    expect(getSubPhase('intake_pending_non_hca')?.parent).toBe('intake');
+    expect(getSubPhase('interview_pending_hca')?.parent).toBe('interview');
+  });
+
+  it('returns null for a main phase id', () => {
+    expect(getSubPhase('intake')).toBeNull();
+    expect(getSubPhase('interview')).toBeNull();
+    expect(getSubPhase('verification')).toBeNull();
+  });
+
+  it('returns null for null / undefined / unknown', () => {
+    expect(getSubPhase(null)).toBeNull();
+    expect(getSubPhase(undefined)).toBeNull();
+    expect(getSubPhase('not_a_phase')).toBeNull();
+  });
+});
+
+describe('getCurrentPhase with sub-phase override', () => {
+  it('returns "intake" for intake_pending override', () => {
+    expect(getCurrentPhase({ phaseOverride: 'intake_pending' })).toBe('intake');
+  });
+
+  it('returns "intake" for intake_pending_non_hca override', () => {
+    expect(getCurrentPhase({ phaseOverride: 'intake_pending_non_hca' })).toBe('intake');
+  });
+
+  it('returns "interview" for interview_pending_hca override', () => {
+    expect(getCurrentPhase({ phaseOverride: 'interview_pending_hca' })).toBe('interview');
+  });
+
+  it('sub-phase override survives task-complete state (operator wins)', () => {
+    const tasks = {};
+    DEFAULT_PHASE_TASKS.intake.forEach((t) => { tasks[t.id] = true; });
+    DEFAULT_PHASE_TASKS.interview.forEach((t) => { tasks[t.id] = true; });
+    expect(
+      getCurrentPhase({ tasks, phaseOverride: 'intake_pending' })
+    ).toBe('intake');
+  });
+});
+
+describe('isAwaitingInterviewHca / NonHca with sub-phase override', () => {
+  beforeEach(() => {
+    mockedPhaseTasks.value = DEFAULT_PHASE_TASKS;
+  });
+
+  it('intake_pending override puts caregiver in HCA bucket regardless of hasHCA', () => {
+    const cg = { phaseOverride: 'intake_pending', hasHCA: 'no', tasks: {} };
+    expect(isAwaitingInterviewHca(cg)).toBe(true);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(false);
+  });
+
+  it('intake_pending_non_hca override puts caregiver in Non-HCA bucket regardless of hasHCA', () => {
+    const cg = { phaseOverride: 'intake_pending_non_hca', hasHCA: 'yes', tasks: {} };
+    expect(isAwaitingInterviewHca(cg)).toBe(false);
+    expect(isAwaitingInterviewNonHca(cg)).toBe(true);
+  });
+
+  it('the two intake sub-phase overrides are mutually exclusive', () => {
+    const a = { phaseOverride: 'intake_pending', tasks: {} };
+    const b = { phaseOverride: 'intake_pending_non_hca', tasks: {} };
+    expect(isAwaitingInterviewHca(a) && isAwaitingInterviewNonHca(a)).toBe(false);
+    expect(isAwaitingInterviewHca(b) && isAwaitingInterviewNonHca(b)).toBe(false);
+  });
+
+  it('isAwaitingInterviewResponse is true for intake_pending* overrides even with no tasks done', () => {
+    expect(isAwaitingInterviewResponse({ phaseOverride: 'intake_pending', tasks: {} })).toBe(true);
+    expect(isAwaitingInterviewResponse({ phaseOverride: 'intake_pending_non_hca', tasks: {} })).toBe(true);
+  });
+});
+
+describe('isAwaitingHcaVerification with sub-phase override', () => {
+  beforeEach(() => {
+    mockedPhaseTasks.value = DEFAULT_PHASE_TASKS;
+  });
+
+  it('interview_pending_hca override returns true regardless of task state', () => {
+    expect(
+      isAwaitingHcaVerification({ phaseOverride: 'interview_pending_hca', tasks: {} })
+    ).toBe(true);
+  });
+
+  it('non-matching sub-phase override does not flip pending HCA on', () => {
+    expect(
+      isAwaitingHcaVerification({ phaseOverride: 'intake_pending', tasks: {} })
+    ).toBe(false);
   });
 });

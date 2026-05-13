@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
+import { PHASES, SUB_PHASES, EMPLOYMENT_STATUSES, AVAILABILITY_TYPES } from '../../../lib/constants';
 import { getDaysSinceApplication } from '../../../lib/utils';
 import { supabase } from '../../../lib/supabase';
 import { generateCaregiverPassword } from '../../../lib/caregiverPassword';
@@ -215,7 +215,15 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'Additional Certifications', value: caregiver.certifications },
     { label: 'Known Allergies', value: caregiver.allergies },
     { label: 'Willing to Work With', value: caregiver.clientGenderPreference === 'both' ? 'Male and female clients' : caregiver.clientGenderPreference === 'female' ? 'Female clients only' : caregiver.clientGenderPreference === 'male' ? 'Male clients only' : null },
-    { label: 'Phase Override', value: caregiver.phaseOverride ? (() => { const p = PHASES.find((ph) => ph.id === caregiver.phaseOverride); return `⚙️ ${p?.icon} ${p?.label} (manual)`; })() : 'Auto (based on tasks)' },
+    { label: 'Phase Override', value: caregiver.phaseOverride ? (() => {
+      const sub = SUB_PHASES.find((s) => s.id === caregiver.phaseOverride);
+      if (sub) {
+        const parent = PHASES.find((p) => p.id === sub.parent);
+        return `⚙️ ${parent?.icon || ''} ${sub.label} (manual)`;
+      }
+      const p = PHASES.find((ph) => ph.id === caregiver.phaseOverride);
+      return `⚙️ ${p?.icon} ${p?.label} (manual)`;
+    })() : 'Auto (based on tasks)' },
   ];
 
   return (

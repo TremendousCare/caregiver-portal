@@ -1,5 +1,5 @@
-import { PHASES } from '../../../lib/constants';
-import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication } from '../../../lib/utils';
+import { PHASES, SUB_PHASES } from '../../../lib/constants';
+import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, getSubPhase } from '../../../lib/utils';
 import progress from '../../../styles/progress.module.css';
 
 const ACTIVE_ROSTER_OPTION = '__active_roster__';
@@ -11,6 +11,7 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
   const isOverridden = !!caregiver.phaseOverride;
   const currentPhase = getCurrentPhase(caregiver);
   const currentPhaseInfo = PHASES.find((p) => p.id === currentPhase);
+  const currentSubPhase = getSubPhase(caregiver.phaseOverride);
   const isOnRoster = caregiver.employmentStatus && caregiver.employmentStatus !== 'onboarding';
 
   const promoteToActiveRoster = () => {
@@ -48,6 +49,7 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
           <span className={progress.phaseOverrideLabel}>Current Phase:</span>
           <span className={progress.phaseBadge} style={{ background: `${currentPhaseInfo.color}18`, color: currentPhaseInfo.color, border: `1px solid ${currentPhaseInfo.color}30` }}>
             {currentPhaseInfo.icon} {currentPhaseInfo.label}
+            {currentSubPhase ? ` → ${currentSubPhase.short}` : ''}
           </span>
           {isOverridden && <span className={progress.overrideBadge}>⚙️ Manual Override</span>}
         </div>
@@ -64,13 +66,37 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
               if (val === '') {
                 onUpdateCaregiver(caregiver.id, { phaseOverride: null });
               } else {
-                onUpdateCaregiver(caregiver.id, { phaseOverride: val, phaseTimestamps: { ...caregiver.phaseTimestamps, [val]: caregiver.phaseTimestamps?.[val] || Date.now() } });
-                onPhaseChange(val);
+                // For a sub-phase override the on-screen phase tab and
+                // phaseTimestamps key are the PARENT main phase, not the
+                // sub-phase id (sub-phases have no task list of their own).
+                const sub = SUB_PHASES.find((s) => s.id === val);
+                const parentPhaseId = sub ? sub.parent : val;
+                onUpdateCaregiver(caregiver.id, {
+                  phaseOverride: val,
+                  phaseTimestamps: {
+                    ...caregiver.phaseTimestamps,
+                    [parentPhaseId]: caregiver.phaseTimestamps?.[parentPhaseId] || Date.now(),
+                  },
+                });
+                onPhaseChange(parentPhaseId);
               }
             }}
           >
             <option value="">Auto (based on tasks)</option>
-            {PHASES.map((p) => <option key={p.id} value={p.id}>{p.icon} {p.label}{p.id === calculated ? ' ← calculated' : ''}</option>)}
+            {PHASES.flatMap((p) => {
+              const subs = SUB_PHASES.filter((s) => s.parent === p.id);
+              const parentOption = (
+                <option key={p.id} value={p.id}>
+                  {p.icon} {p.label}{p.id === calculated ? ' ← calculated' : ''}
+                </option>
+              );
+              const subOptions = subs.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {'    '}↳ {s.label}
+                </option>
+              ));
+              return [parentOption, ...subOptions];
+            })}
             {!isOnRoster && <option disabled>──────────</option>}
             {!isOnRoster && <option value={ACTIVE_ROSTER_OPTION}>🚀 Move to Active Roster…</option>}
           </select>

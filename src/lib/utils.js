@@ -1,6 +1,15 @@
-import { PHASES } from './constants';
+import { PHASES, SUB_PHASES } from './constants';
 import { getPhaseTasks } from './storage';
 import { normalizePhone } from './intakeProcessing';
+
+// ─── Sub-Phase Helpers ───────────────────────────────────────
+// Sub-phases (e.g. 'intake_pending', 'interview_pending_hca') are wait
+// states within a parent main phase. When phase_override is a sub-phase
+// id, the caregiver is treated as being in the parent phase, but the
+// sub-phase filters/predicates also match. See SUB_PHASES in constants.
+
+export const getSubPhase = (overrideId) =>
+  SUB_PHASES.find((s) => s.id === overrideId) || null;
 
 // ─── Task Value Helpers ─────────────────────────────────────
 // Tasks can be stored as:
@@ -32,7 +41,10 @@ export const getCalculatedPhase = (caregiver) => {
 };
 
 export const getCurrentPhase = (caregiver) => {
-  if (caregiver.phaseOverride) return caregiver.phaseOverride;
+  if (caregiver.phaseOverride) {
+    const sub = getSubPhase(caregiver.phaseOverride);
+    return sub ? sub.parent : caregiver.phaseOverride;
+  }
   return getCalculatedPhase(caregiver);
 };
 
@@ -73,7 +85,15 @@ export const getInterviewLinkSentAt = (caregiver) => {
 };
 
 export const isAwaitingInterviewResponse = (caregiver) => {
-  if (!caregiver || getCurrentPhase(caregiver) !== 'intake') return false;
+  if (!caregiver) return false;
+  // Manual sub-phase override is authoritative — operators use it to
+  // put a caregiver back into "Pending Interview" after a mistaken
+  // advance, regardless of task state.
+  if (
+    caregiver.phaseOverride === 'intake_pending' ||
+    caregiver.phaseOverride === 'intake_pending_non_hca'
+  ) return true;
+  if (getCurrentPhase(caregiver) !== 'intake') return false;
   const linkId = findInterviewLinkSentTaskId();
   if (!linkId || !isTaskDone(caregiver.tasks?.[linkId])) return false;
   const scheduledId = findInterviewScheduledTaskId();
@@ -85,12 +105,19 @@ export const isAwaitingInterviewResponse = (caregiver) => {
 // route non-HCA applicants to a separate "Non-HCA" subtab while HCA-registered
 // applicants stay in "Pending Interview". hasHCA is the editable Personal
 // Information field, so flipping it to 'yes' immediately moves the caregiver
-// into the HCA tab.
-export const isAwaitingInterviewHca = (caregiver) =>
-  isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA === 'yes';
+// into the HCA tab. A manual sub-phase override wins over hasHCA so operators
+// can place someone in a specific bucket explicitly.
+export const isAwaitingInterviewHca = (caregiver) => {
+  if (caregiver?.phaseOverride === 'intake_pending') return true;
+  if (caregiver?.phaseOverride === 'intake_pending_non_hca') return false;
+  return isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA === 'yes';
+};
 
-export const isAwaitingInterviewNonHca = (caregiver) =>
-  isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA !== 'yes';
+export const isAwaitingInterviewNonHca = (caregiver) => {
+  if (caregiver?.phaseOverride === 'intake_pending_non_hca') return true;
+  if (caregiver?.phaseOverride === 'intake_pending') return false;
+  return isAwaitingInterviewResponse(caregiver) && caregiver?.hasHCA !== 'yes';
+};
 
 export const getDaysSinceInterviewLinkSent = (caregiver) => {
   const ts = getInterviewLinkSentAt(caregiver);
@@ -128,7 +155,9 @@ export const getInterviewEvaluationCompletedAt = (caregiver) => {
 };
 
 export const isAwaitingHcaVerification = (caregiver) => {
-  if (!caregiver || getCurrentPhase(caregiver) !== 'interview') return false;
+  if (!caregiver) return false;
+  if (caregiver.phaseOverride === 'interview_pending_hca') return true;
+  if (getCurrentPhase(caregiver) !== 'interview') return false;
   const evalId = findInterviewEvaluationTaskId();
   if (!evalId || !isTaskDone(caregiver.tasks?.[evalId])) return false;
   const hcaId = findVerifyHcaTaskId();
