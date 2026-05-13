@@ -33,11 +33,30 @@ function generateAvailabilitySurveyToken(): string {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// Small pause between survey-reminder sends to avoid hammering RingCentral.
-// RC has per-second SMS rate limits; bursting the whole batch back-to-back
-// has historically triggered throttling / transient failures. At 400ms, even
-// 500 reminders stays under the cron's 5-minute timeout.
-const SURVEY_REMINDER_SEND_DELAY_MS = 400;
+// Pause between survey-reminder sends. RingCentral's per-extension rate
+// limits we have to respect:
+//   • SMS group: 40 requests / 60s with a 30s penalty interval
+//   • Auth group: 5 requests / 60s (each cold-start isolate of
+//     execute-automation calls /oauth/token once before its in-process
+//     cache warms up)
+//
+// At 30s spacing we send at most 2 SMS/min — well under both limits with
+// roughly 10× headroom, even in the worst case where every execute-automation
+// invocation is a cold start (2 auth calls/min ≪ 5/min). This intentionally
+// avoids needing to pre-fetch the access token in this function and pass it
+// through; the simpler "go slowly" knob is enough.
+//
+// Owner has explicitly signed off on automations firing 30s apart — these
+// are reminder SMS, not latency-sensitive alerts. Large batches that exceed
+// a single cron run's budget continue across subsequent ticks via the existing
+// shouldRemindSurvey gate (a failed/unsent reminder leaves
+// last_reminder_sent_at untouched and becomes eligible again next tick),
+// capped per-rule by max_reminders.
+//
+// Previously this was 400ms, which exceeded both rate limits (~150 SMS/min,
+// ~150 auth calls/min in cold-start fanout) and caused mass 429s / "Failed
+// to connect to SMS service" errors visible in RC analytics.
+const SURVEY_REMINDER_SEND_DELAY_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

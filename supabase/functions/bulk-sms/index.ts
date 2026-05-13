@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveMergeFields } from "../_shared/helpers/mergeFields.ts";
+import { sendSmsToRingCentralWithRetry } from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -277,29 +278,24 @@ Deno.serve(async (req: Request) => {
       const resolvedMessage = resolveMergeFields(message, entity);
 
       try {
-        // Send SMS
-        const smsResponse = await fetch(
-          `${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              from: { phoneNumber: fromNumber },
-              to: [{ phoneNumber: normalizedPhone }],
-              text: resolvedMessage,
-            }),
-          },
+        // Send SMS. Helper retries exactly once on a confirmed 429 (RC's
+        // rate limiter rejected us before delivery — safe to retry because
+        // RC does not queue 429'd sends). Never retries on network errors
+        // or 5xx; see sendSmsToRingCentralWithRetry for the full reasoning.
+        const smsResponse = await sendSmsToRingCentralWithRetry(
+          accessToken,
+          fromNumber,
+          normalizedPhone,
+          resolvedMessage,
         );
 
         if (!smsResponse.ok) {
           const errText = await smsResponse.text();
           if (smsResponse.status === 429) {
+            // Still 429 after one retry inside the helper → record as failed
+            // and continue. The outer loop's per-recipient delay carries us
+            // past the penalty interval before the next send.
             results.push({ id: entity.id, name: fullName(entity), status: "failed", reason: "Rate limit reached" });
-            // Wait longer on rate limit
-            await new Promise((r) => setTimeout(r, 2000));
             continue;
           }
           throw new Error(`RC API ${smsResponse.status}: ${errText}`);
@@ -329,8 +325,13 @@ Deno.serve(async (req: Request) => {
         results.push({ id: entity.id, name: fullName(entity), status: "failed", reason: (err as Error).message });
       }
 
-      // Rate limiting: 200ms between sends
-      await new Promise((r) => setTimeout(r, 200));
+      // Rate limiting: 3s between sends. RingCentral's SMS group caps us at
+      // 40 requests / 60s per extension — at 3s spacing we send 20/min, well
+      // under the limit with 2× headroom. Auth isn't a concern here: bulk-sms
+      // runs in a single isolate, so the access-token fetch above is cached
+      // for the rest of the loop. Slower than the prior 200ms (which blew
+      // past the rate limit) but reliability is the priority.
+      await new Promise((r) => setTimeout(r, 3000));
     }
 
     const summary = {

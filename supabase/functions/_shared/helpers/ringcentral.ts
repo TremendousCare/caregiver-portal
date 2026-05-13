@@ -195,6 +195,77 @@ export async function getRCFromNumber(
   return Deno.env.get("RINGCENTRAL_FROM_NUMBER") || null;
 }
 
+// ─── SMS Send with Idempotent Single Retry on 429 ────────────────────────────
+//
+// RingCentral's SMS group is throttled at 40 requests / 60s (per extension)
+// with a 30s penalty interval. Even with the call sites paced to stay under
+// that limit, transient bursts (e.g. another process sharing the same
+// extension, or a cron that overlaps an interactive bulk send) can briefly
+// push us over and trigger a 429. When that happens we want to wait out the
+// penalty and try once more, instead of dropping the send.
+//
+// Idempotency reasoning — read carefully before changing:
+//
+//   We ONLY retry on an explicit HTTP 429 response from RingCentral. A 429
+//   means RC's rate limiter rejected the request before the message reached
+//   their delivery pipeline — the SMS was NOT accepted, NOT queued, and NOT
+//   delivered. RingCentral does not maintain a "deferred queue" for 429'd
+//   sends; a rejected request is simply gone, which is why we have to retry
+//   ourselves.
+//
+//   We deliberately do NOT retry on:
+//     • Network errors / fetch rejections / timeouts — the request may have
+//       reached RC and been accepted before the connection dropped; retrying
+//       could deliver the SMS twice.
+//     • 5xx server errors — RC may have processed the message before failing
+//       to respond; retrying could double-send.
+//     • Non-429 4xx (400, 401, 403, …) — these indicate a permanent problem
+//       (bad credentials, bad payload, invalid number) that a retry can't fix.
+//
+//   In short: the only condition under which we are CERTAIN no message was
+//   transmitted is a 429 response. Retrying is safe exactly there, and
+//   nowhere else.
+//
+// Bounded loop: exactly ONE retry, hardcoded. There is no parameter to crank
+// it up to "retry forever". After the second attempt the function returns
+// whatever Response RC sent (could be 200, 429, anything) and the caller
+// decides what to do with the failure. Combined with the existing cron-level
+// "did we already bump last_reminder_sent_at?" gate in automation-cron, this
+// means a permanently-throttled caregiver gets at most two SMS attempts per
+// cron tick, then waits the configured interval_hours before being eligible
+// again — capped by the rule's max_reminders.
+const RC_SMS_RETRY_WAIT_MS = 35_000; // RC's 30s penalty interval + 5s margin
+
+export async function sendSmsToRingCentralWithRetry(
+  accessToken: string,
+  fromNumber: string,
+  toNumber: string,
+  text: string,
+): Promise<Response> {
+  const doSend = (): Promise<Response> =>
+    fetch(`${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        from: { phoneNumber: fromNumber },
+        to: [{ phoneNumber: toNumber }],
+        text,
+      }),
+    });
+
+  const first = await doSend();
+  if (first.status !== 429) return first;
+
+  console.warn(
+    `[RC SMS] 429 on first attempt to ${toNumber}; waiting ${RC_SMS_RETRY_WAIT_MS}ms before single retry`,
+  );
+  await new Promise((r) => setTimeout(r, RC_SMS_RETRY_WAIT_MS));
+  return doSend();
+}
+
 export async function fetchRCMessages(
   accessToken: string,
   phoneNumber: string,

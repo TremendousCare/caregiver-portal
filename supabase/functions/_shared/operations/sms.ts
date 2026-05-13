@@ -6,7 +6,7 @@ import { createNote } from "./notes.ts";
 import {
   getRingCentralAccessTokenWithJwt,
   getSendingCredentials,
-  RC_API_URL,
+  sendSmsToRingCentralWithRetry,
 } from "../helpers/ringcentral.ts";
 
 export type SmsEntityType = "caregiver" | "client";
@@ -72,22 +72,16 @@ export async function sendSMS(
     };
   }
 
-  // Send SMS
+  // Send SMS. The helper retries exactly once on a confirmed 429 (RC's rate
+  // limiter rejected us before the message reached delivery) — safe because
+  // RC does not queue 429'd sends. See sendSmsToRingCentralWithRetry for the
+  // full idempotency reasoning.
   try {
-    const smsResponse = await fetch(
-      `${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          from: { phoneNumber: fromNumber },
-          to: [{ phoneNumber: normalizedPhone }],
-          text: message,
-        }),
-      },
+    const smsResponse = await sendSmsToRingCentralWithRetry(
+      accessToken,
+      fromNumber,
+      normalizedPhone,
+      message,
     );
 
     if (!smsResponse.ok) {
