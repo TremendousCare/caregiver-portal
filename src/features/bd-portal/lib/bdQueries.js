@@ -49,6 +49,49 @@ export function searchAccounts(accounts, term) {
   });
 }
 
+// ─── Territory filtering ───────────────────────────────────────────
+//
+// A rep's default view is "accounts in my territory ∪ accounts flagged
+// strategic." Strategic-shared rows are visible to every rep regardless
+// of city because they're large health systems (Hoag, Mission, UCI,
+// Providence/St Joe's) that the whole BD team coordinates with.
+//
+// Matching is case-insensitive on trimmed city strings. Both formal
+// and shorthand city variants ("Rancho Mission Viejo", "RMV") are
+// expected to be listed in the territory's cities[] so historical
+// Trello-imported rows match without a city-normalization backfill.
+
+export function normalizeCityForMatch(s) {
+  return (s ?? '').toString().trim().toLowerCase();
+}
+
+export function filterToTerritory(accounts, territoryCities) {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const cities = Array.isArray(territoryCities) ? territoryCities : [];
+  // Empty territory == no filter (admin view, or a rep with no
+  // territory assignment yet — they shouldn't be silently hidden from
+  // every account in the org). Strategic-only filtering would be
+  // surprising, so we no-op instead.
+  if (cities.length === 0) return list;
+  const cityset = new Set(cities.map(normalizeCityForMatch));
+  return list.filter((a) => {
+    if (a?.is_strategic_shared === true) return true;
+    return cityset.has(normalizeCityForMatch(a?.city));
+  });
+}
+
+// Pulls the union of cities across every territory the current user
+// belongs to in their current org. Resolves through the SECURITY
+// DEFINER RPC introduced in migration 20260513140000 so the matching
+// rule lives in one place. Returns [] on failure so the UI degrades to
+// "show everything" rather than hiding accounts mid-session.
+export async function fetchCurrentUserTerritoryCities(supabase) {
+  if (!supabase) return { data: [], error: null };
+  const res = await supabase.rpc('bd_current_user_territory_cities');
+  if (res.error) return { data: [], error: res.error };
+  return { data: Array.isArray(res.data) ? res.data : [], error: null };
+}
+
 // Builds a Today-screen counter object from the in-memory account
 // + activity slice. Stays a pure function so the Today component can
 // stay dumb and the rendering is trivially testable.
@@ -81,7 +124,7 @@ export async function fetchAccountsWithActivity(supabase) {
 
   const accountsRes = await supabase
     .from('bd_accounts')
-    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, lat, lng, notes, out_of_territory, tier_override, last_activity_at')
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, lat, lng, notes, out_of_territory, is_strategic_shared, tier_override, last_activity_at')
     .eq('is_active', true)
     .order('name', { ascending: true });
   if (accountsRes.error) return { data: [], error: accountsRes.error };
@@ -122,7 +165,7 @@ export async function fetchAccount(supabase, accountId) {
   if (!supabase || !accountId) return { data: null, error: null };
   return await supabase
     .from('bd_accounts')
-    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_active, out_of_territory, tier_override, last_activity_at, created_at')
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_active, out_of_territory, is_strategic_shared, tier_override, last_activity_at, created_at')
     .eq('id', accountId)
     .single();
 }

@@ -883,3 +883,33 @@
   margin-top: 8px;
   font-size: 12px;
 }
+
+/* ─── Territory toggle (AccountList) ─── */
+
+.territoryToggleRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  background: #EEF1F6;
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.territoryToggle {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #5A6B85;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.territoryToggleActive {
+  background: #FFFFFF;
+  color: #2E4E8D;
+  box-shadow: 0 1px 4px rgba(46, 78, 141, 0.10);
+}
