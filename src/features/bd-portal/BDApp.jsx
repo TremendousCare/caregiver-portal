@@ -8,6 +8,7 @@ import { QuickCapture } from './QuickCapture';
 import { ReferralIntake } from './ReferralIntake';
 import { ContactCardCapture } from './ContactCardCapture';
 import { ContactEditor } from './ContactEditor';
+import { RouteBuilder } from './RouteBuilder';
 import { BottomNav } from './BottomNav';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
@@ -43,6 +44,7 @@ export function BDApp() {
         <Route path="/bd"                              element={<Today displayName={displayName} />} />
         <Route path="/bd/log"                          element={<QuickCapture />} />
         <Route path="/bd/refer"                        element={<ReferralIntake />} />
+        <Route path="/bd/plan"                         element={<RouteBuilder />} />
         <Route path="/bd/accounts"                     element={<AccountList />} />
         <Route path="/bd/accounts/:accountId"          element={<AccountProfile />} />
         <Route path="/bd/accounts/:accountId/log"      element={<QuickCapture />} />
