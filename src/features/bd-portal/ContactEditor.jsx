@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { CheckCircle2 } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import {
   useBdContact,
@@ -96,7 +97,9 @@ export function ContactEditor() {
     return (
       <div className={s.page}>
         <div className={s.card} style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+          <div className={s.successIcon} aria-hidden>
+            <CheckCircle2 size={48} strokeWidth={1.75} />
+          </div>
           <p className={s.briefingText}>
             {success === 'updated' ? 'Contact updated.' : `${name.trim()} added to ${account?.name ?? 'this account'}.`}
           </p>

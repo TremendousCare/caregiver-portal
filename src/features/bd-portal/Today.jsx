@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { MapPin, Map } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdBriefing } from './hooks/useBdBriefing';
 import { useBdNearbyAccount } from './hooks/useBdNearbyAccount';
@@ -110,7 +111,7 @@ export function Today({ displayName }) {
           className={s.nearbyBanner}
           onClick={() => navigate(`/bd/accounts/${nearest.account.id}/log`)}
         >
-          <div className={s.nearbyIcon} aria-hidden>📍</div>
+          <div className={s.nearbyIcon} aria-hidden><MapPin size={22} strokeWidth={2} /></div>
           <div className={s.nearbyBody}>
             <div className={s.nearbyTitle}>Looks like you&rsquo;re at {nearest.account.name}</div>
             <div className={s.nearbySubtitle}>Tap to log a visit</div>
@@ -169,7 +170,8 @@ export function Today({ displayName }) {
               target="_blank"
               rel="noreferrer"
             >
-              🗺️ Plan route ({routeStops.length})
+              <Map size={14} aria-hidden />
+              <span>Plan route ({routeStops.length})</span>
             </a>
           )}
         </div>

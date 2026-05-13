@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
+import { Sun, Building2 } from 'lucide-react';
 import s from './BdPortal.module.css';
 
 export function BottomNav() {
@@ -23,7 +24,7 @@ export function BottomNav() {
         end
         className={({ isActive }) => (isActive ? `${s.navItem} ${s.active}` : s.navItem)}
       >
-        <span className={s.navItemIcon} aria-hidden>☀️</span>
+        <span className={s.navItemIcon} aria-hidden><Sun size={20} strokeWidth={1.75} /></span>
         Today
       </NavLink>
 
@@ -35,7 +36,7 @@ export function BottomNav() {
         to="/bd/accounts"
         className={({ isActive }) => (isActive ? `${s.navItem} ${s.active}` : s.navItem)}
       >
-        <span className={s.navItemIcon} aria-hidden>🏥</span>
+        <span className={s.navItemIcon} aria-hidden><Building2 size={20} strokeWidth={1.75} /></span>
         Accounts
       </NavLink>
     </nav>

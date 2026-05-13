@@ -14,6 +14,11 @@ This app is **live in production** and used by a real team. The owner is non-tec
 6. **Write tests for new business logic** — Any new utility function or business rule gets a test
 7. **Discuss plans before major features** — The user wants to understand and approve the approach
 
+### UI Conventions (MANDATORY)
+
+- **No emoji glyphs in UI.** Do not use emoji characters (📞, 🏥, ⭐, ✅, 📍, 🗺️, etc.) for icons, buttons, badges, success states, navigation, or any rendered UI text. Use `lucide-react` icon components instead (`<Phone size={14} />`, `<Building2 size={20} />`, `<CheckCircle2 size={48} />`, …). Emoji rendering varies by platform and the owner has chosen a clean, professional look. The BD-portal `ActivityTypeIcon` component (`src/features/bd-portal/lib/activityTypeIcon.jsx`) shows the canonical pattern for type-driven icon maps.
+- Emojis remain acceptable in code comments, commit messages, PR descriptions, and chat — only the **rendered UI** is affected.
+
 ### Database Safety (MANDATORY)
 
 - **NEVER DROP tables or DELETE rows** as part of development work

@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Camera, Star, Phone, Globe, Map, Mail } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import {
   formatActivityDate,
   formatAccountSubtitle,
-  ACTIVITY_TYPE_ICONS,
   ACTIVITY_TYPE_LABELS,
   daysSince,
   isCold,
 } from './lib/bdQueries';
+import { ActivityTypeIcon } from './lib/activityTypeIcon';
 import { updateAccountLocation } from './lib/bdMutations';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
@@ -119,14 +120,16 @@ export function AccountProfile() {
           className={s.contactCta}
           onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
         >
-          📷 Contact
+          <Camera size={16} strokeWidth={2} aria-hidden />
+          <span>Contact</span>
         </button>
         <button
           type="button"
           className={s.referCta}
           onClick={() => navigate(`/bd/accounts/${account.id}/refer`)}
         >
-          ⭐ Refer
+          <Star size={16} strokeWidth={2} aria-hidden />
+          <span>Refer</span>
         </button>
       </div>
 
@@ -144,10 +147,16 @@ export function AccountProfile() {
         {(account.phone || account.website || account.address) && (
           <div>
             {account.phone && (
-              <a className={s.linkBtn} href={`tel:${account.phone}`}>📞 Call</a>
+              <a className={s.linkBtn} href={`tel:${account.phone}`}>
+                <Phone size={14} aria-hidden />
+                <span>Call</span>
+              </a>
             )}
             {account.website && (
-              <a className={s.linkBtn} href={account.website} target="_blank" rel="noreferrer">🌐 Website</a>
+              <a className={s.linkBtn} href={account.website} target="_blank" rel="noreferrer">
+                <Globe size={14} aria-hidden />
+                <span>Website</span>
+              </a>
             )}
             {account.address && (
               <a
@@ -156,7 +165,8 @@ export function AccountProfile() {
                 target="_blank"
                 rel="noreferrer"
               >
-                🗺️ Directions
+                <Map size={14} aria-hidden />
+                <span>Directions</span>
               </a>
             )}
           </div>
@@ -264,17 +274,23 @@ export function AccountProfile() {
                 <div className={s.contactActions}>
                   {c.phone_mobile && (
                     <a
-                      className={s.linkBtn}
+                      className={s.linkBtnIcon}
                       href={`tel:${c.phone_mobile}`}
                       onClick={(e) => e.stopPropagation()}
-                    >📞</a>
+                      aria-label="Call"
+                    >
+                      <Phone size={16} aria-hidden />
+                    </a>
                   )}
                   {c.email && (
                     <a
-                      className={s.linkBtn}
+                      className={s.linkBtnIcon}
                       href={`mailto:${c.email}`}
                       onClick={(e) => e.stopPropagation()}
-                    >✉️</a>
+                      aria-label="Email"
+                    >
+                      <Mail size={16} aria-hidden />
+                    </a>
                   )}
                 </div>
               </div>
@@ -294,7 +310,8 @@ export function AccountProfile() {
             className={s.addContactLink}
             onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
           >
-            📷 Snap a card
+            <Camera size={14} aria-hidden />
+            <span>Snap a card</span>
           </button>
         </div>
       </div>
@@ -309,7 +326,7 @@ export function AccountProfile() {
             {activities.map((a) => (
               <div key={a.id} className={s.timelineItem}>
                 <div className={s.timelineIcon} aria-hidden>
-                  {ACTIVITY_TYPE_ICONS[a.activity_type] ?? '•'}
+                  <ActivityTypeIcon type={a.activity_type} size={18} />
                 </div>
                 <div className={s.timelineBody}>
                   <div className={s.timelineHeader}>

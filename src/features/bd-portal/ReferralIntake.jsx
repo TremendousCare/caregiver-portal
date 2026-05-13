@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Star } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import { useBdLogReferral } from './hooks/useBdLogReferral';
@@ -91,7 +92,9 @@ export function ReferralIntake() {
     return (
       <div className={s.page}>
         <div className={s.card} style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>⭐</div>
+          <div className={s.successIcon} aria-hidden>
+            <Star size={48} strokeWidth={1.75} fill="currentColor" />
+          </div>
           <p className={s.briefingText}>
             Referral logged. <strong>{success.client?.first_name} {success.client?.last_name}</strong> is now a new lead in the client pipeline.
           </p>
