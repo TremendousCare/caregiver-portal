@@ -74,8 +74,27 @@ export function Today({ displayName }) {
     ?? `${timeOfDayGreeting()}${displayName ? `, ${displayName}` : ''}`;
   const narrative = briefing?.narrative;
   const stats = briefing?.stats;
-  const suggested = briefing?.suggested_visits ?? top;
   const weekStats = stats?.week ?? week;
+
+  // Briefing-returned suggestions come from the edge function, which
+  // currently ranks the full org account list — that bypasses the
+  // territory filter applied to `top`. Intersect with the territory
+  // slice so the rep's Top 5 (and the multi-stop route built from it)
+  // stays scoped to South OC ∪ strategic regardless of whether the
+  // briefing or the local fallback is rendering. No-ops when the rep
+  // has no territory configured. Pushing the filter server-side into
+  // bd-briefing is a follow-up.
+  const territoryAccountIds = useMemo(
+    () => new Set(territoryAccounts.map((a) => a.id)),
+    [territoryAccounts],
+  );
+  const suggested = useMemo(() => {
+    const raw = Array.isArray(briefing?.suggested_visits)
+      ? briefing.suggested_visits
+      : top;
+    if (territoryCities.length === 0) return raw;
+    return raw.filter((s) => territoryAccountIds.has(s.account_id ?? s.id));
+  }, [briefing, top, territoryCities, territoryAccountIds]);
 
   // Hydrate suggested stops with their account row so we have the
   // address for the route URL. Briefing returns lightweight refs
