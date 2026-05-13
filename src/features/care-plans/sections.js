@@ -340,6 +340,12 @@ export const CARE_PLAN_SECTIONS = [
   // Per-activity structured fields + a task list (stored in
   // care_plan_tasks). Field ids prefixed with the area so the editor
   // can visually group them (ambulation_*, bathing_*, etc.).
+  //
+  // `groups` declares the editor's accordion structure: each entry
+  // owns a labeled card containing its `fieldIds` (rendered by
+  // FieldRenderer) plus a scoped task list filtered to its
+  // `taskCategory`. Adding a field here means also wiring it into
+  // a group, otherwise it won't appear in the editor.
   {
     id: 'dailyLiving',
     label: 'Daily Living (ADLs)',
@@ -348,6 +354,67 @@ export const CARE_PLAN_SECTIONS = [
     order: 4,
     tiers: ['admin', 'caregiver', 'family'],
     usesTasksTable: true,
+    groups: [
+      {
+        id: 'ambulation',
+        label: 'Ambulation & Transfers',
+        description: 'Mobility, fall risk, walking aids, transfer mechanics.',
+        taskCategory: 'adl.ambulation',
+        fieldIds: [
+          'ambulation_mobilityLevel', 'ambulation_aids', 'ambulation_fallRisk',
+          'ambulation_useOfArms', 'ambulation_gaitBelt', 'ambulation_transferRisks',
+        ],
+      },
+      {
+        id: 'transfers',
+        label: 'Transfers',
+        description: 'Bed / chair / toilet transfers — captured as shift-level tasks.',
+        taskCategory: 'adl.transfers',
+        fieldIds: [],
+      },
+      {
+        id: 'bathing',
+        label: 'Bathing & Grooming',
+        description: 'Bathing methods with assistance level per method, hygiene focus areas.',
+        taskCategory: 'adl.bathing',
+        fieldIds: [
+          'bathing_method', 'bathing_frequency', 'bathing_resists',
+          'bathing_usesShowerBench', 'bathing_hygiene', 'bathing_notes',
+        ],
+      },
+      {
+        id: 'dressing',
+        label: 'Dressing & Grooming',
+        description: 'How they dress, where they need help.',
+        taskCategory: 'adl.dressing',
+        fieldIds: ['dressing_assistLevel', 'dressing_upperVsLower', 'dressing_notes'],
+      },
+      {
+        id: 'toileting',
+        label: 'Toileting',
+        description: 'Continence, devices, and bathroom routines.',
+        taskCategory: 'adl.toileting',
+        fieldIds: [
+          'toileting_assistLevel', 'toileting_incontinence', 'toileting_wearsBriefs',
+          'toileting_issues', 'toileting_devices', 'toileting_notes',
+        ],
+      },
+      {
+        id: 'feeding',
+        label: 'Feeding & Nutrition',
+        description: 'Diet, appetite, meal preferences, feeding assistance.',
+        taskCategory: 'adl.feeding',
+        fieldIds: [
+          'nutrition_diet', 'nutrition_specialDiet', 'nutrition_appetite',
+          'nutrition_feedingAssist', 'nutrition_confirmEachMeal',
+          'nutrition_mealTimes_breakfast', 'nutrition_mealTimes_lunch',
+          'nutrition_mealTimes_dinner', 'nutrition_mealTimes_snacks',
+          'nutrition_favorites_breakfast', 'nutrition_favorites_lunch',
+          'nutrition_favorites_dinner', 'nutrition_favorites_snack',
+          'nutrition_dislikes', 'nutrition_notes',
+        ],
+      },
+    ],
     fields: [
       // ── Ambulation & Transfers ──────────────────────────────
       { id: 'ambulation_mobilityLevel', label: 'Ambulation — mobility level',
@@ -369,11 +436,31 @@ export const CARE_PLAN_SECTIONS = [
         type: FIELD_TYPES.TEXTAREA },
 
       // ── Bathing & Grooming ──────────────────────────────────
-      { id: 'bathing_assistLevel', label: 'Bathing — assistance level',
+      // bathing_assistLevel is a legacy single-level field, kept defined
+      // for back-compat with historical plans but no longer surfaced
+      // in the editor — the per-method levels on `bathing_method` carry
+      // the same information at finer grain.
+      { id: 'bathing_assistLevel', label: 'Bathing — assistance level (legacy)',
         type: FIELD_TYPES.LEVEL_PICK },
-      { id: 'bathing_method', label: 'Method',
-        type: FIELD_TYPES.MULTISELECT,
-        options: ['Shower', 'Tub bath', 'Sponge bath', 'Bed bath'] },
+      // Per-method bathing assistance. Each row pairs a bathing method
+      // (Shower, Bed bath, etc.) with its own assist level — recognizing
+      // that a client may be independent in one mode but need full
+      // assist in another.
+      //
+      // Backward compatibility: historical plans stored this as a flat
+      // array of strings (e.g., ['Shower', 'Bed bath']). The editor
+      // migrates that shape to the new {method, level} rows on load
+      // via `migrateLegacyBathingMethod` in carePlanMigrations.js; the
+      // old `bathing_assistLevel` is used as the seed level for every
+      // migrated row.
+      { id: 'bathing_method', label: 'Bathing methods & assistance per method',
+        type: FIELD_TYPES.LIST,
+        help: 'Add each bathing mode the client uses, with the assistance level for that mode.',
+        subfields: [
+          { id: 'method', label: 'Method', type: FIELD_TYPES.SELECT, required: true,
+            options: ['Shower', 'Tub bath', 'Sponge bath', 'Bed bath'] },
+          { id: 'level', label: 'Assistance level', type: FIELD_TYPES.LEVEL_PICK },
+        ] },
       { id: 'bathing_frequency', label: 'Frequency',
         type: FIELD_TYPES.TEXT, placeholder: 'Daily, every other day, 3x/week...' },
       { id: 'bathing_resists', label: 'Resists bathing',
@@ -464,6 +551,8 @@ export const CARE_PLAN_SECTIONS = [
   },
 
   // ── 5. Home & Life (IADLs) ───────────────────────────────────
+  // See dailyLiving above for the rationale on `groups` — same
+  // accordion-card metadata schema.
   {
     id: 'homeAndLife',
     label: 'Home & Life (IADLs)',
@@ -472,6 +561,49 @@ export const CARE_PLAN_SECTIONS = [
     order: 5,
     tiers: ['admin', 'caregiver', 'family'],
     usesTasksTable: true,
+    groups: [
+      {
+        id: 'housekeeping',
+        label: 'Housekeeping',
+        description: 'Cleaning scope and household preferences.',
+        taskCategory: 'iadl.housework',
+        fieldIds: ['housekeeping_scope', 'housekeeping_preferences'],
+      },
+      {
+        id: 'laundry',
+        label: 'Laundry',
+        description: 'Frequency and preferences for laundering clothes and linens.',
+        taskCategory: 'iadl.laundry',
+        fieldIds: ['laundry_frequency', 'laundry_preferences'],
+      },
+      {
+        id: 'mealPrep',
+        label: 'Meal Preparation',
+        description: 'Who does the shopping, cooking, plating, and clean-up.',
+        taskCategory: 'iadl.meal_prep',
+        fieldIds: ['mealPrep_responsibilities', 'mealPrep_shoppingBy', 'mealPrep_notes'],
+      },
+      {
+        id: 'medMgmt',
+        label: 'Medication Management',
+        description: 'Reminders, who owns the regimen, schedule sheets.',
+        taskCategory: 'iadl.medication',
+        fieldIds: [
+          'medMgmt_needsReminders', 'medMgmt_timesPerDay',
+          'medMgmt_managedBy', 'medMgmt_separateSchedule',
+        ],
+      },
+      {
+        id: 'errands',
+        label: 'Errands & Transportation',
+        description: 'Who drives, typical errands, doctor appointments.',
+        taskCategory: 'iadl.errands',
+        fieldIds: [
+          'transport_clientDrives', 'transport_needsCaregiverToDrive',
+          'transport_vehicle', 'transport_errands', 'transport_appointments',
+        ],
+      },
+    ],
     fields: [
       // ── Housekeeping ────────────────────────────────────────
       // Heavy / deep-clean is intentionally NOT offered — outside our scope of service.
@@ -900,6 +1032,44 @@ export function sortedSections() {
  */
 export function sectionUsesTasks(section) {
   return Boolean(section?.usesTasksTable);
+}
+
+
+/**
+ * Does this section define accordion `groups` for the editor?
+ * Grouped sections render as a stack of collapsible cards (each
+ * group has its own fields + scoped task list) instead of a flat
+ * field list with a single task editor at the bottom.
+ */
+export function sectionHasGroups(section) {
+  return Boolean(section && Array.isArray(section.groups) && section.groups.length > 0);
+}
+
+
+/**
+ * Look up a section's group definition by id. Returns undefined if
+ * either the section or the group id is unknown.
+ */
+export function getGroupById(section, groupId) {
+  if (!section || !Array.isArray(section.groups) || !groupId) return undefined;
+  return section.groups.find((g) => g.id === groupId);
+}
+
+
+/**
+ * Field definitions for a section's group, resolved in declaration
+ * order from `group.fieldIds`. Unknown field ids are silently
+ * dropped — they would otherwise crash FieldRenderer with no useful
+ * context. Returns an empty array if the section has no groups.
+ */
+export function getFieldsForGroup(section, groupId) {
+  const group = getGroupById(section, groupId);
+  if (!group) return [];
+  const ids = Array.isArray(group.fieldIds) ? group.fieldIds : [];
+  const fieldMap = new Map((section.fields || []).map((f) => [f.id, f]));
+  return ids
+    .map((id) => fieldMap.get(id))
+    .filter((f) => f != null);
 }
 
 

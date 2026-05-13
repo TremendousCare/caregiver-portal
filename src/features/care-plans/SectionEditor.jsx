@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FieldRenderer } from './FieldRenderer';
+import { FieldRenderer, shouldRender } from './FieldRenderer';
 import { useAutosave } from './useAutosave';
 import { saveDraft } from './storage';
-import { sectionUsesTasks } from './sections';
+import {
+  getFieldsForGroup,
+  sectionHasGroups,
+  sectionUsesTasks,
+} from './sections';
+import { migrateSectionData } from './carePlanMigrations';
 import { TaskEditor } from './TaskEditor';
 import btn from '../../styles/buttons.module.css';
 import s from './SectionEditor.module.css';
@@ -18,8 +23,11 @@ import s from './SectionEditor.module.css';
 // Closing the drawer flushes any pending save so we don't lose the
 // last keystroke.
 //
-// For ADL / IADL sections, the TaskEditor component is rendered
-// below the structured fields to manage the task list.
+// For sections that declare `groups` (ADL / IADL), each group is
+// rendered as a collapsible accordion card containing its own
+// structured fields and a scoped task list with an inline
+// "+ Add task" button. Sections without `groups` fall back to the
+// original flat field list followed by a single TaskEditor.
 // ═══════════════════════════════════════════════════════════════
 
 export function SectionEditor({
@@ -30,14 +38,18 @@ export function SectionEditor({
   onSaved,
   showToast,
 }) {
-  // Local editing state — seeded from the version's saved data.
-  const initialSectionData = (version?.data && version.data[section.id]) || {};
+  // Local editing state — seeded from the version's saved data,
+  // then run through any per-section migrations (e.g., legacy
+  // bathing_method arrays of strings become {method, level} rows).
+  const initialSectionData = useMemo(
+    () => migrateSectionData(section.id, (version?.data && version.data[section.id]) || {}),
+    [section?.id, version?.id], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const [values, setValues] = useState(initialSectionData);
   // Reset local state if the user switches sections without closing.
   useEffect(() => {
     setValues(initialSectionData);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section?.id, version?.id]);
+  }, [initialSectionData]);
 
   // Keep a ref of the latest accumulated patch so batched saves see
   // everything the user's typed since the last successful save.
@@ -83,6 +95,7 @@ export function SectionEditor({
   }, [state, error]);
 
   const usesTasks = sectionUsesTasks(section);
+  const useGroups = sectionHasGroups(section);
 
   return (
     <div className={s.backdrop} onClick={handleClose}>
@@ -123,37 +136,58 @@ export function SectionEditor({
             </div>
           )}
 
-          {/* Structured fields */}
-          <div className={s.fields}>
-            {section.fields
-              .filter((f) => !f.readOnly || usesTasks /* snapshot's readOnly field still renders */)
-              .map((field) => (
-                <FieldRenderer
-                  key={field.id}
-                  field={field}
-                  value={values[field.id]}
-                  onChange={(v) => handleFieldChange(field.id, v)}
+          {/* Grouped sections (ADL / IADL): accordion cards per group */}
+          {useGroups ? (
+            <div className={s.groupsWrap}>
+              {section.groups.map((group) => (
+                <GroupAccordion
+                  key={group.id}
+                  section={section}
+                  group={group}
+                  values={values}
+                  version={version}
                   disabled={disabled}
-                  siblingValues={values}
+                  currentUser={currentUser}
+                  showToast={showToast}
+                  onFieldChange={handleFieldChange}
                 />
               ))}
-          </div>
-
-          {/* Task editor for ADL / IADL sections */}
-          {usesTasks && (
-            <div className={s.tasksRegion}>
-              <h3 className={s.tasksTitle}>Tasks</h3>
-              <p className={s.tasksDescription}>
-                Specific shift-by-shift tasks the caregiver performs for this activity area.
-              </p>
-              <TaskEditor
-                sectionId={section.id}
-                version={version}
-                disabled={disabled}
-                currentUser={currentUser}
-                showToast={showToast}
-              />
             </div>
+          ) : (
+            <>
+              {/* Flat fields */}
+              <div className={s.fields}>
+                {section.fields
+                  .filter((f) => !f.readOnly || usesTasks /* snapshot's readOnly field still renders */)
+                  .map((field) => (
+                    <FieldRenderer
+                      key={field.id}
+                      field={field}
+                      value={values[field.id]}
+                      onChange={(v) => handleFieldChange(field.id, v)}
+                      disabled={disabled}
+                      siblingValues={values}
+                    />
+                  ))}
+              </div>
+
+              {/* Task editor for legacy ADL / IADL paths (no groups declared) */}
+              {usesTasks && (
+                <div className={s.tasksRegion}>
+                  <h3 className={s.tasksTitle}>Tasks</h3>
+                  <p className={s.tasksDescription}>
+                    Specific shift-by-shift tasks the caregiver performs for this activity area.
+                  </p>
+                  <TaskEditor
+                    sectionId={section.id}
+                    version={version}
+                    disabled={disabled}
+                    currentUser={currentUser}
+                    showToast={showToast}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -168,4 +202,118 @@ export function SectionEditor({
       </aside>
     </div>
   );
+}
+
+
+// ─── GroupAccordion ────────────────────────────────────────────
+// One collapsible card per group on a grouped section (ADL / IADL).
+// Collapsed by default; click to expand. The header shows a
+// filled-field count derived from the current local values so the
+// user gets a quick "what's done here" signal without opening it.
+
+function GroupAccordion({
+  section, group, values, version, disabled, currentUser, showToast, onFieldChange,
+}) {
+  const [open, setOpen] = useState(false);
+
+  const fields = useMemo(() => getFieldsForGroup(section, group.id), [section, group.id]);
+
+  // Filled count: only fields that are currently visible (conditional
+  // gates respected) AND have a non-empty value.
+  const filledCount = useMemo(() => {
+    let count = 0;
+    for (const f of fields) {
+      if (!shouldRender(f, values)) continue;
+      if (isFilled(values[f.id])) count += 1;
+    }
+    return count;
+  }, [fields, values]);
+
+  const visibleFieldCount = useMemo(
+    () => fields.filter((f) => shouldRender(f, values)).length,
+    [fields, values],
+  );
+
+  return (
+    <div className={`${s.group} ${open ? s.groupOpen : ''}`}>
+      <button
+        type="button"
+        className={s.groupHeader}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <div className={s.groupHeaderText}>
+          <div className={s.groupLabel}>{group.label}</div>
+          {group.description && (
+            <div className={s.groupDescription}>{group.description}</div>
+          )}
+        </div>
+        <div className={s.groupMeta}>
+          {visibleFieldCount > 0 && (
+            <span className={s.groupCount}>
+              {filledCount} / {visibleFieldCount} filled
+            </span>
+          )}
+          <span className={s.groupChevron} aria-hidden="true">
+            {open ? '▾' : '▸'}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className={s.groupBody}>
+          {fields.length > 0 && (
+            <div className={s.fields}>
+              {fields.map((field) => (
+                <FieldRenderer
+                  key={field.id}
+                  field={field}
+                  value={values[field.id]}
+                  onChange={(v) => onFieldChange(field.id, v)}
+                  disabled={disabled}
+                  siblingValues={values}
+                />
+              ))}
+            </div>
+          )}
+
+          {group.taskCategory && (
+            <div className={s.groupTasksRegion}>
+              <div className={s.groupTasksLabel}>Tasks</div>
+              <TaskEditor
+                sectionId={section.id}
+                version={version}
+                disabled={disabled}
+                currentUser={currentUser}
+                showToast={showToast}
+                categoryFilter={group.taskCategory}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─── Helpers ───────────────────────────────────────────────────
+
+// True if a stored value would render as "something" to the user.
+// Empty strings, null, undefined, and empty arrays all count as
+// unfilled. Booleans count as filled (false IS an answer here for
+// fields like "Needs reminders").
+export function isFilled(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') {
+    // YN shape: { answer, note } — filled when answer is set
+    if ('answer' in value) return Boolean(value.answer);
+    // PRN shape: { flag, option } — filled when flag is set
+    if ('flag' in value) return Boolean(value.flag);
+    // Fallback: any non-empty key with a non-null value
+    return Object.values(value).some((v) => v != null && v !== '');
+  }
+  return true;
 }

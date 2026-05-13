@@ -116,6 +116,121 @@
   flex-direction: column;
 }
 
+/* ── Accordion groups (ADL / IADL) ─────────────────────────── */
+.groupsWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group {
+  border: 1px solid #E1E7EF;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.group:hover:not(.groupOpen) {
+  border-color: #c9d4e2;
+}
+
+.groupOpen {
+  border-color: var(--tc-cyan);
+  box-shadow: 0 0 0 2px rgba(41, 190, 228, 0.12);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--tc-bg-hover);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.groupOpen .groupHeader {
+  background: #fff;
+  border-bottom: 1px solid #E1E7EF;
+}
+
+.groupHeader:hover {
+  background: #eef2f7;
+}
+
+.groupOpen .groupHeader:hover {
+  background: #fafbfc;
+}
+
+.groupHeaderText {
+  flex: 1;
+  min-width: 0;
+}
+
+.groupLabel {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+}
+
+.groupDescription {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--tc-text-secondary);
+  line-height: 1.35;
+}
+
+.groupMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.groupCount {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-secondary);
+  padding: 3px 8px;
+  background: #fff;
+  border: 1px solid #E0E4EA;
+  border-radius: 12px;
+}
+
+.groupOpen .groupCount {
+  background: var(--tc-bg-hover);
+}
+
+.groupChevron {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  width: 16px;
+  text-align: center;
+}
+
+.groupBody {
+  padding: 16px;
+}
+
+.groupTasksRegion {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #E1E7EF;
+}
+
+.groupTasksLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--tc-text-secondary);
+  margin-bottom: 8px;
+}
+
 .tasksRegion {
   margin-top: 24px;
   padding-top: 20px;

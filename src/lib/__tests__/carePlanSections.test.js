@@ -7,6 +7,9 @@ import {
   getSectionById,
   sectionIdForCategory,
   sectionUsesTasks,
+  sectionHasGroups,
+  getGroupById,
+  getFieldsForGroup,
   sortedSections,
   visibleSectionsForTier,
   getFieldById,
@@ -465,5 +468,190 @@ describe('Health Profile — medications autocomplete', () => {
     expect(name.type).toBe(FIELD_TYPES.AUTOCOMPLETE);
     expect(name.suggestionsKey).toBe('commonMedications');
     expect(name.required).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Accordion groups (Phase: ADL / IADL UX refactor)
+// ═══════════════════════════════════════════════════════════════
+
+describe('sectionHasGroups', () => {
+  it('returns true for dailyLiving and homeAndLife', () => {
+    expect(sectionHasGroups(getSectionById('dailyLiving'))).toBe(true);
+    expect(sectionHasGroups(getSectionById('homeAndLife'))).toBe(true);
+  });
+
+  it('returns false for sections without groups', () => {
+    expect(sectionHasGroups(getSectionById('whoTheyAre'))).toBe(false);
+    expect(sectionHasGroups(getSectionById('careTeam'))).toBe(false);
+    expect(sectionHasGroups(getSectionById('snapshot'))).toBe(false);
+  });
+
+  it('returns false for missing input', () => {
+    expect(sectionHasGroups(null)).toBe(false);
+    expect(sectionHasGroups(undefined)).toBe(false);
+  });
+});
+
+describe('dailyLiving groups', () => {
+  const section = getSectionById('dailyLiving');
+
+  it('declares the six expected ADL groups', () => {
+    const ids = section.groups.map((g) => g.id);
+    expect(ids).toEqual([
+      'ambulation', 'transfers', 'bathing', 'dressing', 'toileting', 'feeding',
+    ]);
+  });
+
+  it('every group declares a taskCategory that exists in TASK_CATEGORIES', () => {
+    for (const g of section.groups) {
+      expect(TASK_CATEGORIES[g.taskCategory]).toBeDefined();
+      expect(TASK_CATEGORIES[g.taskCategory].section).toBe('dailyLiving');
+    }
+  });
+
+  it('every group has a label and description', () => {
+    for (const g of section.groups) {
+      expect(g.label).toBeTruthy();
+      expect(g.description).toBeTruthy();
+    }
+  });
+
+  it('every fieldId referenced by a group exists in the section fields', () => {
+    const allFieldIds = new Set(section.fields.map((f) => f.id));
+    for (const g of section.groups) {
+      for (const id of g.fieldIds) {
+        expect(allFieldIds.has(id)).toBe(true);
+      }
+    }
+  });
+
+  it('field ids are not duplicated across groups', () => {
+    const seen = new Set();
+    for (const g of section.groups) {
+      for (const id of g.fieldIds) {
+        expect(seen.has(id)).toBe(false);
+        seen.add(id);
+      }
+    }
+  });
+});
+
+describe('homeAndLife groups', () => {
+  const section = getSectionById('homeAndLife');
+
+  it('declares the five expected IADL groups', () => {
+    const ids = section.groups.map((g) => g.id);
+    expect(ids).toEqual([
+      'housekeeping', 'laundry', 'mealPrep', 'medMgmt', 'errands',
+    ]);
+  });
+
+  it('every group declares a taskCategory that exists in TASK_CATEGORIES', () => {
+    for (const g of section.groups) {
+      expect(TASK_CATEGORIES[g.taskCategory]).toBeDefined();
+      expect(TASK_CATEGORIES[g.taskCategory].section).toBe('homeAndLife');
+    }
+  });
+
+  it('field ids are not duplicated across groups', () => {
+    const seen = new Set();
+    for (const g of section.groups) {
+      for (const id of g.fieldIds) {
+        expect(seen.has(id)).toBe(false);
+        seen.add(id);
+      }
+    }
+  });
+
+  it('medMgmt group does not reference removed pill-box fields', () => {
+    const medMgmt = section.groups.find((g) => g.id === 'medMgmt');
+    expect(medMgmt.fieldIds).not.toContain('medMgmt_pillBox');
+    expect(medMgmt.fieldIds).not.toContain('medMgmt_pillBoxWeeks');
+  });
+});
+
+describe('getGroupById', () => {
+  it('returns the matching group', () => {
+    const section = getSectionById('dailyLiving');
+    expect(getGroupById(section, 'bathing')?.label).toBe('Bathing & Grooming');
+  });
+
+  it('returns undefined for unknown group id', () => {
+    const section = getSectionById('dailyLiving');
+    expect(getGroupById(section, 'nope')).toBeUndefined();
+  });
+
+  it('returns undefined when section has no groups', () => {
+    const section = getSectionById('whoTheyAre');
+    expect(getGroupById(section, 'anything')).toBeUndefined();
+  });
+
+  it('returns undefined for missing args', () => {
+    expect(getGroupById(null, 'bathing')).toBeUndefined();
+    expect(getGroupById(getSectionById('dailyLiving'), null)).toBeUndefined();
+  });
+});
+
+describe('getFieldsForGroup', () => {
+  it('returns fields in declaration order matching the group fieldIds', () => {
+    const section = getSectionById('dailyLiving');
+    const fields = getFieldsForGroup(section, 'ambulation');
+    const ids = fields.map((f) => f.id);
+    expect(ids).toEqual([
+      'ambulation_mobilityLevel', 'ambulation_aids', 'ambulation_fallRisk',
+      'ambulation_useOfArms', 'ambulation_gaitBelt', 'ambulation_transferRisks',
+    ]);
+  });
+
+  it('returns an empty array for groups with no fieldIds (task-only)', () => {
+    const section = getSectionById('dailyLiving');
+    expect(getFieldsForGroup(section, 'transfers')).toEqual([]);
+  });
+
+  it('returns empty array for unknown group', () => {
+    const section = getSectionById('dailyLiving');
+    expect(getFieldsForGroup(section, 'nope')).toEqual([]);
+  });
+
+  it('silently drops unknown field ids', () => {
+    // Build a synthetic section to test resilience without touching the real catalog.
+    const fakeSection = {
+      id: 'fake',
+      groups: [{ id: 'g1', fieldIds: ['known', 'missing'] }],
+      fields: [{ id: 'known', label: 'Known', type: FIELD_TYPES.TEXT }],
+    };
+    expect(getFieldsForGroup(fakeSection, 'g1')).toEqual([
+      { id: 'known', label: 'Known', type: FIELD_TYPES.TEXT },
+    ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Bathing per-method levels — field shape
+// ═══════════════════════════════════════════════════════════════
+
+describe('bathing_method is a LIST with {method, level} subfields', () => {
+  const field = getFieldById('dailyLiving', 'bathing_method');
+
+  it('is now a LIST type', () => {
+    expect(field).toBeDefined();
+    expect(field.type).toBe(FIELD_TYPES.LIST);
+  });
+
+  it('has method (SELECT, required) and level (LEVEL_PICK) subfields', () => {
+    const subById = Object.fromEntries(field.subfields.map((s) => [s.id, s]));
+    expect(subById.method).toBeDefined();
+    expect(subById.method.type).toBe(FIELD_TYPES.SELECT);
+    expect(subById.method.required).toBe(true);
+    expect(subById.method.options).toEqual(['Shower', 'Tub bath', 'Sponge bath', 'Bed bath']);
+    expect(subById.level).toBeDefined();
+    expect(subById.level.type).toBe(FIELD_TYPES.LEVEL_PICK);
+  });
+
+  it('bathing_assistLevel still exists for back-compat (kept defined)', () => {
+    const legacy = getFieldById('dailyLiving', 'bathing_assistLevel');
+    expect(legacy).toBeDefined();
+    expect(legacy.type).toBe(FIELD_TYPES.LEVEL_PICK);
   });
 });

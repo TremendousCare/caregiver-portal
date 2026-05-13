@@ -33,7 +33,20 @@ const PRIORITIES = [
   { key: 'optional', label: 'Optional' },
 ];
 
-export function TaskEditor({ sectionId, version, disabled, currentUser, showToast }) {
+export function TaskEditor({
+  sectionId,
+  version,
+  disabled,
+  currentUser,
+  showToast,
+  // When set, filter visible tasks AND the add-task form to this
+  // single category (e.g., 'adl.bathing'). Used by the accordion
+  // editor to scope each card's task list to its own sub-section.
+  // When omitted, the editor falls back to its original behavior:
+  // show all categories that route to `sectionId`, with a category
+  // dropdown on the add-task form.
+  categoryFilter,
+}) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -43,8 +56,11 @@ export function TaskEditor({ sectionId, version, disabled, currentUser, showToas
     if (!version?.id) return;
     try {
       const all = await getTasksForVersion(version.id);
-      // Filter down to tasks whose category routes to THIS section.
-      const mine = all.filter((t) => TASK_CATEGORIES[t.category]?.section === sectionId);
+      const mine = all.filter((t) => {
+        if (categoryFilter) return t.category === categoryFilter;
+        // Fall back to section-wide filter when no category filter is set.
+        return TASK_CATEGORIES[t.category]?.section === sectionId;
+      });
       setTasks(mine);
       setLoadError(null);
     } catch (e) {
@@ -53,7 +69,7 @@ export function TaskEditor({ sectionId, version, disabled, currentUser, showToas
     } finally {
       setLoading(false);
     }
-  }, [version?.id, sectionId]);
+  }, [version?.id, sectionId, categoryFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -101,7 +117,9 @@ export function TaskEditor({ sectionId, version, disabled, currentUser, showToas
   }, [userId, showToast]);
 
   const categoriesForSection = Object.entries(TASK_CATEGORIES)
-    .filter(([, meta]) => meta.section === sectionId);
+    .filter(([key, meta]) =>
+      categoryFilter ? key === categoryFilter : meta.section === sectionId,
+    );
 
   const handleAdd = useCallback(async (task) => {
     setAdding(false);
@@ -133,7 +151,11 @@ export function TaskEditor({ sectionId, version, disabled, currentUser, showToas
         const rows = byCategory[category] || [];
         return (
           <div key={category} className={s.categoryBlock}>
-            <div className={s.categoryHeader}>{meta.label}</div>
+            {/* When a categoryFilter is in effect, the accordion header
+                already shows the category label — skip the inner one. */}
+            {!categoryFilter && (
+              <div className={s.categoryHeader}>{meta.label}</div>
+            )}
             {rows.length === 0 ? (
               <div className={s.empty}>No tasks yet.</div>
             ) : (
@@ -158,6 +180,7 @@ export function TaskEditor({ sectionId, version, disabled, currentUser, showToas
           {adding ? (
             <NewTaskForm
               sectionId={sectionId}
+              fixedCategory={categoryFilter || null}
               onAdd={handleAdd}
               onCancel={() => setAdding(false)}
             />
@@ -297,10 +320,10 @@ function PrioritySelect({ value, disabled, onChange }) {
 
 // ─── NewTaskForm ───────────────────────────────────────────────
 
-function NewTaskForm({ sectionId, onAdd, onCancel }) {
+function NewTaskForm({ sectionId, fixedCategory, onAdd, onCancel }) {
   const categoryOptions = Object.entries(TASK_CATEGORIES)
     .filter(([, meta]) => meta.section === sectionId);
-  const [category, setCategory] = useState(categoryOptions[0]?.[0] || '');
+  const [category, setCategory] = useState(fixedCategory || categoryOptions[0]?.[0] || '');
   const [taskName, setTaskName] = useState('');
   const [description, setDescription] = useState('');
   const [shifts, setShifts] = useState(['all']);
@@ -320,15 +343,17 @@ function NewTaskForm({ sectionId, onAdd, onCancel }) {
   return (
     <div className={s.newForm}>
       <div className={s.newFormRow}>
-        <select
-          className={s.newFormSelect}
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          {categoryOptions.map(([key, meta]) => (
-            <option key={key} value={key}>{meta.label}</option>
-          ))}
-        </select>
+        {!fixedCategory && (
+          <select
+            className={s.newFormSelect}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            {categoryOptions.map(([key, meta]) => (
+              <option key={key} value={key}>{meta.label}</option>
+            ))}
+          </select>
+        )}
         <input
           type="text"
           className={s.newFormInput}
