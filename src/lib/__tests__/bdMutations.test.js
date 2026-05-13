@@ -17,6 +17,9 @@ import {
   validateContactDraft,
   createContact,
   updateContact,
+  validateAccountLocationDraft,
+  buildAccountLocationPatch,
+  updateAccountLocation,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -786,5 +789,173 @@ describe('updateContact', () => {
     });
     const updates = observed.filter((o) => o.op === 'update');
     expect(updates.length).toBe(1);
+  });
+});
+
+// ─── Account location update ───
+
+function makeAccountLocationStub({
+  updateResult = {
+    data: { id: 'acc-1', address: '100 Main St', city: 'Irvine', state: 'CA', zip: '92614', lat: 33.65, lng: -117.74 },
+    error: null,
+  },
+  observed     = [],
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table !== 'bd_accounts') throw new Error(`unexpected ${table}`);
+      return {
+        update(patch) {
+          observed.push({ op: 'update', patch });
+          return {
+            eq() { return this; },
+            select() { return this; },
+            single: () => Promise.resolve(updateResult),
+          };
+        },
+      };
+    },
+  };
+}
+
+describe('validateAccountLocationDraft', () => {
+  it('rejects null / non-object input', () => {
+    expect(validateAccountLocationDraft(null).ok).toBe(false);
+    expect(validateAccountLocationDraft('hi').ok).toBe(false);
+  });
+
+  it('rejects an empty draft', () => {
+    expect(validateAccountLocationDraft({}).ok).toBe(false);
+  });
+
+  it('accepts a single address field', () => {
+    expect(validateAccountLocationDraft({ address: '100 Main St' }).ok).toBe(true);
+    expect(validateAccountLocationDraft({ city: 'Irvine' }).ok).toBe(true);
+    expect(validateAccountLocationDraft({ state: 'CA' }).ok).toBe(true);
+    expect(validateAccountLocationDraft({ zip: '92614' }).ok).toBe(true);
+  });
+
+  it('requires lat and lng to be paired', () => {
+    expect(validateAccountLocationDraft({ lat: 33.65 }).ok).toBe(false);
+    expect(validateAccountLocationDraft({ lng: -117.74 }).ok).toBe(false);
+    expect(validateAccountLocationDraft({ lat: 33.65, lng: -117.74 }).ok).toBe(true);
+  });
+
+  it('permits explicit nulls so a bad pin can be cleared', () => {
+    expect(validateAccountLocationDraft({ lat: null, lng: null }).ok).toBe(true);
+  });
+
+  it('rejects out-of-range latitude', () => {
+    expect(validateAccountLocationDraft({ lat: 91, lng: 0 }).ok).toBe(false);
+    expect(validateAccountLocationDraft({ lat: -91, lng: 0 }).ok).toBe(false);
+  });
+
+  it('rejects out-of-range longitude', () => {
+    expect(validateAccountLocationDraft({ lat: 0, lng: 181 }).ok).toBe(false);
+    expect(validateAccountLocationDraft({ lat: 0, lng: -181 }).ok).toBe(false);
+  });
+
+  it('rejects NaN lat or lng', () => {
+    expect(validateAccountLocationDraft({ lat: NaN, lng: 0 }).ok).toBe(false);
+    expect(validateAccountLocationDraft({ lat: 0, lng: NaN }).ok).toBe(false);
+  });
+
+  it('rejects absurdly long state', () => {
+    expect(validateAccountLocationDraft({ state: 'x'.repeat(50) }).ok).toBe(false);
+  });
+});
+
+describe('buildAccountLocationPatch', () => {
+  it('only includes fields the caller actually passed', () => {
+    const patch = buildAccountLocationPatch({ address: '100 Main St', city: 'Irvine' });
+    expect(patch.address).toBe('100 Main St');
+    expect(patch.city).toBe('Irvine');
+    expect('state' in patch).toBe(false);
+    expect('zip'   in patch).toBe(false);
+    expect('lat'   in patch).toBe(false);
+    expect('lng'   in patch).toBe(false);
+    expect(typeof patch.updated_at).toBe('string');
+  });
+
+  it('trims whitespace and stores empty strings as null', () => {
+    const patch = buildAccountLocationPatch({
+      address: '  100 Main St  ',
+      city:    '   ',
+      state:   'CA',
+      zip:     '',
+    });
+    expect(patch.address).toBe('100 Main St');
+    expect(patch.city).toBe(null);
+    expect(patch.state).toBe('CA');
+    expect(patch.zip).toBe(null);
+  });
+
+  it('passes lat/lng through as a pair', () => {
+    const patch = buildAccountLocationPatch({ lat: 33.65, lng: -117.74 });
+    expect(patch.lat).toBe(33.65);
+    expect(patch.lng).toBe(-117.74);
+  });
+
+  it('does not include lat/lng if only one was passed', () => {
+    const patch = buildAccountLocationPatch({ lat: 33.65 });
+    expect('lat' in patch).toBe(false);
+    expect('lng' in patch).toBe(false);
+  });
+});
+
+describe('updateAccountLocation', () => {
+  it('rejects without supabase', async () => {
+    const r = await updateAccountLocation(null, { accountId: 'a-1', draft: { address: '100 Main St' } });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects without an account id', async () => {
+    const stub = makeAccountLocationStub();
+    const r = await updateAccountLocation(stub, { accountId: null, draft: { address: '100 Main St' } });
+    expect(r.error?.message).toMatch(/account id/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects an invalid draft before hitting the network', async () => {
+    const stub = makeAccountLocationStub();
+    const r = await updateAccountLocation(stub, { accountId: 'a-1', draft: {} });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('writes a patch that only includes provided fields', async () => {
+    const observed = [];
+    const stub = makeAccountLocationStub({ observed });
+    await updateAccountLocation(stub, {
+      accountId: 'a-1',
+      draft: { lat: 33.65, lng: -117.74 },
+    });
+    const updateOp = observed.find((o) => o.op === 'update');
+    expect(updateOp.patch.lat).toBe(33.65);
+    expect(updateOp.patch.lng).toBe(-117.74);
+    expect('address' in updateOp.patch).toBe(false);
+    expect('city'    in updateOp.patch).toBe(false);
+  });
+
+  it('surfaces the inserted row on success', async () => {
+    const stub = makeAccountLocationStub();
+    const r = await updateAccountLocation(stub, {
+      accountId: 'a-1',
+      draft: { address: '100 Main St', city: 'Irvine', state: 'CA', zip: '92614' },
+    });
+    expect(r.error).toBe(null);
+    expect(r.data?.address).toBe('100 Main St');
+  });
+
+  it('surfaces supabase errors', async () => {
+    const stub = makeAccountLocationStub({
+      updateResult: { data: null, error: new Error('row level security') },
+    });
+    const r = await updateAccountLocation(stub, {
+      accountId: 'a-1',
+      draft: { address: '100 Main St' },
+    });
+    expect(r.error?.message).toMatch(/row level/i);
   });
 });

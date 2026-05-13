@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdBriefing } from './hooks/useBdBriefing';
-import { rankAccounts, summarizeWeek, daysSince } from './lib/bdQueries';
+import { useBdNearbyAccount } from './hooks/useBdNearbyAccount';
+import {
+  rankAccounts,
+  summarizeWeek,
+  daysSince,
+  buildAppleMapsRouteUrl,
+  hasRoutableAddress,
+} from './lib/bdQueries';
 import { fetchBdGoals, findActiveGoal, progressVsTarget } from '../bd-goals/lib/goalsQueries';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
@@ -29,6 +36,10 @@ export function Today({ displayName }) {
   const week = useMemo(() => summarizeWeek(activities), [activities]);
   const top = useMemo(() => rankAccounts(accounts).slice(0, 5), [accounts]);
 
+  // Geofence prompt. No-op if accounts lack lat/lng or location is
+  // denied — the rep can still log activity through the normal flow.
+  const { nearest } = useBdNearbyAccount(accounts);
+
   // Active weekly goal overlay. Best-effort — if it fails or there's
   // no goal yet, the counters render without the "/ target" suffix.
   const [weeklyGoal, setWeeklyGoal] = useState(null);
@@ -54,6 +65,26 @@ export function Today({ displayName }) {
   const suggested = briefing?.suggested_visits ?? top;
   const weekStats = stats?.week ?? week;
 
+  // Hydrate suggested stops with their account row so we have the
+  // address for the route URL. Briefing returns lightweight refs
+  // (id/name/days_since); we look up the full account record.
+  const routeStops = useMemo(() => {
+    if (!Array.isArray(suggested) || !Array.isArray(accounts)) return [];
+    return suggested
+      .map((s) => {
+        const id = s.account_id ?? s.id;
+        return accounts.find((a) => a.id === id) ?? null;
+      })
+      .filter(Boolean)
+      .filter(hasRoutableAddress)
+      .slice(0, 5);
+  }, [suggested, accounts]);
+
+  const routeUrl = useMemo(
+    () => (routeStops.length >= 2 ? buildAppleMapsRouteUrl(routeStops) : null),
+    [routeStops],
+  );
+
   function handleRefresh() {
     refreshAccounts();
     refreshBriefing();
@@ -71,6 +102,20 @@ export function Today({ displayName }) {
 
       {accountsError && (
         <div className={s.error}>Couldn&rsquo;t load accounts: {accountsError.message}</div>
+      )}
+
+      {nearest?.account && (
+        <button
+          type="button"
+          className={s.nearbyBanner}
+          onClick={() => navigate(`/bd/accounts/${nearest.account.id}/log`)}
+        >
+          <div className={s.nearbyIcon} aria-hidden>📍</div>
+          <div className={s.nearbyBody}>
+            <div className={s.nearbyTitle}>Looks like you&rsquo;re at {nearest.account.name}</div>
+            <div className={s.nearbySubtitle}>Tap to log a visit</div>
+          </div>
+        </button>
       )}
 
       <div className={s.card}>
@@ -115,7 +160,19 @@ export function Today({ displayName }) {
       </div>
 
       <div className={s.card}>
-        <div className={s.sectionTitle}>Top 5 to visit next</div>
+        <div className={s.routeHeader}>
+          <div className={s.sectionTitle}>Top 5 to visit next</div>
+          {routeUrl && (
+            <a
+              className={s.routeBtn}
+              href={routeUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              🗺️ Plan route ({routeStops.length})
+            </a>
+          )}
+        </div>
         {accountsLoading && !suggested.length ? (
           <p className={s.muted}>Loading…</p>
         ) : suggested.length === 0 ? (
