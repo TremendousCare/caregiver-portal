@@ -483,21 +483,78 @@ async function handleSubscribe(): Promise<Response> {
       );
     }
 
-    // Subscribe routes serially with a 12-second pause between each. The
-    // auth helper is now the shared cached one (see import at top of file),
-    // so the same JWT across iterations only triggers one /oauth/token call.
-    // The spacing protects the case where each route resolves to a DIFFERENT
-    // JWT — at 12s apart, even three back-to-back fresh auths stay under
-    // RC's 5 req/60s auth-bucket limit, which has a 60s penalty interval
-    // that previously cascaded when a busy extension's bucket was already
-    // close to empty. The first route runs immediately (no leading pause)
-    // so single-route accounts feel no slowdown.
-    const ROUTE_SUBSCRIBE_DELAY_MS = 12_000;
+    // Subscribe routes serially. Two related concerns to balance:
+    //
+    //   1. RingCentral's auth bucket is 5 req/60s per extension with a 60s
+    //      penalty interval. We need to space out FRESH /oauth/token calls
+    //      so a multi-extension account doesn't blow the bucket.
+    //   2. The pg_cron job that calls this endpoint has a 60-second
+    //      timeout_milliseconds (see supabase/migrations/20260417000000…).
+    //      An unconditional 12s sleep per route would tip past that wall
+    //      at 6+ routes and leave the tail unprocessed.
+    //
+    // Reconciliation:
+    //   - The shared auth helper caches access tokens per-JWT. Routes that
+    //     resolve to the same JWT (e.g. multiple routes falling back to the
+    //     env-var, or two routes pointing at the same extension) trigger a
+    //     fresh /oauth/token only the FIRST time — every subsequent route
+    //     with that JWT hits the cache and adds zero auth pressure.
+    //   - So we only need to space iterations when the upcoming route would
+    //     trigger a fresh auth (= JWT we haven't seen yet this run).
+    //   - Total wait budget is therefore bounded by the count of UNIQUE
+    //     JWTs across active routes, not the total route count.
+    //   - As a belt-and-suspenders safety, bail out before the loop's wall-
+    //     clock approaches the pg_cron timeout and let the next cron tick
+    //     pick up the remaining routes. They'll just renew a few minutes
+    //     later — RC subscriptions live for ~7 days, so a one-tick delay is
+    //     harmless.
+    const ROUTE_FRESH_AUTH_DELAY_MS = 12_000;
+    const TIMEOUT_BUDGET_MS = 50_000; // leave 10s headroom under pg_cron's 60s cap
+    const loopStartedAt = Date.now();
+    const seenJwts = new Set<string>();
     const results: RouteResult[] = [];
-    let firstRoute = true;
+
     for (const route of routes as RouteRow[]) {
-      if (!firstRoute) await new Promise((r) => setTimeout(r, ROUTE_SUBSCRIBE_DELAY_MS));
-      firstRoute = false;
+      if (Date.now() - loopStartedAt > TIMEOUT_BUDGET_MS) {
+        console.warn(
+          `[ringcentral-webhook] stopping subscribe loop at ${results.length}/${routes.length} routes to stay under pg_cron timeout; remaining routes will be picked up next run`,
+        );
+        break;
+      }
+
+      // Resolve the JWT for this route once, outside subscribeOneRoute, so
+      // we know whether this iteration will trigger a fresh /oauth/token
+      // call (cache miss) or reuse a cached token (cache hit).
+      let jwt: string | null = null;
+      try {
+        jwt = await getJwtForRoute(route.category);
+      } catch (err) {
+        // If the JWT lookup itself fails, surface the error in the same
+        // shape subscribeOneRoute would produce and skip without a wait.
+        const message = (err as Error).message || String(err);
+        await supabase
+          .from("communication_routes")
+          .update({
+            subscription_last_error: message,
+            subscription_synced_at: new Date().toISOString(),
+          })
+          .eq("category", route.category);
+        results.push({
+          category: route.category,
+          label: route.label,
+          action: "failed",
+          error: message,
+        });
+        continue;
+      }
+
+      if (!seenJwts.has(jwt) && seenJwts.size > 0) {
+        // We're about to do a fresh /oauth/token call AND we've already
+        // done at least one this run — space them to stay under 5/60s.
+        await new Promise((r) => setTimeout(r, ROUTE_FRESH_AUTH_DELAY_MS));
+      }
+      seenJwts.add(jwt);
+
       results.push(await subscribeOneRoute(route, webhookUrl));
     }
 
