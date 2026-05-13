@@ -706,3 +706,125 @@
   line-height: 1;
 }
 .fab:active { transform: translateY(-1px); }
+
+/* ─── Nearby-account banner (Today screen) ─── */
+
+.nearbyBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: linear-gradient(135deg, #E6F7FB, #DDE7FA);
+  border: 1px solid #BFD8F4;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: #1A2332;
+}
+.nearbyBanner:active { transform: scale(0.99); }
+
+.nearbyIcon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.nearbyBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nearbyTitle {
+  font-weight: 700;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nearbySubtitle {
+  font-size: 12px;
+  color: #5A6B85;
+}
+
+/* ─── Plan-route button (Today screen) ─── */
+
+.routeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.routeBtn {
+  background: #EEF1F6;
+  color: #2E4E8D;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ─── Address capture (AccountProfile + QuickCapture) ─── */
+
+.addressForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.addressRow {
+  display: flex;
+  gap: 8px;
+}
+
+.addressRow .input { flex: 1; min-width: 0; }
+
+.addressActions {
+  display: flex;
+  gap: 8px;
+}
+
+.addressCta {
+  background: transparent;
+  border: 1px dashed #BFD8F4;
+  color: #2E4E8D;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  width: 100%;
+  text-align: left;
+}
+
+.saveLocationRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #F2F8FE;
+  border: 1px solid #DDE7FA;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #2E4E8D;
+}
+
+.saveLocationRow input[type='checkbox'] {
+  margin: 0;
+  accent-color: #2E4E8D;
+}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import {
@@ -8,6 +9,8 @@ import {
   daysSince,
   isCold,
 } from './lib/bdQueries';
+import { updateAccountLocation } from './lib/bdMutations';
+import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
 
 function lastSeenLabel(account) {
@@ -27,6 +30,40 @@ export function AccountProfile() {
   const { accountId } = useParams();
   const navigate = useNavigate();
   const { loading, account, contacts, activities, error, refresh } = useBdAccountDetail(accountId);
+
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addrDraft, setAddrDraft]           = useState({ address: '', city: '', state: '', zip: '' });
+  const [addrSaving, setAddrSaving]         = useState(false);
+  const [addrError, setAddrError]           = useState('');
+
+  function openAddressEditor() {
+    setAddrDraft({
+      address: account?.address ?? '',
+      city:    account?.city    ?? '',
+      state:   account?.state   ?? '',
+      zip:     account?.zip     ?? '',
+    });
+    setAddrError('');
+    setEditingAddress(true);
+  }
+
+  async function saveAddress() {
+    setAddrError('');
+    setAddrSaving(true);
+    try {
+      const { error: saveErr } = await updateAccountLocation(supabase, {
+        accountId: account.id,
+        draft: addrDraft,
+      });
+      if (saveErr) throw saveErr;
+      setEditingAddress(false);
+      refresh();
+    } catch (e) {
+      setAddrError(e?.message ?? 'Could not save address.');
+    } finally {
+      setAddrSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -122,6 +159,76 @@ export function AccountProfile() {
                 🗺️ Directions
               </a>
             )}
+          </div>
+        )}
+
+        {!account.address && !editingAddress && (
+          <button
+            type="button"
+            className={s.addressCta}
+            onClick={openAddressEditor}
+            style={{ marginTop: 8 }}
+          >
+            + Add address
+          </button>
+        )}
+
+        {editingAddress && (
+          <div className={s.addressForm}>
+            <input
+              className={s.input}
+              type="text"
+              placeholder="Street address"
+              value={addrDraft.address}
+              onChange={(e) => setAddrDraft({ ...addrDraft, address: e.target.value })}
+              autoFocus
+            />
+            <div className={s.addressRow}>
+              <input
+                className={s.input}
+                type="text"
+                placeholder="City"
+                value={addrDraft.city}
+                onChange={(e) => setAddrDraft({ ...addrDraft, city: e.target.value })}
+              />
+              <input
+                className={s.input}
+                type="text"
+                placeholder="State"
+                value={addrDraft.state}
+                onChange={(e) => setAddrDraft({ ...addrDraft, state: e.target.value })}
+                style={{ maxWidth: 72 }}
+              />
+              <input
+                className={s.input}
+                type="text"
+                placeholder="Zip"
+                inputMode="numeric"
+                value={addrDraft.zip}
+                onChange={(e) => setAddrDraft({ ...addrDraft, zip: e.target.value })}
+                style={{ maxWidth: 96 }}
+              />
+            </div>
+            {addrError && <div className={s.error}>{addrError}</div>}
+            <div className={s.addressActions}>
+              <button
+                type="button"
+                className={s.backBtn}
+                onClick={() => setEditingAddress(false)}
+                disabled={addrSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={s.button}
+                onClick={saveAddress}
+                disabled={addrSaving}
+                style={{ flex: 1 }}
+              >
+                {addrSaving ? 'Saving…' : 'Save address'}
+              </button>
+            </div>
           </div>
         )}
         {account.notes && (

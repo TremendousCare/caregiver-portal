@@ -292,6 +292,104 @@ export async function createReferral(supabase, { orgId, draft, createdBy, accoun
   };
 }
 
+// ─── Account location update ───────────────────────────────────
+//
+// Lets the rep fill in (or correct) the structured address on an
+// existing account, and optionally pin its lat/lng. Used by:
+//   - AccountProfile's "+ Add address" inline form (manual entry)
+//   - QuickCapture's "save this location" prompt after a visit log
+//     (passes the device GPS coordinate into lat/lng)
+//
+// Returns { data, error } shaped like the other helpers. All fields
+// are optional individually — the caller passes only the columns it
+// wants to set, and absent keys are left untouched.
+
+export function validateAccountLocationDraft(draft) {
+  if (!draft || typeof draft !== 'object') {
+    return { ok: false, error: 'Missing form data.' };
+  }
+  const hasAnyField =
+    Object.prototype.hasOwnProperty.call(draft, 'address') ||
+    Object.prototype.hasOwnProperty.call(draft, 'city') ||
+    Object.prototype.hasOwnProperty.call(draft, 'state') ||
+    Object.prototype.hasOwnProperty.call(draft, 'zip') ||
+    (Object.prototype.hasOwnProperty.call(draft, 'lat') &&
+     Object.prototype.hasOwnProperty.call(draft, 'lng'));
+  if (!hasAnyField) {
+    return { ok: false, error: 'Provide at least one address field or a lat/lng pair.' };
+  }
+  if (Object.prototype.hasOwnProperty.call(draft, 'lat') ||
+      Object.prototype.hasOwnProperty.call(draft, 'lng')) {
+    const { lat, lng } = draft;
+    // Permit explicit nulls to clear a bad pin, but if either is a
+    // number both must be valid numbers in range.
+    const latSet = lat !== null && lat !== undefined;
+    const lngSet = lng !== null && lng !== undefined;
+    if (latSet !== lngSet) {
+      return { ok: false, error: 'lat and lng must be set together.' };
+    }
+    if (latSet) {
+      if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+        return { ok: false, error: 'Latitude is out of range.' };
+      }
+      if (typeof lng !== 'number' || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+        return { ok: false, error: 'Longitude is out of range.' };
+      }
+    }
+  }
+  if (draft.state !== undefined && draft.state !== null && String(draft.state).trim().length > 32) {
+    return { ok: false, error: 'State value is too long.' };
+  }
+  return { ok: true };
+}
+
+// Builds the partial UPDATE payload. Skips keys the caller didn't
+// pass so we never blank a column unintentionally. Trims string
+// fields to null when empty so we don't write '' into the DB.
+export function buildAccountLocationPatch(draft) {
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(draft, 'address')) {
+    const v = draft.address?.trim?.() ?? null;
+    patch.address = v || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(draft, 'city')) {
+    const v = draft.city?.trim?.() ?? null;
+    patch.city = v || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(draft, 'state')) {
+    const v = draft.state?.trim?.() ?? null;
+    patch.state = v || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(draft, 'zip')) {
+    const v = draft.zip?.trim?.() ?? null;
+    patch.zip = v || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(draft, 'lat') &&
+      Object.prototype.hasOwnProperty.call(draft, 'lng')) {
+    patch.lat = draft.lat ?? null;
+    patch.lng = draft.lng ?? null;
+  }
+  patch.updated_at = new Date().toISOString();
+  return patch;
+}
+
+export async function updateAccountLocation(supabase, { accountId, draft }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  if (!accountId) return { data: null, error: new Error('Missing account id.') };
+  const validation = validateAccountLocationDraft(draft);
+  if (!validation.ok) return { data: null, error: new Error(validation.error) };
+
+  const patch = buildAccountLocationPatch(draft);
+  const res = await supabase
+    .from('bd_accounts')
+    .update(patch)
+    .eq('id', accountId)
+    .select('id, address, city, state, zip, lat, lng')
+    .single();
+  if (res.error) return { data: null, error: res.error };
+  return { data: res.data, error: null };
+}
+
 // ─── Contact creation (PR #10 — business-card OCR) ──────────────
 
 // bd_account_contacts.role CHECK constraint domain.

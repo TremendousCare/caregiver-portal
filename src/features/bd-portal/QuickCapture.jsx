@@ -9,7 +9,8 @@ import {
   QUICK_CAPTURE_LABELS,
   SPEND_CATEGORIES,
 } from './lib/bdMutations';
-import { searchAccounts } from './lib/bdQueries';
+import { searchAccounts, hasPreciseCoordinate } from './lib/bdQueries';
+import { updateAccountLocation } from './lib/bdMutations';
 import {
   VoiceRecorder,
   formatDuration,
@@ -47,6 +48,14 @@ export function QuickCapture() {
   const [formError, setFormError]       = useState('');
   const [success, setSuccess]           = useState(null);
 
+  // Pinned-location opt-in. When the rep logs a visit/drop-off, we have
+  // GPS in hand and the account is right there in front of her — that's
+  // the highest-quality coordinate we'll ever get. If the account doesn't
+  // already have lat/lng, default to saving it. Toggle is rendered so
+  // she can opt out if she's not actually at the account (e.g. logging
+  // from her car on the way home).
+  const [pinLocation, setPinLocation] = useState(true);
+
   // Voice memo recording state. Recorder lives in a ref so React
   // re-renders don't tear it down mid-recording.
   const recorderRef = useRef(null);
@@ -60,6 +69,23 @@ export function QuickCapture() {
     () => (lockedAccountId ? accounts.find((a) => a.id === lockedAccountId) : null),
     [accounts, lockedAccountId],
   );
+
+  // The selected account row (locked or picked). Drives the
+  // "save this location" prompt below.
+  const selectedAccount = useMemo(() => {
+    if (lockedAccount) return lockedAccount;
+    if (!accountId) return null;
+    return accounts.find((a) => a.id === accountId) ?? null;
+  }, [lockedAccount, accountId, accounts]);
+
+  // Only offer the pin prompt when the rep is physically at the
+  // account (visit / drop-off), we actually got a GPS fix, and the
+  // account doesn't already have a precise coordinate stored.
+  const offerPinLocation =
+    (activityType === 'visit' || activityType === 'drop_off') &&
+    Boolean(gps) &&
+    Boolean(selectedAccount) &&
+    !hasPreciseCoordinate(selectedAccount);
 
   // Try to grab a GPS pin in the background. Permissions prompt is
   // user-driven and asynchronous; we don't block the form on it.
@@ -200,6 +226,20 @@ export function QuickCapture() {
     }
     try {
       const inserted = await submit(draft);
+      // Best-effort: if the rep opted in (or left the default on),
+      // pin this GPS coordinate to the account so geofencing and
+      // routing light up for future visits. Never blocks the save —
+      // the activity is the source of truth.
+      if (offerPinLocation && pinLocation) {
+        try {
+          await updateAccountLocation(supabase, {
+            accountId: draft.account_id,
+            draft: { lat: draft.gps_lat, lng: draft.gps_lng },
+          });
+        } catch (e) {
+          console.warn('pin-location failed:', e);
+        }
+      }
       setSuccess(inserted);
       // Pop back to the natural origin: the account profile if we
       // came from one, else the Today screen.
@@ -398,6 +438,16 @@ export function QuickCapture() {
           <p className={s.muted} style={{ marginTop: 8, fontSize: 12 }}>
             📍 Location captured ({gps.lat.toFixed(3)}, {gps.lng.toFixed(3)})
           </p>
+        )}
+        {offerPinLocation && (
+          <label className={s.saveLocationRow}>
+            <input
+              type="checkbox"
+              checked={pinLocation}
+              onChange={(e) => setPinLocation(e.target.checked)}
+            />
+            <span>Pin this spot as {selectedAccount.name}&rsquo;s location</span>
+          </label>
         )}
       </div>
 

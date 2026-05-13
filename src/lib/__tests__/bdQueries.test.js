@@ -13,6 +13,13 @@ import {
   formatAccountSubtitle,
   ACTIVITY_TYPE_ICONS,
   ACTIVITY_TYPE_LABELS,
+  haversineMeters,
+  findNearestAccount,
+  buildAppleMapsRouteUrl,
+  formatStopAddress,
+  hasRoutableAddress,
+  hasPreciseCoordinate,
+  DEFAULT_NEARBY_RADIUS_METERS,
 } from '../../features/bd-portal/lib/bdQueries';
 
 const NOW = new Date('2026-05-09T12:00:00Z').getTime();
@@ -343,5 +350,189 @@ describe('activity-type lookup tables', () => {
       expect(ACTIVITY_TYPE_ICONS[t], `icon for ${t}`).toBeTruthy();
       expect(ACTIVITY_TYPE_LABELS[t], `label for ${t}`).toBeTruthy();
     }
+  });
+});
+
+// ─── Geofence + routing helpers ─────────────────────────────────
+
+describe('DEFAULT_NEARBY_RADIUS_METERS', () => {
+  it('is a sensible parking-lot-sized default', () => {
+    // Tight enough to avoid false positives on adjacent buildings,
+    // loose enough for the rep to be anywhere on a hospital campus.
+    expect(DEFAULT_NEARBY_RADIUS_METERS).toBeGreaterThanOrEqual(100);
+    expect(DEFAULT_NEARBY_RADIUS_METERS).toBeLessThanOrEqual(500);
+  });
+});
+
+describe('haversineMeters', () => {
+  it('returns zero for the same point', () => {
+    expect(haversineMeters(33.65, -117.74, 33.65, -117.74)).toBe(0);
+  });
+
+  // Known fixture: ~1 degree of latitude ≈ 111 km. Allow 1% tolerance.
+  it('approximates 111km for one degree of latitude', () => {
+    const d = haversineMeters(33.0, -117.74, 34.0, -117.74);
+    expect(d).toBeGreaterThan(110_000);
+    expect(d).toBeLessThan(112_000);
+  });
+
+  // Two points ~200m apart in Laguna Hills. Hand-computed reference.
+  it('measures sub-kilometer distances within a few percent', () => {
+    const d = haversineMeters(33.6500, -117.7400, 33.6518, -117.7400);
+    expect(d).toBeGreaterThan(180);
+    expect(d).toBeLessThan(220);
+  });
+
+  it('returns null for non-numeric inputs', () => {
+    expect(haversineMeters('a', -117.74, 33.65, -117.74)).toBe(null);
+    expect(haversineMeters(33.65, null, 33.65, -117.74)).toBe(null);
+    expect(haversineMeters(33.65, -117.74, undefined, -117.74)).toBe(null);
+    expect(haversineMeters(NaN, -117.74, 33.65, -117.74)).toBe(null);
+  });
+});
+
+describe('findNearestAccount', () => {
+  const me = { lat: 33.6500, lng: -117.7400 };
+  const accounts = [
+    { id: 'a', name: 'Far Away',    lat: 34.0000, lng: -117.7400 }, // ~111km
+    { id: 'b', name: 'Two Blocks',  lat: 33.6518, lng: -117.7400 }, // ~200m
+    { id: 'c', name: 'Right Here',  lat: 33.6501, lng: -117.7401 }, // ~13m
+    { id: 'd', name: 'No Geo',      lat: null,    lng: null },
+  ];
+
+  it('returns the closest account within radius', () => {
+    const res = findNearestAccount(accounts, me, { radiusMeters: 200 });
+    expect(res?.account.id).toBe('c');
+    expect(res?.distance_meters).toBeLessThan(30);
+  });
+
+  it('returns null if nothing falls within radius', () => {
+    // A 5-meter radius excludes all of our fixtures.
+    expect(findNearestAccount(accounts, me, { radiusMeters: 5 })).toBe(null);
+  });
+
+  it('returns null on empty or non-array accounts input', () => {
+    expect(findNearestAccount([], me)).toBe(null);
+    expect(findNearestAccount(null, me)).toBe(null);
+    expect(findNearestAccount(undefined, me)).toBe(null);
+  });
+
+  it('returns null when position is missing or malformed', () => {
+    expect(findNearestAccount(accounts, null)).toBe(null);
+    expect(findNearestAccount(accounts, { lat: 'a', lng: 'b' })).toBe(null);
+    expect(findNearestAccount(accounts, {})).toBe(null);
+  });
+
+  it('skips accounts without coordinates (no-op path)', () => {
+    const onlyMissing = [{ id: 'x', lat: null, lng: null }];
+    expect(findNearestAccount(onlyMissing, me)).toBe(null);
+  });
+
+  it('uses the default radius when none is given', () => {
+    // 'c' is ~13m away, well inside the default 200m.
+    const res = findNearestAccount(accounts, me);
+    expect(res?.account.id).toBe('c');
+  });
+});
+
+describe('formatStopAddress', () => {
+  it('joins street + city/state + zip into a single line', () => {
+    expect(formatStopAddress({
+      address: '24451 Health Center Dr',
+      city: 'Laguna Hills',
+      state: 'CA',
+      zip: '92653',
+    })).toBe('24451 Health Center Dr, Laguna Hills, CA, 92653');
+  });
+
+  it('omits missing segments without leaving stray punctuation', () => {
+    expect(formatStopAddress({ address: '123 Main St', city: 'Irvine' }))
+      .toBe('123 Main St, Irvine');
+    expect(formatStopAddress({ address: '123 Main St' })).toBe('123 Main St');
+  });
+
+  it('falls back to name + city when there is no street address', () => {
+    expect(formatStopAddress({ name: 'Riverside Hospital', city: 'Anaheim' }))
+      .toBe('Riverside Hospital, Anaheim');
+  });
+
+  it('returns null when no usable fields are present', () => {
+    expect(formatStopAddress({})).toBe(null);
+    expect(formatStopAddress(null)).toBe(null);
+    expect(formatStopAddress({ name: '' })).toBe(null);
+  });
+});
+
+describe('buildAppleMapsRouteUrl', () => {
+  const stops = [
+    { name: 'A', address: '100 First St', city: 'Irvine',       state: 'CA' },
+    { name: 'B', address: '200 Second St', city: 'Laguna Hills', state: 'CA' },
+  ];
+
+  it('builds a multi-stop Apple Maps URL', () => {
+    const url = buildAppleMapsRouteUrl(stops);
+    expect(url).toBeTruthy();
+    expect(url.startsWith('https://maps.apple.com/?')).toBe(true);
+    expect(url).toContain('saddr=Current+Location');
+    expect(url).toContain('dirflg=d');
+    // Apple Maps' multi-stop separator is a *literal* '+to:' — only
+    // the address strings themselves are URL-encoded.
+    expect(url).toMatch(/100%20First%20St[^&]*\+to:[^&]*200%20Second%20St/);
+  });
+
+  it('omits the current-location saddr when asked', () => {
+    const url = buildAppleMapsRouteUrl(stops, { fromCurrentLocation: false });
+    expect(url).not.toContain('saddr=');
+  });
+
+  it('returns null when no stops have addresses', () => {
+    expect(buildAppleMapsRouteUrl([])).toBe(null);
+    expect(buildAppleMapsRouteUrl(null)).toBe(null);
+    expect(buildAppleMapsRouteUrl([{ name: '' }])).toBe(null);
+  });
+
+  it('falls back to name+city for stops missing a street address', () => {
+    const mixed = [
+      { name: 'Hoag Hospital', city: 'Newport Beach' },
+      { name: 'B', address: '200 Second St', city: 'Laguna Hills' },
+    ];
+    const url = buildAppleMapsRouteUrl(mixed);
+    expect(url).toContain('Hoag%20Hospital');
+    expect(url).toContain('200%20Second%20St');
+  });
+});
+
+describe('hasRoutableAddress', () => {
+  it('accepts an explicit street address', () => {
+    expect(hasRoutableAddress({ address: '100 Main St' })).toBe(true);
+  });
+
+  it('accepts name + city as a fallback', () => {
+    expect(hasRoutableAddress({ name: 'Riverside', city: 'Anaheim' })).toBe(true);
+  });
+
+  it('rejects accounts with only one of name/city', () => {
+    expect(hasRoutableAddress({ name: 'Riverside' })).toBe(false);
+    expect(hasRoutableAddress({ city: 'Anaheim' })).toBe(false);
+  });
+
+  it('rejects null/empty input', () => {
+    expect(hasRoutableAddress(null)).toBe(false);
+    expect(hasRoutableAddress({})).toBe(false);
+  });
+});
+
+describe('hasPreciseCoordinate', () => {
+  it('returns true for finite numeric lat/lng pairs', () => {
+    expect(hasPreciseCoordinate({ lat: 33.65, lng: -117.74 })).toBe(true);
+    expect(hasPreciseCoordinate({ lat: 0, lng: 0 })).toBe(true);
+  });
+
+  it('returns false for missing or non-numeric values', () => {
+    expect(hasPreciseCoordinate({ lat: null, lng: null })).toBe(false);
+    expect(hasPreciseCoordinate({ lat: '33', lng: -117.74 })).toBe(false);
+    expect(hasPreciseCoordinate({ lat: NaN, lng: -117.74 })).toBe(false);
+    expect(hasPreciseCoordinate({ lat: 33.65 })).toBe(false);
+    expect(hasPreciseCoordinate(null)).toBe(false);
   });
 });
