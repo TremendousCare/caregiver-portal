@@ -86,7 +86,14 @@ export function VoiceProvider({ children }) {
     return call;
   }, []);
 
-  // ─── Realtime subscription on call_sessions filtered to the user ──
+  // ─── Realtime subscription on call_sessions filtered to bound extensions ──
+  // PR 3.4 changed this from matched_user_id=eq.<self> to
+  // extension_id=in.(<my_exts>) so that on-call rotations work:
+  // every user bound to a shared extension sees the screen-pop
+  // concurrently, regardless of which user the webhook happened to
+  // stamp as matched_user_id first. RLS on call_sessions still keeps
+  // it tenant-safe (org_id filter from PR 1's tenant_isolation
+  // policies); the extension filter is the additional narrowing.
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let cancelled = false;
@@ -98,16 +105,37 @@ export function VoiceProvider({ children }) {
       if (!userId || cancelled) return;
       userIdRef.current = userId;
 
-      // Filter syntax for postgres_changes: `column=eq.value`
+      // Look up the bound extension(s) for this user. Only org_memberships
+      // rows for the current user are visible under the existing
+      // users_read_own_memberships SELECT policy — no extra RPC needed.
+      const { data: myMemberships } = await supabase
+        .from('org_memberships')
+        .select('ringcentral_extension_id')
+        .not('ringcentral_extension_id', 'is', null);
+      const myExtensions = (myMemberships || [])
+        .map((r) => r.ringcentral_extension_id)
+        .filter(Boolean);
+
+      if (myExtensions.length === 0 || cancelled) {
+        // No bound extensions → nothing to subscribe to. The user will
+        // see no screen-pops; admin needs to bind their RC extension
+        // in Settings → Voice & Calls.
+        return;
+      }
+
+      // postgres_changes `in.(a,b,c)` filter syntax — comma-separated,
+      // no quotes, no spaces.
+      const filterValue = `extension_id=in.(${myExtensions.join(',')})`;
+
       channel = supabase
-        .channel(`call_sessions:user:${userId}`)
+        .channel(`call_sessions:exts:${userId}`)
         .on(
           'postgres_changes',
           {
             event: '*',
             schema: 'public',
             table: 'call_sessions',
-            filter: `matched_user_id=eq.${userId}`,
+            filter: filterValue,
           },
           async (payload) => {
             const row = payload.new || payload.old;
