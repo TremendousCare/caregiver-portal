@@ -42,6 +42,40 @@ export const PHASES = [
   },
 ];
 
+// ─── Pipeline Sub-Phases ─────────────────────────────────────
+// Sub-phases are wait states within a parent main phase. They are
+// normally computed (sidebar shows them as derived filters), but they
+// can also be set explicitly via phase_override when an operator needs
+// to put a caregiver back into a sub-state (e.g. someone was advanced
+// past "Pending Interview" by mistake and we want to send them back).
+//
+// When phase_override is a sub-phase id, getCurrentPhase() returns
+// the parent main phase, so progress bars / phase task lists / phase
+// colors continue to work unchanged.
+export const SUB_PHASES = [
+  {
+    id: 'intake_pending',
+    parent: 'intake',
+    label: 'Pending Interview',
+    short: 'Pending Interview',
+    description: 'Interview link sent, awaiting response · HCA registered',
+  },
+  {
+    id: 'intake_pending_non_hca',
+    parent: 'intake',
+    label: 'Non-HCA (Pending Interview)',
+    short: 'Non-HCA',
+    description: 'Interview link sent, awaiting response · not HCA registered',
+  },
+  {
+    id: 'interview_pending_hca',
+    parent: 'interview',
+    label: 'Pending HCA Verification',
+    short: 'Pending HCA',
+    description: 'Interview evaluation complete, awaiting HCA verification',
+  },
+];
+
 // ─── Default Phase Tasks ─────────────────────────────────────
 export const DEFAULT_PHASE_TASKS = {
   intake: [
