@@ -14,6 +14,7 @@ import { AppShell } from './shared/layout/AppShell';
 import { VoiceProvider } from './shared/context/VoiceContext';
 import { IncomingCallToast } from './features/voice/IncomingCallToast';
 import { ActiveCallBar } from './features/voice/ActiveCallBar';
+import { RingCentralEmbeddable } from './features/voice/RingCentralEmbeddable';
 import { Dashboard } from './features/caregivers/Dashboard';
 import { KanbanBoard } from './features/caregivers/KanbanBoard';
 import { AddCaregiver } from './features/caregivers/AddCaregiver';
@@ -635,6 +636,7 @@ export default function AdminApp() {
             <VoiceProvider>
             <IncomingCallToast />
             <ActiveCallBar />
+            <RingCentralEmbeddable />
             <Routes>
               <Route element={<AppShell />}>
                 <Route index element={<DashboardPage />} />

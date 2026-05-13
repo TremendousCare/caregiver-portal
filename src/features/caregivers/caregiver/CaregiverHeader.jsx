@@ -1,6 +1,7 @@
 import layout from '../../../styles/layout.module.css';
 import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
+import { PhoneCallButton } from '../../voice/PhoneCallButton';
 
 export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onToggleGreenLight, onShowArchive, onUnarchive, onShowDelete }) {
   return (
@@ -12,13 +13,18 @@ export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, on
           <div>
             <h1 className={layout.detailName}>{caregiver.firstName} {caregiver.lastName}</h1>
             <div className={layout.detailMeta}>
-              {caregiver.phone && <span>📞 {caregiver.phone}</span>}
-              {caregiver.email && <span style={{ marginLeft: 16 }}>✉️ {caregiver.email}</span>}
-              {caregiver.perId && <span style={{ marginLeft: 16 }}>🆔 PER {caregiver.perId}</span>}
+              {caregiver.phone && (
+                <span>
+                  {caregiver.phone}
+                  <PhoneCallButton phone={caregiver.phone} compact />
+                </span>
+              )}
+              {caregiver.email && <span style={{ marginLeft: 16 }}>{caregiver.email}</span>}
+              {caregiver.perId && <span style={{ marginLeft: 16 }}>PER {caregiver.perId}</span>}
             </div>
             {(caregiver.address || caregiver.city) && (
               <div className={layout.detailMeta} style={{ marginTop: 2 }}>
-                📍 {[caregiver.address, caregiver.city, caregiver.state, caregiver.zip].filter(Boolean).join(', ')}
+                {[caregiver.address, caregiver.city, caregiver.state, caregiver.zip].filter(Boolean).join(', ')}
               </div>
             )}
           </div>
