@@ -87,13 +87,36 @@ describe('mapRcStatusToCallStatus', () => {
 // ─────────────────────────────────────────────────────────────────
 
 describe('deriveDirection', () => {
-  it('respects RC direction when present', () => {
+  it('returns inbound when OUR extension is on the `to` side, regardless of party.direction', () => {
+    // This is the exact shape RC sent in the 2026-05-13 incident:
+    // direction='Outbound' but to.extensionId is our extension because
+    // it's an external caller dialing INTO us. We must override.
+    const known = new Set(['792493017']);
+    const party = {
+      direction: 'Outbound',
+      from: { phoneNumber: '+15868720673' },
+      to: { extensionId: '792493017', phoneNumber: '+19498732367' },
+    };
+    expect(deriveDirection(party, known)).toBe('inbound');
+  });
+
+  it('returns outbound when OUR extension is on the `from` side', () => {
+    const known = new Set(['792493017']);
+    const party = {
+      direction: 'Inbound',
+      from: { extensionId: '792493017', phoneNumber: '+19498732367' },
+      to: { phoneNumber: '+15868720673' },
+    };
+    expect(deriveDirection(party, known)).toBe('outbound');
+  });
+
+  it('falls back to RC direction when no known-extension match', () => {
     expect(deriveDirection({ direction: 'Inbound' })).toBe('inbound');
     expect(deriveDirection({ direction: 'Outbound' })).toBe('outbound');
     expect(deriveDirection({ direction: 'INBOUND' })).toBe('inbound');
   });
 
-  it('falls back to from.extensionId presence for outbound', () => {
+  it('falls back to from.extensionId presence for outbound when neither RC dir nor known set helps', () => {
     expect(
       deriveDirection({ from: { extensionId: 'ext-1' }, to: { phoneNumber: '+15555550001' } }),
     ).toBe('outbound');
@@ -227,6 +250,115 @@ describe('parseTelephonyEvent — outbound ended', () => {
     const parsed = parseTelephonyEvent(evt);
     expect(parsed.direction).toBe('outbound');
     expect(parsed.status).toBe('ended');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// parseTelephonyEvent — real-world incident payloads
+// (2026-05-13: matched_user_id was NULL on every event because the
+// extension was nested in `to.extensionId` rather than at party
+// root, and our parser only looked at the root.)
+// ─────────────────────────────────────────────────────────────────
+
+describe('parseTelephonyEvent — nested extension in `to.extensionId`', () => {
+  it('matches our extension when RC nests it inside `to.extensionId` (inbound call shape)', () => {
+    const known = new Set(['792493017']);
+    // Real payload shape from the 2026-05-13 incident, simplified:
+    const evt = {
+      body: {
+        telephonySessionId: 's-incident',
+        eventTime: '2026-05-13T00:14:41.707Z',
+        parties: [
+          {
+            id: 'p-incident-1',
+            // NO party.extensionId at root
+            direction: 'Outbound', // RC's perspective on the caller's leg
+            to: { extensionId: '792493017', phoneNumber: '+19498732367', name: 'Tremendous Care' },
+            from: { phoneNumber: '+15868720673', name: 'Kevin Nash' },
+            status: { code: 'Disconnected' },
+          },
+        ],
+      },
+    };
+    const parsed = parseTelephonyEvent(evt, known);
+    expect(parsed).not.toBeNull();
+    expect(parsed.extensionId).toBe('792493017');
+    // Crucially, direction is INBOUND from OUR perspective even though
+    // RC's party.direction says 'Outbound'.
+    expect(parsed.direction).toBe('inbound');
+    expect(parsed.fromE164).toBe('+15868720673');
+    expect(parsed.toE164).toBe('+19498732367');
+  });
+
+  it('matches our extension when RC nests it inside `from.extensionId` (outbound shape)', () => {
+    const known = new Set(['792493017']);
+    const evt = {
+      body: {
+        telephonySessionId: 's-outbound',
+        parties: [
+          {
+            id: 'p-outbound-1',
+            direction: 'Outbound',
+            from: { extensionId: '792493017', phoneNumber: '+19498732367' },
+            to: { phoneNumber: '+15868720673' },
+            status: { code: 'Setup' },
+          },
+        ],
+      },
+    };
+    const parsed = parseTelephonyEvent(evt, known);
+    expect(parsed.extensionId).toBe('792493017');
+    expect(parsed.direction).toBe('outbound');
+  });
+
+  it('prefers a party with our extension in `to.extensionId` over a different party with party.extensionId at root', () => {
+    const known = new Set(['792493017']);
+    const evt = {
+      body: {
+        telephonySessionId: 's-multi',
+        parties: [
+          {
+            id: 'p-stranger',
+            extensionId: 'ext-stranger',
+            direction: 'Inbound',
+            to: { phoneNumber: '+15555550000' },
+            from: { phoneNumber: '+15868720673' },
+            status: { code: 'Setup' },
+          },
+          {
+            id: 'p-ours',
+            // No party.extensionId at root, but to.extensionId is ours
+            direction: 'Outbound',
+            to: { extensionId: '792493017', phoneNumber: '+19498732367' },
+            from: { phoneNumber: '+15868720673' },
+            status: { code: 'Setup' },
+          },
+        ],
+      },
+    };
+    const parsed = parseTelephonyEvent(evt, known);
+    expect(parsed.partyId).toBe('p-ours');
+    expect(parsed.extensionId).toBe('792493017');
+    expect(parsed.direction).toBe('inbound');
+  });
+
+  it('still works when our extension is at party.extensionId root (legacy shape)', () => {
+    const known = new Set(['ext-100']);
+    const evt = makeRcEvent({
+      parties: [
+        {
+          id: 'p-root',
+          extensionId: 'ext-100',
+          direction: 'Inbound',
+          to: { phoneNumber: '+15551234567', extensionId: 'ext-100' },
+          from: { phoneNumber: '+15559876543' },
+          status: { code: 'Setup' },
+        },
+      ],
+    });
+    const parsed = parseTelephonyEvent(evt, known);
+    expect(parsed.extensionId).toBe('ext-100');
+    expect(parsed.direction).toBe('inbound');
   });
 });
 
