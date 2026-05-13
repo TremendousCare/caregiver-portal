@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { CheckCircle2, Mic, Square, MapPin } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdLogActivity, getCurrentPosition } from './hooks/useBdLogActivity';
 import {
@@ -256,7 +257,9 @@ export function QuickCapture() {
     return (
       <div className={s.page}>
         <div className={s.card} style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+          <div className={s.successIcon} aria-hidden>
+            <CheckCircle2 size={48} strokeWidth={1.75} />
+          </div>
           <p className={s.briefingText}>Saved. Returning…</p>
         </div>
       </div>
@@ -349,7 +352,8 @@ export function QuickCapture() {
                 className={s.voiceStartBtn}
                 onClick={handleStartRecording}
               >
-                🎤 Record memo
+                <Mic size={16} aria-hidden />
+                <span>Record memo</span>
               </button>
             )}
             {recState === 'recording' && (
@@ -359,7 +363,8 @@ export function QuickCapture() {
                   className={s.voiceStopBtn}
                   onClick={handleStopRecording}
                 >
-                  ⏹ Stop · {formatDuration(recElapsed)}
+                  <Square size={14} fill="currentColor" aria-hidden />
+                  <span>Stop · {formatDuration(recElapsed)}</span>
                 </button>
                 <button
                   type="button"
@@ -380,7 +385,8 @@ export function QuickCapture() {
                 className={s.voiceStartBtn}
                 onClick={handleStartRecording}
               >
-                🎤 Try again
+                <Mic size={16} aria-hidden />
+                <span>Try again</span>
               </button>
             )}
           </div>
@@ -435,8 +441,9 @@ export function QuickCapture() {
           onChange={(e) => setOccurredLocal(e.target.value)}
         />
         {gps && (
-          <p className={s.muted} style={{ marginTop: 8, fontSize: 12 }}>
-            📍 Location captured ({gps.lat.toFixed(3)}, {gps.lng.toFixed(3)})
+          <p className={`${s.muted} ${s.locationCapturedRow}`}>
+            <MapPin size={12} aria-hidden />
+            <span>Location captured ({gps.lat.toFixed(3)}, {gps.lng.toFixed(3)})</span>
           </p>
         )}
         {offerPinLocation && (

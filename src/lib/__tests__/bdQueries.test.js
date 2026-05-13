@@ -11,7 +11,6 @@ import {
   fetchAccountActivities,
   formatActivityDate,
   formatAccountSubtitle,
-  ACTIVITY_TYPE_ICONS,
   ACTIVITY_TYPE_LABELS,
   haversineMeters,
   findNearestAccount,
@@ -21,6 +20,7 @@ import {
   hasPreciseCoordinate,
   DEFAULT_NEARBY_RADIUS_METERS,
 } from '../../features/bd-portal/lib/bdQueries';
+import { ACTIVITY_TYPE_ICON_TYPES } from '../../features/bd-portal/lib/activityTypeIcon';
 
 const NOW = new Date('2026-05-09T12:00:00Z').getTime();
 const dayAgo = (n) => new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString();
@@ -347,8 +347,8 @@ describe('activity-type lookup tables', () => {
   it('cover all bd_activities.activity_type CHECK values', () => {
     const expected = ['visit', 'call', 'email', 'sms', 'drop_off', 'event', 'referral_received', 'note'];
     for (const t of expected) {
-      expect(ACTIVITY_TYPE_ICONS[t], `icon for ${t}`).toBeTruthy();
       expect(ACTIVITY_TYPE_LABELS[t], `label for ${t}`).toBeTruthy();
+      expect(ACTIVITY_TYPE_ICON_TYPES, `icon for ${t}`).toContain(t);
     }
   });
 });

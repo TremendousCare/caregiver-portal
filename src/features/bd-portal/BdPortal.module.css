@@ -243,7 +243,7 @@
   cursor: pointer;
 }
 .navItem.active { color: #2E4E8D; }
-.navItemIcon { font-size: 20px; display: block; line-height: 1; margin-bottom: 4px; }
+.navItemIcon { display: flex; justify-content: center; line-height: 1; margin-bottom: 4px; }
 
 .loginCard {
   width: 100%;
@@ -311,6 +311,10 @@
   font-family: inherit;
   cursor: pointer;
   width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 .button:disabled { opacity: 0.5; cursor: default; }
 
@@ -376,9 +380,25 @@
   font-weight: 600;
   font-family: inherit;
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-right: 6px;
   margin-top: 8px;
+}
+
+.linkBtnIcon {
+  background: #EEF1F6;
+  color: #2E4E8D;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
 }
 
 .contactRow {
@@ -434,6 +454,9 @@
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .addContactLink:active { background: #DCE2EC; }
 
@@ -591,6 +614,9 @@
   font-family: inherit;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(184, 50, 50, 0.18);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .voiceStopBtn {
@@ -605,6 +631,9 @@
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(46, 78, 141, 0.24);
   animation: pulse 1.4s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .voiceCancelBtn {
@@ -655,6 +684,10 @@
   font-family: inherit;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(224, 143, 26, 0.24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .contactCta {
@@ -663,6 +696,10 @@
   border: none;
   border-radius: 12px;
   padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 700;
   font-family: inherit;
@@ -774,6 +811,9 @@
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ─── Address capture (AccountProfile + QuickCapture) ─── */
@@ -827,4 +867,19 @@
 .saveLocationRow input[type='checkbox'] {
   margin: 0;
   accent-color: #2E4E8D;
+}
+
+.successIcon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+  color: #2E4E8D;
+}
+
+.locationCapturedRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
 }

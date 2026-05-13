@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { CheckCircle2, Camera } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import { useBdExtractCard, useBdLogContact } from './hooks/useBdLogContact';
 import {
@@ -105,7 +106,9 @@ export function ContactCardCapture() {
     return (
       <div className={s.page}>
         <div className={s.card} style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+          <div className={s.successIcon} aria-hidden>
+            <CheckCircle2 size={48} strokeWidth={1.75} />
+          </div>
           <p className={s.briefingText}>
             <strong>{name}</strong> added to {account?.name ?? 'this account'}.
           </p>
@@ -183,7 +186,14 @@ export function ContactCardCapture() {
               onClick={pickFile}
               disabled={extracting}
             >
-              {extracting ? 'Reading card…' : '📷 Take photo'}
+              {extracting ? (
+                'Reading card…'
+              ) : (
+                <>
+                  <Camera size={16} aria-hidden />
+                  <span>Take photo</span>
+                </>
+              )}
             </button>
             <button
               type="button"

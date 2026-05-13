@@ -150,17 +150,6 @@ export async function fetchAccountActivities(supabase, accountId, { limit = 200 
 
 // ─── Display helpers ───────────────────────────────────────────────
 
-export const ACTIVITY_TYPE_ICONS = {
-  visit:             '🏥',
-  call:              '📞',
-  email:             '✉️',
-  sms:               '💬',
-  drop_off:          '🎁',
-  event:             '🎤',
-  referral_received: '⭐',
-  note:              '📝',
-};
-
 export const ACTIVITY_TYPE_LABELS = {
   visit:             'Visit',
   call:              'Call',
