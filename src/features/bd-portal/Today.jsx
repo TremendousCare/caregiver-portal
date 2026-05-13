@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Map } from 'lucide-react';
+import { MapPin, Map, ListOrdered } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdBriefing } from './hooks/useBdBriefing';
 import { useBdNearbyAccount } from './hooks/useBdNearbyAccount';
+import { useBdTodayPlan } from './hooks/useBdTodayPlan';
 import {
   rankAccounts,
   summarizeWeek,
@@ -12,6 +13,7 @@ import {
   hasRoutableAddress,
   filterToTerritory,
 } from './lib/bdQueries';
+import { hydrateStops, pruneStopsAgainstAccounts } from './lib/bdRoutePlans';
 import { fetchBdGoals, findActiveGoal, progressVsTarget } from '../bd-goals/lib/goalsQueries';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
@@ -34,6 +36,22 @@ export function Today({ displayName }) {
   const navigate = useNavigate();
   const { loading: accountsLoading, accounts, activities, territoryCities, error: accountsError, refresh: refreshAccounts } = useBdAccounts();
   const { loading: briefingLoading, briefing, refresh: refreshBriefing } = useBdBriefing(displayName);
+  const { plan: todayPlan, refresh: refreshPlan } = useBdTodayPlan();
+
+  // Render-ready stops: pruned against the current accounts list (so
+  // a stop pointing at an archived account doesn't show up as a row
+  // with no name) and joined to the full account row for the name +
+  // city + routable check.
+  const planStops = useMemo(() => {
+    if (!todayPlan?.stops) return [];
+    const { stops } = pruneStopsAgainstAccounts(todayPlan.stops, accounts);
+    return hydrateStops(stops, accounts);
+  }, [todayPlan, accounts]);
+
+  const planRouteUrl = useMemo(() => {
+    const routable = planStops.map((h) => h.account).filter(hasRoutableAddress);
+    return routable.length >= 2 ? buildAppleMapsRouteUrl(routable) : null;
+  }, [planStops]);
 
   // Top-5 suggestions are scoped to the rep's territory ∪ strategic
   // accounts; if they have no territory configured this no-ops and
@@ -119,6 +137,7 @@ export function Today({ displayName }) {
   function handleRefresh() {
     refreshAccounts();
     refreshBriefing();
+    refreshPlan();
   }
 
   return (
@@ -148,6 +167,54 @@ export function Today({ displayName }) {
           </div>
         </button>
       )}
+
+      <div className={s.card}>
+        <div className={s.routeHeader}>
+          <div className={s.sectionTitle}>Today&rsquo;s plan</div>
+          <button
+            type="button"
+            className={s.routeBtn}
+            onClick={() => navigate('/bd/plan')}
+          >
+            <ListOrdered size={14} aria-hidden />
+            <span>{planStops.length > 0 ? 'Edit' : 'Build'}</span>
+          </button>
+        </div>
+        {planStops.length === 0 ? (
+          <div className={s.planCardEmpty}>
+            No plan yet — tap <strong>Build</strong> to pick your stops for today.
+          </div>
+        ) : (
+          <>
+            <ol className={s.planCardStops}>
+              {planStops.slice(0, 6).map(({ account }, i) => (
+                <li key={account.id} className={s.planCardStopRow}>
+                  <span className={s.planCardStopIndex}>{i + 1}</span>
+                  <span className={s.planCardStopName}>{account.name}</span>
+                </li>
+              ))}
+              {planStops.length > 6 && (
+                <li className={s.muted} style={{ fontSize: 12, marginLeft: 26 }}>
+                  +{planStops.length - 6} more
+                </li>
+              )}
+            </ol>
+            {planRouteUrl && (
+              <div className={s.planCardActions}>
+                <a
+                  className={s.routeBtn}
+                  href={planRouteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Map size={14} aria-hidden />
+                  <span>Open in Maps ({planStops.filter((p) => hasRoutableAddress(p.account)).length})</span>
+                </a>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <div className={s.card}>
         <div className={s.sectionTitle}>Briefing</div>

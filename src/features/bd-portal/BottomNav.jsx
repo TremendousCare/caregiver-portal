@@ -4,12 +4,14 @@ import s from './BdPortal.module.css';
 
 export function BottomNav() {
   const location = useLocation();
-  // The capture, referral, and contact-edit screens are "modal" — we
-  // don't show the bottom nav there so the form gets the full screen.
+  // The capture, referral, contact-edit, and route-builder screens
+  // are "modal" — we don't show the bottom nav there so the form
+  // gets the full screen.
   const p = location.pathname;
   if (
     p === '/bd/log'    || p.endsWith('/log')
     || p === '/bd/refer' || p.endsWith('/refer')
+    || p === '/bd/plan'
     || p.endsWith('/contact')
     || p.endsWith('/contact/new')
     || /\/contact\/[^/]+\/edit$/.test(p)
