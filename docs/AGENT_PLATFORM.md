@@ -383,11 +383,86 @@ The legacy edge functions (`ai-chat/index.ts`, `ai-planner/index.ts`, `message-r
 
 ---
 
+## Phase 1.5 follow-up — Agent loop closure (passive linker)
+
+**Goal**: Make the autonomy v2 algorithm actually receive positive signal from the regular operator workflow. Discovered during 1.5 smoke testing (2026-05-12): the AI Priorities dashboard buttons only navigate, never call `executeSuggestion`, never write `agent_actions` rows. Combined with low chat usage, the algorithm has been mathematically prevented from ever promoting an action past L1 since it shipped — the numerator (success signals) was near-zero, the denominator (rejections + expirations) was steady.
+
+**Gate**: Phase 1.5 shipped. Independent of the Phase 1.5 calendar bake — these are different deliverables.
+
+**Approach**: passive linker. When an operator performs an action through a regular UI surface, the system server-side finds the freshest non-expired pending `ai_suggestions` row matching `(entity_type, entity_id, action_type)`, CAS-transitions it `pending → executed`, and writes a `phase='executed'` row to `agent_actions` through the existing `recordAgentAction` helper. The dashboard buttons are **not** modified — they remain navigation-only. The loop closure is invisible to the operator and runs as fire-and-forget plumbing after the primary action lands.
+
+### Why this pattern (not "make the dashboard buttons execute")
+
+- Zero UX change. The operator's existing workflow continues exactly as it does today.
+- Zero accidental-send risk. A dashboard click cannot trigger an outbound SMS / email by mistake.
+- Reusable across every operator-write surface. The same helper handles SMS, email, scheduling, phase change, task complete, note add — and any future surface added in Phase 2+.
+- Survives the long-term UI direction shift toward pattern C+D. Even when the AI Priorities feed is replaced by an outcomes dashboard, every operator action still wants to close any open suggestion for the same (entity, action_type).
+
+### Architecture
+
+- `supabase/functions/_shared/operations/closeSuggestion.ts` — pure shared helper, `closePendingSuggestion(supabase, { entityType, entityId, actionType, actor, params })`. Validates input against `CLOSEABLE_ACTION_TYPES` (allowlist mirrors planner emissions: `send_sms`, `send_email`, `add_note`, `complete_task`, `update_phase`, `create_calendar_event`, `send_docusign_envelope`), looks up the candidate suggestion, applies the CAS update (extra `.eq('status', 'pending')` guards against concurrent close), looks up `agents.version` for the audit row, calls `recordAgentAction` with `phase='executed'` and a sanitized payload echoing the operator's params.
+- `supabase/functions/close-pending-suggestion/index.ts` — thin edge function wrapper. JWT auth (any authenticated user — operator actions are not admin-gated), service-role client internally to write `agent_actions` (the table is service-role-write-only by Phase 1.1 lockdown). Same posture as `agent-flag-toggle`.
+- `src/lib/agentLoopClosure.js` — frontend caller. `closePendingSuggestionForAction({ entityType, entityId, actionType, params })`. **Never throws** — resolves to `{ closed: false, error }` on any failure so a missing `.catch()` at a call site doesn't surface unhandled promise rejections. Closeable-action allowlist enforced client-side too as a defense-in-depth + early-return optimization.
+- Call sites: each operator-write surface invokes the helper immediately after the underlying action succeeds. Fire-and-forget pattern: `closePendingSuggestionForAction({...}).catch(err => console.warn(...))`.
+
+### Failure modes (all non-fatal)
+
+| Failure | Behavior |
+|---|---|
+| Helper input invalid | `{ closed: false, skipped: true, reason }` — no DB writes. |
+| No matching pending suggestion | `{ closed: false, reason: 'no pending suggestion to close' }` — no DB writes. |
+| Lost CAS race (another writer closed first) | `{ closed: false, reason: 'lost CAS race' }` — UPDATE matched zero rows; audit write skipped to avoid double-count. |
+| Suggestion has no `agent_id` (legacy row) | `{ closed: true, audit_failed: true }` — suggestion still flipped to executed; no audit row written (nothing to stamp). |
+| Agent lookup fails | `{ closed: true, audit_failed: true }` — suggestion still closed. |
+| `recordAgentAction` returns `success: false` (chain conflict, network error) | `{ closed: true, audit_failed: true, reason }` — suggestion still closed. |
+| Edge function returns 5xx | Frontend gets `{ closed: false, error }`; primary operator action (SMS / email / etc) unaffected because it already completed. |
+
+The operator's primary action **never fails because of loop closure**. The autonomy algorithm simply misses that one positive signal — the next operator action will close the next matching suggestion.
+
+### Sliced into 2 PRs
+
+#### PR 1 — SMS compose loop closure *(shipped 2026-05-12 as PR #317)*
+
+- New shared helper + edge function + frontend caller.
+- First wire-up: `src/features/caregivers/caregiver/SMSComposeBar.jsx:228+` — after `bulk-sms` returns success.
+- 14 new Vitest specs covering allowlist validation, no-match no-op, happy path, payload sanitization (string truncation + nested-object flattening), CAS race, all audit-failure paths.
+
+**Exit criterion**: edge function deployed, first organic `phase='executed'` `agent_actions` row from operator-sent SMS lands in production.
+
+#### PR 2 — Remaining operator-write surfaces *(next)*
+
+Wire the helper into:
+
+- **Email compose** (`EmailComposeForm.jsx`) — after the email Edge Function call succeeds. `action_type='send_email'`. Params: `{ subject_length, body_length }`.
+- **Schedule creation** (caregiver page calendar event creator) — after the calendar event is persisted. `action_type='create_calendar_event'`. Params: `{ event_type, days_from_now }`.
+- **Phase change** (caregiver detail page phase dropdown / move-to-phase action) — after the phase transition writes. `action_type='update_phase'`. Params: `{ from_phase, to_phase }`.
+- **Task complete** (board task completion + caregiver page checklist) — after the task is marked done. `action_type='complete_task'`. Params: `{ task_id }`.
+- **Note add** (caregiver / client note composer) — after the note is persisted. `action_type='add_note'`. Params: `{ note_type, char_count }`.
+
+Each call site is one line invoking `closePendingSuggestionForAction({...})` after the primary write succeeds; no new schema, no new edge function. Each gets at least one Vitest spec confirming the helper is called with the right shape on success path.
+
+**Exit criterion**: ≥ 5 organic `phase='executed'` rows from each instrumented surface land in production within 7 days of merge.
+
+### UI strategy review (post-bake)
+
+After PR 2 ships and bakes ≥ 2-3 days, the owner-led UI strategy review happens with real audit-log data on:
+
+- How many organic `phase='executed'` rows landed per surface?
+- Which `action_type`s accumulated enough samples for autonomy v2 to consider promoting?
+- Did any action actually clear a promotion gate?
+- Of the suggestions the planner generated, what % got organically closed vs. expired vs. rejected?
+
+The review locks the UI direction for Phase 2 (recruiting funnel orchestrator). Owner direction (2026-05-12) is to move toward pattern **C** (outcome-based dashboard) + pattern **D** (background-autonomous agent with daily digest), evolving the current "AI Priorities feed" into a sub-view of an outcomes view rather than the primary surface.
+
+**Rollback**: revert the call site at each surface. The helper + edge function remain as additive infrastructure with no callers.
+
+---
+
 ## Phase 2 — Recruiting Agent: Autonomous Funnel Orchestration
 
 **Goal**: Transform the existing recruiting agent from copilot into autonomous funnel orchestrator. Drive every caregiver from CSV upload to verified orientation completion within the time targets (5d gold / 7d good / 14d acceptable). Humans intervene only at the three locked gates: virtual interview, onboarding-document accuracy review, orientation.
 
-**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set.
+**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set. Phase 1.5 follow-up (loop closure) PR 2 shipped + first organic `phase='executed'` rows landing across all five instrumented surfaces (added 2026-05-12). UI strategy review completed — Phase 2 must start with the locked UI direction (pattern C+D) baked in.
 
 **Why this is the wedge**: locked in `AGENT_PLATFORM_VISION.md` (revised 2026-04-30). Restated:
 - Recruiting agent (AI chat) is already in active production use by the owner.
