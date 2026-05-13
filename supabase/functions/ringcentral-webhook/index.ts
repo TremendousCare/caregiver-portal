@@ -4,12 +4,13 @@ import {
   RouteRow,
   summarizeRouteResults,
 } from "./subscribe-helpers.ts";
+import {
+  getRingCentralAccessTokenWithJwt,
+} from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RC_CLIENT_ID = Deno.env.get("RINGCENTRAL_CLIENT_ID");
-const RC_CLIENT_SECRET = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
 const RC_JWT_TOKEN = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
 const RC_API_URL = "https://platform.ringcentral.com";
 
@@ -67,32 +68,13 @@ function phoneDigits(phone: string): string {
   return d.length >= 10 ? d.slice(-10) : d;
 }
 
-// ─── Get RingCentral Access Token ───
-async function getRingCentralAccessTokenWithJwt(jwt: string): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
-    throw new Error("RingCentral client credentials not configured");
-  }
-  if (!jwt) {
-    throw new Error("RingCentral JWT not provided");
-  }
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
-  }
-  const data = await response.json();
-  return data.access_token;
-}
+// RingCentral access-token resolution now flows through the cached helper in
+// _shared/helpers/ringcentral.ts. The previous local copy here was a duplicate
+// that did NOT share the in-process token cache, so the per-route subscribe
+// loop below was firing one fresh /oauth/token call per route. With three
+// routes (some of which can share an extension), that fanned out into back-to-
+// back auth requests and contributed to CMN-301 "Request rate exceeded"
+// failures on the per-extension auth bucket (5 req / 60s, 60s penalty).
 
 // Resolve the JWT to use for subscribing a given route.
 // Per-route vault secret wins; otherwise fall back to the global env JWT
@@ -501,10 +483,78 @@ async function handleSubscribe(): Promise<Response> {
       );
     }
 
-    // Subscribe routes serially: keeps error attribution clear and avoids
-    // any RC rate-limit surprises on accounts with many extensions.
+    // Subscribe routes serially. Two related concerns to balance:
+    //
+    //   1. RingCentral's auth bucket is 5 req/60s per extension with a 60s
+    //      penalty interval. We need to space out FRESH /oauth/token calls
+    //      so a multi-extension account doesn't blow the bucket.
+    //   2. The pg_cron job that calls this endpoint has a 60-second
+    //      timeout_milliseconds (see supabase/migrations/20260417000000…).
+    //      An unconditional 12s sleep per route would tip past that wall
+    //      at 6+ routes and leave the tail unprocessed.
+    //
+    // Reconciliation:
+    //   - The shared auth helper caches access tokens per-JWT. Routes that
+    //     resolve to the same JWT (e.g. multiple routes falling back to the
+    //     env-var, or two routes pointing at the same extension) trigger a
+    //     fresh /oauth/token only the FIRST time — every subsequent route
+    //     with that JWT hits the cache and adds zero auth pressure.
+    //   - So we only need to space iterations when the upcoming route would
+    //     trigger a fresh auth (= JWT we haven't seen yet this run).
+    //   - Total wait budget is therefore bounded by the count of UNIQUE
+    //     JWTs across active routes, not the total route count.
+    //   - As a belt-and-suspenders safety, bail out before the loop's wall-
+    //     clock approaches the pg_cron timeout and let the next cron tick
+    //     pick up the remaining routes. They'll just renew a few minutes
+    //     later — RC subscriptions live for ~7 days, so a one-tick delay is
+    //     harmless.
+    const ROUTE_FRESH_AUTH_DELAY_MS = 12_000;
+    const TIMEOUT_BUDGET_MS = 50_000; // leave 10s headroom under pg_cron's 60s cap
+    const loopStartedAt = Date.now();
+    const seenJwts = new Set<string>();
     const results: RouteResult[] = [];
+
     for (const route of routes as RouteRow[]) {
+      if (Date.now() - loopStartedAt > TIMEOUT_BUDGET_MS) {
+        console.warn(
+          `[ringcentral-webhook] stopping subscribe loop at ${results.length}/${routes.length} routes to stay under pg_cron timeout; remaining routes will be picked up next run`,
+        );
+        break;
+      }
+
+      // Resolve the JWT for this route once, outside subscribeOneRoute, so
+      // we know whether this iteration will trigger a fresh /oauth/token
+      // call (cache miss) or reuse a cached token (cache hit).
+      let jwt: string | null = null;
+      try {
+        jwt = await getJwtForRoute(route.category);
+      } catch (err) {
+        // If the JWT lookup itself fails, surface the error in the same
+        // shape subscribeOneRoute would produce and skip without a wait.
+        const message = (err as Error).message || String(err);
+        await supabase
+          .from("communication_routes")
+          .update({
+            subscription_last_error: message,
+            subscription_synced_at: new Date().toISOString(),
+          })
+          .eq("category", route.category);
+        results.push({
+          category: route.category,
+          label: route.label,
+          action: "failed",
+          error: message,
+        });
+        continue;
+      }
+
+      if (!seenJwts.has(jwt) && seenJwts.size > 0) {
+        // We're about to do a fresh /oauth/token call AND we've already
+        // done at least one this run — space them to stay under 5/60s.
+        await new Promise((r) => setTimeout(r, ROUTE_FRESH_AUTH_DELAY_MS));
+      }
+      seenJwts.add(jwt);
+
       results.push(await subscribeOneRoute(route, webhookUrl));
     }
 
