@@ -1,6 +1,16 @@
+import { useEffect, useRef, useState } from 'react';
 import { FIELD_TYPES } from './sections';
+import { moveRowDown, moveRowUp } from './listHelpers';
+import { searchCommonMedications } from './commonMedications';
 import forms from '../../styles/forms.module.css';
 import s from './FieldRenderer.module.css';
+
+// Dispatch table from field.suggestionsKey → search function.
+// Keep this small — adding a key here makes that suggestion source
+// available to any AUTOCOMPLETE field across the app.
+const SUGGESTION_SOURCES = {
+  commonMedications: searchCommonMedications,
+};
 
 // ═══════════════════════════════════════════════════════════════
 // FieldRenderer
@@ -40,6 +50,7 @@ export function FieldRenderer({ field, value, onChange, disabled, siblingValues 
     case FIELD_TYPES.LIST:        return <Field {...common}><ListControl {...common} /></Field>;
     case FIELD_TYPES.PRN:         return <Field {...common}><PRNControl {...common} /></Field>;
     case FIELD_TYPES.LEVEL_PICK:  return <Field {...common}><LevelPickControl {...common} /></Field>;
+    case FIELD_TYPES.AUTOCOMPLETE: return <Field {...common}><AutocompleteControl {...common} /></Field>;
     default:                      return <Field {...common}><UnknownControl {...common} /></Field>;
   }
 }
@@ -278,6 +289,7 @@ function EmailControl({ field, value, onChange, disabled }) {
 function ListControl({ field, value, onChange, disabled }) {
   // Value: array of row objects shaped by field.subfields.
   const rows = Array.isArray(value) ? value : [];
+  const ordered = Boolean(field.ordered);
 
   const updateRow = (idx, subId, newVal) => {
     const next = rows.map((r, i) => (i === idx ? { ...r, [subId]: newVal } : r));
@@ -289,6 +301,8 @@ function ListControl({ field, value, onChange, disabled }) {
   const removeRow = (idx) => {
     onChange(rows.filter((_, i) => i !== idx));
   };
+  const moveUp = (idx) => onChange(moveRowUp(rows, idx));
+  const moveDown = (idx) => onChange(moveRowDown(rows, idx));
 
   return (
     <div className={s.listWrap}>
@@ -297,6 +311,31 @@ function ListControl({ field, value, onChange, disabled }) {
       )}
       {rows.map((row, idx) => (
         <div key={idx} className={s.listRow}>
+          {ordered && (
+            <div className={s.listOrderControls}>
+              <div className={s.listOrderNumber}>{idx + 1}</div>
+              <button
+                type="button"
+                className={s.listOrderBtn}
+                disabled={disabled || idx === 0}
+                onClick={() => moveUp(idx)}
+                aria-label="Move up"
+                title="Move up"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className={s.listOrderBtn}
+                disabled={disabled || idx === rows.length - 1}
+                onClick={() => moveDown(idx)}
+                aria-label="Move down"
+                title="Move down"
+              >
+                ↓
+              </button>
+            </div>
+          )}
           <div className={s.listRowFields}>
             {field.subfields.map((sub) => (
               <div key={sub.id} className={s.listSubfield}>
@@ -404,6 +443,85 @@ function LevelPickControl({ value, onChange, disabled }) {
           {lvl}
         </button>
       ))}
+    </div>
+  );
+}
+
+function AutocompleteControl({ field, value, onChange, disabled }) {
+  // Free-text input with a filtered suggestion dropdown. The stored
+  // value is always whatever's in the input — suggestions only speed
+  // up entry. Custom values are preserved.
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const rootRef = useRef(null);
+
+  const search = SUGGESTION_SOURCES[field.suggestionsKey];
+  const suggestions = (open && search) ? search(value, 8) : [];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const pick = (option) => {
+    onChange(option);
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const onKeyDown = (e) => {
+    if (!open || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, -1));
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault();
+      pick(suggestions[activeIndex]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setActiveIndex(-1);
+    }
+  };
+
+  return (
+    <div className={s.autocompleteWrap} ref={rootRef}>
+      <input
+        type="text"
+        className={forms.fieldInput}
+        value={value ?? ''}
+        placeholder={field.placeholder || ''}
+        disabled={disabled}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setActiveIndex(-1); }}
+        onKeyDown={onKeyDown}
+        autoComplete="off"
+      />
+      {open && suggestions.length > 0 && (
+        <ul className={s.autocompleteList} role="listbox">
+          {suggestions.map((opt, idx) => (
+            <li
+              key={opt}
+              role="option"
+              aria-selected={idx === activeIndex}
+              className={`${s.autocompleteItem} ${idx === activeIndex ? s.autocompleteItemActive : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); pick(opt); }}
+              onMouseEnter={() => setActiveIndex(idx)}
+            >
+              {opt}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
