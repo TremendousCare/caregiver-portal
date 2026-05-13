@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getBookingUrlFromOrgSettings } from "../_shared/helpers/bookings.ts";
+import { sendSmsToRingCentralWithRetry } from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -384,21 +385,23 @@ async function sendSMS(
     return { success: false, error: `Failed to connect to SMS service: ${err.message}` };
   }
 
-  const smsResponse = await fetch(`${RC_API_URL}/restapi/v1.0/account/~/extension/~/sms`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      from: { phoneNumber: fromNumber },
-      to: [{ phoneNumber: normalized }],
-      text: message,
-    }),
-  });
+  // Idempotent helper: retries exactly once on a confirmed 429 (RC's rate
+  // limiter rejected us before delivery — safe to retry because RC does not
+  // queue 429'd sends). Never retries on network errors or 5xx; see the
+  // helper's docstring for the full reasoning.
+  const smsResponse = await sendSmsToRingCentralWithRetry(
+    accessToken,
+    fromNumber,
+    normalized,
+    message,
+  );
 
   if (!smsResponse.ok) {
     const errorText = await smsResponse.text();
+    // Still a 429 after our single retry → leave the survey row's
+    // last_reminder_sent_at untouched so the next automation-cron tick can
+    // re-pick-up this caregiver via shouldRemindSurvey(). Capped per-rule by
+    // max_reminders.
     if (smsResponse.status === 429) return { success: false, error: "SMS rate limit reached. Try again later." };
     return { success: false, error: `RingCentral API error (${smsResponse.status}): ${errorText}` };
   }

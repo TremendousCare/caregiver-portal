@@ -33,11 +33,40 @@ function generateAvailabilitySurveyToken(): string {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// Small pause between survey-reminder sends to avoid hammering RingCentral.
-// RC has per-second SMS rate limits; bursting the whole batch back-to-back
-// has historically triggered throttling / transient failures. At 400ms, even
-// 500 reminders stays under the cron's 5-minute timeout.
-const SURVEY_REMINDER_SEND_DELAY_MS = 400;
+// Pause between survey-reminder sends. RingCentral's per-extension rate
+// limits we have to respect:
+//   • SMS group: 40 requests / 60s with a 30s penalty interval
+//   • Auth group: 5 requests / 60s with a 60s penalty (each cold-start
+//     isolate of execute-automation calls /oauth/token once before its
+//     in-process token cache warms up)
+//
+// The auth limit is the binding one in theory (12s minimum spacing if every
+// send hit a cold isolate). In practice Supabase keeps edge function isolates
+// warm for ~5–15 minutes, so a normal cron tick fires once cold, then every
+// subsequent send in the same tick hits the warm cache and skips auth — the
+// realistic auth rate is closer to 1 call per 5-minute tick (~0.2/min) than
+// to "one auth per send."
+//
+// At 10s spacing that gives:
+//   • 6 SMS/min — ~6.7× headroom under the 40/60s SMS limit, leaves ~34/min
+//     of budget for staff manual sends, AI chat, and voice on the same line
+//   • 6 auth calls/min in the (rare) all-cold-start worst case, slightly over
+//     5/min on paper but the warm-isolate cache keeps the realistic rate way
+//     under that
+//   • 30 reminders processed per 5-min cron tick — covers typical batch sizes
+//
+// Larger batches that exceed one tick's budget continue across subsequent
+// ticks via the existing shouldRemindSurvey gate (a failed/unsent reminder
+// leaves last_reminder_sent_at untouched and becomes eligible again next
+// tick), capped per-rule by max_reminders.
+//
+// Previously this was 400ms, which exceeded both rate limits (~150 SMS/min,
+// ~150 auth calls/min in cold-start fanout) and caused mass 429s / "Failed
+// to connect to SMS service" errors visible in RC analytics. If we ever want
+// to go below ~10s, the right move is to pre-fetch the access token in this
+// function and forward it to execute-automation in the request body — that
+// eliminates the auth concern and lets us pace purely against the SMS limit.
+const SURVEY_REMINDER_SEND_DELAY_MS = 10_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
