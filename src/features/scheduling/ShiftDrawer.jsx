@@ -14,6 +14,10 @@ import {
 } from './caregiverRulesStorage';
 import { DAY_OF_WEEK_LABELS_LONG } from './recurrenceHelpers';
 import {
+  DEFAULT_APP_TIMEZONE,
+  utcMsToWallClockParts,
+} from '../../lib/scheduling/timezone';
+import {
   SHIFT_CANCEL_REASONS,
   buildShiftUpdatePatch,
   canMarkShiftNoShow,
@@ -27,7 +31,6 @@ import { CaregiverPicker } from './CaregiverPicker';
 import { ConfirmAssignDialog } from './ConfirmAssignDialog';
 import { ClockEventsPanel } from './ClockEventsPanel';
 import { ShiftCarePlanLog } from '../care-plans/ShiftCarePlanLog';
-import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import btn from '../../styles/buttons.module.css';
 import s from './ShiftDrawer.module.css';
 
@@ -184,15 +187,45 @@ export function ShiftDrawer({
         delete propagable.endTime;
         // Only propagate if there's actually something non-time to apply
         if (Object.keys(propagable).length > 0) {
+          // Resolve day-of-week and the calendar date in the org's wall
+          // clock — `shift.startTime` is a UTC instant, so a Mon 8pm PT
+          // shift comes back as Tue UTC. Using getUTCDay()/ISO-slice
+          // here would write the rule (and scope the sibling filter)
+          // to the wrong weekday for evening shifts in negative-offset
+          // zones.
+          const editedParts = utcMsToWallClockParts(
+            shift.startTime,
+            DEFAULT_APP_TIMEZONE,
+          );
+          const editedDow = editedParts.dayOfWeek;
+          const editedDateOnly = editedParts.dateOnly;
+
+          // Caregiver swaps are scoped to the same weekday as the
+          // edited shift — that matches the rule's day-of-week scope
+          // and the user's mental model ("Maria is the new regular
+          // Monday caregiver"). Other propagable edits (notes, rates,
+          // instructions, status) still apply to all future siblings
+          // regardless of weekday, which is what users expect when
+          // updating a free-text field.
+          const isCaregiverChange = 'assignedCaregiverId' in patch;
           const siblings = await getShifts({
             startDate: shift.startTime, // strictly after (inclusive) this shift's start
           });
-          const futureSiblings = siblings.filter(
-            (sib) =>
-              sib.id !== shift.id &&
-              sib.recurrenceGroupId === shift.recurrenceGroupId &&
-              new Date(sib.startTime).getTime() > new Date(shift.startTime).getTime(),
-          );
+          const futureSiblings = siblings.filter((sib) => {
+            if (sib.id === shift.id) return false;
+            if (sib.recurrenceGroupId !== shift.recurrenceGroupId) return false;
+            if (new Date(sib.startTime).getTime() <= new Date(shift.startTime).getTime()) {
+              return false;
+            }
+            if (isCaregiverChange) {
+              const sibParts = utcMsToWallClockParts(
+                sib.startTime,
+                DEFAULT_APP_TIMEZONE,
+              );
+              if (sibParts.dayOfWeek !== editedDow) return false;
+            }
+            return true;
+          });
           for (const sib of futureSiblings) {
             try {
               await updateShift(sib.id, propagable);
@@ -207,10 +240,7 @@ export function ShiftDrawer({
           // currently-generated window pick up the new caregiver.
           // Without this, the user re-assigns every 12 weeks; see
           // docs/SCHEDULING_CAREGIVER_RULES.md.
-          if ('assignedCaregiverId' in patch && shift.servicePlanId) {
-            const startDt = new Date(shift.startTime);
-            const dow = startDt.getUTCDay();
-            const dateOnly = shift.startTime.slice(0, 10);
+          if (isCaregiverChange && shift.servicePlanId) {
             try {
               if (patch.assignedCaregiverId) {
                 if (!shift.orgId) {
@@ -221,17 +251,17 @@ export function ShiftDrawer({
                   await setRegularCaregiverForDay({
                     servicePlanId: shift.servicePlanId,
                     orgId: shift.orgId,
-                    dayOfWeek: dow,
+                    dayOfWeek: editedDow,
                     caregiverId: patch.assignedCaregiverId,
-                    effectiveFrom: dateOnly,
+                    effectiveFrom: editedDateOnly,
                     createdBy: currentUserName || null,
                   });
                 }
               } else {
                 await clearRegularCaregiverForDay({
                   servicePlanId: shift.servicePlanId,
-                  dayOfWeek: dow,
-                  effectiveFrom: dateOnly,
+                  dayOfWeek: editedDow,
+                  effectiveFrom: editedDateOnly,
                 });
               }
             } catch (ruleErr) {
@@ -239,8 +269,11 @@ export function ShiftDrawer({
             }
           }
 
+          const dayName = DAY_OF_WEEK_LABELS_LONG[editedDow] || 'recurring';
           showToast?.(
-            `Shift saved · ${futureSiblings.length} future shifts updated`,
+            isCaregiverChange
+              ? `Shift saved · ${futureSiblings.length} future ${dayName} shifts updated`
+              : `Shift saved · ${futureSiblings.length} future shifts updated`,
           );
         } else {
           showToast?.('Shift saved (time-only changes are not applied to future shifts)');
