@@ -226,6 +226,36 @@
   gap: 10px;
 }
 
+/* ── Quick-add template picker (above the textarea) ─────────── */
+
+.templatePicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.templateLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--tc-text-secondary);
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.templateChip {
+  background: #eef4f7;
+  border-color: #d8e3eb;
+}
+
+.templateChip:hover:not(:disabled) {
+  background: #e0ecf2;
+  border-color: var(--tc-cyan);
+  color: var(--tc-text-primary);
+}
+
 .newFormRow {
   display: flex;
   gap: 8px;
