@@ -34,9 +34,15 @@
 // any ringcentral_extension_id binding.
 // ─────────────────────────────────────────────────────────────────
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useVoice } from '../../shared/context/VoiceContext';
+import {
+  clampPosition,
+  loadStoredPosition,
+  storePosition,
+} from '../../lib/voice/embeddablePosition';
 import styles from './voice.module.css';
 
 const HOSTED_URL = 'https://ringcentral.github.io/ringcentral-embeddable/app.html';
@@ -64,8 +70,14 @@ function buildEmbeddableUrl(clientId) {
 export function RingCentralEmbeddable() {
   const { registerEmbeddableIframe } = useVoice();
   const iframeRef = useRef(null);
+  const panelRef = useRef(null);
   const [collapsed, setCollapsed] = useState(true);
   const [shouldRender, setShouldRender] = useState(false);
+  // null = use the CSS default bottom-right placement. Once the user
+  // drags, we switch to left/top absolute positioning persisted in
+  // localStorage so each user keeps their preferred spot.
+  const [position, setPosition] = useState(() => loadStoredPosition());
+  const dragStateRef = useRef(null);
 
   // Only render the widget for users who actually have a bound RC
   // extension. Otherwise the dialer is just noise.
@@ -94,6 +106,95 @@ export function RingCentralEmbeddable() {
     return () => registerEmbeddableIframe(null);
   }, [shouldRender, registerEmbeddableIframe]);
 
+  // ─── Drag handling ───
+  // Pointer events give us unified mouse + touch support and capture
+  // semantics so the drag survives the cursor leaving the header.
+  const handlePointerDown = useCallback(
+    (e) => {
+      // Ignore clicks on the collapse toggle so dragging the panel
+      // doesn't also toggle it.
+      if (e.target.closest(`.${styles.embedToggle}`)) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        moved: false,
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Older browsers without setPointerCapture — drag still works
+        // via window listeners installed below.
+      }
+    },
+    [],
+  );
+
+  const handlePointerMove = useCallback((e) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    drag.moved = true;
+    const next = clampPosition(
+      { left: e.clientX - drag.offsetX, top: e.clientY - drag.offsetY },
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: panel.offsetWidth, height: panel.offsetHeight },
+    );
+    setPosition(next);
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (e) => {
+      const drag = dragStateRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      dragStateRef.current = null;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      if (drag.moved) {
+        // Read the current position from React state via a functional
+        // update so we persist exactly what's on screen.
+        setPosition((p) => {
+          if (p) storePosition(p);
+          return p;
+        });
+      }
+    },
+    [],
+  );
+
+  // Re-clamp when the window resizes so the widget never disappears
+  // off-screen on a smaller viewport.
+  useEffect(() => {
+    if (!position) return undefined;
+    function onResize() {
+      const panel = panelRef.current;
+      if (!panel) return;
+      setPosition((p) => {
+        if (!p) return p;
+        const next = clampPosition(
+          p,
+          { width: window.innerWidth, height: window.innerHeight },
+          { width: panel.offsetWidth, height: panel.offsetHeight },
+        );
+        if (next.left !== p.left || next.top !== p.top) {
+          storePosition(next);
+          return next;
+        }
+        return p;
+      });
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [position]);
+
   if (!shouldRender) return null;
 
   if (!RC_CLIENT_ID) {
@@ -106,17 +207,36 @@ export function RingCentralEmbeddable() {
 
   const src = buildEmbeddableUrl(RC_CLIENT_ID);
 
+  // When the user has dragged, switch from CSS bottom-right anchoring
+  // to absolute left/top. Otherwise leave inline style empty so the
+  // stylesheet's default placement wins.
+  const inlineStyle = position
+    ? { left: position.left, top: position.top, right: 'auto', bottom: 'auto' }
+    : undefined;
+
   return (
-    <div className={`${styles.embedPanel} ${collapsed ? styles.embedCollapsed : ''}`}>
-      <div className={styles.embedHeader}>
-        <span className={styles.embedTitle}>RingCentral Phone</span>
+    <div
+      ref={panelRef}
+      className={`${styles.embedPanel} ${collapsed ? styles.embedCollapsed : ''}`}
+      style={inlineStyle}
+    >
+      <div
+        className={styles.embedHeader}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        role="toolbar"
+        aria-label="RingCentral phone (drag to move)"
+      >
+        <span className={styles.embedTitle}>RC</span>
         <button
           type="button"
           className={styles.embedToggle}
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? 'Expand phone' : 'Collapse phone'}
         >
-          {collapsed ? '▲' : '▼'}
+          {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
       </div>
       {!collapsed && (
