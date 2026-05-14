@@ -121,6 +121,77 @@
   gap: 8px;
 }
 
+/* Answer / Dismiss row shown only during an inbound ringing call.
+   Sits above the "Open profile" action so the call-control choice
+   is the most prominent thing on the toast. */
+
+.popCallActions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.answerBtn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #3FBF7F, #1F8A57);
+  color: #0E1E2A;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.answerBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.answerBtn:disabled {
+  background: rgba(63, 191, 127, 0.35);
+  color: rgba(14, 30, 42, 0.6);
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+}
+
+.declineBtn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(122, 139, 160, 0.18);
+  color: #E5EBF3;
+  border: 1px solid rgba(122, 139, 160, 0.35);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.declineBtn:hover {
+  background: rgba(122, 139, 160, 0.28);
+}
+
+.popError {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: rgba(229, 138, 64, 0.15);
+  border: 1px solid rgba(229, 138, 64, 0.35);
+  border-radius: 8px;
+  color: #FFB570;
+  font-size: 12px;
+}
+
 .primaryBtn {
   flex: 1;
   background: var(--tc-cyan, #29BEE4);
