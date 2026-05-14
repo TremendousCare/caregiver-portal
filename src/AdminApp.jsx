@@ -383,7 +383,6 @@ function CaregiverDetailPage() {
   } = useCaregivers();
 
   const [showScripts, setShowScripts] = useState(null);
-  const [showGreenLight, setShowGreenLight] = useState(false);
 
   const caregiver = useMemo(() => caregivers.find((c) => c.id === id), [caregivers, id]);
 
@@ -420,8 +419,6 @@ function CaregiverDetailPage() {
       onRefreshTasks={refreshTasks}
       showScripts={showScripts}
       setShowScripts={setShowScripts}
-      showGreenLight={showGreenLight}
-      setShowGreenLight={setShowGreenLight}
       showToast={showToast}
     />
   );

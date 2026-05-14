@@ -165,15 +165,6 @@ export const CHASE_SCRIPTS = {
   },
 };
 
-// ─── Green Light Checklist ───────────────────────────────────
-export const GREEN_LIGHT_ITEMS = [
-  'Offer Letter Signed',
-  'Onboarding Packet Complete (I-9, W-4, etc.)',
-  'Background Check CLEARED in Guardian',
-  'TB Test Valid (Negative < 2 years)',
-  'CareAcademy Training Complete (5 hours)',
-];
-
 // ─── Default Board Columns ──────────────────────────────────
 export const DEFAULT_BOARD_COLUMNS = [
   {
