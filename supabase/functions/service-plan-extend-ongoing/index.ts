@@ -59,6 +59,7 @@ import {
   ONGOING_TARGET_DAYS,
   ONGOING_BUFFER_DAYS,
 } from "../../../src/features/scheduling/recurrenceHelpers.js";
+import { resolveCaregiverForDate } from "../../../src/lib/scheduling/caregiverRules.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -90,6 +91,14 @@ interface ExistingShiftRow {
   end_time: string;
 }
 
+interface CaregiverRuleRow {
+  id: string;
+  day_of_week: number;
+  caregiver_id: string;
+  effective_from: string;
+  effective_to: string | null;
+}
+
 interface OrgRow {
   id: string;
   settings: Record<string, unknown> | null;
@@ -101,8 +110,51 @@ interface PlanResult {
   reason: string;
   shifts_inserted: number;
   shifts_skipped_existing: number;
+  shifts_pre_assigned: number;
   last_generated_through: string | null;
   error?: string;
+}
+
+/**
+ * Compute the day-of-week (0=Sun..6=Sat) for a 'YYYY-MM-DD' date
+ * string. The date already encodes the org-local calendar day (the
+ * recurrence expander resolved it that way), so a UTC midnight Date
+ * built from the parts gives the correct weekday.
+ */
+function dowFromDateString(dateOnly: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!m) return -1;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(ms).getUTCDay();
+}
+
+/**
+ * Load every caregiver rule for a service plan. Returns [] if the
+ * table doesn't exist yet (migration not applied) so the cron stays
+ * correct during the migration→deploy window.
+ */
+async function loadRulesForPlan(
+  supabase: ReturnType<typeof createClient>,
+  servicePlanId: string,
+): Promise<CaregiverRuleRow[]> {
+  const { data, error } = await supabase
+    .from("service_plan_caregiver_rules")
+    .select("id, day_of_week, caregiver_id, effective_from, effective_to")
+    .eq("service_plan_id", servicePlanId);
+  if (error) {
+    const code = (error as { code?: string }).code;
+    const msg = String((error as { message?: string }).message || "");
+    if (
+      code === "42P01" ||
+      code === "PGRST205" ||
+      msg.includes("service_plan_caregiver_rules") &&
+        msg.includes("does not exist")
+    ) {
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []) as CaregiverRuleRow[];
 }
 
 function pickOrgTimezone(org: OrgRow | undefined): string {
@@ -134,6 +186,7 @@ async function extendPlan(
     reason: "skipped",
     shifts_inserted: 0,
     shifts_skipped_existing: 0,
+    shifts_pre_assigned: 0,
     last_generated_through: plan.last_generated_through,
   };
 
@@ -228,20 +281,44 @@ async function extendPlan(
     return result;
   }
 
+  // Load this plan's caregiver rules so we can pre-assign the right
+  // caregiver to each materialized instance. When no rules exist, the
+  // resolver returns null and we fall back to `status: 'open'`, which
+  // is identical to the cron's pre-rule behavior — making this change
+  // bit-for-bit backward compatible for plans without rules.
+  let rules: CaregiverRuleRow[] = [];
+  try {
+    rules = await loadRulesForPlan(supabase, plan.id);
+  } catch (rulesErr) {
+    result.error = `rules load failed: ${
+      rulesErr instanceof Error ? rulesErr.message : String(rulesErr)
+    }`;
+    return result;
+  }
+
   // Build shift rows. The recurrence_group_id mirrors the dialog's
   // convention (plan.id) so future series-level edits can find every
   // shift this plan has produced.
-  const rows = newInstances.map((inst) => ({
-    org_id: plan.org_id,
-    service_plan_id: plan.id,
-    client_id: plan.client_id,
-    start_time: inst.start_time,
-    end_time: inst.end_time,
-    status: "open",
-    recurrence_group_id: plan.id,
-    recurrence_rule: plan.recurrence_pattern,
-    created_by: "system:service-plan-extend-ongoing",
-  }));
+  const rows = newInstances.map((inst) => {
+    const dow = dowFromDateString(inst.date);
+    const caregiverId = dow >= 0
+      ? resolveCaregiverForDate(rules, dow, inst.date)
+      : null;
+    return {
+      org_id: plan.org_id,
+      service_plan_id: plan.id,
+      client_id: plan.client_id,
+      start_time: inst.start_time,
+      end_time: inst.end_time,
+      assigned_caregiver_id: caregiverId,
+      status: caregiverId ? "assigned" : "open",
+      recurrence_group_id: plan.id,
+      recurrence_rule: plan.recurrence_pattern,
+      created_by: "system:service-plan-extend-ongoing",
+    };
+  });
+
+  result.shifts_pre_assigned = rows.filter((r) => r.assigned_caregiver_id).length;
 
   const { error: insertErr } = await supabase.from("shifts").insert(rows);
   if (insertErr) {
