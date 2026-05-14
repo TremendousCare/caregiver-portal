@@ -186,15 +186,12 @@
 
 .calendarWrap :global(.fc-timegrid-slot),
 .calendarWrap :global(.fc-timegrid-slot-lane) {
-  height: clamp(6px, calc((100vh - 340px) / 96), 14px);
-}
-
-.calendarWrap :global(.fc-timegrid-slot-minor) {
-  border-top-style: none !important;
+  height: clamp(20px, calc((100vh - 340px) / 24), 48px);
 }
 
 .calendarWrap :global(.fc-timegrid-slot-label-cushion) {
   padding: 0 4px;
+  font-size: 11px;
 }
 
 /* FullCalendar theme overrides to match Tremendous Care visual language */
