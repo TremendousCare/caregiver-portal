@@ -350,6 +350,15 @@ function resolveTemplate(
     sender_number: triggerContext?.sender_number || "",
     survey_link: triggerContext?.survey_link || "",
     booking_url: triggerContext?.booking_url || "",
+    // Interview reminder context (interview_reminder trigger).
+    // Pre-formatted by the interview-reminders cron so this stays a
+    // pure string substitution. minutes_until is rendered as the live
+    // gap at send time; cancelled/completed interviews are filtered
+    // upstream so we never resolve negative values here.
+    interview_start_text: triggerContext?.interview_start_text || "",
+    interview_join_url: triggerContext?.interview_join_url || "",
+    interview_service_name: triggerContext?.interview_service_name || "",
+    minutes_until: triggerContext?.minutes_until || "",
   };
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => fieldMap[key] || "");
 }
@@ -521,6 +530,18 @@ Deno.serve(async (req) => {
     }
     if (trigger_context?.reminder_number) {
       dedupQuery = dedupQuery.contains("trigger_context", { reminder_number: trigger_context.reminder_number });
+    }
+    // Interview reminder dedup is per (interview, minutes_before) — a
+    // caregiver can have multiple interviews over time, and each
+    // configured lead time (e.g. 60 + 15) is a separate logical send.
+    // Without this scoping the base (rule_id, caregiver_id) match
+    // would skip every reminder after the very first one this rule
+    // ever sent to the caregiver.
+    if (trigger_context?.interview_id) {
+      dedupQuery = dedupQuery.contains("trigger_context", { interview_id: trigger_context.interview_id });
+      if (trigger_context?.minutes_before !== undefined && trigger_context?.minutes_before !== null) {
+        dedupQuery = dedupQuery.contains("trigger_context", { minutes_before: trigger_context.minutes_before });
+      }
     }
     // Survey-keyed actions (e.g. sync_availability_from_survey) dedup per
     // survey response so each submission is treated as a distinct event.
