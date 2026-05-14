@@ -9,12 +9,11 @@ import { useCaregivers, CaregiverProvider } from './shared/context/CaregiverCont
 import { useClients, ClientProvider } from './shared/context/ClientContext';
 import { BoardProvider, useBoards } from './shared/context/BoardContext';
 import { AuthGate } from './shared/components/AuthGate';
-import { AIChatbot } from './shared/components/AIChatbot';
+import { ToolsFAB } from './shared/components/ToolsFAB';
 import { AppShell } from './shared/layout/AppShell';
 import { VoiceProvider } from './shared/context/VoiceContext';
 import { IncomingCallToast } from './features/voice/IncomingCallToast';
 import { ActiveCallBar } from './features/voice/ActiveCallBar';
-import { RingCentralEmbeddable } from './features/voice/RingCentralEmbeddable';
 import { Dashboard } from './features/caregivers/Dashboard';
 import { KanbanBoard } from './features/caregivers/KanbanBoard';
 import { AddCaregiver } from './features/caregivers/AddCaregiver';
@@ -636,7 +635,6 @@ export default function AdminApp() {
             <VoiceProvider>
             <IncomingCallToast />
             <ActiveCallBar />
-            <RingCentralEmbeddable />
             <Routes>
               <Route element={<AppShell />}>
                 <Route index element={<DashboardPage />} />
@@ -662,7 +660,7 @@ export default function AdminApp() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
-            <AIChatbot caregiverId={null} currentUser={currentUserName} />
+            <ToolsFAB currentUser={currentUserName} />
             </VoiceProvider>
           </BoardProviderBridge>
         </ClientProvider>

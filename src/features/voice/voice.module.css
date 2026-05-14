@@ -351,28 +351,41 @@
 }
 
 /* ─── RingCentral Embeddable widget (Phase 2) ─── */
-/* Floating bottom-right panel. Offset up from the corner so it
-   sits above the AIChatbot button without overlapping. */
+/* Controlled panel anchored bottom-right, above the ToolsFAB.
+   Visibility is owned by the launcher, not this component. We keep
+   the iframe permanently mounted (just hidden) so the user's OAuth
+   session and any active call survive close/reopen cycles. */
 
 .embedPanel {
   position: fixed;
-  bottom: 16px;
-  right: 96px;
+  bottom: 96px;
+  right: 24px;
   width: 320px;
   background: var(--tc-bg-card);
   border: 1px solid var(--tc-border);
   border-radius: 14px;
-  box-shadow: 0 12px 40px rgba(26, 26, 26, 0.35);
+  box-shadow: 0 20px 50px rgba(26, 26, 26, 0.35);
   overflow: hidden;
   z-index: 9000;
   font-family: var(--tc-font-base);
   display: flex;
   flex-direction: column;
-  touch-action: none;
+  transition: opacity 0.18s ease, transform 0.22s ease;
+  transform-origin: bottom right;
 }
 
-.embedCollapsed {
-  width: auto;
+.embedHidden {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.embedOpen {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  visibility: visible;
 }
 
 .embedHeader {
@@ -380,41 +393,37 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 10px 14px;
   background: linear-gradient(135deg, var(--tc-navy-dark), var(--tc-navy));
   color: #F9FAFB;
-  cursor: grab;
   user-select: none;
-  touch-action: none;
-}
-
-.embedHeader:active {
-  cursor: grabbing;
 }
 
 .embedTitle {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
 }
 
-.embedToggle {
+.embedClose {
   background: transparent;
   color: #B0BBC9;
   border: none;
-  font-size: 14px;
-  width: 22px;
-  height: 22px;
+  font-size: 20px;
+  font-weight: 400;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  line-height: 1;
   flex-shrink: 0;
 }
 
-.embedToggle:hover {
+.embedClose:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #F9FAFB;
 }
@@ -429,8 +438,8 @@
 
 .embedConfigError {
   position: fixed;
-  bottom: 16px;
-  right: 96px;
+  bottom: 96px;
+  right: 24px;
   max-width: 320px;
   padding: 12px 14px;
   background: rgba(229, 138, 64, 0.12);

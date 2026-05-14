@@ -32,9 +32,26 @@ const FALLBACK_QUICK_ACTIONS = [
   { label: 'Draft follow-up', prompt: 'Draft a follow-up text message for our most stale lead' },
 ];
 
-export function AIChatbot({ caregiverId, currentUser }) {
+export function AIChatbot({ caregiverId, currentUser, open, onClose }) {
   const { currentUserMailbox } = useApp();
-  const [isOpen, setIsOpen] = useState(false);
+  // When `open` is passed, the parent (ToolsFAB launcher) controls
+  // visibility and we hide our own FAB. Otherwise we fall back to
+  // internal state — kept so the component still works standalone
+  // in unit tests / Storybook / legacy mount points.
+  const controlled = typeof open === 'boolean';
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = controlled ? open : internalOpen;
+  const setIsOpen = useCallback(
+    (next) => {
+      const value = typeof next === 'function' ? next(isOpen) : next;
+      if (controlled) {
+        if (!value && onClose) onClose();
+      } else {
+        setInternalOpen(value);
+      }
+    },
+    [controlled, isOpen, onClose],
+  );
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -247,15 +264,18 @@ export function AIChatbot({ caregiverId, currentUser }) {
 
   return (
     <>
-      {/* Floating action button */}
-      <button
-        className={`${s.fab}${isOpen ? ` ${s.fabOpen}` : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        title="AI Assistant"
-      >
-        {isOpen ? '\u2715' : <span className={s.fabLabel}>AI</span>}
-        {!isOpen && messages.length === 0 && <div className={s.fabBadge} />}
-      </button>
+      {/* Floating action button \u2014 hidden in controlled mode (the
+          ToolsFAB launcher provides its own trigger). */}
+      {!controlled && (
+        <button
+          className={`${s.fab}${isOpen ? ` ${s.fabOpen}` : ''}`}
+          onClick={() => setIsOpen(!isOpen)}
+          title="AI Assistant"
+        >
+          {isOpen ? '\u2715' : <span className={s.fabLabel}>AI</span>}
+          {!isOpen && messages.length === 0 && <div className={s.fabBadge} />}
+        </button>
+      )}
 
       {/* Chat panel */}
       {isOpen && (
