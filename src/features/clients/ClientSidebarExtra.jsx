@@ -4,6 +4,7 @@ import { getClientPhase } from './utils';
 import { generateClientActionItems } from '../../lib/actionItemEngine';
 import { useApp } from '../../shared/context/AppContext';
 import { useClients } from '../../shared/context/ClientContext';
+import { CollapsibleSubSection } from '../../shared/layout/CollapsibleSubSection';
 import layout from '../../styles/layout.module.css';
 
 // ─── Pipeline Overview + Key Metrics (rendered inside Sidebar's Clients section) ───
@@ -30,8 +31,7 @@ export function ClientSidebarExtra() {
 
     return (
       <>
-        <div className={layout.sidebarSection}>
-          <div className={layout.sidebarLabel}>Pipeline Overview</div>
+        <CollapsibleSubSection storageKey="tc_sidebar_pipeline_client" label="Pipeline Overview">
           {CLIENT_PHASES.map((p) => {
             const count = activeClients.filter((c) => getClientPhase(c) === p.id).length;
             return (
@@ -61,7 +61,7 @@ export function ClientSidebarExtra() {
               <span className={layout.badge}>{archivedClients.length}</span>
             </button>
           )}
-        </div>
+        </CollapsibleSubSection>
 
         <div className={layout.sidebarSection}>
           <div className={layout.sidebarLabel}>Key Metrics</div>
