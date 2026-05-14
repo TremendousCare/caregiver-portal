@@ -24,6 +24,7 @@ import { dispatchShiftAutomations } from '../../lib/shiftAutomations';
 
 export const dbToServicePlan = (row) => ({
   id: row.id,
+  orgId: row.org_id || null,
   clientId: row.client_id,
   title: row.title,
   serviceType: row.service_type,
@@ -139,6 +140,7 @@ export const getServicePlansForClient = async (clientId) => {
 
 export const dbToShift = (row) => ({
   id: row.id,
+  orgId: row.org_id || null,
   servicePlanId: row.service_plan_id,
   clientId: row.client_id,
   assignedCaregiverId: row.assigned_caregiver_id,

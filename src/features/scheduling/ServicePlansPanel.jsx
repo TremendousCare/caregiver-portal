@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useCaregivers } from '../../shared/context/CaregiverContext';
 import {
   createServicePlan,
   updateServicePlan,
@@ -19,6 +20,7 @@ import {
 } from './recurrenceHelpers';
 import { RecurrencePatternEditor } from './RecurrencePatternEditor';
 import { GenerateShiftsDialog } from './GenerateShiftsDialog';
+import { RegularCaregiversGrid } from './RegularCaregiversGrid';
 import btn from '../../styles/buttons.module.css';
 import s from './ServicePlansPanel.module.css';
 
@@ -46,6 +48,7 @@ const EMPTY_DRAFT = {
 };
 
 export function ServicePlansPanel({ client, currentUser, showToast }) {
+  const { rosterCaregivers } = useCaregivers();
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -246,6 +249,9 @@ export function ServicePlansPanel({ client, currentUser, showToast }) {
             ) : (
               <ServicePlanCard
                 plan={plan}
+                caregivers={rosterCaregivers}
+                currentUser={currentUser}
+                showToast={showToast}
                 onEdit={() => handleStartEdit(plan)}
                 onStatusChange={(next) => handleStatusShortcut(plan, next)}
                 onGenerate={(p) => setGeneratingPlan(p)}
@@ -274,7 +280,15 @@ export function ServicePlansPanel({ client, currentUser, showToast }) {
 
 // ─── ServicePlanCard (read-only row) ──────────────────────────────
 
-function ServicePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
+function ServicePlanCard({
+  plan,
+  caregivers,
+  currentUser,
+  showToast,
+  onEdit,
+  onStatusChange,
+  onGenerate,
+}) {
   const colors = statusColors(plan.status);
   const canGenerate = hasRecurrencePattern(plan.recurrencePattern) && plan.status === 'active';
   return (
@@ -319,6 +333,13 @@ function ServicePlanCard({ plan, onEdit, onStatusChange, onGenerate }) {
         )}
 
         {plan.notes && <div className={s.cardNotes}>{plan.notes}</div>}
+
+        <RegularCaregiversGrid
+          plan={plan}
+          caregivers={caregivers}
+          currentUser={currentUser?.displayName || currentUser?.email}
+          showToast={showToast}
+        />
 
         <div className={s.cardFooter}>
           <StatusShortcuts current={plan.status} onChange={onStatusChange} />

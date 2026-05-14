@@ -52,6 +52,9 @@ describe('service plan mappers', () => {
     const plan = dbToServicePlan(row);
     expect(plan).toEqual({
       id: 'plan-1',
+      // orgId surfaces null when the row predates Phase B1 / RegularCaregiversGrid;
+      // current rows always carry it through.
+      orgId: null,
       clientId: 'client-A',
       title: 'Weekly Companion',
       serviceType: 'companion',

@@ -9,6 +9,11 @@ import {
   getShifts,
 } from './storage';
 import {
+  setRegularCaregiverForDay,
+  clearRegularCaregiverForDay,
+} from './caregiverRulesStorage';
+import { DAY_OF_WEEK_LABELS_LONG } from './recurrenceHelpers';
+import {
   SHIFT_CANCEL_REASONS,
   buildShiftUpdatePatch,
   canMarkShiftNoShow,
@@ -195,7 +200,48 @@ export function ShiftDrawer({
               console.warn(`Failed to update sibling shift ${sib.id}:`, sibErr);
             }
           }
-          showToast?.(`Shift saved · ${futureSiblings.length} future shifts updated`);
+
+          // When the propagated change is a caregiver swap (assign or
+          // unassign), also persist a service_plan_caregiver_rules row
+          // so future shifts materialized by the cron beyond the
+          // currently-generated window pick up the new caregiver.
+          // Without this, the user re-assigns every 12 weeks; see
+          // docs/SCHEDULING_CAREGIVER_RULES.md.
+          if ('assignedCaregiverId' in patch && shift.servicePlanId) {
+            const startDt = new Date(shift.startTime);
+            const dow = startDt.getUTCDay();
+            const dateOnly = shift.startTime.slice(0, 10);
+            try {
+              if (patch.assignedCaregiverId) {
+                if (!shift.orgId) {
+                  console.warn(
+                    'ShiftDrawer: shift.orgId missing; skipping rule write.',
+                  );
+                } else {
+                  await setRegularCaregiverForDay({
+                    servicePlanId: shift.servicePlanId,
+                    orgId: shift.orgId,
+                    dayOfWeek: dow,
+                    caregiverId: patch.assignedCaregiverId,
+                    effectiveFrom: dateOnly,
+                    createdBy: currentUserName || null,
+                  });
+                }
+              } else {
+                await clearRegularCaregiverForDay({
+                  servicePlanId: shift.servicePlanId,
+                  dayOfWeek: dow,
+                  effectiveFrom: dateOnly,
+                });
+              }
+            } catch (ruleErr) {
+              console.warn('Failed to persist caregiver rule:', ruleErr);
+            }
+          }
+
+          showToast?.(
+            `Shift saved · ${futureSiblings.length} future shifts updated`,
+          );
         } else {
           showToast?.('Shift saved (time-only changes are not applied to future shifts)');
         }
