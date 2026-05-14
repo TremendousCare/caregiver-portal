@@ -3,6 +3,7 @@ import { PHASES } from '../../lib/constants';
 import { getCurrentPhase, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from '../../lib/utils';
 import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
+import { CollapsibleSubSection } from '../../shared/layout/CollapsibleSubSection';
 import layout from '../../styles/layout.module.css';
 
 // ─── Pipeline Overview + Golden Rules (rendered inside Sidebar's Caregivers section) ───
@@ -24,8 +25,7 @@ export function CaregiverSidebarExtra() {
   if (!collapsed) {
     return (
       <>
-        <div className={layout.sidebarSection}>
-          <div className={layout.sidebarLabel}>Pipeline Overview</div>
+        <CollapsibleSubSection storageKey="tc_sidebar_pipeline_caregiver" label="Pipeline Overview">
           {PHASES.map((p) => {
             const count = p.id === 'intake'
               ? onboardingCaregivers.filter((c) => getCurrentPhase(c) === 'intake' && !isAwaitingInterviewResponse(c)).length
@@ -108,7 +108,7 @@ export function CaregiverSidebarExtra() {
               <span className={layout.badge}>{archivedCaregivers.length}</span>
             </button>
           )}
-        </div>
+        </CollapsibleSubSection>
       </>
     );
   }
