@@ -494,3 +494,135 @@ export function normalizeGraphAppointment(
   };
 }
 
+// ─── Interview reminder (pre-interview SMS) ──────────────────────────────
+// Pure helpers for the `interview_reminder` automation trigger. The cron
+// runs every 5 minutes and asks two questions per interview × per
+// configured lead time:
+//   1. Is the interview's start_at currently inside the firing window for
+//      this lead time? (parseInterviewReminderMinutes + isInReminderWindow)
+//   2. Has a reminder for this (rule, interview, minutes_before) already
+//      been sent? (caller queries automation_log)
+//
+// Window math: a 5-min cron with a ±N min lead time needs a window wide
+// enough that at least one tick falls inside, but narrow enough that we
+// don't double-fire across ticks. We pick [target − 5min, target] — a
+// closed-open 5-minute window aligned so the reminder fires AT OR JUST
+// AFTER the intended lead time, never before. Combined with per-(rule,
+// interview, minutes_before) dedup keyed on automation_log, this gives
+// "exactly once per configured lead time" semantics under the 5-min cron.
+
+export const INTERVIEW_REMINDER_WINDOW_MS = 5 * 60 * 1000;
+
+// Parse the rule's conditions.minutes_before into a deduped, sorted array
+// of positive integers. Accepts:
+//   • a single number (15)
+//   • an array of numbers ([15, 60])
+//   • a string of comma-separated numbers ("15, 60") — the UI uses this
+//     because <input type="text"> keeps the value editable while typing
+// Returns [] if nothing parses, so the caller can short-circuit cleanly.
+export function parseInterviewReminderMinutes(
+  raw: number | string | (number | string)[] | null | undefined,
+): number[] {
+  if (raw === null || raw === undefined) return [];
+  const items: Array<number | string> = Array.isArray(raw) ? raw : [raw];
+  const parsed: number[] = [];
+  for (const item of items) {
+    if (typeof item === "number") {
+      if (Number.isFinite(item) && item > 0 && Number.isInteger(item)) {
+        parsed.push(item);
+      }
+      continue;
+    }
+    if (typeof item === "string") {
+      // Allow "15", "15, 60", "15,60,1440" etc.
+      for (const part of item.split(",")) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const n = Number(trimmed);
+        if (Number.isFinite(n) && n > 0 && Number.isInteger(n)) {
+          parsed.push(n);
+        }
+      }
+    }
+  }
+  // Dedup + sort descending so 1440-minute (24h) reminders are evaluated
+  // before 15-minute reminders when iterating. Order doesn't affect
+  // correctness — dedup is keyed on minutes_before — but a stable order
+  // keeps logs and tests deterministic.
+  return Array.from(new Set(parsed)).sort((a, b) => b - a);
+}
+
+export interface InterviewReminderWindowInput {
+  startAt: string | null | undefined;
+  minutesBefore: number;
+  now: number;
+  windowMs?: number;
+}
+
+// Is the interview's start_at currently inside the firing window for the
+// given lead time? Returns false on missing/unparseable start_at so the
+// caller can rely on truthy = "fire it".
+//
+// Window is [start - minutesBefore, start - minutesBefore + windowMs)
+// — i.e. fires AT the target lead time or up to windowMs after, never
+// before. The 5-min default matches the cron cadence.
+export function isInReminderWindow(input: InterviewReminderWindowInput): boolean {
+  const { startAt, minutesBefore, now, windowMs = INTERVIEW_REMINDER_WINDOW_MS } = input;
+  if (!startAt) return false;
+  if (!Number.isFinite(minutesBefore) || minutesBefore <= 0) return false;
+  const startMs = Date.parse(startAt);
+  if (!Number.isFinite(startMs)) return false;
+  const targetMs = startMs - minutesBefore * 60 * 1000;
+  return now >= targetMs && now < targetMs + windowMs;
+}
+
+// Returns the lookahead horizon needed to fetch candidate interviews for
+// a given set of configured lead times. The cron uses this to bound the
+// SQL `start_at <= now + horizon` filter so it doesn't scan the entire
+// future interviews table. Adds a small buffer for cron jitter.
+export function computeInterviewReminderLookaheadMs(
+  minutesBeforeList: number[],
+  windowMs: number = INTERVIEW_REMINDER_WINDOW_MS,
+): number {
+  if (!minutesBeforeList || minutesBeforeList.length === 0) return 0;
+  const maxMinutes = Math.max(...minutesBeforeList);
+  return maxMinutes * 60 * 1000 + windowMs;
+}
+
+// Format an interview start time in the org's local TZ for inclusion in
+// SMS templates ({{interview_start_text}}). Falls back to the raw ISO if
+// the TZ is bogus. Matches the format used by shift_reminder_24h so
+// caregivers see one consistent time style across all automation SMS.
+export function formatInterviewStartText(
+  startAt: string | null | undefined,
+  timeZone: string = "America/New_York",
+): string {
+  if (!startAt) return "";
+  const ms = Date.parse(startAt);
+  if (!Number.isFinite(ms)) return "";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone,
+      timeZoneName: "short",
+    }).format(new Date(ms));
+  } catch {
+    return startAt;
+  }
+}
+
+// Status values for caregiver_interviews that should still trigger a
+// reminder. 'rescheduled' rows have a new start_at and behave like fresh
+// bookings; everything else (cancelled, completed, no_show) skips.
+export const INTERVIEW_REMINDER_ACTIVE_STATUSES = ["booked", "rescheduled"] as const;
+
+export function isInterviewStatusReminderEligible(
+  status: string | null | undefined,
+): boolean {
+  if (!status) return false;
+  return (INTERVIEW_REMINDER_ACTIVE_STATUSES as readonly string[]).includes(status);
+}

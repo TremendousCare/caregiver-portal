@@ -34,6 +34,7 @@ const CAREGIVER_TRIGGER_OPTIONS = [
   { value: 'survey_pending', label: 'Survey Pending Reminder', description: 'Re-sends the pre-screening survey daily (or at a custom interval) until the caregiver completes it' },
   { value: 'recurring_availability_check', label: 'Recurring Availability Check-In', description: 'Periodically texts caregivers to refresh their weekly availability. Ships OFF — enable explicitly.' },
   { value: 'interview_not_scheduled', label: 'Interview Not Scheduled (Follow-Up)', description: 'Fires when the booking link was sent N days ago and the caregiver still has no active interview booking. Anchors on the actual SMS send time, not on a phase or task.' },
+  { value: 'interview_reminder', label: 'Interview Reminder (Pre-Interview)', description: 'Sends an SMS or email a configurable number of minutes before each scheduled Microsoft Bookings interview. Supports one or more lead times (e.g. 15, or 60 + 15).' },
 ];
 
 const CLIENT_TRIGGER_OPTIONS = [
@@ -92,6 +93,15 @@ const MERGE_FIELDS = [
   { key: 'survey_link', label: 'Survey Link' },
   { key: 'completed_task', label: 'Completed Task', triggers: ['task_completed', 'client_task_completed'] },
   { key: 'booking_url', label: 'Booking URL', triggers: ['task_completed', 'interview_not_scheduled'] },
+  // Interview reminder context — pre-formatted by the
+  // interview-reminders cron into trigger_context. interview_join_url
+  // is the Teams meeting link from Microsoft Bookings;
+  // interview_start_text is the start time rendered in the org's local
+  // TZ; minutes_until is the live minutes-to-start at send time.
+  { key: 'interview_start_text', label: 'Interview Start (formatted)', triggers: ['interview_reminder'] },
+  { key: 'interview_join_url', label: 'Interview Join URL', triggers: ['interview_reminder'] },
+  { key: 'interview_service_name', label: 'Interview Service Name', triggers: ['interview_reminder'] },
+  { key: 'minutes_until', label: 'Minutes Until Interview', triggers: ['interview_reminder'] },
   { key: 'document_type', label: 'Document Type', triggers: ['document_uploaded'] },
   { key: 'signed_documents', label: 'Signed Documents', triggers: ['document_signed'] },
   { key: 'message_text', label: 'Message Text', triggers: ['inbound_sms'] },
@@ -161,6 +171,7 @@ function TriggerBadge({ type }) {
     survey_pending: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
     recurring_availability_check: { bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
     interview_not_scheduled: { bg: '#FFFBEB', color: '#A16207', border: '#FDE68A' },
+    interview_reminder: { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
   };
   const labels = {
     new_caregiver: 'New Caregiver',
@@ -178,6 +189,7 @@ function TriggerBadge({ type }) {
     survey_pending: 'Survey Reminder',
     recurring_availability_check: 'Availability Check-In',
     interview_not_scheduled: 'Interview Follow-Up',
+    interview_reminder: 'Interview Reminder',
   };
   const c = colors[type] || colors.new_caregiver;
   return (
@@ -1046,6 +1058,18 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
     rule?.conditions?.max_reminders ?? '',
   );
 
+  // Interview reminder (pre-interview SMS) conditions. minutes_before
+  // is stored as either a number or an array of numbers; the UI keeps
+  // the value as a comma-separated string while editing so the admin
+  // can type "15, 60" without fighting the input. parseInterviewReminderMinutes
+  // in the cron normalizes whatever shape we save.
+  const [reminderMinutesBefore, setReminderMinutesBefore] = useState(() => {
+    const raw = rule?.conditions?.minutes_before;
+    if (raw === null || raw === undefined || raw === '') return '15';
+    if (Array.isArray(raw)) return raw.join(', ');
+    return String(raw);
+  });
+
   // Recurring availability check-in trigger conditions
   const [intervalDays, setIntervalDays] = useState(
     rule?.conditions?.interval_days ?? 14,
@@ -1187,6 +1211,29 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         }
       }
     }
+    if (triggerType === 'interview_reminder') {
+      const parts = String(reminderMinutesBefore || '')
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (parts.length === 0) {
+        setError('Enter at least one reminder time (minutes before the interview).'); return;
+      }
+      const seen = new Set();
+      for (const p of parts) {
+        const n = Number(p);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+          setError('Reminder times must be positive whole numbers of minutes (e.g. 15, 60).'); return;
+        }
+        if (seen.has(n)) {
+          setError(`Duplicate reminder time: ${n} minutes.`); return;
+        }
+        seen.add(n);
+      }
+      if (actionType !== 'send_sms' && actionType !== 'send_email') {
+        setError('Interview reminder must use Send SMS or Send Email.'); return;
+      }
+    }
     if (triggerType === 'recurring_availability_check') {
       const days = parseInt(intervalDays, 10);
       const sh = parseInt(availabilityStartHour, 10);
@@ -1237,6 +1284,20 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
           ...(String(interviewIntervalDays).trim() ? { interval_days: parseInt(interviewIntervalDays, 10) } : {}),
           ...(String(interviewStopAfterDays).trim() ? { stop_after_days: parseInt(interviewStopAfterDays, 10) } : {}),
           ...(String(interviewMaxReminders).trim() ? { max_reminders: parseInt(interviewMaxReminders, 10) } : {}),
+        } : {}),
+        ...(triggerType === 'interview_reminder' ? {
+          minutes_before: (() => {
+            const arr = String(reminderMinutesBefore || '')
+              .split(',')
+              .map((p) => p.trim())
+              .filter(Boolean)
+              .map((p) => parseInt(p, 10));
+            // Persist as a single number when the admin only configured
+            // one lead time — keeps the stored shape tidy and matches
+            // what every other automation rule does. Multi-value rules
+            // store an array.
+            return arr.length === 1 ? arr[0] : arr;
+          })(),
         } : {}),
         ...(phaseFilter ? { phase: phaseFilter } : {}),
       },
@@ -1399,6 +1460,36 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
               </div>
             </div>
           </>
+        )}
+
+        {/* Conditions — interview_reminder */}
+        {triggerType === 'interview_reminder' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Minutes Before Interview</label>
+            <input
+              type="text"
+              className={forms.fieldInput}
+              style={{ maxWidth: 220 }}
+              value={reminderMinutesBefore}
+              onChange={(e) => { setReminderMinutesBefore(e.target.value); setError(''); }}
+              placeholder="15"
+            />
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              How many minutes before each scheduled interview to send this reminder. Enter a single number (e.g. <code>15</code>) or a comma-separated list for multiple reminders per interview (e.g. <code>60, 15</code> sends an hour-before AND a 15-min-before nudge).
+            </div>
+            <div style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              background: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              borderRadius: 8,
+              fontSize: 11,
+              color: '#1E40AF',
+              lineHeight: 1.5,
+            }}>
+              <strong>How this works:</strong> A dedicated cron job runs every 5 minutes and sends this reminder once per (interview × lead time). Use <code>{'{{interview_join_url}}'}</code> for the Teams meeting link, <code>{'{{interview_start_text}}'}</code> for the formatted start time, and <code>{'{{minutes_until}}'}</code> for the live minutes-to-start. Cancelled / completed / no-show interviews and opted-out caregivers are skipped automatically.
+            </div>
+          </div>
         )}
 
         {/* Conditions — phase_change / client_phase_change */}
@@ -2013,6 +2104,21 @@ function RulesList({ rules, onToggle, onEdit, onDelete, toggling }) {
                 After {rule.conditions.days} day{rule.conditions.days !== 1 ? 's' : ''}
               </div>
             )}
+            {rule.trigger_type === 'interview_reminder' && (() => {
+              const raw = rule.conditions?.minutes_before;
+              const list = Array.isArray(raw)
+                ? raw
+                : raw === null || raw === undefined || raw === ''
+                  ? []
+                  : [raw];
+              if (list.length === 0) return null;
+              const labelParts = list.map((m) => `${m} min`);
+              return (
+                <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
+                  {labelParts.join(' + ')} before interview
+                </div>
+              );
+            })()}
             {rule.trigger_type === 'interview_not_scheduled' && rule.conditions?.days_after_send && (
               <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 2 }}>
                 {rule.conditions.days_after_send} day{rule.conditions.days_after_send !== 1 ? 's' : ''} after booking-link send
