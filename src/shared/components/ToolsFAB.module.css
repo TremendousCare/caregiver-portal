@@ -1,0 +1,143 @@
+/* ═══════════════════════════════════════════════════════════════
+   ToolsFAB — bottom-right speed-dial launcher
+   Matches the AIChatbot FAB's navy gradient + circular shape so the
+   workspace tooling reads as one cohesive piece, then fans out
+   labeled child buttons above it.
+   ═══════════════════════════════════════════════════════════════ */
+
+.container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  font-family: var(--tc-font-base);
+}
+
+.fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--tc-navy-dark), var(--tc-navy));
+  color: #F9FAFB;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgba(26, 26, 26, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.18s ease;
+}
+
+.fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(26, 26, 26, 0.38);
+}
+
+.fab:active {
+  transform: translateY(0);
+}
+
+.fabOpen {
+  background: linear-gradient(135deg, #243B5C, #1B2A4A);
+}
+
+.fabOpen :global(svg) {
+  transform: rotate(0deg);
+}
+
+.menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(8px) scale(0.9);
+  animation: childIn 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes childIn {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.menuLabel {
+  background: #1B2A4A;
+  color: #F9FAFB;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(26, 26, 26, 0.28);
+  user-select: none;
+}
+
+.child {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #F9FAFB;
+  box-shadow: 0 6px 18px rgba(26, 26, 26, 0.28);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.child:hover {
+  transform: scale(1.06);
+  filter: brightness(1.08);
+}
+
+.child:active {
+  transform: scale(0.97);
+}
+
+.child:focus-visible {
+  outline: 2px solid #29BEE4;
+  outline-offset: 3px;
+}
+
+.child_ai {
+  background: linear-gradient(135deg, #29BEE4, #1B7CB0);
+}
+
+.child_rc {
+  background: linear-gradient(135deg, #3FBF7F, #1F8A57);
+}
+
+@media (max-width: 768px) {
+  .container {
+    bottom: 16px;
+    right: 16px;
+  }
+
+  .fab {
+    width: 48px;
+    height: 48px;
+  }
+
+  .child {
+    width: 40px;
+    height: 40px;
+  }
+}
