@@ -63,6 +63,14 @@ export const FIELD_TYPES = {
   SELECT: 'select',
   MULTISELECT: 'multiselect',
   BOOLEAN: 'boolean',
+  // YESNO is BOOLEAN's explicit-radio sibling. Storage is identical
+  // (true / false / unset), but it renders as two radio buttons so
+  // users can distinguish "answered No" from "haven't answered." Use
+  // this for any binary question where the team needs to see whether
+  // it was deliberately answered (e.g. caregiver match requirements
+  // like "must have a vehicle"); reserve BOOLEAN for low-stakes
+  // toggles where "unchecked = no" is fine.
+  YESNO: 'yesNo',
   YN: 'yn',
   PHONE: 'phone',
   EMAIL: 'email',
@@ -221,7 +229,9 @@ export const CARE_PLAN_SECTIONS = [
         id: 'allergies', label: 'Allergies', type: FIELD_TYPES.LIST,
         help: 'Medications, foods, environmental. Severity helps caregivers know what to watch for.',
         subfields: [
-          { id: 'allergen', label: 'Allergen', type: FIELD_TYPES.TEXT, required: true },
+          { id: 'allergen', label: 'Allergen', type: FIELD_TYPES.AUTOCOMPLETE,
+            required: true, suggestionsKey: 'commonAllergens',
+            placeholder: 'Start typing — pick a suggestion or enter your own' },
           { id: 'reaction', label: 'Reaction', type: FIELD_TYPES.TEXT,
             placeholder: 'Hives, anaphylaxis, GI upset...' },
           { id: 'severity', label: 'Severity', type: FIELD_TYPES.SELECT,
@@ -981,18 +991,22 @@ export const CARE_PLAN_SECTIONS = [
       { id: 'match_okWithCats', label: 'OK with cats', type: FIELD_TYPES.PRN },
       { id: 'match_okWithDogs', label: 'OK with dogs', type: FIELD_TYPES.PRN },
 
-      // Logistics / hard requirements
+      // Logistics / hard requirements. YESNO renders explicit Yes/No
+      // radios so the team can tell at a glance whether each
+      // requirement was deliberately set vs left unanswered. Storage
+      // shape is identical to BOOLEAN (true / false / unset), so
+      // existing rows render correctly with no migration.
       { id: 'match_vehicleRequired', label: 'Caregiver must have vehicle',
-        type: FIELD_TYPES.BOOLEAN },
+        type: FIELD_TYPES.YESNO },
       { id: 'match_insuredAutoRequired', label: 'Caregiver must have insured auto',
-        type: FIELD_TYPES.BOOLEAN },
+        type: FIELD_TYPES.YESNO },
       { id: 'match_okWithClientSmoking', label: 'Caregiver must be OK with client smoking',
-        type: FIELD_TYPES.BOOLEAN,
+        type: FIELD_TYPES.YESNO,
         conditional: { field: 'match_clientSmokes', equals: true } },
       { id: 'match_clientSmokes', label: 'Client smokes in home',
-        type: FIELD_TYPES.BOOLEAN },
+        type: FIELD_TYPES.YESNO },
       { id: 'match_liveInShiftsOK', label: 'Caregiver must be OK with live-in shifts',
-        type: FIELD_TYPES.BOOLEAN },
+        type: FIELD_TYPES.YESNO },
 
       // Freeform
       { id: 'match_notes', label: 'Match notes / soft preferences',

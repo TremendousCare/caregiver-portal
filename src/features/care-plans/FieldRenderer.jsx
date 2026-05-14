@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FIELD_TYPES } from './sections';
 import { moveRowDown, moveRowUp } from './listHelpers';
 import { searchCommonMedications } from './commonMedications';
+import { searchCommonAllergens } from './commonAllergens';
 import forms from '../../styles/forms.module.css';
 import s from './FieldRenderer.module.css';
 
@@ -10,6 +11,7 @@ import s from './FieldRenderer.module.css';
 // available to any AUTOCOMPLETE field across the app.
 const SUGGESTION_SOURCES = {
   commonMedications: searchCommonMedications,
+  commonAllergens: searchCommonAllergens,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -44,6 +46,7 @@ export function FieldRenderer({ field, value, onChange, disabled, siblingValues 
     case FIELD_TYPES.SELECT:      return <Field {...common}><SelectControl {...common} /></Field>;
     case FIELD_TYPES.MULTISELECT: return <Field {...common}><MultiselectControl {...common} /></Field>;
     case FIELD_TYPES.BOOLEAN:     return <Field {...common}><BooleanControl {...common} /></Field>;
+    case FIELD_TYPES.YESNO:       return <Field {...common}><YesNoControl {...common} /></Field>;
     case FIELD_TYPES.YN:          return <Field {...common}><YNControl {...common} /></Field>;
     case FIELD_TYPES.PHONE:       return <Field {...common}><PhoneControl {...common} /></Field>;
     case FIELD_TYPES.EMAIL:       return <Field {...common}><EmailControl {...common} /></Field>;
@@ -215,6 +218,44 @@ function BooleanControl({ value, onChange, disabled }) {
       />
       <span className={s.toggleLabel}>{value ? 'Yes' : 'No'}</span>
     </label>
+  );
+}
+
+function YesNoControl({ field, value, onChange, disabled }) {
+  // Explicit Yes/No radios. Storage is the same boolean shape as
+  // BOOLEAN (true / false / unset), so this can replace BOOLEAN on
+  // any existing field without a data migration. The distinction
+  // from BOOLEAN is that "unset" renders as no selection, making it
+  // visually obvious that the question hasn't been answered yet —
+  // unlike a checkbox where unchecked could mean either "I said no"
+  // or "I haven't looked at this." Used in the Match Criteria
+  // section where the team needs to know whether a requirement was
+  // deliberately set.
+  const answered = value === true || value === false;
+  const isYes = value === true;
+  return (
+    <div className={s.radioRow}>
+      <label className={s.radio}>
+        <input
+          type="radio"
+          name={`yesno-${field.id}`}
+          checked={answered && isYes}
+          disabled={disabled}
+          onChange={() => onChange(true)}
+        />
+        <span>Yes</span>
+      </label>
+      <label className={s.radio}>
+        <input
+          type="radio"
+          name={`yesno-${field.id}`}
+          checked={answered && !isYes}
+          disabled={disabled}
+          onChange={() => onChange(false)}
+        />
+        <span>No</span>
+      </label>
+    </div>
   );
 }
 
