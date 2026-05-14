@@ -382,6 +382,74 @@ export function extractProfileFieldUpdates(questions, answers) {
   return updates;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Display Formatters
+// ═══════════════════════════════════════════════════════════════
+
+const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatTime12h(hhmm) {
+  if (!hhmm || typeof hhmm !== 'string') return '';
+  const [hStr, mStr] = hhmm.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
+}
+
+/**
+ * Render an availability_schedule answer as a readable single-line summary.
+ * Example: "Mon 9:00 AM-5:00 PM; Tue 8:00 AM-12:00 PM, 1:00 PM-5:00 PM"
+ */
+export function formatAvailabilityAnswer(answer) {
+  if (!answer || typeof answer !== 'object') return '';
+  const slots = Array.isArray(answer.slots) ? answer.slots : [];
+  if (slots.length === 0) return '';
+  const byDay = new Map();
+  for (const slot of slots) {
+    if (!Number.isInteger(slot?.day)) continue;
+    if (!byDay.has(slot.day)) byDay.set(slot.day, []);
+    byDay.get(slot.day).push(`${formatTime12h(slot.startTime)}-${formatTime12h(slot.endTime)}`);
+  }
+  const parts = [];
+  for (let d = 0; d < 7; d++) {
+    if (!byDay.has(d)) continue;
+    parts.push(`${DAY_NAMES_SHORT[d]} ${byDay.get(d).join(', ')}`);
+  }
+  return parts.join('; ');
+}
+
+/**
+ * Convert a raw survey answer into a plain-text string for read-only
+ * display contexts (PDF export, audit logs, summaries). Returns an empty
+ * string when there is no answer — callers decide how to render that.
+ */
+export function formatAnswerForDisplay(question, answer) {
+  if (answer === undefined || answer === null) return '';
+  const type = question?.type;
+  if (type === 'availability_schedule') {
+    return formatAvailabilityAnswer(answer);
+  }
+  if (type === 'multi_select') {
+    if (!Array.isArray(answer) || answer.length === 0) return '';
+    return answer.map((v) => String(v)).join(', ');
+  }
+  if (Array.isArray(answer)) {
+    return answer.map((v) => String(v)).join(', ');
+  }
+  if (typeof answer === 'object') {
+    try {
+      return JSON.stringify(answer);
+    } catch {
+      return '';
+    }
+  }
+  const str = String(answer);
+  return str.trim() === '' ? '' : str;
+}
+
 const SURVEY_BASE_URL = 'https://portal.tremendouscareca.com';
 
 /**
