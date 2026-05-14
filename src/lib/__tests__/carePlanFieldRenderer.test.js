@@ -107,10 +107,11 @@ describe('shouldRender', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('FIELD_TYPES coverage', () => {
-  it('has 14 distinct field type values', () => {
+  it('has 15 distinct field type values', () => {
     const values = Object.values(FIELD_TYPES);
     expect(new Set(values).size).toBe(values.length);
-    expect(values).toHaveLength(14);
+    // 14 originals + YESNO (explicit-radio sibling of BOOLEAN).
+    expect(values).toHaveLength(15);
   });
 
   it('every declared type is a non-empty string', () => {

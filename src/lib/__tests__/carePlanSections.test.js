@@ -655,3 +655,55 @@ describe('bathing_method is a LIST with {method, level} subfields', () => {
     expect(legacy.type).toBe(FIELD_TYPES.LEVEL_PICK);
   });
 });
+
+// ─── Allergies — autocomplete with curated suggestions ───────────
+//
+// Juliana asked for allergens to render with a picker instead of
+// pure free text. The field stays inside the existing structured
+// LIST (allergen / reaction / severity), but the allergen subfield
+// becomes AUTOCOMPLETE pointing at the commonAllergens source.
+describe('Allergies allergen subfield', () => {
+  it('is an AUTOCOMPLETE wired to the commonAllergens source', () => {
+    const allergiesField = getFieldById('healthProfile', 'allergies');
+    expect(allergiesField).toBeDefined();
+    expect(allergiesField.type).toBe(FIELD_TYPES.LIST);
+    const allergen = allergiesField.subfields.find((s) => s.id === 'allergen');
+    expect(allergen).toBeDefined();
+    expect(allergen.type).toBe(FIELD_TYPES.AUTOCOMPLETE);
+    expect(allergen.suggestionsKey).toBe('commonAllergens');
+    // Free text is still allowed — required just enforces non-empty.
+    expect(allergen.required).toBe(true);
+  });
+});
+
+// ─── Match Criteria — BOOLEAN → YESNO migration ──────────────────
+//
+// The previous BOOLEAN rendering (checkbox that toggled label
+// Yes/No) made "unchecked" ambiguous between "answered no" and
+// "haven't answered". YESNO renders explicit radios while storing
+// the same boolean / undefined values, so existing data round-trips
+// without a migration.
+describe('Match Criteria — Yes/No radio fields', () => {
+  const expected = [
+    'match_vehicleRequired',
+    'match_insuredAutoRequired',
+    'match_okWithClientSmoking',
+    'match_clientSmokes',
+    'match_liveInShiftsOK',
+  ];
+
+  for (const fieldId of expected) {
+    it(`${fieldId} is YESNO (was BOOLEAN)`, () => {
+      const f = getFieldById('matchCriteria', fieldId);
+      expect(f, `${fieldId} not found`).toBeDefined();
+      expect(f.type).toBe(FIELD_TYPES.YESNO);
+    });
+  }
+
+  it('gender preference stays a PRN (Preferred / Required / No preference)', () => {
+    const f = getFieldById('matchCriteria', 'match_gender');
+    expect(f).toBeDefined();
+    expect(f.type).toBe(FIELD_TYPES.PRN);
+    expect(f.options).toEqual(['Female', 'Male', 'No preference']);
+  });
+});
