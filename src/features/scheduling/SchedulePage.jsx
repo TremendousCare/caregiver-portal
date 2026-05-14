@@ -409,7 +409,7 @@ export function SchedulePage() {
             center: 'title',
             right: '',
           }}
-          height="auto"
+          height="100%"
           allDaySlot={false}
           slotDuration="00:15:00"
           slotLabelInterval="01:00"
