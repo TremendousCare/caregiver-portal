@@ -9,6 +9,7 @@ import {
   INTERVIEW_WRITEBACK_FIELDS,
 } from '../../../lib/surveyUtils';
 import { QuestionField } from '../../survey/SurveyPage';
+import { downloadInterviewEvaluationPdf } from './interviewEvaluationPdf';
 
 // Internal evaluation form rendered inside a modal inside an authenticated
 // admin session. Reuses the existing survey_templates / survey_responses
@@ -36,6 +37,7 @@ export function InterviewEvaluationModal({
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Load template + most recent prior response when opened
   useEffect(() => {
@@ -175,19 +177,22 @@ export function InterviewEvaluationModal({
         onUpdateTask(caregiver.id, taskId, true);
       }
 
-      // 4. Fire-and-forget event for the AI context layer
+      // 4. Fire-and-forget event for the AI context layer. `re_edit` lets
+      //    the briefing/outcome layers distinguish a fresh submission from
+      //    an updated one without diffing the survey_responses history.
+      const isReEdit = !!prior?.submitted_at;
       supabase
         .from('events')
         .insert({
-          event_type: 'interview_evaluation_completed',
+          event_type: isReEdit ? 'interview_evaluation_updated' : 'interview_evaluation_completed',
           entity_type: 'caregiver',
           entity_id: caregiver.id,
           actor: currentUser?.displayName ? `user:${currentUser.displayName}` : 'user:unknown',
-          payload: { template_id: template.id, status, task_id: taskId || null },
+          payload: { template_id: template.id, status, task_id: taskId || null, re_edit: isReEdit },
         })
         .then(({ error }) => { if (error) console.warn('[InterviewEvaluation] event log failed', error.message); });
 
-      showToast?.('Interview evaluation saved.');
+      showToast?.(isReEdit ? 'Interview evaluation updated.' : 'Interview evaluation saved.');
       onClose?.();
     } catch (err) {
       console.error('[InterviewEvaluation] submit failed', err);
@@ -195,7 +200,31 @@ export function InterviewEvaluationModal({
     } finally {
       setSubmitting(false);
     }
-  }, [template, questions, answers, submitting, caregiver, taskId, onUpdateTask, onClose, currentUser, showToast]);
+  }, [template, questions, answers, submitting, caregiver, taskId, onUpdateTask, onClose, currentUser, showToast, prior]);
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (!template || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadInterviewEvaluationPdf({
+        caregiver,
+        template,
+        answers,
+        submittedAt: prior?.submitted_at || null,
+        evaluator: currentUser?.displayName || null,
+      });
+    } catch (err) {
+      console.error('[InterviewEvaluation] PDF export failed', err);
+      showToast?.('Could not generate PDF.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [template, answers, caregiver, prior, currentUser, downloading, showToast]);
+
+  const handleEdit = useCallback(() => {
+    setReadOnly(false);
+    setFieldErrors({});
+  }, []);
 
   if (!isOpen) return null;
 
@@ -233,6 +262,15 @@ export function InterviewEvaluationModal({
                   fontSize: 11, fontWeight: 700,
                 }}>
                   Submitted {prior?.submitted_at ? new Date(prior.submitted_at).toLocaleDateString() : ''}
+                </span>
+              )}
+              {!readOnly && prior?.submitted_at && (
+                <span style={{
+                  marginLeft: 10, padding: '2px 8px', borderRadius: 999,
+                  background: '#FFFBEB', border: '1px solid #FDE68A', color: '#A16207',
+                  fontSize: 11, fontWeight: 700,
+                }}>
+                  Editing
                 </span>
               )}
             </div>
@@ -294,32 +332,62 @@ export function InterviewEvaluationModal({
         {/* Footer */}
         <div style={{
           padding: '12px 24px 18px', borderTop: '1px solid #E5E7EB',
-          display: 'flex', justifyContent: 'flex-end', gap: 8,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
         }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px', borderRadius: 8, border: '1px solid #D1D5DB',
-              background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: 13,
-            }}
-          >
-            {readOnly ? 'Close' : 'Cancel'}
-          </button>
-          {!readOnly && (
+          <div>
+            {!loading && !loadError && template && (
+              <button
+                onClick={handleDownloadPdf}
+                disabled={downloading}
+                style={{
+                  padding: '8px 14px', borderRadius: 8, border: '1px solid #CBD5E1',
+                  background: '#F8FAFC', color: '#1E293B', fontWeight: 600,
+                  cursor: downloading ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', fontSize: 13,
+                }}
+              >
+                {downloading ? 'Generating...' : 'Download PDF'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={handleSubmit}
-              disabled={submitting || loading || !!loadError}
+              onClick={onClose}
               style={{
-                padding: '8px 20px', borderRadius: 8, border: 'none',
-                background: submitting ? '#94A3B8' : 'var(--tc-cyan, #29BEE4)',
-                color: '#fff', fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+                padding: '8px 16px', borderRadius: 8, border: '1px solid #D1D5DB',
+                background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer',
                 fontFamily: 'inherit', fontSize: 13,
               }}
             >
-              {submitting ? 'Saving...' : 'Submit Evaluation'}
+              {readOnly ? 'Close' : 'Cancel'}
             </button>
-          )}
+            {readOnly && prior?.submitted_at && (
+              <button
+                onClick={handleEdit}
+                style={{
+                  padding: '8px 20px', borderRadius: 8, border: '1px solid var(--tc-cyan, #29BEE4)',
+                  background: '#fff', color: 'var(--tc-cyan, #29BEE4)', fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+                }}
+              >
+                Edit
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || loading || !!loadError}
+                style={{
+                  padding: '8px 20px', borderRadius: 8, border: 'none',
+                  background: submitting ? '#94A3B8' : 'var(--tc-cyan, #29BEE4)',
+                  color: '#fff', fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit', fontSize: 13,
+                }}
+              >
+                {submitting ? 'Saving...' : (prior?.submitted_at ? 'Save Changes' : 'Submit Evaluation')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

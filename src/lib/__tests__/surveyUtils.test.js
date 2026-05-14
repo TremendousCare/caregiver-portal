@@ -14,6 +14,8 @@ import {
   prefillAnswersFromCaregiver,
   hasOptions,
   buildSurveyUrl,
+  formatAnswerForDisplay,
+  formatAvailabilityAnswer,
   QUESTION_TYPES,
   QUALIFICATION_ACTIONS,
 } from '../surveyUtils';
@@ -625,6 +627,99 @@ describe('surveyUtils', () => {
         { id: 'q_unknown', type: 'free_text', profile_field: 'not_a_real_field' },
       ];
       expect(prefillAnswersFromCaregiver(questions, { firstName: 'Ana' })).toEqual({});
+    });
+  });
+
+  // ─── Display Formatters ───
+
+  describe('formatAvailabilityAnswer', () => {
+    it('returns empty string for missing or invalid input', () => {
+      expect(formatAvailabilityAnswer(null)).toBe('');
+      expect(formatAvailabilityAnswer(undefined)).toBe('');
+      expect(formatAvailabilityAnswer('not an object')).toBe('');
+      expect(formatAvailabilityAnswer({})).toBe('');
+      expect(formatAvailabilityAnswer({ slots: [] })).toBe('');
+    });
+
+    it('renders a single weekday slot in 12-hour time', () => {
+      const answer = { slots: [{ day: 1, startTime: '09:00', endTime: '17:00' }] };
+      expect(formatAvailabilityAnswer(answer)).toBe('Mon 9:00 AM-5:00 PM');
+    });
+
+    it('groups multiple ranges per day', () => {
+      const answer = {
+        slots: [
+          { day: 2, startTime: '08:00', endTime: '12:00' },
+          { day: 2, startTime: '13:00', endTime: '17:00' },
+        ],
+      };
+      expect(formatAvailabilityAnswer(answer)).toBe('Tue 8:00 AM-12:00 PM, 1:00 PM-5:00 PM');
+    });
+
+    it('orders days Sun → Sat regardless of input order', () => {
+      const answer = {
+        slots: [
+          { day: 5, startTime: '09:00', endTime: '17:00' },
+          { day: 1, startTime: '09:00', endTime: '17:00' },
+        ],
+      };
+      expect(formatAvailabilityAnswer(answer)).toBe('Mon 9:00 AM-5:00 PM; Fri 9:00 AM-5:00 PM');
+    });
+
+    it('handles midnight and noon correctly', () => {
+      const answer = {
+        slots: [{ day: 0, startTime: '00:00', endTime: '12:00' }],
+      };
+      expect(formatAvailabilityAnswer(answer)).toBe('Sun 12:00 AM-12:00 PM');
+    });
+
+    it('skips slots with non-integer day', () => {
+      const answer = {
+        slots: [
+          { day: 'monday', startTime: '09:00', endTime: '17:00' },
+          { day: 1, startTime: '09:00', endTime: '17:00' },
+        ],
+      };
+      expect(formatAvailabilityAnswer(answer)).toBe('Mon 9:00 AM-5:00 PM');
+    });
+  });
+
+  describe('formatAnswerForDisplay', () => {
+    it('returns empty string for null/undefined answers', () => {
+      expect(formatAnswerForDisplay({ type: 'free_text' }, null)).toBe('');
+      expect(formatAnswerForDisplay({ type: 'free_text' }, undefined)).toBe('');
+    });
+
+    it('returns yes_no and multiple_choice answers as-is', () => {
+      expect(formatAnswerForDisplay({ type: 'yes_no' }, 'Yes')).toBe('Yes');
+      expect(formatAnswerForDisplay({ type: 'multiple_choice' }, 'Option 2')).toBe('Option 2');
+    });
+
+    it('joins multi_select arrays with commas', () => {
+      expect(formatAnswerForDisplay({ type: 'multi_select' }, ['English', 'Spanish'])).toBe('English, Spanish');
+    });
+
+    it('returns empty string for empty multi_select arrays', () => {
+      expect(formatAnswerForDisplay({ type: 'multi_select' }, [])).toBe('');
+    });
+
+    it('renders availability_schedule via the dedicated formatter', () => {
+      const answer = { slots: [{ day: 3, startTime: '09:00', endTime: '17:00' }] };
+      expect(formatAnswerForDisplay({ type: 'availability_schedule' }, answer)).toBe('Wed 9:00 AM-5:00 PM');
+    });
+
+    it('returns trimmed string for free_text and number types', () => {
+      expect(formatAnswerForDisplay({ type: 'free_text' }, 'Reliable, on time')).toBe('Reliable, on time');
+      expect(formatAnswerForDisplay({ type: 'number' }, 5)).toBe('5');
+    });
+
+    it('returns empty string for whitespace-only free_text', () => {
+      expect(formatAnswerForDisplay({ type: 'free_text' }, '   ')).toBe('');
+    });
+
+    it('falls back to JSON for unexpected object answers', () => {
+      const result = formatAnswerForDisplay({ type: 'free_text' }, { foo: 'bar' });
+      expect(result).toBe('{"foo":"bar"}');
     });
   });
 });
