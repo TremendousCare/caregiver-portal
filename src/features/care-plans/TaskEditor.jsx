@@ -7,6 +7,10 @@ import {
   updateTask,
 } from './storage';
 import { TASK_CATEGORIES, DAYS_OF_WEEK } from './sections';
+import {
+  getTemplatesForCategory,
+  templateToFormState,
+} from './taskTemplates';
 import btn from '../../styles/buttons.module.css';
 import s from './TaskEditor.module.css';
 
@@ -327,6 +331,25 @@ function NewTaskForm({ sectionId, fixedCategory, onAdd, onCancel }) {
   const [taskName, setTaskName] = useState('');
   const [description, setDescription] = useState('');
   const [shifts, setShifts] = useState(['all']);
+  const [priority, setPriority] = useState('standard');
+  const [safetyNotes, setSafetyNotes] = useState('');
+
+  // Pulled fresh each render so changing the category dropdown
+  // immediately re-renders the right starter library underneath.
+  const templates = getTemplatesForCategory(category);
+
+  // Pick a starter template: replaces every form field with the
+  // template's prefilled values. The user can still edit before
+  // saving, or save as-is. Picking a different chip overwrites
+  // the prior pick — there's no merge or accumulation.
+  const applyTemplate = (template) => {
+    const next = templateToFormState(category, template);
+    setTaskName(next.taskName);
+    setDescription(next.description);
+    setShifts(next.shifts);
+    setPriority(next.priority);
+    setSafetyNotes(next.safetyNotes);
+  };
 
   const handleSubmit = () => {
     if (!taskName.trim() || !category) return;
@@ -336,7 +359,8 @@ function NewTaskForm({ sectionId, fixedCategory, onAdd, onCancel }) {
       description: description.trim() || null,
       shifts,
       daysOfWeek: [],
-      priority: 'standard',
+      priority,
+      safetyNotes: safetyNotes.trim() || null,
     });
   };
 
@@ -363,6 +387,26 @@ function NewTaskForm({ sectionId, fixedCategory, onAdd, onCancel }) {
           autoFocus
         />
       </div>
+
+      {templates.length > 0 && (
+        <div className={s.templatePicker}>
+          <span className={s.templateLabel}>Quick add:</span>
+          <div className={s.chips}>
+            {templates.map((tpl) => (
+              <button
+                key={tpl.name}
+                type="button"
+                className={`${s.chip} ${s.templateChip}`}
+                onClick={() => applyTemplate(tpl)}
+                title={tpl.description || ''}
+              >
+                {tpl.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <textarea
         className={s.newFormTextarea}
         rows={2}
@@ -376,6 +420,16 @@ function NewTaskForm({ sectionId, fixedCategory, onAdd, onCancel }) {
         selected={shifts}
         onChange={setShifts}
       />
+      <PrioritySelect value={priority} onChange={setPriority} />
+      {safetyNotes && (
+        <textarea
+          className={s.newFormTextarea}
+          rows={2}
+          placeholder="Safety notes (optional)"
+          value={safetyNotes}
+          onChange={(e) => setSafetyNotes(e.target.value)}
+        />
+      )}
       <div className={s.newFormActions}>
         <button className={btn.secondaryBtn} onClick={onCancel}>Cancel</button>
         <button
