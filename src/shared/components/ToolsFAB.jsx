@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LayoutGrid, X, Phone, Sparkles } from 'lucide-react';
 import { AIChatbot } from './AIChatbot';
 import { RingCentralEmbeddable } from '../../features/voice/RingCentralEmbeddable';
+import { useVoice } from '../context/VoiceContext';
 import s from './ToolsFAB.module.css';
 
 const TOOLS = [
@@ -37,6 +38,7 @@ export function ToolsFAB({ caregiverId = null, currentUser }) {
   const [openTool, setOpenTool] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef(null);
+  const { dialerOpenRequest } = useVoice();
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -46,6 +48,17 @@ export function ToolsFAB({ caregiverId = null, currentUser }) {
   }, []);
 
   const handleCloseTool = useCallback(() => setOpenTool(null), []);
+
+  // Surface the RC dialer panel whenever VoiceContext signals a
+  // request (the IncomingCallToast bumps the counter after a
+  // successful Answer postMessage). Counter > 0 means at least one
+  // request has fired; we open RC and close the fan menu.
+  useEffect(() => {
+    if (dialerOpenRequest > 0) {
+      setOpenTool('rc');
+      setMenuOpen(false);
+    }
+  }, [dialerOpenRequest]);
 
   // Close the fan-out on Escape or click outside the launcher area.
   // We do NOT close the tool panel itself this way — those have their

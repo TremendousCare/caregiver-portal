@@ -4,15 +4,19 @@
 // spinning up a component.
 //
 // Embeddable accepts a documented set of `rc-adapter-*` messages on
-// its window. The two we currently use:
-//   - rc-adapter-new-call    (click-to-call out)
-//   - rc-adapter-set-presence  (unused; placeholder for future)
+// its window. The ones we currently use:
+//   - rc-adapter-new-call       (click-to-call out)
+//   - rc-adapter-control-call   (answer / reject / hangup / mute …)
 //
 // The widget's outbound events (call ringing / answered / ended)
-// land on the parent window as `rc-call-*-notify` messages. PR 4
-// does NOT listen to those — our existing call_sessions Realtime
-// stream is the source of truth. A follow-up may layer those in for
-// quicker UI feedback when WebRTC answers faster than the webhook.
+// land on the parent window as `rc-call-*-notify` messages. We don't
+// currently subscribe — our `call_sessions` Realtime stream is the
+// source of truth for screen-pop state. A follow-up could layer
+// those in for sub-second UI feedback when WebRTC answers before
+// the webhook lands.
+//
+// Docs:
+//   https://ringcentral.github.io/ringcentral-embeddable/docs/integration/api/
 // ─────────────────────────────────────────────────────────────────
 
 /**
@@ -36,6 +40,48 @@ export function buildNewCallMessage(phoneNumber, opts = {}) {
     phoneNumber: trimmed,
     toCall: opts.toCall !== false,
   };
+}
+
+/**
+ * Shape an `rc-adapter-control-call` payload for an inbound call
+ * control action — answer, reject, hangup, toVoicemail, etc.
+ *
+ * When `callId` is omitted, Embeddable applies the action to the
+ * currently-ringing call. For a single-agent workstation that's
+ * almost always what we want, and it avoids the (separate) problem
+ * of mapping our `call_sessions.telephony_session_id` onto
+ * Embeddable's internal webphone callId.
+ *
+ * @param {string} callAction  one of: 'answer', 'reject', 'hangup',
+ *   'toVoicemail', 'forward', 'mute', 'unmute', 'hold', 'unhold'
+ * @param {object} [opts]
+ * @param {string} [opts.callId]  Embeddable's webphone callId. Omit
+ *   to target the current ringing call.
+ * @returns {{ type: string, callAction: string, callId?: string } | null}
+ *   Returns null when callAction is empty.
+ */
+export function buildControlCallMessage(callAction, opts = {}) {
+  if (callAction == null) return null;
+  const trimmed = String(callAction).trim();
+  if (!trimmed) return null;
+  const message = {
+    type: 'rc-adapter-control-call',
+    callAction: trimmed,
+  };
+  if (opts.callId != null && String(opts.callId).trim() !== '') {
+    message.callId = String(opts.callId).trim();
+  }
+  return message;
+}
+
+/**
+ * Convenience wrapper — answer the current ringing call.
+ *
+ * @param {object} [opts]  forwarded to buildControlCallMessage
+ * @returns {{ type: string, callAction: string, callId?: string }}
+ */
+export function buildAnswerCallMessage(opts = {}) {
+  return buildControlCallMessage('answer', opts);
 }
 
 /**

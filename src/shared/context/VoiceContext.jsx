@@ -33,7 +33,10 @@ import {
   dismissActiveCall,
   clearRecentlyEnded,
 } from '../../lib/voice/callPopReducer';
-import { buildNewCallMessage } from '../../lib/voice/embeddableMessages';
+import {
+  buildAnswerCallMessage,
+  buildNewCallMessage,
+} from '../../lib/voice/embeddableMessages';
 
 const VoiceContext = createContext(null);
 
@@ -206,16 +209,62 @@ export function VoiceProvider({ children }) {
     }
   }, []);
 
+  // ─── Answer-the-current-call ───
+  // IncomingCallToast's Answer button calls this. We omit `callId`
+  // from the postMessage payload so Embeddable applies the answer to
+  // the currently-ringing call — that matches our single-agent UX
+  // and avoids needing to map our call_sessions.telephony_session_id
+  // onto Embeddable's internal webphone callId.
+  //
+  // After firing the answer command we bump `dialerOpenRequest` so
+  // the ToolsFAB launcher can surface the dialer panel for follow-up
+  // controls (mute / transfer / hangup). The counter pattern (rather
+  // than a boolean) lets the FAB react to repeat answers even when
+  // the dialer is already open.
+  const [dialerOpenRequest, setDialerOpenRequest] = useState(0);
+  const requestOpenDialer = useCallback(() => {
+    setDialerOpenRequest((c) => c + 1);
+  }, []);
+
+  const answerCall = useCallback(async () => {
+    const iframe = embeddableIframeRef.current;
+    if (!iframe || !iframe.contentWindow) {
+      return {
+        success: false,
+        error: 'Voice dialer not ready (sign in to RingCentral first).',
+      };
+    }
+    try {
+      iframe.contentWindow.postMessage(buildAnswerCallMessage(), '*');
+      setDialerOpenRequest((c) => c + 1);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }, []);
+
   const value = useMemo(
     () => ({
       activeCall: state.activeCall,
       recentlyEnded: state.recentlyEnded,
       dismissActive: () => dispatch({ type: 'DISMISS' }),
       placeCall,
+      answerCall,
       hasDialer,
       registerEmbeddableIframe,
+      dialerOpenRequest,
+      requestOpenDialer,
     }),
-    [state.activeCall, state.recentlyEnded, placeCall, hasDialer, registerEmbeddableIframe],
+    [
+      state.activeCall,
+      state.recentlyEnded,
+      placeCall,
+      answerCall,
+      hasDialer,
+      registerEmbeddableIframe,
+      dialerOpenRequest,
+      requestOpenDialer,
+    ],
   );
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
