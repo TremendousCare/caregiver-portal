@@ -6,7 +6,6 @@ import { CaregiverHeader } from './caregiver/CaregiverHeader';
 import { ArchiveBanner } from './caregiver/ArchiveBanner';
 import { ArchiveDialog } from './caregiver/ArchiveDialog';
 import { DeleteDialog } from './caregiver/DeleteDialog';
-import { GreenLightChecklist } from './caregiver/GreenLightChecklist';
 import { ProfileCard } from './caregiver/ProfileCard';
 import { ProgressOverview } from './caregiver/ProgressOverview';
 import { PhaseDetail } from './caregiver/PhaseDetail';
@@ -24,7 +23,7 @@ import { CaregiverSchedulePanel } from '../scheduling/CaregiverSchedulePanel';
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
   onAddNote, onArchive, onUnarchive, onDelete, onUpdateCaregiver, onRefreshTasks,
-  showScripts, setShowScripts, showGreenLight, setShowGreenLight, showToast,
+  showScripts, setShowScripts, showToast,
 }) {
   const [activePhase, setActivePhase] = useState(getCurrentPhase(caregiver));
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
@@ -61,7 +60,6 @@ export function CaregiverDetail({
         phase={currentPhase}
         surveyStatus={surveyStatus}
         onBack={onBack}
-        onToggleGreenLight={() => setShowGreenLight(!showGreenLight)}
         onShowArchive={() => setShowArchiveDialog(true)}
         onUnarchive={onUnarchive}
         onShowDelete={() => setShowDeleteDialog(true)}
@@ -115,12 +113,6 @@ export function CaregiverDetail({
         caregiverName={`${caregiver.first_name} ${caregiver.last_name}`}
         onDelete={() => { onDelete(caregiver.id); setShowDeleteDialog(false); }}
         onCancel={() => setShowDeleteDialog(false)}
-      />
-
-      <GreenLightChecklist
-        isOpen={showGreenLight}
-        caregiver={caregiver}
-        onClose={() => setShowGreenLight(false)}
       />
 
       <ProfileCard

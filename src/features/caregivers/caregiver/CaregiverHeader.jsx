@@ -3,7 +3,7 @@ import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
 import { PhoneCallButton } from '../../voice/PhoneCallButton';
 
-export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onToggleGreenLight, onShowArchive, onUnarchive, onShowDelete }) {
+export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onShowArchive, onUnarchive, onShowDelete }) {
   return (
     <div className={layout.detailHeader}>
       <button className={btn.backBtn} onClick={onBack}>← Back</button>
@@ -43,7 +43,6 @@ export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, on
           </span>
         )}
         {caregiver.archived && <span style={{ padding: '6px 14px', borderRadius: 8, background: '#FEF2F0', color: '#DC3545', fontWeight: 600, fontSize: 13 }}>Archived</span>}
-        <button className={btn.greenLightBtn} onClick={onToggleGreenLight}>🛡️ Green Light Check</button>
         {!caregiver.archived ? (
           <button className={btn.dangerBtn} onClick={onShowArchive}>📦 Archive</button>
         ) : (

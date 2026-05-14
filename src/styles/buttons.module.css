@@ -156,19 +156,6 @@
   color: #DC4A3A;
 }
 
-.greenLightBtn {
-  background: #fff;
-  border: 1px solid #D5DCE6;
-  border-radius: 12px;
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  color: var(--tc-navy);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-}
-
 .scriptBtn {
   background: #fff;
   border: 1px solid #C6DFF0;
