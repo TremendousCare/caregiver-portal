@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import cl from './client.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -147,9 +148,27 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
   // ─── Add Note Handler ───────────────────────────────────
   const handleAddNote = () => {
-    if (!noteText.trim()) return;
-    onAddNote(client.id, { text: noteText.trim(), type: 'note' });
+    const trimmed = noteText.trim();
+    if (!trimmed) return;
+    onAddNote(client.id, { text: trimmed, type: 'note' });
     setNoteText('');
+    // Phase 1.5 follow-up — close any matching pending ai_suggestion
+    // for this (client, add_note). Only wired on the standalone
+    // composer; SMS- and email-derived notes are covered by their own
+    // (send_sms / send_email) close calls to avoid double-counting
+    // positive signal. Fire-and-forget; failure must never affect the
+    // UX.
+    closePendingSuggestionForAction({
+      entityType: 'client',
+      entityId: client.id,
+      actionType: 'add_note',
+      params: {
+        note_type: 'note',
+        char_count: trimmed.length,
+      },
+    }).catch((closeErr) => {
+      console.warn('[ClientActivityLog] suggestion-close failed (non-fatal):', closeErr);
+    });
   };
 
   const fetchTranscript = async (recordingId) => {

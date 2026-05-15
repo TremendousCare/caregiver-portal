@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import { useCommsTimeline } from './useCommsTimeline';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
@@ -25,9 +26,27 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const { mergedTimeline, rcLoading, accessToken } = useCommsTimeline(caregiver);
 
   const handleAddNote = () => {
-    if (!noteText.trim()) return;
-    onAddNote(caregiver.id, { text: noteText.trim(), type: 'note' });
+    const trimmed = noteText.trim();
+    if (!trimmed) return;
+    onAddNote(caregiver.id, { text: trimmed, type: 'note' });
     setNoteText('');
+    // Phase 1.5 follow-up — close any matching pending ai_suggestion
+    // for this (caregiver, add_note). Only wired on the standalone
+    // composer; SMS- and email-derived notes are covered by their own
+    // (send_sms / send_email) close calls to avoid double-counting
+    // positive signal. Fire-and-forget; failure must never affect the
+    // UX.
+    closePendingSuggestionForAction({
+      entityType: 'caregiver',
+      entityId: caregiver.id,
+      actionType: 'add_note',
+      params: {
+        note_type: 'note',
+        char_count: trimmed.length,
+      },
+    }).catch((closeErr) => {
+      console.warn('[ActivityLog] suggestion-close failed (non-fatal):', closeErr);
+    });
   };
 
   const filteredTimeline = activeFilter === 'all'

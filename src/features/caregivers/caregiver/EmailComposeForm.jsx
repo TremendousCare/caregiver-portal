@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { useApp } from '../../../shared/context/AppContext';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import styles from './messaging.module.css';
 
 /**
@@ -67,6 +68,26 @@ export function EmailComposeForm({
           fullBody: trimmedBody,
           subject: trimmedSubject,
           toEmail: email,
+        });
+      }
+
+      // Phase 1.5 follow-up — close any matching pending ai_suggestion
+      // for this (entity, send_email) and write the agent_actions
+      // `phase='executed'` audit row that autonomy v2 reads. Fire-and-
+      // forget — the email has already shipped, so a failure here must
+      // never affect the UX. See SMSComposeBar.handleSend for the
+      // reference pattern.
+      if (recipient?.id) {
+        closePendingSuggestionForAction({
+          entityType,
+          entityId: recipient.id,
+          actionType: 'send_email',
+          params: {
+            subject_length: trimmedSubject.length,
+            body_length: trimmedBody.length,
+          },
+        }).catch((closeErr) => {
+          console.warn('[EmailComposeForm] suggestion-close failed (non-fatal):', closeErr);
         });
       }
 

@@ -1,5 +1,6 @@
 import { CLIENT_PHASES } from '../constants';
 import { getClientPhase, getClientOverallProgress, getClientPhaseProgress, getDaysSinceCreated } from '../utils';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import progress from '../../../styles/progress.module.css';
 
 // Active pipeline phases (progress tabs) vs terminal/status phases (badges)
@@ -44,6 +45,7 @@ export function ClientProgressOverview({ client, activePhase, onPhaseChange, onU
             value={currentPhase}
             onChange={(e) => {
               const val = e.target.value;
+              const fromPhase = currentPhase;
               onUpdateClient(client.id, {
                 phase: val,
                 phaseTimestamps: {
@@ -52,6 +54,24 @@ export function ClientProgressOverview({ client, activePhase, onPhaseChange, onU
                 },
               });
               onPhaseChange(val);
+              // Phase 1.5 follow-up — close any matching pending
+              // ai_suggestion for this (client, update_phase) and write
+              // the agent_actions `phase='executed'` audit row that
+              // autonomy v2 reads. Fire-and-forget; failure must never
+              // affect the UX.
+              if (val && val !== fromPhase) {
+                closePendingSuggestionForAction({
+                  entityType: 'client',
+                  entityId: client.id,
+                  actionType: 'update_phase',
+                  params: {
+                    from_phase: fromPhase || null,
+                    to_phase: val,
+                  },
+                }).catch((closeErr) => {
+                  console.warn('[ClientProgressOverview] suggestion-close failed (non-fatal):', closeErr);
+                });
+              }
             }}
           >
             {CLIENT_PHASES.map((p) => (

@@ -3,6 +3,7 @@ import { PHASES, CHASE_SCRIPTS } from '../../../lib/constants';
 import { isTaskDone } from '../../../lib/utils';
 import { getPhaseTasks } from '../../../lib/storage';
 import { supabase } from '../../../lib/supabase';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import { OrientationBanner } from '../KanbanBoard';
 import { InterviewEvaluationModal } from './InterviewEvaluationModal';
 import progress from '../../../styles/progress.module.css';
@@ -101,7 +102,24 @@ export function PhaseDetail({ caregiver, allCaregivers, activePhase, currentUser
             const done = isTaskDone(caregiver.tasks?.[task.id]);
             return (
               <label key={task.id} className={`tc-task-row ${cg.taskRow} ${done ? cg.taskRowDone : ''}`}>
-                <div className={`${done ? 'tc-checkbox-done ' : ''}${cg.checkbox} ${done ? cg.checkboxDone : ''}`} style={task.critical ? { borderColor: '#2E4E8D' } : undefined} onClick={() => onUpdateTask(caregiver.id, task.id, !done)}>
+                <div className={`${done ? 'tc-checkbox-done ' : ''}${cg.checkbox} ${done ? cg.checkboxDone : ''}`} style={task.critical ? { borderColor: '#2E4E8D' } : undefined} onClick={() => {
+                  const markingDone = !done;
+                  onUpdateTask(caregiver.id, task.id, markingDone);
+                  // Phase 1.5 follow-up — only fire on transitions from
+                  // pending → done. Un-checking a task is not a positive
+                  // autonomy signal. Fire-and-forget; failure must never
+                  // affect the UX.
+                  if (markingDone) {
+                    closePendingSuggestionForAction({
+                      entityType: 'caregiver',
+                      entityId: caregiver.id,
+                      actionType: 'complete_task',
+                      params: { task_id: task.id },
+                    }).catch((closeErr) => {
+                      console.warn('[PhaseDetail] suggestion-close failed (non-fatal):', closeErr);
+                    });
+                  }
+                }}>
                   {done && '✓'}
                 </div>
                 <div style={{ flex: 1 }}>
