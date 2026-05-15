@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Upload } from 'lucide-react';
 import { DOCUMENT_TYPES, UPLOADABLE_DOCUMENT_TYPES } from '../../../lib/constants';
 import { supabase } from '../../../lib/supabase';
 import { fireEventTriggers } from '../../../lib/automations';
@@ -28,6 +29,15 @@ export function DocumentsSection({ caregiver, currentUser, showToast, onUpdateCa
   const [requestDelivery, setRequestDelivery] = useState('sms'); // 'sms' | 'email' | 'both'
   const [requestSending, setRequestSending] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
+
+  // Manual Upload modal state (staff-side upload of an additional document)
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadSelectedType, setUploadSelectedType] = useState('');
+  const [uploadCustomLabel, setUploadCustomLabel] = useState('');
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadInProgress, setUploadInProgress] = useState(false);
+  const [uploadEditingTypes, setUploadEditingTypes] = useState(false);
+  const [uploadEditDraft, setUploadEditDraft] = useState([]);
 
   // Fetch documents from caregiver_documents table
   const fetchDocuments = async () => {
@@ -253,6 +263,83 @@ Tremendous Care`;
     }
   }, [caregiver, currentUser, requestSelectedTypes, requestDelivery, showToast]);
 
+  const resetUploadModal = () => {
+    setShowUploadModal(false);
+    setUploadSelectedType('');
+    setUploadCustomLabel('');
+    setUploadFile(null);
+    setUploadEditingTypes(false);
+  };
+
+  const handleManualUpload = useCallback(async () => {
+    if (!caregiver?.id || !supabase || !uploadFile) return;
+
+    let docType;
+    let docLabel;
+    if (uploadSelectedType === '__custom__') {
+      const trimmed = uploadCustomLabel.trim();
+      if (!trimmed) {
+        if (showToast) showToast('Please enter a document name');
+        return;
+      }
+      // Use the custom name itself as the document_type. The Caregiver Uploads
+      // renderer falls back to doc.document_type when no matching uploadable
+      // type is found, so the recruiter's chosen name shows up verbatim.
+      docType = trimmed;
+      docLabel = trimmed;
+    } else if (uploadSelectedType) {
+      docType = uploadSelectedType;
+      docLabel = uploadableDocTypes.find((t) => t.id === uploadSelectedType)?.label || uploadSelectedType;
+    } else {
+      if (showToast) showToast('Please select a document type');
+      return;
+    }
+
+    setUploadInProgress(true);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(uploadFile);
+      });
+
+      const originalName = uploadFile.name || 'upload';
+      const lastDot = originalName.lastIndexOf('.');
+      const ext = lastDot > 0 ? originalName.slice(lastDot).toLowerCase() : '';
+      const safeDocType = String(docType).replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase() || 'document';
+      const uniqueFileName = `${safeDocType}_${Date.now()}${ext}`;
+
+      const { data, error } = await supabase.functions.invoke('sharepoint-docs', {
+        body: {
+          action: 'upload_file',
+          caregiver_id: caregiver.id,
+          document_type: docType,
+          file_name: uniqueFileName,
+          file_content_base64: base64,
+          uploaded_by: currentUser?.email || '',
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      await fetchDocuments();
+
+      fireEventTriggers('document_uploaded', caregiver, {
+        document_type: docType,
+        document_label: docLabel,
+      });
+
+      resetUploadModal();
+      if (showToast) showToast('Document uploaded!');
+    } catch (err) {
+      console.error('Manual upload failed:', err);
+      if (showToast) showToast(`Upload failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setUploadInProgress(false);
+    }
+  }, [caregiver, currentUser, uploadFile, uploadSelectedType, uploadCustomLabel, uploadableDocTypes, showToast]);
+
   const handleDocUpload = async (docType, file) => {
     if (!file || !supabase) return;
     setUploadingDoc(docType);
@@ -408,6 +495,18 @@ Tremendous Care`;
             }}
           >
             📤 Request Documents
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowUploadModal(true); }}
+            style={{
+              padding: '6px 14px', borderRadius: 8, border: '1px solid #2E4E8D', background: '#EBF0FA',
+              color: '#2E4E8D', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+            title="Upload a document on behalf of this caregiver"
+          >
+            <Upload size={14} />
+            Upload Document
           </button>
           {pendingRequests.length > 0 && (
             <span style={{ fontSize: 11, color: '#6B7B8F', fontWeight: 500 }}>
@@ -816,6 +915,179 @@ Tremendous Care`;
                 {requestSending ? 'Sending...' : `Send Request (${requestSelectedTypes.length})`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Upload Modal */}
+      {showUploadModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.4)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }} onClick={resetUploadModal}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480,
+            maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontFamily: 'var(--tc-font-heading)', fontSize: 18, fontWeight: 700, color: '#1A1A1A', marginBottom: 4 }}>
+              Upload Document
+            </h3>
+            <p style={{ fontSize: 13, color: '#6B7B8F', marginBottom: 16 }}>
+              Upload an additional document for {caregiver.firstName} (e.g., a doc handed in at the office).
+            </p>
+
+            {/* Document type picker + edit affordance */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  {uploadEditingTypes ? 'Edit Document Types' : 'Document Type'}
+                </div>
+                {!uploadEditingTypes ? (
+                  <button
+                    onClick={() => { setUploadEditDraft(uploadableDocTypes.map((t) => ({ ...t }))); setUploadEditingTypes(true); }}
+                    style={{ background: 'none', border: 'none', color: '#2E4E8D', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    ✏️ Edit Types
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => { saveUploadableDocTypes(uploadEditDraft); setUploadEditingTypes(false); }}
+                      style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: '#2E4E8D', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Save</button>
+                    <button
+                      onClick={() => setUploadEditingTypes(false)}
+                      style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', color: '#6B7B8F', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Cancel</button>
+                  </div>
+                )}
+              </div>
+
+              {uploadEditingTypes ? (
+                <div>
+                  {uploadEditDraft.map((dt, idx) => (
+                    <div key={dt.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+                      <input
+                        value={dt.label}
+                        onChange={(e) => setUploadEditDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))}
+                        placeholder="Document name..."
+                        style={{
+                          flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #D1D5DB',
+                          fontSize: 13, fontFamily: 'inherit', background: '#FAFBFC',
+                        }}
+                      />
+                      <button
+                        onClick={() => setUploadEditDraft((prev) => prev.filter((_, i) => i !== idx))}
+                        style={{
+                          padding: '4px 8px', borderRadius: 6, border: '1px solid #FCA5A5', background: '#FEF2F2',
+                          color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >✕</button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setUploadEditDraft((prev) => [...prev, { id: 'doc_' + Date.now().toString(36), label: '', required: false }])}
+                    style={{
+                      marginTop: 6, padding: '4px 0', background: 'none', border: 'none',
+                      color: '#2E4E8D', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >＋ Add Document Type</button>
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={uploadSelectedType}
+                    onChange={(e) => setUploadSelectedType(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #D1D5DB',
+                      fontSize: 13, fontFamily: 'inherit', background: '#fff', color: '#1A1A1A',
+                    }}
+                  >
+                    <option value="">Select a type...</option>
+                    {uploadableDocTypes
+                      .filter((dt) => dt.id !== 'other')
+                      .map((dt) => (
+                        <option key={dt.id} value={dt.id}>{dt.label}</option>
+                      ))}
+                    <option value="__custom__">Other (custom name)...</option>
+                  </select>
+
+                  {uploadSelectedType === '__custom__' && (
+                    <input
+                      value={uploadCustomLabel}
+                      onChange={(e) => setUploadCustomLabel(e.target.value)}
+                      placeholder="Name this document (e.g., Reference Letter)"
+                      autoFocus
+                      style={{
+                        marginTop: 8, width: '100%', padding: '10px 12px', borderRadius: 8,
+                        border: '1px solid #D1D5DB', fontSize: 13, fontFamily: 'inherit',
+                        background: '#FAFBFC', color: '#1A1A1A', boxSizing: 'border-box',
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* File picker */}
+            {!uploadEditingTypes && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2E4E8D', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                  File
+                </div>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  style={{
+                    width: '100%', padding: '8px', borderRadius: 8, border: '1px solid #D1D5DB',
+                    fontSize: 13, fontFamily: 'inherit', background: '#FAFBFC',
+                  }}
+                />
+                {uploadFile && (
+                  <div style={{ fontSize: 11, color: '#6B7B8F', marginTop: 6 }}>
+                    Selected: {uploadFile.name} ({Math.round(uploadFile.size / 1024)} KB)
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Actions */}
+            {!uploadEditingTypes && (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={resetUploadModal}
+                  style={{
+                    padding: '10px 20px', borderRadius: 10, border: '1px solid #D1D5DB',
+                    background: '#fff', color: '#6B7B8F', fontSize: 13, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleManualUpload}
+                  disabled={
+                    !uploadFile ||
+                    !uploadSelectedType ||
+                    (uploadSelectedType === '__custom__' && !uploadCustomLabel.trim()) ||
+                    uploadInProgress
+                  }
+                  style={{
+                    padding: '10px 20px', borderRadius: 10, border: 'none',
+                    background: (!uploadFile || !uploadSelectedType || (uploadSelectedType === '__custom__' && !uploadCustomLabel.trim()) || uploadInProgress)
+                      ? '#B0B8C4' : 'linear-gradient(135deg, #2E4E8D 0%, #1a6b7a 100%)',
+                    color: '#fff', fontSize: 13, fontWeight: 700,
+                    cursor: (!uploadFile || !uploadSelectedType || (uploadSelectedType === '__custom__' && !uploadCustomLabel.trim()) || uploadInProgress)
+                      ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit', minWidth: 120,
+                  }}
+                >
+                  {uploadInProgress ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
