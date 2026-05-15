@@ -28,25 +28,34 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const handleAddNote = () => {
     const trimmed = noteText.trim();
     if (!trimmed) return;
-    onAddNote(caregiver.id, { text: trimmed, type: 'note' });
+    const persistPromise = onAddNote(caregiver.id, { text: trimmed, type: 'note' });
     setNoteText('');
     // Phase 1.5 follow-up — close any matching pending ai_suggestion
     // for this (caregiver, add_note). Only wired on the standalone
     // composer; SMS- and email-derived notes are covered by their own
     // (send_sms / send_email) close calls to avoid double-counting
-    // positive signal. Fire-and-forget; failure must never affect the
-    // UX.
-    closePendingSuggestionForAction({
-      entityType: 'caregiver',
-      entityId: caregiver.id,
-      actionType: 'add_note',
-      params: {
-        note_type: 'note',
-        char_count: trimmed.length,
-      },
-    }).catch((closeErr) => {
-      console.warn('[ActivityLog] suggestion-close failed (non-fatal):', closeErr);
-    });
+    // positive signal.
+    //
+    // We chain off the persist promise so the close call only fires
+    // AFTER the note has durably landed in Supabase. If the save
+    // rejects (network blip, RLS, etc.) the close is skipped — no
+    // false-positive `phase='executed'` audit row for a note that
+    // didn't persist. Per the helper contract `closePendingSuggestion
+    // ForAction` never throws, so the outer `.catch` only fires for
+    // the persist failure path. Fire-and-forget end-to-end.
+    Promise.resolve(persistPromise)
+      .then(() => closePendingSuggestionForAction({
+        entityType: 'caregiver',
+        entityId: caregiver.id,
+        actionType: 'add_note',
+        params: {
+          note_type: 'note',
+          char_count: trimmed.length,
+        },
+      }))
+      .catch((closeErr) => {
+        console.warn('[ActivityLog] suggestion-close skipped or failed (non-fatal):', closeErr);
+      });
   };
 
   const filteredTimeline = activeFilter === 'all'

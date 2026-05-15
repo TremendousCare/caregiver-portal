@@ -240,7 +240,15 @@ export function CaregiverProvider({ children }) {
         return changed;
       })
     );
-    if (changed) saveCaregiver(changed).catch(() => showToast('Failed to save — check your connection'));
+    // Return the persist promise so callers (e.g. the agent loop-
+    // closure wire-up in ActivityLog) can chain on success — closing
+    // a pending suggestion BEFORE the note durably persists would
+    // record a false-positive `phase='executed'` audit row.
+    if (!changed) return Promise.resolve();
+    return saveCaregiver(changed).catch((err) => {
+      showToast('Failed to save — check your connection');
+      throw err;
+    });
   }, [showToast, currentUserName]);
 
   // Optimistic, client-only variant of addNote.

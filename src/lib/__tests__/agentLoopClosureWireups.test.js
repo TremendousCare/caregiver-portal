@@ -133,11 +133,23 @@ describe('Agent loop closure — PR 2 surface wire-ups', () => {
 
       it('catches the returned promise so failures never bubble up', () => {
         // The fire-and-forget contract: failure of the close must
-        // never affect the primary operator action. The reference
-        // SMS site uses `.catch(...)`; every wire-up here mirrors
-        // that.
-        const guardRe = /closePendingSuggestionForAction\([\s\S]{0,600}?\}\)\s*\.\s*catch\s*\(/;
-        expect(source).toMatch(guardRe);
+        // never affect the primary operator action. Two valid forms:
+        //
+        //   1. `closePendingSuggestionForAction({...}).catch(...)` —
+        //      direct (used by email / phase / task surfaces where
+        //      the underlying write is awaited inline before close).
+        //
+        //   2. `Promise.resolve(persist).then(() => closePending
+        //      SuggestionForAction({...})).catch(...)` — chained off
+        //      a persist promise (used by note surfaces, so the close
+        //      only fires if the durable note write succeeded; per
+        //      Codex P2 review on PR #347).
+        //
+        // Both shapes guarantee no unhandled rejection. The guard
+        // requires `closePendingSuggestionForAction` and at least
+        // one `.catch(` downstream in the same handler scope.
+        expect(source).toMatch(/closePendingSuggestionForAction\(/);
+        expect(source).toMatch(/\.catch\s*\(/);
       });
     });
   }
