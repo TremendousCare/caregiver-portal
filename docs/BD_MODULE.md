@@ -308,6 +308,7 @@ Designed to land an end-to-end usable tool by the rep's start date, then layer e
   - [x] `bd-trello-import` (PR #272) — fetches the BD board into `bd_trello_import_staging`.
   - [x] `bd-trello-extract` — Claude Haiku 4.5 extracts account name/type/contacts onto staging rows.
   - [x] `bd-trello-load` (PR #274) — loads extracted data into live `bd_accounts` / `bd_account_contacts` / `bd_activities`. **Result: 99 accounts, 332 contacts, 340 activities loaded** with one card skipped as `<UNKNOWN>` (junk card).
+  - [x] `bd-trello-enrich-contacts` — deterministic re-parse of staged card descriptions to fill in contact `title` / `email` / `phone_mobile` / `phone_office` that the original AI extractor dropped, and to insert any contacts the AI missed entirely. Idempotent (only fills NULL fields, dedupes new inserts on per-account name). Trigger via `curl -X POST -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" "$SUPABASE_URL/functions/v1/bd-trello-enrich-contacts"` (add `?dry_run=true` for a preview). Parser lives in `src/lib/bd/trelloContactParser.js` so vitest exercises it.
 - [ ] **(Deferred)** Seed remaining accounts from existing `clients.referral_source` + Google Places geo-search. The Trello import landed enough volume (~99 accounts) that the rep is fully provisioned for day one.
 - [ ] **(Deferred)** Backfill 6–12 months of inferred referrals from existing client records.
 - [ ] **(Deferred)** Insert starter goals — `bd_goals` table exists but no rows yet. Phase 2 ships the goals editor.
