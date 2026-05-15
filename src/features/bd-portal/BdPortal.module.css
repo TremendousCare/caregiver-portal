@@ -160,6 +160,52 @@
 }
 .accountCard:active { background: #F7F8FB; }
 
+/* Inner clickable region — the navigation button that fills the card
+   to the right of the star. Visually transparent so the surrounding
+   .accountCard styling shows through; functionally it captures the
+   tap without nesting a button inside another button (invalid HTML). */
+.accountCardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+}
+
+.accountCardBodyText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Star button — outline by default, brand-cyan filled when active.
+   Sized for touch (32×32 hit area, 18px icon). Sits to the left of
+   the card body so it gets a stable tap target regardless of card
+   width. */
+.starBtn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: #B0B8C4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.starBtn:active { background: #EEF1F6; }
+.starBtnActive { color: #29BEE4; }
+
 .accountCardCold {
   border-color: #F0C674;
   background: #FFF9EE;

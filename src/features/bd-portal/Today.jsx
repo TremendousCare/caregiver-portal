@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Map, ListOrdered } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
+import { useBdAccountStars } from './hooks/useBdAccountStars';
 import { useBdBriefing } from './hooks/useBdBriefing';
 import { useBdNearbyAccount } from './hooks/useBdNearbyAccount';
 import { useBdTodayPlan } from './hooks/useBdTodayPlan';
@@ -36,6 +37,7 @@ function formatDays(d) {
 export function Today({ displayName }) {
   const navigate = useNavigate();
   const { loading: accountsLoading, accounts, activities, territoryCities, error: accountsError, refresh: refreshAccounts } = useBdAccounts();
+  const { starredIds } = useBdAccountStars();
   const { loading: briefingLoading, briefing, refresh: refreshBriefing } = useBdBriefing(displayName);
   const { plan: todayPlan, refresh: refreshPlan } = useBdTodayPlan();
 
@@ -65,7 +67,14 @@ export function Today({ displayName }) {
   );
 
   const week = useMemo(() => summarizeWeek(activities), [activities]);
-  const top = useMemo(() => rankAccounts(territoryAccounts).slice(0, 5), [territoryAccounts]);
+  // Pass the rep's starred set so her shortlist bubbles to the top of
+  // the local Top-5 fallback. The briefing-returned suggested_visits
+  // (when present) are not re-ranked here — the edge function would
+  // need its own starred-account awareness, tracked as a follow-up.
+  const top = useMemo(
+    () => rankAccounts(territoryAccounts, Date.now(), { starredIds }).slice(0, 5),
+    [territoryAccounts, starredIds],
+  );
 
   // Geofence prompt. No-op if accounts lack lat/lng or location is
   // denied — the rep can still log activity through the normal flow.

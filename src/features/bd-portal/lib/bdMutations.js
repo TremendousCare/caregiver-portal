@@ -576,3 +576,48 @@ export async function updateContact(supabase, { contactId, draft }) {
 
   return { data: updateRes.data, error: null };
 }
+
+// ─── Account stars (personal favorites) ─────────────────────────────
+//
+// Toggle a star on/off for the current user. RLS enforces user
+// scoping (we never set user_id explicitly client-side; the policy's
+// WITH CHECK requires it to equal auth.uid()). We resolve the
+// authenticated user id via getSession() so the INSERT body satisfies
+// the NOT NULL on user_id.
+//
+// `starred` is the desired final state (true → INSERT, false → DELETE).
+// The caller decides intent rather than us toggling based on a current-
+// state read, so optimistic UI updates can call this directly with the
+// post-tap value.
+
+export async function setAccountStarred(supabase, { accountId, starred }) {
+  if (!supabase) return { ok: false, error: new Error('Supabase not configured.') };
+  if (!accountId) return { ok: false, error: new Error('Missing account id.') };
+
+  const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+  if (sessionErr) return { ok: false, error: sessionErr };
+  const userId = sessionData?.session?.user?.id;
+  if (!userId) return { ok: false, error: new Error('Not signed in.') };
+
+  if (starred) {
+    // Idempotent INSERT — if the (account_id, user_id) PK conflict
+    // hits we treat it as a no-op (already starred).
+    const res = await supabase
+      .from('bd_account_stars')
+      .upsert(
+        { account_id: accountId, user_id: userId },
+        { onConflict: 'account_id,user_id', ignoreDuplicates: true },
+      );
+    if (res.error) return { ok: false, error: res.error };
+    return { ok: true, error: null };
+  }
+
+  const res = await supabase
+    .from('bd_account_stars')
+    .delete()
+    .eq('account_id', accountId)
+    .eq('user_id', userId);
+  if (res.error) return { ok: false, error: res.error };
+  return { ok: true, error: null };
+}
+

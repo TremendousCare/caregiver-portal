@@ -52,19 +52,35 @@ export function isProspect(account) {
 //     prospects are an untapped pool that grows when worked. We
 //     deliberately prioritize re-engaging real relationships over
 //     cold-calling a fresh list.
-export function rankAccounts(accounts, now = Date.now()) {
+//   - Starred accounts (the rep's personal shortlist via
+//     bd_account_stars) get a strong score boost so they bubble to
+//     the top of the Today screen ahead of generic cold accounts.
+//     Pass a Set of starred account ids in `opts.starredIds`; an
+//     empty set is the default and behaves identically to the prior
+//     unstarred ranking.
+export function rankAccounts(accounts, now = Date.now(), opts = {}) {
+  const starredIds = opts.starredIds instanceof Set ? opts.starredIds : new Set();
   return [...(accounts ?? [])]
     .map((a) => {
       const d = daysSince(a.last_activity_at, now);
       const cold = d === null || d >= COLD_THRESHOLD_DAYS;
       const prospect = isProspect(a);
+      const starred = starredIds.has(a.id);
       const recency = d === null ? 365 : d;
       // Prospect score: ~25 (between warm and cold). Cold gets +50.
       // Prospects without `last_activity_at` would otherwise score 365
       // via the null recency fallback — clamp to keep them below cold.
       const recencyAdjusted = prospect ? 25 : recency;
-      const score = recencyAdjusted + (cold && !prospect ? 50 : 0) + Math.min(a.activity_count ?? 0, 20);
-      return { ...a, _days_since: d, _cold: cold && !prospect, _prospect: prospect, _score: score };
+      // Star bonus: +500. Hard tier — always sorts above unstarred
+      // because the rep's personal shortlist is what drives her day.
+      // Max possible non-star score is ~recency(365) + cold(50) +
+      // activity(20) = 435, so +500 reliably dominates. Within
+      // starred accounts, recency + cold bonus still drive ordering,
+      // so a starred-but-dormant account sits at the top of the
+      // shortlist.
+      const starBonus = starred ? 500 : 0;
+      const score = recencyAdjusted + (cold && !prospect ? 50 : 0) + starBonus + Math.min(a.activity_count ?? 0, 20);
+      return { ...a, _days_since: d, _cold: cold && !prospect, _prospect: prospect, _starred: starred, _score: score };
     })
     .sort((x, y) => y._score - x._score);
 }
@@ -121,6 +137,21 @@ export async function fetchCurrentUserTerritoryCities(supabase) {
   const res = await supabase.rpc('bd_current_user_territory_cities');
   if (res.error) return { data: [], error: res.error };
   return { data: Array.isArray(res.data) ? res.data : [], error: null };
+}
+
+// Pulls the current user's starred account ids. Returns a Set for
+// O(1) lookup at render time. RLS scopes the query to the caller's
+// own rows, so we don't pass user_id explicitly. Returns an empty Set
+// on error so the UI degrades to "no stars" rather than failing the
+// list — the star button still works on tap to retry.
+export async function fetchCurrentUserStarredAccountIds(supabase) {
+  if (!supabase) return { data: new Set(), error: null };
+  const res = await supabase
+    .from('bd_account_stars')
+    .select('account_id');
+  if (res.error) return { data: new Set(), error: res.error };
+  const ids = (res.data ?? []).map((r) => r.account_id);
+  return { data: new Set(ids), error: null };
 }
 
 // Builds a Today-screen counter object from the in-memory account
