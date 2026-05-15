@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Camera, Star, Phone, Globe, Map, Mail } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
+import { useBdAccountStars } from './hooks/useBdAccountStars';
 import {
   formatActivityDate,
   formatAccountSubtitle,
@@ -32,6 +33,7 @@ export function AccountProfile() {
   const { accountId } = useParams();
   const navigate = useNavigate();
   const { loading, account, contacts, activities, error, refresh } = useBdAccountDetail(accountId);
+  const { isStarred, toggle: toggleStar } = useBdAccountStars();
 
   const [editingAddress, setEditingAddress] = useState(false);
   const [addrDraft, setAddrDraft]           = useState({ address: '', city: '', state: '', zip: '' });
@@ -120,9 +122,23 @@ export function AccountProfile() {
         <button type="button" className={s.backBtn} onClick={() => navigate(-1)}>← Back</button>
         <button
           type="button"
+          className={`${s.starBtn} ${isStarred(account.id) ? s.starBtnActive : ''}`}
+          onClick={() => toggleStar(account.id)}
+          aria-label={isStarred(account.id) ? 'Remove from My accounts' : 'Add to My accounts'}
+          aria-pressed={isStarred(account.id)}
+          style={{ marginLeft: 'auto' }}
+        >
+          <Star
+            size={18}
+            strokeWidth={2}
+            fill={isStarred(account.id) ? 'currentColor' : 'none'}
+            aria-hidden
+          />
+        </button>
+        <button
+          type="button"
           className={s.logCta}
           onClick={() => navigate(`/bd/accounts/${account.id}/log`)}
-          style={{ marginLeft: 'auto' }}
         >
           + Activity
         </button>

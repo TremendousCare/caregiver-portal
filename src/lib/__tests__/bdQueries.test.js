@@ -155,6 +155,61 @@ describe('rankAccounts', () => {
     expect(ranked[0].id).toBe('prospect');
     expect(ranked[1].id).toBe('warm');
   });
+
+  it('annotates starred accounts with _starred=true', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'a', last_activity_at: dayAgo(2), activity_count: 0 },
+        { id: 'b', last_activity_at: dayAgo(2), activity_count: 0 },
+      ],
+      NOW,
+      { starredIds: new Set(['a']) },
+    );
+    expect(ranked.find((r) => r.id === 'a')._starred).toBe(true);
+    expect(ranked.find((r) => r.id === 'b')._starred).toBe(false);
+  });
+
+  it('treats a missing or non-Set starredIds option as no stars', () => {
+    const ranked = rankAccounts(
+      [{ id: 'a', last_activity_at: dayAgo(2), activity_count: 0 }],
+      NOW,
+    );
+    expect(ranked[0]._starred).toBe(false);
+    const ranked2 = rankAccounts(
+      [{ id: 'a', last_activity_at: dayAgo(2), activity_count: 0 }],
+      NOW,
+      { starredIds: ['a'] },  // wrong type — should be Set
+    );
+    expect(ranked2[0]._starred).toBe(false);
+  });
+
+  it('ranks a starred warm account above an unstarred cold account', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'cold',    source: 'manual', last_activity_at: dayAgo(45), activity_count: 5 },
+        { id: 'starred', source: 'manual', last_activity_at: dayAgo(2),  activity_count: 5 },
+      ],
+      NOW,
+      { starredIds: new Set(['starred']) },
+    );
+    // Star bonus (+75) outweighs cold bonus (+50) so starred surfaces first.
+    expect(ranked[0].id).toBe('starred');
+    expect(ranked[0]._starred).toBe(true);
+  });
+
+  it('among multiple starred accounts, prioritizes longer dormancy', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'recent',  source: 'manual', last_activity_at: dayAgo(3),  activity_count: 5 },
+        { id: 'dormant', source: 'manual', last_activity_at: dayAgo(40), activity_count: 5 },
+      ],
+      NOW,
+      { starredIds: new Set(['recent', 'dormant']) },
+    );
+    // Both starred → recency drives order. Dormant is also flagged cold
+    // so it earns the cold bonus on top of the star bonus.
+    expect(ranked[0].id).toBe('dormant');
+  });
 });
 
 describe('searchAccounts', () => {
