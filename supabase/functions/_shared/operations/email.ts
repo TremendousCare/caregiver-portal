@@ -4,7 +4,12 @@
 import type { OperationResult } from "./types.ts";
 import { createNote } from "./notes.ts";
 
-/** Send email via Outlook Edge Function and log a note to the caregiver record (if linked) */
+/** Send email via Outlook Edge Function and log a note to the caregiver record (if linked).
+ *
+ * `attachmentFileIds` references rows in `public.email_attachment_files`. When
+ * provided, outlook-integration takes the draft + upload-session path instead
+ * of the simple /sendMail path. Pass null/undefined for plain (no-attachment)
+ * sends, which is the hot path for every existing caller. */
 export async function sendEmail(
   supabase: any,
   caregiverId: string | null,
@@ -15,6 +20,7 @@ export async function sendEmail(
   cc: string | null,
   actor: string,
   adminEmail: string | null = null,
+  attachmentFileIds: string[] | null = null,
 ): Promise<OperationResult> {
   // Optionally fetch caregiver for note logging
   let cg: any = null;
@@ -47,6 +53,9 @@ export async function sendEmail(
           subject,
           body,
           cc: cc || null,
+          ...(Array.isArray(attachmentFileIds) && attachmentFileIds.length > 0
+            ? { attachment_file_ids: attachmentFileIds }
+            : {}),
         }),
       },
     );
