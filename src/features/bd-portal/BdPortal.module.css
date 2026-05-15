@@ -196,6 +196,15 @@
   color: #5A4319;
 }
 
+/* "Prospect" tag — accounts imported from territory research that the
+   rep has never engaged. Cyan / brand-secondary so it reads as
+   "opportunity" rather than "warning." Distinct from .tagCold (amber)
+   which signals a real relationship that's gone dormant. */
+.tagProspect {
+  background: #D5F0FA;
+  color: #135A75;
+}
+
 .lastSeen {
   font-size: 12px;
   color: #5A6B85;

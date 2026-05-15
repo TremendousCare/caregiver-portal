@@ -102,6 +102,7 @@ export function AccountList() {
               <div>
                 <div className={s.accountName}>
                   {a.name}
+                  {a._prospect && <span className={`${s.tag} ${s.tagProspect}`}>prospect</span>}
                   {a._cold && <span className={`${s.tag} ${s.tagCold}`}>cold</span>}
                   {a.is_strategic_shared && <span className={s.tag}>strategic</span>}
                 </div>

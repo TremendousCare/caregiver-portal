@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   daysSince,
   isCold,
+  isProspect,
   rankAccounts,
   searchAccounts,
   summarizeWeek,
@@ -53,6 +54,29 @@ describe('isCold', () => {
   });
 });
 
+describe('isProspect', () => {
+  it('flags research_import rows with zero activities', () => {
+    expect(isProspect({ source: 'research_import', activity_count: 0 })).toBe(true);
+  });
+  it('does not flag research_import rows once any activity is logged', () => {
+    expect(isProspect({ source: 'research_import', activity_count: 1 })).toBe(false);
+    expect(isProspect({ source: 'research_import', activity_count: 7 })).toBe(false);
+  });
+  it('treats missing activity_count as zero (the column is computed in JS)', () => {
+    expect(isProspect({ source: 'research_import' })).toBe(true);
+    expect(isProspect({ source: 'research_import', activity_count: undefined })).toBe(true);
+    expect(isProspect({ source: 'research_import', activity_count: null })).toBe(true);
+  });
+  it('never flags manual / trello_import / null-source rows even with zero activity', () => {
+    expect(isProspect({ source: 'manual',        activity_count: 0 })).toBe(false);
+    expect(isProspect({ source: 'trello_import', activity_count: 0 })).toBe(false);
+    expect(isProspect({ source: null,            activity_count: 0 })).toBe(false);
+    expect(isProspect({                          activity_count: 0 })).toBe(false);
+    expect(isProspect(null)).toBe(false);
+    expect(isProspect(undefined)).toBe(false);
+  });
+});
+
 describe('rankAccounts', () => {
   it('puts cold accounts above warm ones', () => {
     const ranked = rankAccounts(
@@ -93,6 +117,43 @@ describe('rankAccounts', () => {
   it('returns an empty array for null input without throwing', () => {
     expect(rankAccounts(null)).toEqual([]);
     expect(rankAccounts(undefined)).toEqual([]);
+  });
+
+  it('annotates research_import accounts with zero activity as _prospect, not _cold', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'p', source: 'research_import', last_activity_at: null, activity_count: 0 },
+      ],
+      NOW,
+    );
+    expect(ranked[0]._prospect).toBe(true);
+    expect(ranked[0]._cold).toBe(false);
+  });
+
+  it('ranks true cold (engaged but dormant) above prospects (never engaged)', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'prospect', source: 'research_import', last_activity_at: null, activity_count: 0 },
+        { id: 'cold',     source: 'manual',          last_activity_at: dayAgo(45), activity_count: 5 },
+      ],
+      NOW,
+    );
+    expect(ranked[0].id).toBe('cold');
+    expect(ranked[0]._cold).toBe(true);
+    expect(ranked[1].id).toBe('prospect');
+    expect(ranked[1]._prospect).toBe(true);
+  });
+
+  it('ranks prospects above warm accounts so they still surface', () => {
+    const ranked = rankAccounts(
+      [
+        { id: 'warm',     source: 'manual',          last_activity_at: dayAgo(2),  activity_count: 5 },
+        { id: 'prospect', source: 'research_import', last_activity_at: null,        activity_count: 0 },
+      ],
+      NOW,
+    );
+    expect(ranked[0].id).toBe('prospect');
+    expect(ranked[1].id).toBe('warm');
   });
 });
 

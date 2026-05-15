@@ -8,6 +8,7 @@ import {
   ACTIVITY_TYPE_LABELS,
   daysSince,
   isCold,
+  isProspect,
 } from './lib/bdQueries';
 import { ActivityTypeIcon } from './lib/activityTypeIcon';
 import { updateAccountLocation } from './lib/bdMutations';
@@ -100,7 +101,17 @@ export function AccountProfile() {
     );
   }
 
-  const cold = isCold(account);
+  // Profile-level prospect check needs the live activity count (this
+  // view doesn't get the pre-computed activity_count from the list
+  // fetcher). We use the loaded activities array as the source of truth
+  // and gate the prospect badge on source='research_import' AND no
+  // logged activities — matching the same rule as `isProspect`. Once
+  // the rep logs anything against the account the badge stops showing.
+  const prospect = isProspect({
+    source: account.source,
+    activity_count: (activities ?? []).length,
+  });
+  const cold = !prospect && isCold(account);
   const subtitle = formatAccountSubtitle(account);
 
   return (
@@ -137,6 +148,7 @@ export function AccountProfile() {
       <div className={s.card}>
         <h1 className={s.profileTitle}>
           {account.name}
+          {prospect && <span className={`${s.tag} ${s.tagProspect}`}>prospect</span>}
           {cold && <span className={`${s.tag} ${s.tagCold}`}>cold</span>}
           {account.out_of_territory && <span className={s.tag}>out of territory</span>}
         </h1>
