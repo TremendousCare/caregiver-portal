@@ -54,6 +54,11 @@ WHERE f.org_id IS NULL AND o.slug = 'tremendous-care';
 
 ALTER TABLE public.email_attachment_files ENABLE ROW LEVEL SECURITY;
 
+-- All four policies gate on BOTH role (is_staff/is_admin) AND
+-- org_id matching the caller's JWT claim. The role gate alone is
+-- insufficient for a multi-tenant deployment: staff at org A would
+-- otherwise see/select files belonging to org B's automation rules.
+-- Canonical predicate per migration 20260513020000.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -65,7 +70,10 @@ BEGIN
       CREATE POLICY "email_attachment_files_staff_read"
         ON public.email_attachment_files FOR SELECT
         TO authenticated
-        USING (public.is_staff());
+        USING (
+          public.is_staff()
+          AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid
+        );
     $POL$;
   END IF;
 
@@ -78,7 +86,10 @@ BEGIN
       CREATE POLICY "email_attachment_files_admin_insert"
         ON public.email_attachment_files FOR INSERT
         TO authenticated
-        WITH CHECK (public.is_admin());
+        WITH CHECK (
+          public.is_admin()
+          AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid
+        );
     $POL$;
   END IF;
 
@@ -91,8 +102,14 @@ BEGIN
       CREATE POLICY "email_attachment_files_admin_update"
         ON public.email_attachment_files FOR UPDATE
         TO authenticated
-        USING (public.is_admin())
-        WITH CHECK (public.is_admin());
+        USING (
+          public.is_admin()
+          AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid
+        )
+        WITH CHECK (
+          public.is_admin()
+          AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid
+        );
     $POL$;
   END IF;
 
@@ -105,7 +122,10 @@ BEGIN
       CREATE POLICY "email_attachment_files_admin_delete"
         ON public.email_attachment_files FOR DELETE
         TO authenticated
-        USING (public.is_admin());
+        USING (
+          public.is_admin()
+          AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid
+        );
     $POL$;
   END IF;
 END $$;
@@ -116,11 +136,16 @@ VALUES ('email-attachments', 'email-attachments', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── 3. RLS policies on storage.objects for this bucket ────────────
+-- All four authenticated-user policies gate on a path-prefix match
+-- between the object's first folder segment and the caller's JWT
+-- org_id claim. Same pattern as the `profile-pictures` bucket
+-- (migration 20260514150000). Upload convention is
+-- `<org_id>/<uuid>.<ext>` — see EmailAttachmentsSettings.jsx.
 DO $$
 BEGIN
-  -- Staff read (lets the picker mint signed URLs for previewing the
-  -- file in the library UI). Path-prefix check matches the bucket
-  -- convention `<org_id>/<uuid>.<ext>`.
+  -- Staff read so the rule editor and library UI can mint signed
+  -- URLs for previewing files. Cross-org reads are blocked by the
+  -- path-prefix check.
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'storage' AND tablename = 'objects'
@@ -133,13 +158,16 @@ BEGIN
         USING (
           bucket_id = 'email-attachments'
           AND public.is_staff()
+          AND (((SELECT auth.jwt()) ->> 'org_id')::text || '/') = split_part(name, '/', 1) || '/'
         );
     $POL$;
   END IF;
 
   -- Admin-only INSERT/UPDATE/DELETE. The library is a settings-level
   -- concern, not a daily-use upload, so we gate on admin (same as
-  -- the automation_rules table itself).
+  -- the automation_rules table itself). Path-prefix check ensures
+  -- admin at org A cannot write into org B's folder by guessing
+  -- the bucket layout.
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'storage' AND tablename = 'objects'
@@ -152,6 +180,7 @@ BEGIN
         WITH CHECK (
           bucket_id = 'email-attachments'
           AND public.is_admin()
+          AND (((SELECT auth.jwt()) ->> 'org_id')::text || '/') = split_part(name, '/', 1) || '/'
         );
     $POL$;
   END IF;
@@ -168,10 +197,12 @@ BEGIN
         USING (
           bucket_id = 'email-attachments'
           AND public.is_admin()
+          AND (((SELECT auth.jwt()) ->> 'org_id')::text || '/') = split_part(name, '/', 1) || '/'
         )
         WITH CHECK (
           bucket_id = 'email-attachments'
           AND public.is_admin()
+          AND (((SELECT auth.jwt()) ->> 'org_id')::text || '/') = split_part(name, '/', 1) || '/'
         );
     $POL$;
   END IF;
@@ -188,6 +219,7 @@ BEGIN
         USING (
           bucket_id = 'email-attachments'
           AND public.is_admin()
+          AND (((SELECT auth.jwt()) ->> 'org_id')::text || '/') = split_part(name, '/', 1) || '/'
         );
     $POL$;
   END IF;

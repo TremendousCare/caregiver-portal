@@ -48,11 +48,25 @@ describe('email_attachment_files migration', () => {
     expect(sql).toMatch(/ALTER TABLE public\.email_attachment_files ENABLE ROW LEVEL SECURITY/);
   });
 
-  it('gates table read on is_staff() and writes on is_admin()', () => {
-    expect(sql).toMatch(/email_attachment_files_staff_read[\s\S]*?USING \(public\.is_staff\(\)\)/);
-    expect(sql).toMatch(/email_attachment_files_admin_insert[\s\S]*?WITH CHECK \(public\.is_admin\(\)\)/);
-    expect(sql).toMatch(/email_attachment_files_admin_update[\s\S]*?USING \(public\.is_admin\(\)\)/);
-    expect(sql).toMatch(/email_attachment_files_admin_delete[\s\S]*?USING \(public\.is_admin\(\)\)/);
+  it('gates table read on is_staff() AND tenant org match', () => {
+    expect(sql).toMatch(
+      /email_attachment_files_staff_read[\s\S]*?public\.is_staff\(\)[\s\S]*?org_id = nullif\(\(auth\.jwt\(\) ->> 'org_id'\), ''\)::uuid/,
+    );
+  });
+
+  it('gates table writes on is_admin() AND tenant org match', () => {
+    // INSERT — only WITH CHECK
+    expect(sql).toMatch(
+      /email_attachment_files_admin_insert[\s\S]*?WITH CHECK\s*\(\s*[\s\S]*?public\.is_admin\(\)[\s\S]*?org_id = nullif\(\(auth\.jwt\(\) ->> 'org_id'\), ''\)::uuid/,
+    );
+    // UPDATE — both USING and WITH CHECK
+    expect(sql).toMatch(
+      /email_attachment_files_admin_update[\s\S]*?USING\s*\([\s\S]*?public\.is_admin\(\)[\s\S]*?org_id = nullif\(\(auth\.jwt\(\) ->> 'org_id'\), ''\)::uuid[\s\S]*?WITH CHECK\s*\([\s\S]*?public\.is_admin\(\)[\s\S]*?org_id = nullif\(\(auth\.jwt\(\) ->> 'org_id'\), ''\)::uuid/,
+    );
+    // DELETE — only USING
+    expect(sql).toMatch(
+      /email_attachment_files_admin_delete[\s\S]*?USING\s*\([\s\S]*?public\.is_admin\(\)[\s\S]*?org_id = nullif\(\(auth\.jwt\(\) ->> 'org_id'\), ''\)::uuid/,
+    );
   });
 
   it('uses helper functions instead of inline subqueries (RLS recursion gotcha)', () => {
@@ -70,10 +84,21 @@ describe('email_attachment_files migration', () => {
     expect(sql).toMatch(/'email-attachments',\s*'email-attachments',\s*false/);
   });
 
-  it('storage.objects policies gate on bucket_id and is_staff/is_admin', () => {
+  it('storage.objects policies gate on bucket_id, role, AND tenant path prefix', () => {
+    // The path-prefix check is the cross-tenant fence in Storage —
+    // RLS denies any read/write where the object name does not
+    // start with the caller's JWT org_id. Same pattern as the
+    // profile-pictures bucket (migration 20260514150000).
+    const pathPrefixCheck = /\(\(\(SELECT auth\.jwt\(\)\) ->> 'org_id'\)::text \|\| '\/'\) = split_part\(name, '\/', 1\) \|\| '\/'/;
+
     expect(sql).toMatch(/email_attachments_staff_read[\s\S]*?bucket_id = 'email-attachments'[\s\S]*?public\.is_staff\(\)/);
     expect(sql).toMatch(/email_attachments_admin_insert[\s\S]*?bucket_id = 'email-attachments'[\s\S]*?public\.is_admin\(\)/);
     expect(sql).toMatch(/email_attachments_admin_delete[\s\S]*?bucket_id = 'email-attachments'[\s\S]*?public\.is_admin\(\)/);
+
+    // Every authenticated policy must include the path-prefix check.
+    // We assert at least 4 occurrences (one per staff_read + admin_insert + admin_update USING + admin_delete; admin_update also has it in WITH CHECK).
+    const occurrences = sql.match(new RegExp(pathPrefixCheck.source, 'g')) || [];
+    expect(occurrences.length).toBeGreaterThanOrEqual(5);
   });
 
   it('grants service_role full access to the bucket (needed for edge function download)', () => {

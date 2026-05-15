@@ -33,11 +33,11 @@ function formatBytes(n) {
 }
 
 function getOrgIdFromJwt() {
+  // Storage RLS enforces a strict path-prefix == JWT org_id match
+  // (migration 20260515000000), so the upload path MUST include the
+  // caller's real org_id as its first segment. We parse the JWT
+  // locally to know what to use; RLS is still the source of truth.
   try {
-    // We can't synchronously read the JWT, so this is only used by the
-    // initial upload path which is admin-only. The upload still works
-    // even if we can't extract org_id here (path falls back to "shared/")
-    // — RLS gates the actual write, not this prefix.
     const raw = localStorage.getItem('sb-zocrnurvazyxdpyqimgj-auth-token');
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -65,7 +65,7 @@ export function EmailAttachmentsSettings({ showToast, currentUserEmail }) {
     try {
       const { data, error } = await supabase
         .from('email_attachment_files')
-        .select('id, file_name, content_type, size_bytes, description, created_at, created_by')
+        .select('id, file_name, storage_path, content_type, size_bytes, description, created_at, created_by')
         .order('file_name', { ascending: true });
       if (error) throw error;
       setFiles(data || []);
@@ -113,9 +113,17 @@ export function EmailAttachmentsSettings({ showToast, currentUserEmail }) {
       }
     }
 
-    setUploading(true);
     const orgId = getOrgIdFromJwt();
-    const prefix = orgId || 'shared';
+    if (!orgId) {
+      // RLS will reject the upload anyway (no path prefix can match a
+      // missing JWT claim), but failing here gives a clearer message
+      // than a generic 403 from Storage.
+      showToast?.('Unable to determine your organization. Please sign out and back in, then retry.');
+      e.target.value = '';
+      return;
+    }
+
+    setUploading(true);
     try {
       for (const file of fileList) {
         // Random suffix keeps re-uploads of the same filename from
@@ -123,7 +131,7 @@ export function EmailAttachmentsSettings({ showToast, currentUserEmail }) {
         // that adds complexity for a settings flow used by one admin
         // every few months.
         const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '';
-        const objectName = `${prefix}/${crypto.randomUUID()}${ext}`;
+        const objectName = `${orgId}/${crypto.randomUUID()}${ext}`;
 
         const { error: uploadErr } = await supabase.storage
           .from(BUCKET)
@@ -136,7 +144,7 @@ export function EmailAttachmentsSettings({ showToast, currentUserEmail }) {
         const { error: insertErr } = await supabase
           .from('email_attachment_files')
           .insert({
-            org_id: orgId || null,
+            org_id: orgId,
             file_name: file.name,
             storage_path: objectName,
             content_type: file.type || 'application/octet-stream',
