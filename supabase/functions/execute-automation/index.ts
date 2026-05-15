@@ -429,7 +429,8 @@ async function sendEmail(
   subject: string,
   body: string,
   category?: string | null,
-): Promise<{ success: boolean; error?: string; routeUsed?: string | null }> {
+  attachmentFileIds?: string[] | null,
+): Promise<{ success: boolean; error?: string; routeUsed?: string | null; attachments_count?: number }> {
   try {
     const payload: Record<string, any> = {
       action: "send_email",
@@ -439,6 +440,9 @@ async function sendEmail(
       body,
     };
     if (category) payload.category = category;
+    if (Array.isArray(attachmentFileIds) && attachmentFileIds.length > 0) {
+      payload.attachment_file_ids = attachmentFileIds;
+    }
     const response = await fetch(`${SUPABASE_URL}/functions/v1/outlook-integration`, {
       method: "POST",
       headers: {
@@ -468,7 +472,11 @@ async function sendEmail(
     // missing email_from_address, unknown category, etc). Do not
     // substitute the requested category here — that would make the
     // audit note claim a route was used when it wasn't.
-    return { success: true, routeUsed: result.routeUsed ?? null };
+    return {
+      success: true,
+      routeUsed: result.routeUsed ?? null,
+      attachments_count: typeof result.attachments_count === "number" ? result.attachments_count : undefined,
+    };
   } catch (err) {
     return { success: false, error: `Email send failed: ${err.message}` };
   }
@@ -635,7 +643,17 @@ Deno.serve(async (req) => {
         }
         const subject = action_config?.subject || "Message from Tremendous Care";
         const toName = `${caregiver.first_name || ""} ${caregiver.last_name || ""}`.trim();
-        result = await sendEmail(caregiver.email, toName, subject, resolvedMessage, action_config?.category);
+        const attachmentIds = Array.isArray(action_config?.attachment_file_ids)
+          ? action_config.attachment_file_ids.filter((id: any) => typeof id === "string")
+          : null;
+        result = await sendEmail(
+          caregiver.email,
+          toName,
+          subject,
+          resolvedMessage,
+          action_config?.category,
+          attachmentIds,
+        );
         break;
       }
 
@@ -936,7 +954,9 @@ Deno.serve(async (req) => {
       } else if (action_type === "send_email") {
         noteType = "email";
         noteDirection = "outbound";
-        noteText = `Email sent \u2014 Subject: ${action_config?.subject || "(no subject)"}\n\n${resolvedMessage.length > 300 ? resolvedMessage.substring(0, 300) + "..." : resolvedMessage}`;
+        const attachCount = (result as any)?.attachments_count ?? 0;
+        const attachSuffix = attachCount > 0 ? ` (${attachCount} attachment${attachCount === 1 ? "" : "s"})` : "";
+        noteText = `Email sent${attachSuffix} \u2014 Subject: ${action_config?.subject || "(no subject)"}\n\n${resolvedMessage.length > 300 ? resolvedMessage.substring(0, 300) + "..." : resolvedMessage}`;
       } else if (action_type === "update_phase") {
         noteText = `Phase updated to ${phaseLabels[action_config?.target_phase] || action_config?.target_phase} via automation rule: ${rule_name || rule_id}`;
       } else if (action_type === "complete_task") {

@@ -200,36 +200,313 @@ async function sendEmail(
   mailbox: string,
   body: any,
   fromName?: string | null,
+  supabase?: any,
 ): Promise<any> {
-  const { to_email, to_name, subject, body: emailBody, cc } = body;
+  const { to_email, to_name, subject, body: emailBody, cc, attachment_file_ids } = body;
   if (!to_email || !subject || !emailBody) {
     throw new Error("send_email requires to_email, subject, body");
   }
-  const message: any = {
-    subject,
-    body: { contentType: "Text", content: emailBody },
-    toRecipients: [{ emailAddress: { address: to_email, name: to_name || undefined } }],
+
+  const attachmentIds = Array.isArray(attachment_file_ids)
+    ? attachment_file_ids.filter((x: any) => typeof x === "string" && x.length > 0)
+    : [];
+
+  // When there are no attachments, take the simple one-call /sendMail
+  // path — it's the hot path for every existing automation, and
+  // changing it would also force the bulk-email and ai-chat callers
+  // through a draft+send flow they don't need.
+  if (attachmentIds.length === 0) {
+    const message: any = {
+      subject,
+      body: { contentType: "Text", content: emailBody },
+      toRecipients: [{ emailAddress: { address: to_email, name: to_name || undefined } }],
+    };
+    if (fromName) {
+      // Setting `from` lets us control the recipient's "From" display name
+      // when the mailbox's default doesn't match (e.g. shared mailboxes
+      // or when we want a friendlier label than the M365 user object).
+      // Address must equal the mailbox we POST to — Graph rejects mismatches
+      // unless the app holds explicit Send-As permission, which we don't
+      // need with tenant-wide application Mail.Send.
+      message.from = { emailAddress: { address: mailbox, name: fromName } };
+    }
+    if (cc) {
+      message.ccRecipients = [{ emailAddress: { address: cc } }];
+    }
+    const resp = await graphFetch(token, `/users/${encodeURIComponent(mailbox)}/sendMail`, {
+      method: "POST",
+      body: JSON.stringify({ message, saveToSentItems: true }),
+    });
+    if (!resp.ok) {
+      throw new Error(`sendMail failed: ${resp.status} - ${await resp.text()}`);
+    }
+    return { success: true, mailbox, to_email, subject };
+  }
+
+  // Attachment path: create a draft, attach each file (inline for
+  // small files, chunked upload session for large ones), then send.
+  // This is the only Graph path that supports attachments >3MB.
+  if (!supabase) {
+    throw new Error("send_email with attachments requires a supabase client");
+  }
+  return await sendEmailWithAttachments(
+    token,
+    mailbox,
+    {
+      to_email,
+      to_name,
+      subject,
+      body: emailBody,
+      cc,
+      attachment_file_ids: attachmentIds,
+    },
+    fromName ?? null,
+    supabase,
+  );
+}
+
+// Hard ceilings to keep us safely under M365's per-message limits.
+// Outlook's effective inbound limit on most M365 tenants is 25MB,
+// but partner-tenant rules vary. 20MB total + 20MB per file gives us
+// headroom and surfaces "too big" errors at config time, not send time.
+const MAX_ATTACHMENT_BYTES_PER_FILE = 20 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES_TOTAL = 20 * 1024 * 1024;
+// Files smaller than this go in as a single POST .../attachments.
+// Larger files use the chunked upload-session flow. 3MB is Microsoft's
+// documented threshold for attachment uploads.
+const INLINE_ATTACHMENT_THRESHOLD = 3 * 1024 * 1024;
+// Upload-session chunk size. Graph rejects chunks larger than 4MB; we
+// stay a touch under that. Chunks do NOT need to be 320KiB-aligned —
+// that's a OneDrive-only requirement.
+const UPLOAD_SESSION_CHUNK_BYTES = 3 * 1024 * 1024;
+
+// Base64-encode a Uint8Array without blowing the call stack. The
+// naive `btoa(String.fromCharCode(...bytes))` form fails on inputs
+// over ~64KB on most JS runtimes.
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function sendEmailWithAttachments(
+  token: string,
+  mailbox: string,
+  body: {
+    to_email: string;
+    to_name?: string | null;
+    subject: string;
+    body: string;
+    cc?: string | null;
+    attachment_file_ids: string[];
+  },
+  fromName: string | null,
+  supabase: any,
+): Promise<any> {
+  // 1. Load attachment metadata.
+  const { data: files, error: filesErr } = await supabase
+    .from("email_attachment_files")
+    .select("id, file_name, storage_path, content_type, size_bytes")
+    .in("id", body.attachment_file_ids);
+  if (filesErr) {
+    throw new Error(`Failed to load attachment metadata: ${filesErr.message}`);
+  }
+  if (!files || files.length === 0) {
+    throw new Error("send_email: attachment_file_ids provided but no matching files found");
+  }
+  if (files.length !== body.attachment_file_ids.length) {
+    const found = new Set(files.map((f: any) => f.id));
+    const missing = body.attachment_file_ids.filter((id) => !found.has(id));
+    throw new Error(`send_email: attachment file(s) not found: ${missing.join(", ")}`);
+  }
+
+  // Preserve the order the caller specified so previews and emails
+  // match. Postgres `.in()` returns whatever order it likes.
+  const orderIndex = new Map(body.attachment_file_ids.map((id, idx) => [id, idx]));
+  files.sort((a: any, b: any) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+
+  // 2. Validate sizes before we incur Graph API roundtrips.
+  let totalBytes = 0;
+  for (const f of files) {
+    if (typeof f.size_bytes !== "number" || f.size_bytes <= 0) {
+      throw new Error(`Attachment ${f.file_name} has invalid size_bytes (${f.size_bytes})`);
+    }
+    if (f.size_bytes > MAX_ATTACHMENT_BYTES_PER_FILE) {
+      throw new Error(
+        `Attachment ${f.file_name} is ${(f.size_bytes / 1024 / 1024).toFixed(1)}MB — exceeds per-file cap of ${MAX_ATTACHMENT_BYTES_PER_FILE / 1024 / 1024}MB`,
+      );
+    }
+    totalBytes += f.size_bytes;
+  }
+  if (totalBytes > MAX_ATTACHMENT_BYTES_TOTAL) {
+    throw new Error(
+      `Attachments total ${(totalBytes / 1024 / 1024).toFixed(1)}MB — exceeds combined cap of ${MAX_ATTACHMENT_BYTES_TOTAL / 1024 / 1024}MB`,
+    );
+  }
+
+  // 3. Download every file from Storage in parallel — these are
+  // independent network calls and we already validated sizes.
+  const downloads = await Promise.all(
+    files.map(async (f: any) => {
+      const { data: blob, error } = await supabase.storage
+        .from("email-attachments")
+        .download(f.storage_path);
+      if (error || !blob) {
+        throw new Error(`Failed to download ${f.file_name}: ${error?.message || "no blob"}`);
+      }
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      return { ...f, bytes };
+    }),
+  );
+
+  // 4. Create the draft message.
+  const draftMessage: any = {
+    subject: body.subject,
+    body: { contentType: "Text", content: body.body },
+    toRecipients: [
+      { emailAddress: { address: body.to_email, name: body.to_name || undefined } },
+    ],
   };
   if (fromName) {
-    // Setting `from` lets us control the recipient's "From" display name
-    // when the mailbox's default doesn't match (e.g. shared mailboxes
-    // or when we want a friendlier label than the M365 user object).
-    // Address must equal the mailbox we POST to — Graph rejects mismatches
-    // unless the app holds explicit Send-As permission, which we don't
-    // need with tenant-wide application Mail.Send.
-    message.from = { emailAddress: { address: mailbox, name: fromName } };
+    draftMessage.from = { emailAddress: { address: mailbox, name: fromName } };
   }
-  if (cc) {
-    message.ccRecipients = [{ emailAddress: { address: cc } }];
+  if (body.cc) {
+    draftMessage.ccRecipients = [{ emailAddress: { address: body.cc } }];
   }
-  const resp = await graphFetch(token, `/users/${encodeURIComponent(mailbox)}/sendMail`, {
-    method: "POST",
-    body: JSON.stringify({ message, saveToSentItems: true }),
-  });
+  const draftResp = await graphFetch(
+    token,
+    `/users/${encodeURIComponent(mailbox)}/messages`,
+    { method: "POST", body: JSON.stringify(draftMessage) },
+  );
+  if (!draftResp.ok) {
+    throw new Error(`Create draft failed: ${draftResp.status} - ${await draftResp.text()}`);
+  }
+  const draft = await draftResp.json();
+  const messageId = draft.id as string;
+
+  // 5. Attach each file. Inline POST for <3MB, chunked upload session
+  // for >=3MB. We attach sequentially to keep error reporting clean —
+  // if file 3 of 5 fails we want a specific error, not a Promise.all
+  // rejection that hides which one. Throughput is fine: the hot
+  // path is ~5 PDFs once a day.
+  for (const f of downloads) {
+    try {
+      if (f.bytes.length < INLINE_ATTACHMENT_THRESHOLD) {
+        await attachInline(token, mailbox, messageId, f);
+      } else {
+        await attachViaUploadSession(token, mailbox, messageId, f);
+      }
+    } catch (err) {
+      // Best-effort cleanup so we don't leave orphan drafts in the
+      // sender's Drafts folder if an attachment fails mid-stream.
+      await graphFetch(
+        token,
+        `/users/${encodeURIComponent(mailbox)}/messages/${messageId}`,
+        { method: "DELETE" },
+      ).catch(() => {});
+      throw err;
+    }
+  }
+
+  // 6. Send the draft.
+  const sendResp = await graphFetch(
+    token,
+    `/users/${encodeURIComponent(mailbox)}/messages/${messageId}/send`,
+    { method: "POST" },
+  );
+  if (!sendResp.ok) {
+    throw new Error(`Send draft failed: ${sendResp.status} - ${await sendResp.text()}`);
+  }
+  return {
+    success: true,
+    mailbox,
+    to_email: body.to_email,
+    subject: body.subject,
+    attachments_count: files.length,
+    attachments_bytes: totalBytes,
+  };
+}
+
+async function attachInline(
+  token: string,
+  mailbox: string,
+  messageId: string,
+  file: { file_name: string; content_type: string; bytes: Uint8Array },
+): Promise<void> {
+  const resp = await graphFetch(
+    token,
+    `/users/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(messageId)}/attachments`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: file.file_name,
+        contentType: file.content_type || "application/octet-stream",
+        contentBytes: bytesToBase64(file.bytes),
+      }),
+    },
+  );
   if (!resp.ok) {
-    throw new Error(`sendMail failed: ${resp.status} - ${await resp.text()}`);
+    throw new Error(`Inline attach ${file.file_name} failed: ${resp.status} - ${await resp.text()}`);
   }
-  return { success: true, mailbox, to_email, subject };
+}
+
+async function attachViaUploadSession(
+  token: string,
+  mailbox: string,
+  messageId: string,
+  file: { file_name: string; content_type: string; bytes: Uint8Array },
+): Promise<void> {
+  const total = file.bytes.length;
+  const sessionResp = await graphFetch(
+    token,
+    `/users/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(messageId)}/attachments/createUploadSession`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        AttachmentItem: {
+          attachmentType: "file",
+          name: file.file_name,
+          size: total,
+          contentType: file.content_type || "application/octet-stream",
+        },
+      }),
+    },
+  );
+  if (!sessionResp.ok) {
+    throw new Error(
+      `Create upload session for ${file.file_name} failed: ${sessionResp.status} - ${await sessionResp.text()}`,
+    );
+  }
+  const { uploadUrl } = await sessionResp.json();
+  if (!uploadUrl) {
+    throw new Error(`Upload session for ${file.file_name} returned no uploadUrl`);
+  }
+
+  let start = 0;
+  while (start < total) {
+    const end = Math.min(start + UPLOAD_SESSION_CHUNK_BYTES, total);
+    const chunk = file.bytes.subarray(start, end);
+    // The upload URL is pre-authenticated — do not send the Graph
+    // bearer token to it; Microsoft explicitly returns 400 if you do.
+    const chunkResp = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(chunk.length),
+        "Content-Range": `bytes ${start}-${end - 1}/${total}`,
+      },
+      body: chunk,
+    });
+    if (!chunkResp.ok && chunkResp.status !== 201 && chunkResp.status !== 200 && chunkResp.status !== 202) {
+      throw new Error(
+        `Upload chunk for ${file.file_name} failed at byte ${start}: ${chunkResp.status} - ${await chunkResp.text()}`,
+      );
+    }
+    start = end;
+  }
 }
 
 async function searchEmails(token: string, mailbox: string, body: any): Promise<any> {
@@ -571,7 +848,7 @@ Deno.serve(async (req) => {
       } else {
         mailbox = await resolveMailbox(supabase, adminEmail);
       }
-      result = await sendEmail(token, mailbox, body, fromName);
+      result = await sendEmail(token, mailbox, body, fromName, supabase);
       result.routeUsed = route ? category : null;
     } else if (action === "search_emails") {
       const mailbox = await resolveMailbox(supabase, adminEmail);
