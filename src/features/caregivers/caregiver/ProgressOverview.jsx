@@ -1,5 +1,6 @@
 import { PHASES, SUB_PHASES } from '../../../lib/constants';
 import { getCurrentPhase, getCalculatedPhase, getOverallProgress, getPhaseProgress, getDaysSinceApplication, getSubPhase } from '../../../lib/utils';
+import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import progress from '../../../styles/progress.module.css';
 
 const ACTIVE_ROSTER_OPTION = '__active_roster__';
@@ -63,6 +64,7 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
                 promoteToActiveRoster();
                 return;
               }
+              const fromPhase = caregiver.phaseOverride || getCurrentPhase(caregiver);
               if (val === '') {
                 onUpdateCaregiver(caregiver.id, { phaseOverride: null });
               } else {
@@ -80,6 +82,23 @@ export function ProgressOverview({ caregiver, activePhase, onPhaseChange, onUpda
                 });
                 onPhaseChange(parentPhaseId);
               }
+              // Phase 1.5 follow-up — close any matching pending
+              // ai_suggestion for this (caregiver, update_phase) and
+              // write the agent_actions `phase='executed'` audit row
+              // that autonomy v2 reads. Fire-and-forget — the update
+              // has already been dispatched optimistically via the
+              // context; failure here must never affect the UX.
+              closePendingSuggestionForAction({
+                entityType: 'caregiver',
+                entityId: caregiver.id,
+                actionType: 'update_phase',
+                params: {
+                  from_phase: fromPhase || null,
+                  to_phase: val || null,
+                },
+              }).catch((closeErr) => {
+                console.warn('[ProgressOverview] suggestion-close failed (non-fatal):', closeErr);
+              });
             }}
           >
             <option value="">Auto (based on tasks)</option>

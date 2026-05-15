@@ -280,7 +280,15 @@ export function ClientProvider({ children }) {
         return changed;
       })
     );
-    if (changed) saveClient(changed).catch(() => showToast('Failed to save \u2014 check your connection'));
+    // Return the persist promise so callers (e.g. the agent loop-
+    // closure wire-up in ClientActivityLog) can chain on success \u2014
+    // closing a pending suggestion BEFORE the note durably persists
+    // would record a false-positive `phase='executed'` audit row.
+    if (!changed) return Promise.resolve();
+    return saveClient(changed).catch((err) => {
+      showToast('Failed to save \u2014 check your connection');
+      throw err;
+    });
   }, [showToast, currentUserName]);
 
   // Optimistic, client-only variant of addNote \u2014 mirrors CaregiverContext.
