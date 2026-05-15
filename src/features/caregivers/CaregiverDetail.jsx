@@ -63,6 +63,7 @@ export function CaregiverDetail({
         onShowArchive={() => setShowArchiveDialog(true)}
         onUnarchive={onUnarchive}
         onShowDelete={() => setShowDeleteDialog(true)}
+        onUpdateCaregiver={onUpdateCaregiver}
       />
 
       <ArchiveBanner caregiver={caregiver} />

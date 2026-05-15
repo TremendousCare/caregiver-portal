@@ -228,6 +228,7 @@ export const dbToClient = (row) => ({
   longitude: row.longitude != null ? Number(row.longitude) : null,
   geofenceRadiusM: row.geofence_radius_m ?? null,
   geocodedAt: row.geocoded_at,
+  avatarPath: row.avatar_path || null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });

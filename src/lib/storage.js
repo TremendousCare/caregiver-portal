@@ -729,6 +729,7 @@ export const dbToCaregiver = (row) => ({
   availabilityCheckPaused: row.availability_check_paused === true,
   availabilityCheckPausedAt: row.availability_check_paused_at || null,
   availabilityCheckPausedReason: row.availability_check_paused_reason || null,
+  avatarPath: row.avatar_path || null,
   createdAt: row.created_at,
 });
 
@@ -791,11 +792,11 @@ export const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
-  // user_id, sms_opted_out*, availability_check_paused*, tasks, and
-  // phase_override are set via targeted .update() / RPC calls
-  // (setCaregiverSmsOptOut, setCaregiverAvailabilityCheckPaused,
-  // mergeCaregiverTasks, setCaregiverPhaseOverride). Not
-  // round-tripped here so admin edits (add note, complete task,
+  // user_id, sms_opted_out*, availability_check_paused*, tasks,
+  // phase_override, and avatar_path are set via targeted .update() /
+  // RPC calls (setCaregiverSmsOptOut, setCaregiverAvailabilityCheckPaused,
+  // mergeCaregiverTasks, setCaregiverPhaseOverride, AvatarUpload).
+  // Not round-tripped here so admin edits (add note, complete task,
   // edit profile) don't clobber them when the client has stale
   // state (multi-tab / multi-user / dropped realtime echo).
   created_at: cg.createdAt || Date.now(),

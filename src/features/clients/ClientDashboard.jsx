@@ -10,6 +10,7 @@ import forms from '../../styles/forms.module.css';
 import progress from '../../styles/progress.module.css';
 import layout from '../../styles/layout.module.css';
 import d from './ClientDashboard.module.css';
+import { Avatar } from '../../shared/components/Avatar';
 
 // ─── STAT CARD ───────────────────────────────────────────────
 function StatCard({ label, value, accent, icon }) {
@@ -60,10 +61,12 @@ function ClientCard({ client, overdue, onClick, isSelected, onToggleSelect, sele
       </div>
 
       <div className={d.cardHeader}>
-        <div className={d.cardAvatar}>
-          {client.firstName?.[0]}
-          {client.lastName?.[0]}
-        </div>
+        <Avatar
+          path={client.avatarPath}
+          firstName={client.firstName}
+          lastName={client.lastName}
+          size="sm"
+        />
         <div style={{ flex: 1 }}>
           <div className={d.cardName}>
             {client.firstName} {client.lastName}

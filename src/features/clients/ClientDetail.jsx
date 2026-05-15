@@ -151,6 +151,7 @@ export function ClientDetail({
         onUnarchive={onUnarchive}
         onShowDelete={() => setShowDeleteDialog(true)}
         onAddNote={onAddNote}
+        onUpdateClient={onUpdateClient}
       />
 
       <ArchiveBanner client={client} />

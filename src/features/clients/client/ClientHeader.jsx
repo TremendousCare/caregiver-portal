@@ -4,8 +4,9 @@ import layout from '../../../styles/layout.module.css';
 import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
 import { PhoneCallButton } from '../../voice/PhoneCallButton';
+import { AvatarUpload } from '../../../shared/components/AvatarUpload';
 
-export function ClientHeader({ client, onBack, onShowArchive, onUnarchive, onShowDelete, onAddNote }) {
+export function ClientHeader({ client, onBack, onShowArchive, onUnarchive, onShowDelete, onAddNote, onUpdateClient }) {
   const phase = getClientPhase(client);
   const phaseInfo = CLIENT_PHASES.find((p) => p.id === phase);
   const priorityInfo = CLIENT_PRIORITIES.find((p) => p.id === client.priority);
@@ -15,7 +16,15 @@ export function ClientHeader({ client, onBack, onShowArchive, onUnarchive, onSho
       <button className={btn.backBtn} onClick={onBack}>← Back</button>
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div className={layout.detailAvatar}>{client.firstName?.[0]}{client.lastName?.[0]}</div>
+          <AvatarUpload
+            entityType="clients"
+            entityId={client.id}
+            currentPath={client.avatarPath}
+            firstName={client.firstName}
+            lastName={client.lastName}
+            size="lg"
+            onChange={(newPath) => onUpdateClient?.(client.id, { avatarPath: newPath })}
+          />
           <div>
             <h1 className={layout.detailName}>{client.firstName} {client.lastName}</h1>
             <div className={layout.detailMeta}>

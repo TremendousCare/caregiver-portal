@@ -1,0 +1,141 @@
+/* Profile-picture display + upload. Sizes mirror the existing
+   `.cgAvatar` (44px) and `.detailAvatar` (56px) so dropping these
+   components into the headers and cards looks identical to today
+   for users who haven't uploaded a photo. */
+
+.root {
+  position: relative;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--tc-navy-dark), var(--tc-navy));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(46,78,141,0.2);
+  overflow: hidden;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── Sizes ─────────────────────────────────────────────────────── */
+.sizeSm {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  font-size: 14px;
+}
+
+.sizeLg {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 19px;
+  box-shadow: 0 4px 16px rgba(46,78,141,0.25);
+}
+
+@media (max-width: 768px) {
+  .sizeLg {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    font-size: 16px;
+  }
+}
+
+/* ── Upload overlay (only when interactive) ────────────────────── */
+.uploadWrap {
+  position: relative;
+  display: inline-block;
+}
+
+.fileInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.fileInput:disabled {
+  cursor: wait;
+}
+
+.editOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 36, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.uploadWrap:hover .editOverlay,
+.fileInput:focus-visible + .editOverlay {
+  opacity: 1;
+}
+
+.busyOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 36, 0.65);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: inherit;
+}
+
+.actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--tc-text-muted, #5a6a80);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.removeBtn:hover {
+  color: #dc3545;
+}
+
+.removeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.error {
+  margin-top: 4px;
+  color: #dc3545;
+  font-size: 12px;
+  max-width: 220px;
+}
