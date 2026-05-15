@@ -20,20 +20,51 @@ export function isCold(account, now = Date.now()) {
   return d === null || d >= COLD_THRESHOLD_DAYS;
 }
 
+// A "prospect" is an account we imported from territory research that
+// we've never actually engaged. Distinct from "cold" (which means we
+// engaged previously but haven't recently). The badge lets the rep tell
+// at a glance whether a row needs a first-touch outreach (Prospect) or
+// a re-engagement (Cold).
+//
+// Two conditions:
+//   1. source = 'research_import' — the row came from a bulk research
+//      import rather than manual entry or an actual referral.
+//   2. activity_count is 0 — no calls/visits/emails/drop-offs logged.
+//      Once the rep logs anything against the account it stops being
+//      a prospect (it's now an engaged-but-quiet account).
+//
+// Pre-existing source values ('manual', 'trello_import', null on legacy
+// rows from before the column shipped) are never prospects.
+export function isProspect(account) {
+  if (!account || account.source !== 'research_import') return false;
+  return (account.activity_count ?? 0) === 0;
+}
+
 // Accounts ranked for the Today screen's "who to visit next" suggestion.
 // Heuristic v0 (will be replaced by AI route ranking in PR #3):
 //   - Recency penalty: more days since last visit = higher priority.
 //   - Activity weight: more total touchpoints = stronger relationship,
 //     more worth maintaining.
 //   - Cold accounts bubble above warm ones.
+//   - Prospects (research_import + zero activity) get a small bump so
+//     they appear above warm accounts but BELOW true cold ones. Cold
+//     accounts represent dormant relationships that decay if ignored;
+//     prospects are an untapped pool that grows when worked. We
+//     deliberately prioritize re-engaging real relationships over
+//     cold-calling a fresh list.
 export function rankAccounts(accounts, now = Date.now()) {
   return [...(accounts ?? [])]
     .map((a) => {
       const d = daysSince(a.last_activity_at, now);
       const cold = d === null || d >= COLD_THRESHOLD_DAYS;
+      const prospect = isProspect(a);
       const recency = d === null ? 365 : d;
-      const score = recency + (cold ? 50 : 0) + Math.min(a.activity_count ?? 0, 20);
-      return { ...a, _days_since: d, _cold: cold, _score: score };
+      // Prospect score: ~25 (between warm and cold). Cold gets +50.
+      // Prospects without `last_activity_at` would otherwise score 365
+      // via the null recency fallback — clamp to keep them below cold.
+      const recencyAdjusted = prospect ? 25 : recency;
+      const score = recencyAdjusted + (cold && !prospect ? 50 : 0) + Math.min(a.activity_count ?? 0, 20);
+      return { ...a, _days_since: d, _cold: cold && !prospect, _prospect: prospect, _score: score };
     })
     .sort((x, y) => y._score - x._score);
 }
@@ -124,7 +155,7 @@ export async function fetchAccountsWithActivity(supabase) {
 
   const accountsRes = await supabase
     .from('bd_accounts')
-    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, lat, lng, notes, out_of_territory, is_strategic_shared, tier_override, last_activity_at')
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, lat, lng, notes, out_of_territory, is_strategic_shared, tier_override, last_activity_at, source')
     .eq('is_active', true)
     .order('name', { ascending: true });
   if (accountsRes.error) return { data: [], error: accountsRes.error };
@@ -165,7 +196,7 @@ export async function fetchAccount(supabase, accountId) {
   if (!supabase || !accountId) return { data: null, error: null };
   return await supabase
     .from('bd_accounts')
-    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_active, out_of_territory, is_strategic_shared, tier_override, last_activity_at, created_at')
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_active, out_of_territory, is_strategic_shared, tier_override, last_activity_at, created_at, source')
     .eq('id', accountId)
     .single();
 }
