@@ -2,14 +2,23 @@ import layout from '../../../styles/layout.module.css';
 import btn from '../../../styles/buttons.module.css';
 import progress from '../../../styles/progress.module.css';
 import { PhoneCallButton } from '../../voice/PhoneCallButton';
+import { AvatarUpload } from '../../../shared/components/AvatarUpload';
 
-export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onShowArchive, onUnarchive, onShowDelete }) {
+export function CaregiverHeader({ caregiver, greenLight, phase, surveyStatus, onBack, onShowArchive, onUnarchive, onShowDelete, onUpdateCaregiver }) {
   return (
     <div className={layout.detailHeader}>
       <button className={btn.backBtn} onClick={onBack}>← Back</button>
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div className={layout.detailAvatar}>{caregiver.firstName?.[0]}{caregiver.lastName?.[0]}</div>
+          <AvatarUpload
+            entityType="caregivers"
+            entityId={caregiver.id}
+            currentPath={caregiver.avatarPath}
+            firstName={caregiver.firstName}
+            lastName={caregiver.lastName}
+            size="lg"
+            onChange={(newPath) => onUpdateCaregiver?.(caregiver.id, { avatarPath: newPath })}
+          />
           <div>
             <h1 className={layout.detailName}>{caregiver.firstName} {caregiver.lastName}</h1>
             <div className={layout.detailMeta}>

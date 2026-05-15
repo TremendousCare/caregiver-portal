@@ -17,6 +17,7 @@ import d from './Dashboard.module.css';
 import { AIPrioritiesPanel } from './AIPrioritiesPanel';
 import { useCommunicationRoutes } from '../../shared/hooks/useCommunicationRoutes';
 import { RouteSelectorChip, RouteSummaryLine } from '../../shared/components/RouteSelectorChip';
+import { Avatar } from '../../shared/components/Avatar';
 
 // ─── EXPORT BUTTON ───────────────────────────────────────────
 function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered, onExportAll }) {
@@ -122,10 +123,12 @@ function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selecti
       </div>
 
       <div className={cards.cgCardHeader}>
-        <div className={cards.cgAvatar}>
-          {caregiver.firstName?.[0]}
-          {caregiver.lastName?.[0]}
-        </div>
+        <Avatar
+          path={caregiver.avatarPath}
+          firstName={caregiver.firstName}
+          lastName={caregiver.lastName}
+          size="sm"
+        />
         <div style={{ flex: 1 }}>
           <div className={cards.cgName}>
             {caregiver.firstName} {caregiver.lastName}
