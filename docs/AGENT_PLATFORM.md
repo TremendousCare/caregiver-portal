@@ -167,12 +167,13 @@ Revised 2026-04-30 after process discovery (`docs/AGENT_PLATFORM_PROCESS.md`):
 | **0** | Foundation refactor | None — parallel to SaaS Phase B/C/D | None (existing 3 migrate onto runtime) |
 | **1** | Trust & safety primitives | Phase 0 baked | None |
 | **1.5** | Retrospective grading UI | Phase 1.4 shipped | None |
-| **2** | Recruiting Agent: Autonomous Funnel Orchestration | SaaS Phase B5 baked + Phase 1.5 baked | +0 (existing recruiting agent transforms) |
+| **1.6** | Call Intelligence (shared extractor agent) | Phase 1.5 follow-up PR 2 baked + first organic `phase='executed'` rows landing | +1 (Call Intelligence — `call_analyst`) |
+| **2** | Recruiting Agent: Autonomous Funnel Orchestration | SaaS Phase B5 baked + Phase 1.5 baked. Soft-prefers Phase 1.6 baked so the orchestrator launches with call context flowing, but not strict-blocked. | +0 (existing recruiting agent transforms) |
 | **3** | Intake (client lead management) agent | Phase 2 stages 1–6 graduated to L1+ | +1 (Intake) |
 | **4** | Scheduling agent | Phase 3 baked ≥30 days | +1 (Scheduling) |
 | **5** | Inter-agent dispatch (`agent_requests` queue) | Phase 4 baked | None new (enables hand-offs) |
 | **6** | Care coordination agent | Phase 5 baked | +1 (Care Coordination) |
-| **7** | Marketplace, billing, voice, mobile | SaaS Phase E + Phase 6 baked | Self-serve unlocked |
+| **7** | Marketplace, billing, voice, mobile | SaaS Phase E + Phase 6 baked | Self-serve unlocked. Voice agent emits the same structured-output schema as the Phase 1.6 `call_analyst` so downstream consumers are agent-agnostic. |
 
 Bake at least 7–14 days on `main` between phases. Phases are sequential, not parallel. Do not start phase N+1 before phase N has shipped and baked.
 
@@ -458,11 +459,128 @@ The review locks the UI direction for Phase 2 (recruiting funnel orchestrator). 
 
 ---
 
+## Phase 1.6 — Call Intelligence (shared extractor agent)
+
+**Goal**: Turn every transcribed call into structured downstream signal — classified call type, summary, action items, red flags, memory candidates, sentiment — and feed it through the shared kernel (`ai_suggestions` + `context_memory`) so every existing and future agent consumes the same data at context-assembly time.
+
+**Gate**: Phase 1.5 follow-up PR 2 shipped + first organic `phase='executed'` rows landing across the instrumented surfaces. Same gate as Phase 2's lower bound — by intent, so Phase 1.6 can ship first and let Phase 2 launch with call context already flowing.
+
+**Why a separate agent, not "recruiting agent does its own call analysis"** (locked 2026-05-14):
+
+- **Shared infrastructure, not per-domain.** Recruiting, intake, scheduling, and care coordination all need structured call data on entities they own. Forking the analysis into each domain agent fragments the work, duplicates the prompt, and bifurcates the memory schema. One `call_analyst` writing to `ai_suggestions` (with `source = 'call_analyst'`) and `context_memory` (tagged `shareable`) means every downstream agent reads the same rows for free.
+- **Compounding calibration value for Phase 2.** Every week of bake produces more graded summaries + action items. By the time the recruiting funnel orchestrator (Phase 2) ships, it inherits a real training set rather than starting cold on call data.
+- **Voice-agent compatibility (Phase 7).** The structured-output schema the call analyst produces is exactly what a future AI voice agent (Phase 7) would emit when it answers a call itself. Locking the schema now means Phase 7 reuses the entire downstream pipeline (memory writes, action suggestions, grading, autonomy) without forking. See Phase 7 notes.
+- **Per Prime Directive #7 (coarse first)**, one agent covers all call types via the editable taxonomy. Split into recruiting-call-analyst / intake-call-analyst / etc. only when data signals it.
+
+**Owner directives locked in this phase**:
+
+- **Suggest-only autonomy in V1.** Every action type the call_analyst proposes (task creation, phase change, memory write) lands at L1. Trust climbs only through grading data, per Prime Directive #5.
+- **Memory writes are in scope for V1**, but only ship in the same PR as the per-profile Memories review UI. Without one-click delete + `source: 'human_corrected'` pinning, AI-extracted memories silently corrupt — non-negotiable.
+- **No extraction denylist.** The call_analyst sees full transcript context. The owner has accepted this in light of admin-only AI surfaces and the existing audit log. Revisit if and when caregivers get AI access (see Phase 7 mobile-first).
+- **Taxonomy is data, not code.** Call types and red-flag categories live in editable rows (per "Process is data" — same pattern as funnel stages). No Tremendous-Care-specific strings in the schema.
+- **Schema must be agent-agnostic.** The same downstream shape works whether the call was human-driven (today) or AI-voice-agent-driven (Phase 7). Lock the output JSON schema before any consumer wires up.
+- **Cross-entity memory.** Memories like "caregiver Sarah and client Mrs. Johnson have a pairing tension — avoid scheduling together" are first-class. `context_memory.related_entity_id` is additive and ships in 1.6.1 so we don't retrofit later.
+- **AI knowledge access via context recipes.** The recruiting / intake / scheduling agents' `context_recipe` is extended in 1.6.4 to retrieve call summaries + transcripts + SMS + email + shift history when asking about an entity. This is the read-side complement to the call_analyst's write-side; the same memory layer serves both.
+
+### Sliced into ~4 sequential PRs
+
+#### 1.6.1 — `call_taxonomy` table + `related_entity_id` schema additive + Settings UI editor
+
+- New `call_taxonomy` table (or `organizations.settings.call_taxonomy` JSONB — decide during the PR; lean toward table for filterability). Two-axis: `call_types` and `red_flag_categories`. Each row: `id`, `org_id`, `axis`, `slug`, `label`, `description`, `sort_order`, `is_active`, `created_at`, `updated_at`. RLS enabled, tenant-isolated.
+- Seed Tremendous Care's initial taxonomy from the owner's contributions (call types: recruiting, client_care, bd_outreach, payroll, scheduling, complaint, other; red flags: TBD with the owner during the PR).
+- Additive column `context_memory.related_entity_id text` (and `related_entity_type text`) — both nullable, no backfill required. Indexes on `(org_id, related_entity_id)` and `(org_id, related_entity_type, related_entity_id)`.
+- New admin-only Settings UI page at `/settings/agents/call-taxonomy` for adding / editing / archiving taxonomy rows. Versioned via the existing `agent_versions` pattern when call_analyst's manifest references the taxonomy (so a taxonomy change shows up in the agent's version history).
+- Vitest: schema validation, seed correctness, RLS denies cross-tenant.
+
+**Exit criteria**: taxonomy rows seeded, editable from the UI, version-history wired. `context_memory.related_entity_id` column present, no rows populated yet.
+
+**Rollback**: drop the `call_taxonomy` table and the two `context_memory` columns. Pure additive — nothing reads them in this PR.
+
+#### 1.6.2 — `call_analyst` agent manifest + `post-call-processor` extension + shadow-mode bake
+
+- New row in `agents` for org=Tremendous Care, slug=`call_analyst`, version=1, kill_switch=true (off until calibrated), shadow_mode=true.
+- `tool_allowlist`:
+  - Reads: `get_call_transcription`, `get_call_recording`, `get_caregiver_detail`, `get_client_detail`, `get_call_log` (limit-scoped to the entities matched on the call).
+  - Writes (gated by autonomy): `add_context_memory`, `add_ai_suggestion` (for action items as `task_create` suggestions, source=`call_analyst`).
+  - Explicitly **not allowed**: any direct entity-field writes, message sends, phase changes. The call_analyst is an EXTRACTOR — it suggests; domain agents act.
+- `outcome_definition`:
+  ```jsonc
+  {
+    "primary": {
+      "event_type": "ai_suggestion_status_changed",
+      "from_status": "pending",
+      "to_status_in": ["approved", "executed"],
+      "window_days": 7
+    },
+    "escape_clauses": [
+      "operator_confirmed_completion (an extractor's outcome IS the operator accepting its suggestion; documented per Prime Directive #2's escape-clause field)"
+    ]
+  }
+  ```
+- `context_recipe`: minimal — identity (org + call entity), the transcript itself, the current taxonomy, recent memories for the matched entities. No system-wide briefing layer.
+- `triggers`:
+  - Event: `call_session.transcript_fetched_at` transitions from NULL → not NULL (i.e., post-call-processor's existing transcript-fetch step).
+- `system_prompt`: drafted as a checked-in markdown file `docs/agent-prompts/call_analyst.md` (mirrors the Phase 3 intake prompt pattern). Defines the structured-output JSON schema explicitly (call_type from taxonomy enum, summary, action_items[], red_flags[] from taxonomy enum, memory_candidates[], sentiment, suggested_phase_change?). Tool-use, not free-form text.
+- `post-call-processor/index.ts` extension: after the existing transcript-fetch step succeeds, call `runAgent(supabase, "call_analyst", { call_session_id })`. Idempotent on `call_sessions.ai_summary IS NULL` so re-runs don't duplicate.
+- Ships in shadow mode for ≥ 14 days. Owner grades summaries via the existing `/agent-grading` page (Phase 1.5) — every shadow suggestion is gradable from day one. Calibration target before promotion: ≥ 80% agreement on action item appropriateness, ≥ 90% agreement on call_type classification, zero harmful suggestions in the last 7 days.
+
+**Exit criteria**: shadow mode bakes 14 days clean, calibration thresholds met, owner sign-off.
+
+**Rollback**: kill switch on, post-call-processor extension reverts to a no-op; transcripts continue fetching as today, just unanalyzed.
+
+#### 1.6.3 — Profile surfaces (Recent Calls panel + AI Memories tab + inline AI suggestions above tasks)
+
+- **Recent Calls panel** on caregiver + client profile pages. Pulls from `call_sessions` filtered to `matched_entity_id = profile.id`. Each row: caller phone, direction, status, duration, AI summary (one line) + expand-for-detail, link to full transcript, list of action items extracted. Clearly tagged "AI summary" so the user knows what's machine-generated.
+- **AI Memories tab** on caregiver + client profile pages. Lists every `context_memory` row scoped to this entity (including org-level + shareable rows that reference this entity). Each card: text, confidence, source (`ai_observation` / `human_corrected`), tags, age. Per-card actions: edit (creates a new row + supersedes the prior via `superseded_by`), delete (soft via setting `superseded_by` to a sentinel value — the chain is preserved), pin (sets `source = 'human_corrected'` so the call_analyst can't re-extract over it).
+- **Inline AI suggestions above tasks**, per the owner's chosen surface (option 3 from the 2026-05-14 discussion — drowned-out briefing was the rejected alternative). Renders pending `ai_suggestions` rows where `source = 'call_analyst'` AND `entity_id = profile.id` AND `status = 'pending'`. Each row: Accept / Edit / Dismiss. Accept routes through the existing `executeSuggestion` path so loop closure + autonomy v2 hook in for free.
+- No new edge function shells — all reads + writes go through existing Supabase queries + RPCs.
+
+**Exit criteria**: panels render on real Tremendous Care entities with real shadow-mode-generated data. Owner can edit / delete / pin a memory from the UI. Accepting an inline suggestion creates a real task and closes the suggestion via the Phase 1.5-follow-up loop-closure helper.
+
+**Rollback**: hide the three panels. Underlying tables stay populated; data is harmless.
+
+#### 1.6.4 — Extend recruiting / intake / scheduling context recipes for cross-domain call retrieval
+
+- The existing `ai-chat/context/assembler.ts` layers gain a new optional `callContext` layer that retrieves: (a) the last N call summaries for the entity being viewed, (b) the most recent full transcript if the user is asking a question that requires it (heuristic on the user prompt — "did we talk about X" / "what did Sarah say about Y").
+- Each domain agent's `context_recipe` in the `agents` manifest is updated to include `callContext` (recruiting first; intake and scheduling later when those agents exist). This is a manifest edit per Phase 0.5's Settings UI flow, not a code change — the layer is the code change; recipe is the data change.
+- Vitest: layer correctness, token budget compliance (call transcripts can be long; layer truncates intelligently), no PII leakage across orgs.
+
+**Exit criteria**: open Sarah's caregiver page → ask the AI chat "what did Sarah say about her availability last call?" → answer is grounded in retrieved call summary or transcript, not hallucinated.
+
+**Rollback**: remove `callContext` from each agent's recipe (manifest edit, no deploy). Layer code stays as additive infrastructure with no callers.
+
+### Phase 1.6 success criteria
+
+Phase 1.6 is "shipped" when:
+- **Coverage**: ≥ 95% of newly-transcribed calls produce a structured output (anything below means the prompt or post-call-processor wiring has bugs)
+- **Action item acceptance rate**: ≥ 60% of AI-suggested action items are Accepted (not Dismissed) over a 7-day window. This is the gold metric for "is the call_analyst actually useful?"
+- **Memory hygiene**: < 5% of AI-written memories are deleted by the operator within their first 7 days (proxy for false-extraction rate)
+- **No harmful incidents**: zero `outcome_detail.severity = 'harmful'` rows on `call_analyst` actions in the 30 days preceding graduation
+- **Recruiting agent grounded by call context**: when the operator asks the recruiting agent a question about a caregiver who has had recent calls, the answer cites call context ≥ 80% of the time (measurable via `events` instrumentation in the layer)
+
+These metrics live in the per-agent dashboard from Phase 1.4. Phase 1.6 is the first time the dashboard tells a story for an extractor agent (vs. a domain agent), and the metrics framing reflects that.
+
+### Anti-patterns specific to Phase 1.6 (do not do)
+
+- **Mixing AI-generated content into the raw notes timeline.** Notes are human-authored. AI summaries live in the Recent Calls panel, AI memories live in the Memories tab, AI suggestions live above tasks. Mixing destroys the trust gradient — a future reader can't tell what was written by a teammate vs. inferred by Claude.
+- **Auto-executing action items in V1.** Suggest-only. Trust climbs through grading. The Phase 2 recruiting orchestrator will eventually auto-execute some of its own actions, but that's a domain-agent decision, not a call_analyst decision.
+- **Forking the analysis prompt into recruiting/intake/scheduling.** One taxonomy, one schema, one agent. If recruiting calls and intake calls genuinely need different extraction logic, that's the "split when data signals" decision per Prime Directive #7 — but the default is one agent.
+- **Hardcoding call types in code.** Taxonomy is rows in `call_taxonomy`. New types are insert-rows, not code edits.
+- **Letting the structured output drift from voice-agent compatibility.** Every shape change in 1.6.2 must be valid for an AI voice agent emitting the same shape in Phase 7. Bifurcating the schema later is more expensive than getting it right once.
+
+### Phase 1.6 rollback (whole phase)
+
+- Toggle `kill_switch` on `call_analyst` → `post-call-processor` extension is a no-op (the runtime returns early when kill_switch is true). Transcripts continue fetching as today, just unanalyzed.
+- All three profile surfaces hide cleanly behind a feature flag if one is added in 1.6.3 (TBD during PR scoping).
+- `call_taxonomy` and the new `context_memory` columns stay in place — pure additive, no rollback needed.
+
+---
+
 ## Phase 2 — Recruiting Agent: Autonomous Funnel Orchestration
 
 **Goal**: Transform the existing recruiting agent from copilot into autonomous funnel orchestrator. Drive every caregiver from CSV upload to verified orientation completion within the time targets (5d gold / 7d good / 14d acceptable). Humans intervene only at the three locked gates: virtual interview, onboarding-document accuracy review, orientation.
 
-**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set. Phase 1.5 follow-up (loop closure) PR 2 shipped + first organic `phase='executed'` rows landing across all five instrumented surfaces (added 2026-05-12). UI strategy review completed — Phase 2 must start with the locked UI direction (pattern C+D) baked in.
+**Gate**: SaaS Phase B5 baked on every AI-tier table (`events`, `action_outcomes`, `ai_suggestions`, `context_memory`, `autonomy_config`, `agents`, `agent_actions`, `agent_versions`). Phase 1.5 baked ≥ 7 days with ≥ 100 graded suggestions in the calibration set. Phase 1.5 follow-up (loop closure) PR 2 shipped + first organic `phase='executed'` rows landing across all five instrumented surfaces (added 2026-05-12). UI strategy review completed — Phase 2 must start with the locked UI direction (pattern C+D) baked in. Phase 1.6 (Call Intelligence) is **soft-preferred** before Phase 2 — Phase 2's orchestrator gets dramatically more useful with call context flowing, but Phase 2 can begin without it if 1.6 slips.
 
 **Why this is the wedge**: locked in `AGENT_PLATFORM_VISION.md` (revised 2026-04-30). Restated:
 - Recruiting agent (AI chat) is already in active production use by the owner.
@@ -764,7 +882,7 @@ Sliced like Phases 2, 3, and 4. Notable differences:
 
 - **Marketplace UI**: agent catalog, per-org install/configure/test in sandbox, version pinning, cost preview.
 - **Per-task billing**: meter `agent_actions` rows with `phase = 'verified_outcome'` per agent per org, integrate with Stripe + QBO. Dispute resolution surface: customer can flag a charge, the audit log + `outcome_definition` produces the receipt.
-- **Voice agent**: outbound recruiting calls, intake interviews, caregiver check-ins. Build vs partner decision deferred per vision doc.
+- **Voice agent**: outbound recruiting calls, intake interviews, caregiver check-ins. Build vs partner decision deferred per vision doc. **Schema reuse from Phase 1.6**: the voice agent emits the same structured-output JSON shape as the Phase 1.6 `call_analyst`, so the downstream pipeline (memory writes, action item suggestions, grading, autonomy promotion) is agent-agnostic — whether the call was human-driven or AI-driven, the consumer rows in `ai_suggestions` and `context_memory` are identical.
 - **Mobile-native caregiver experience**: clock-in, shift questions, escalations. Required to fully realize scheduling's verified-outcome model.
 - **State Medicaid + EVV integrations**: vertical moat.
 
@@ -783,6 +901,10 @@ This phase is intentionally less detailed in this doc — it spans 12+ months an
 - **Skipping shadow mode on a new agent.** Every new agent ships in shadow mode for ≥ 7 days before its first L1 action. Scheduling needs ≥ 21.
 - **Touching `agent_actions` directly outside the runtime.** The hash chain is the receipt. Dual-writes happen only in `runAgent` and `executeSuggestion`. Manual edits invalidate the chain and trip the verifier.
 - **Adding Tremendous-Care-specific strings to a manifest.** Manifests are per-org. If Tremendous Care's intake prompt mentions "Tremendous Care", the manifest field is OK — but tools, context layers, and runtime code stay org-agnostic.
+- **Mixing AI-generated content into the raw notes timeline** (Phase 1.6). Notes are human-authored. AI summaries live in the Recent Calls panel; AI memories live in the Memories tab; AI suggestions live above tasks. Interleaving destroys the trust gradient.
+- **Forking call-intelligence prompts per domain** (Phase 1.6). One `call_analyst` covers every call type via the editable taxonomy. Per-domain forking happens only when data signals divergence per Prime Directive #7.
+- **Hardcoding call types or red-flag categories in code** (Phase 1.6). Taxonomy is rows in `call_taxonomy`. New categories are insert-rows, not code edits.
+- **Letting the Phase 1.6 structured-output schema drift from voice-agent compatibility.** The Phase 7 voice agent must emit the same shape. Bifurcating the schema later is more expensive than getting it right once.
 - **Skipping the rollback plan.** Every agent-platform PR ships with rollback in the description, same rule as the SaaS retrofit.
 - **Parallel phase work.** Phase 0 → 1 → 2 → 3 → 4 → 5 → 6, sequential. Do not start phase N+1 before phase N has shipped and baked.
 
@@ -811,6 +933,11 @@ Authoritative list lives in `docs/AGENT_PLATFORM_VISION.md` under "Strategic dec
 - **Onboarding-complete task = win signal.** The orientation conductor (human) checks an `onboarding_complete` task; the agent observes that as the verified third-party outcome. Agent never marks its own work done.
 - **Process is data, not code.** Funnel stages, transitions, timeouts, branching rules, message templates, human gates, time targets all live in editable rows. The runtime is the only thing in code. See `docs/AGENT_PLATFORM_PROCESS.md`.
 - **Phase 1.5 retrospective grading UI** ships before Phase 2. Months of accumulated `ai_suggestions` data become Phase 2's calibration set.
+- **Phase 1.6 inserts a shared Call Intelligence agent before Phase 2** (locked 2026-05-14). Slug `call_analyst`, extractor role only — writes to `ai_suggestions` and `context_memory` so every domain agent reads the same rows. Coarse first; splits if data signals divergence. Schema is voice-agent-compatible from day one so Phase 7's voice agent reuses the entire downstream pipeline. See `docs/AGENT_PLATFORM_VISION.md` for the strategic framing and Phase 1.6 in this doc for the implementation plan.
+- **Call Intelligence ships in suggest-only mode (V1).** Every action type — task suggestions, memory writes, suggested phase changes — lands at L1. Trust climbs through the existing grading + autonomy v2 path; no auto-execution from the extractor.
+- **Call Intelligence memory writes ship in the same PR as the per-profile Memories review UI.** AI-written memories without an operator-facing review surface accumulate as silent corruption. The two together are non-negotiable for 1.6.3.
+- **Call Intelligence has no extraction denylist.** The `call_analyst` agent sees full transcript context. Owner decision 2026-05-14, conditional on AI surfaces remaining admin-only. Revisit if caregivers get AI access in Phase 7.
+- **Call taxonomy is data, not code.** Call types and red-flag categories live in editable rows. The `call_analyst` system prompt references the current taxonomy by row at invocation time; taxonomy edits propagate without a redeploy.
 - **`agent_id = NULL` on memory means org-level shared.** Tag `shareable` on a non-NULL row also makes it cross-agent readable. Both are intentional, both are documented.
 - **`agent_actions` is hash-chained Ed25519-signed per-org.** Until SaaS Phase C ships per-org Vault secrets, Tremendous Care uses a single env-var key with a sentinel comment for cutover.
 - **Promotion algorithm v2 is the only autonomy algorithm after Phase 1.2.** The legacy `autonomy_config` table becomes a back-compat view.
