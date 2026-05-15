@@ -1138,6 +1138,33 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
       });
   }, []);
 
+  // Email attachments: UUIDs of `email_attachment_files` rows. Stored on
+  // action_config.attachment_file_ids. Order is preserved so the email
+  // shows files in the same order the admin picked them.
+  const [emailAttachmentIds, setEmailAttachmentIds] = useState(
+    Array.isArray(rule?.action_config?.attachment_file_ids)
+      ? rule.action_config.attachment_file_ids
+      : []
+  );
+  const [emailAttachmentLibrary, setEmailAttachmentLibrary] = useState([]);
+  useEffect(() => {
+    if (!supabase) return;
+    if (actionType !== 'send_email') return;
+    supabase
+      .from('email_attachment_files')
+      .select('id, file_name, size_bytes')
+      .order('file_name', { ascending: true })
+      .then(({ data }) => {
+        if (data) setEmailAttachmentLibrary(data);
+      });
+  }, [actionType]);
+
+  const toggleAttachment = (fileId) => {
+    setEmailAttachmentIds((prev) => (
+      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
+    ));
+  };
+
   const insertMergeField = (field) => {
     const tag = `{{${field}}}`;
     const textarea = templateRef.current;
@@ -1314,6 +1341,12 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
         // smart default.
         ...(['send_sms', 'send_email'].includes(actionType) && smsRouteCategory
           ? { category: smsRouteCategory }
+          : {}),
+        // Email attachments — only persist when send_email is selected
+        // AND files were chosen, so switching action types in the form
+        // doesn't strand orphan IDs in action_config.
+        ...(actionType === 'send_email' && emailAttachmentIds.length > 0
+          ? { attachment_file_ids: emailAttachmentIds }
           : {}),
       },
       message_template: messageTemplate.trim(),
@@ -1783,6 +1816,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
                 messageTemplate={messageTemplate}
                 actionConfig={{
                   ...(actionType === 'send_email' ? { subject: emailSubject.trim() } : {}),
+                  ...(actionType === 'send_email' && emailAttachmentIds.length > 0
+                    ? { attachment_file_ids: emailAttachmentIds }
+                    : {}),
                 }}
               />
             )}
@@ -1797,6 +1833,9 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
                 messageTemplate={messageTemplate}
                 actionConfig={{
                   ...(actionType === 'send_email' ? { subject: emailSubject.trim() } : {}),
+                  ...(actionType === 'send_email' && emailAttachmentIds.length > 0
+                    ? { attachment_file_ids: emailAttachmentIds }
+                    : {}),
                 }}
                 defaultPhaseFilter={phaseFilter}
               />
@@ -1869,6 +1908,57 @@ function RuleForm({ rule, onSave, onCancel, saving, entityType }) {
               onChange={(e) => { setEmailSubject(e.target.value); setError(''); }}
               placeholder="e.g. Welcome to Tremendous Care!"
             />
+          </div>
+        )}
+
+        {/* Email Attachments (only for email) */}
+        {actionType === 'send_email' && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={forms.fieldLabel}>Attachments (optional)</label>
+            {emailAttachmentLibrary.length === 0 ? (
+              <div style={{
+                padding: '10px 12px', background: '#F8F9FB', borderRadius: 8,
+                border: '1px dashed #D5DCE6', fontSize: 12, color: '#7A8BA0',
+              }}>
+                No files in the library. Add PDFs in <em>Settings → Email Attachment Library</em>.
+              </div>
+            ) : (
+              <div style={{
+                border: '1px solid #E0E4EA', borderRadius: 8, background: '#fff',
+                maxHeight: 200, overflowY: 'auto',
+              }}>
+                {emailAttachmentLibrary.map((f) => {
+                  const checked = emailAttachmentIds.includes(f.id);
+                  const sizeMB = (f.size_bytes / 1024 / 1024).toFixed(1);
+                  return (
+                    <label
+                      key={f.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '8px 12px', borderBottom: '1px solid #F0F2F5',
+                        cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAttachment(f.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ flex: 1, color: '#0F1724', fontWeight: checked ? 600 : 400 }}>
+                        {f.file_name}
+                      </span>
+                      <span style={{ color: '#7A8BA0', fontSize: 11 }}>{sizeMB} MB</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: '#7A8BA0', marginTop: 4 }}>
+              {emailAttachmentIds.length > 0
+                ? `${emailAttachmentIds.length} file${emailAttachmentIds.length === 1 ? '' : 's'} selected. They will be attached to every email this rule sends.`
+                : 'Select one or more files to attach to every email this rule sends.'}
+            </div>
           </div>
         )}
 

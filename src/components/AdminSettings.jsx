@@ -16,6 +16,7 @@ import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
 import { MessageTemplateSettings } from './MessageTemplateSettings';
+import { EmailAttachmentsSettings } from './EmailAttachmentsSettings';
 import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 import { VoiceSettings } from '../features/voice/VoiceSettings';
 
@@ -2604,6 +2605,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Message Templates (reusable SMS inserted from the composer) */}
       <div style={{ marginBottom: 20 }}>
         <MessageTemplateSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Email Attachment Library (PDFs/docs that automation rules can attach) */}
+      <div style={{ marginBottom: 20 }}>
+        <EmailAttachmentsSettings showToast={showToast} currentUserEmail={currentUserEmail} />
       </div>
 
       {/* SMS Opt-Out Compliance */}

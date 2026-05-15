@@ -132,6 +132,7 @@ export const DEFAULT_PHASE_TASKS = {
     { id: 'reminder_sent', label: 'Reminder sent day before orientation' },
     { id: 'questionnaire_done', label: 'Orientation questionnaire completed' },
     { id: 'scrubs_distributed', label: 'Scrub top and gloves distributed' },
+    { id: 'send_after_orientation_email', label: 'Send after-orientation next-steps email' },
     { id: 'first_shift', label: 'First shift scheduled & client introduction confirmed', critical: true },
   ],
 };
