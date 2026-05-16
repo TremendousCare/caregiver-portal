@@ -2,10 +2,10 @@
 --
 -- This is a no-op rollback by design. The repair migration's only
 -- job is to fix the CHECK constraint state in environments that ran
--- the buggy 20260516020000. Rolling it back wouldn't sensibly "undo"
+-- the buggy 20260516023000. Rolling it back wouldn't sensibly "undo"
 -- a repair — it would just restore the broken state, which is worse
 -- than not running anything.
 --
 -- If you genuinely need to remove the constraint, run the rollback
--- for 20260516020000 (which restores the pre-1.6.2 5-value enum).
+-- for 20260516023000 (which restores the pre-1.6.2 5-value enum).
 SELECT 1 AS no_op;
