@@ -4,9 +4,10 @@ import s from './BdPortal.module.css';
 
 export function BottomNav() {
   const location = useLocation();
-  // The capture, referral, contact-edit, and route-builder screens
-  // are "modal" — we don't show the bottom nav there so the form
-  // gets the full screen.
+  // The capture, referral, contact-edit, mileage-form, and route-
+  // builder screens are "modal" — we don't show the bottom nav there
+  // so the form gets the full screen. The mileage *list* still shows
+  // the nav (it's a top-level destination from Today).
   const p = location.pathname;
   if (
     p === '/bd/log'    || p.endsWith('/log')
@@ -15,6 +16,8 @@ export function BottomNav() {
     || p.endsWith('/contact')
     || p.endsWith('/contact/new')
     || /\/contact\/[^/]+\/edit$/.test(p)
+    || p === '/bd/mileage/new'
+    || /^\/bd\/mileage\/[^/]+$/.test(p)
   ) {
     return null;
   }
