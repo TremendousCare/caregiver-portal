@@ -59,6 +59,14 @@ const BATCH_SIZE = 25;          // per cron tick
 const MIN_AGE_SECONDS = 30;     // RC recording surface lag
 const RETRY_GIVEUP_HOURS = 24;  // stop trying after a day
 
+// Phase 1.6.2 — analyser give-up window. A call whose transcript
+// landed but which still has ai_summary IS NULL after this many
+// hours exits the pending-analysis pool. This stops the cron from
+// hammering kill_switched agents forever on calls from the indefinite
+// past — the shadow bake only needs new traffic from when the
+// kill_switch flips off.
+const ANALYSIS_GIVEUP_HOURS = 24;
+
 interface PendingCallRow {
   id: string;
   org_id: string;
@@ -77,8 +85,11 @@ interface ProcessResult {
   call_session_id: string;
   outcome: 'transcribed' | 'note_attached' | 'no_match' | 'gave_up' | 'failed';
   error?: string;
-  /** Phase 1.6.2: call_analyst invocation outcome, if attempted. */
-  analyst?: 'analysed' | 'shadow' | 'killed' | 'skipped' | 'analyst_error';
+}
+
+interface AnalysisProcessResult {
+  call_session_id: string;
+  analyst: 'analysed' | 'shadow' | 'killed' | 'skipped' | 'analyst_error';
   analyst_error?: string;
 }
 
@@ -197,22 +208,24 @@ async function processOne(row: PendingCallRow): Promise<ProcessResult> {
     // (much more expensive) transcription call.
     await markTranscriptFetched(row.id);
 
-    let noteOutcome: ProcessResult['outcome'] = 'transcribed';
     if (row.matched_entity_type && row.matched_entity_id) {
       const ok = await appendCallNote(row, transcript);
-      noteOutcome = ok ? 'note_attached' : 'transcribed';
-    } else {
-      noteOutcome = 'no_match';
+      return {
+        call_session_id: row.id,
+        outcome: ok ? 'note_attached' : 'transcribed',
+      };
     }
+    return { call_session_id: row.id, outcome: 'no_match' };
 
-    // ─── Phase 1.6.2: invoke the call_analyst extractor ───
-    const analyst = await runCallAnalyst(row);
-    return {
-      call_session_id: row.id,
-      outcome:         noteOutcome,
-      analyst:         analyst.analyst,
-      analyst_error:   analyst.analyst_error,
-    };
+    // NOTE: The call_analyst extractor is invoked from the SEPARATE
+    // pending-analysis pool (see processPendingAnalysis below), not
+    // inline here. That separation is the fix for Codex P1
+    // #r3251942660 — invoking inline tied the analyst's eligibility
+    // to the transcript_fetched_at flip, which permanently excluded
+    // calls transcribed while kill_switch was on. The analysis pool's
+    // selector is `ai_summary IS NULL AND transcript_fetched_at IS
+    // NOT NULL`, which is the idempotency anchor advertised in the
+    // 1.6.2 spec.
   } catch (err) {
     return {
       call_session_id: row.id,
@@ -225,46 +238,97 @@ async function processOne(row: PendingCallRow): Promise<ProcessResult> {
 // ═══════════════════════════════════════════════════════════════
 // Phase 1.6.2 — call_analyst integration
 //
-// After the transcript is fetched + the note appended, the
-// extractor agent reads the transcript + matched-entity context
-// + active call_taxonomy and emits a single structured-output tool
-// call. The runtime handles kill_switch / shadow_mode:
-//   * kill_switch=true → returns { status: 'killed' } immediately,
-//     no Anthropic call, no DB writes. Default for the seeded
-//     agent; flip via Settings to start the shadow bake.
-//   * shadow_mode=true → ai_suggestions still write at status='pending'
+// SEPARATE POOL from the transcript-fetch pool above. After
+// transcript_fetched_at is stamped, the row enters the pending-
+// analysis pool. The cron picks it up on a subsequent tick and runs
+// the extractor agent.
+//
+//   * kill_switch=true → runAgent returns { status: 'killed' }
+//     immediately, no Anthropic call, no DB writes. The row stays
+//     in the pending pool. When the owner flips kill_switch OFF,
+//     the next cron tick picks up everything in the pool (up to the
+//     ANALYSIS_GIVEUP_HOURS window). This is the fix for Codex P1
+//     #r3251942660 — the original inline invocation tied the
+//     analyst's eligibility to transcript_fetched_at, permanently
+//     excluding calls processed while killed.
+//   * shadow_mode=true → ai_suggestions write at status='pending'
 //     so /agent-grading can show them; agent_actions audit rows
 //     stamp phase='shadow' instead of 'executed'.
 //
-// Idempotency anchor: `call_sessions.ai_summary IS NULL` ─ a re-run
-// on an already-analysed row is a no-op (we skip before invoking
-// Anthropic). This is what allows the cron to be safely re-entrant.
+// Idempotency anchor: `call_sessions.ai_summary IS NULL`. A re-run
+// on an already-analysed row is skipped by the inner pre-check in
+// runCallAnalyst; the cron's selector also filters on this, so
+// re-entry is safe under all failure modes.
+//
+// Give-up: rows older than ANALYSIS_GIVEUP_HOURS exit the pool
+// naturally (selector includes `ended_at > now() - interval`). This
+// stops the cron from hammering kill-switched agents forever on
+// calls from the indefinite past.
 // ═══════════════════════════════════════════════════════════════
 
+interface PendingAnalysisRow {
+  id:                 string;
+  org_id:             string;
+  matched_entity_type: 'caregiver' | 'client' | null;
+  matched_entity_id:   string | null;
+  recording_id:        string | null;
+}
+
+async function fetchPendingAnalysis(): Promise<PendingAnalysisRow[]> {
+  const giveupCutoff = new Date(
+    Date.now() - ANALYSIS_GIVEUP_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  const { data, error } = await supabase
+    .from('call_sessions')
+    .select(
+      'id, org_id, matched_entity_type, matched_entity_id, recording_id',
+    )
+    .is('ai_summary', null)
+    .not('transcript_fetched_at', 'is', null)
+    .gte('ended_at', giveupCutoff)
+    .order('ended_at', { ascending: true })
+    .limit(BATCH_SIZE);
+  if (error) {
+    throw new Error(
+      `Failed to load pending-analysis call_sessions: ${error.message}`,
+    );
+  }
+  return (data || []) as PendingAnalysisRow[];
+}
+
+async function processOneAnalysis(
+  row: PendingAnalysisRow,
+): Promise<AnalysisProcessResult> {
+  const out = await runCallAnalyst(row.id);
+  return {
+    call_session_id: row.id,
+    analyst:         out.analyst,
+    analyst_error:   out.analyst_error,
+  };
+}
+
 interface AnalystOutcome {
-  analyst: ProcessResult['analyst'];
+  analyst: AnalysisProcessResult['analyst'];
   analyst_error?: string;
 }
 
-async function runCallAnalyst(row: PendingCallRow): Promise<AnalystOutcome> {
+async function runCallAnalyst(callSessionId: string): Promise<AnalystOutcome> {
   try {
     // Idempotency: re-runs are a no-op if the call has already been
-    // analysed. Cheap pre-check before assembling context.
+    // analysed. Cheap pre-check before assembling context. The
+    // analysis-pending pool already filters on `ai_summary IS NULL`
+    // but a row could have been analysed by a concurrent worker
+    // between selection and this call.
     const { data: existing } = await supabase
       .from('call_sessions')
       .select('ai_summary')
-      .eq('id', row.id)
+      .eq('id', callSessionId)
       .maybeSingle();
     if (existing?.ai_summary) {
       return { analyst: 'skipped' };
     }
 
-    // Load the full call session row for the analysis. The
-    // PendingCallRow shape doesn't carry every field the helpers
-    // want (recording_id is there, but loadCallSessionContext also
-    // returns ended_at + duration for prompt formatting). Cheap
-    // single-row read.
-    const session = await loadCallSessionContext(supabase, row.id);
+    const session = await loadCallSessionContext(supabase, callSessionId);
     if (!session) return { analyst: 'skipped', analyst_error: 'call_session not found' };
     if (!session.org_id) return { analyst: 'skipped', analyst_error: 'call_session missing org_id' };
 
@@ -368,29 +432,43 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ─── Pool 1 — transcript-pending ───
     const pending = await fetchPending();
     const results: ProcessResult[] = [];
     for (const row of pending) {
       results.push(await processOne(row));
     }
 
+    // ─── Pool 2 — analysis-pending (Phase 1.6.2) ───
+    // Separate selector so the analyst can retry across cron ticks
+    // when kill_switch flips OFF mid-bake. Existence in this pool is
+    // strictly gated by `ai_summary IS NULL` — re-runs of analysed
+    // rows are excluded at the DB layer.
+    const pendingAnalysis = await fetchPendingAnalysis();
+    const analysisResults: AnalysisProcessResult[] = [];
+    for (const row of pendingAnalysis) {
+      analysisResults.push(await processOneAnalysis(row));
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        considered: pending.length,
+        considered:           pending.length,
+        considered_analysis:  pendingAnalysis.length,
         summary: {
           transcribed: results.filter((r) => r.outcome === 'transcribed').length,
           note_attached: results.filter((r) => r.outcome === 'note_attached').length,
           no_match: results.filter((r) => r.outcome === 'no_match').length,
           gave_up: results.filter((r) => r.outcome === 'gave_up').length,
           failed: results.filter((r) => r.outcome === 'failed').length,
-          analysed: results.filter((r) => r.analyst === 'analysed').length,
-          shadow: results.filter((r) => r.analyst === 'shadow').length,
-          analyst_killed: results.filter((r) => r.analyst === 'killed').length,
-          analyst_skipped: results.filter((r) => r.analyst === 'skipped').length,
-          analyst_error: results.filter((r) => r.analyst === 'analyst_error').length,
+          analysed: analysisResults.filter((r) => r.analyst === 'analysed').length,
+          shadow: analysisResults.filter((r) => r.analyst === 'shadow').length,
+          analyst_killed: analysisResults.filter((r) => r.analyst === 'killed').length,
+          analyst_skipped: analysisResults.filter((r) => r.analyst === 'skipped').length,
+          analyst_error: analysisResults.filter((r) => r.analyst === 'analyst_error').length,
         },
         results,
+        analysis_results: analysisResults,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
