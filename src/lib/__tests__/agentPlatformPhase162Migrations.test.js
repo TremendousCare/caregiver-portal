@@ -33,11 +33,16 @@ const AGENT_SEED_ROLLBACK = join(
   __dirname,
   '../../../supabase/migrations/_rollback/20260516020001_agent_platform_phase_1_6_2_seed_call_analyst_agent_down.sql',
 );
+const REPAIR_PATH = join(
+  __dirname,
+  '../../../supabase/migrations/20260516030000_agent_platform_phase_1_6_2_repair_source_type_check.sql',
+);
 
 const sourceTypeSql   = readFileSync(SOURCE_TYPE_PATH, 'utf-8');
 const sourceTypeBack  = readFileSync(SOURCE_TYPE_ROLLBACK, 'utf-8');
 const agentSeedSql    = readFileSync(AGENT_SEED_PATH, 'utf-8');
 const agentSeedBack   = readFileSync(AGENT_SEED_ROLLBACK, 'utf-8');
+const repairSql       = readFileSync(REPAIR_PATH, 'utf-8');
 
 describe('ai_suggestions.source_type extension — schema', () => {
   it('drops the existing CHECK by name (dynamic, idempotent)', () => {
@@ -90,6 +95,45 @@ describe('ai_suggestions.source_type extension — rollback', () => {
       .filter((line) => !line.trim().startsWith('--'))
       .join('\n');
     expect(noComments).not.toMatch(/'call_analyst'/);
+  });
+});
+
+describe('source_type repair migration — idempotent fix', () => {
+  it('inspects the existing CHECK and only repairs when a value is missing', () => {
+    // The DO block reads pg_get_constraintdef and only DROPs +
+    // recreates the constraint when one of the six expected values
+    // is absent. Idempotent under re-runs.
+    expect(repairSql).toMatch(/SELECT conname, pg_get_constraintdef\(oid\)/);
+    expect(repairSql).toMatch(/v_needs_repair\s+boolean\s+:=\s+false/);
+    expect(repairSql).toMatch(/IF v_needs_repair THEN/);
+  });
+
+  it('asserts every one of the six values in the repair check', () => {
+    for (const value of [
+      'inbound_sms', 'inbound_email', 'proactive', 'outcome',
+      'event_triggered', 'call_analyst',
+    ]) {
+      expect(repairSql).toContain(`%${value}%`);
+    }
+  });
+
+  it('recreates the constraint with the full six-value enum', () => {
+    expect(repairSql).toMatch(/ADD CONSTRAINT ai_suggestions_source_type_check/);
+    for (const value of [
+      'inbound_sms', 'inbound_email', 'proactive', 'outcome',
+      'event_triggered', 'call_analyst',
+    ]) {
+      expect(repairSql).toContain(`'${value}'`);
+    }
+  });
+
+  it('emits a notice on no-op vs. repaired paths so deploy logs are diagnosable', () => {
+    expect(repairSql).toMatch(/already has all 6 values; no-op/);
+    expect(repairSql).toMatch(/repaired to 6-value enum/);
+  });
+
+  it('runs a post-check that fails the migration if any value is missing afterwards', () => {
+    expect(repairSql).toMatch(/repair regression: % missing after repair/);
   });
 });
 
