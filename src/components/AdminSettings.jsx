@@ -12,6 +12,7 @@ import { PausedCheckInsList } from './PausedCheckInsList';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
 import { AutonomySettings } from './AutonomySettings';
 import { AgentManifestSettings } from './agentManifest/AgentManifestSettings';
+import { CallTaxonomySettings } from './CallTaxonomySettings';
 import { ESignFieldEditor } from './ESignFieldEditor';
 import { AgentPerformance } from './AgentPerformance';
 import { SurveySettings } from './SurveySettings';
@@ -2585,6 +2586,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* AI Agents (Phase 0.5 PR A — kill switch + shadow mode toggles, read-only manifest detail) */}
       <div style={{ marginBottom: 20 }}>
         <AgentManifestSettings showToast={showToast} />
+      </div>
+
+      {/* Call Taxonomy (Phase 1.6.1 — call_type + red_flag editable rows for the future call_analyst agent) */}
+      <div style={{ marginBottom: 20 }}>
+        <CallTaxonomySettings showToast={showToast} />
       </div>
 
       {/* AI Business Context */}
