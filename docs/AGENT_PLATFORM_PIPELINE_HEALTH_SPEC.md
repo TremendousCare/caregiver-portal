@@ -198,13 +198,17 @@ If the new surface is correct but specific behaviors are wrong (wrong threshold,
 
 ---
 
-## 8. Decisions still open (sign-off needed before implementation)
+## 8. Decisions locked
 
-- **D1. Sidebar section.** Spec puts `/pipeline-health` under the existing "Caregivers" section, alongside Dashboard / Board / Roster. Alternative: a new "Operations" or "Pipeline" top-level section. *Recommendation: keep under Caregivers in V1; reconsider when client pipeline is added.*
-- **D2. Default route on app load.** Today `/` is the Dashboard. After this PR ships, should `/pipeline-health` become the default landing for admins, with `/` remaining a "metrics" view? *Recommendation: keep `/` as default. Operators discover the new route via the sidebar; forcing a default change is jarring.*
-- **D3. Stalled thresholds.** Spec locks 5 days / 14 days for highlight and strong-highlight. These were intuited, not data-driven. Owner should confirm or adjust before implementation. *Recommendation: ship at 5 / 14, revisit after 4 weeks of use.*
-- **D4. AI badge interaction depth.** Spec says single-click expands a tooltip with reasoning, no action button. Alternative: badge is purely visual (hover-only), no click. *Recommendation: click-to-expand. Operators should be able to read the AI's reasoning without leaving the dashboard, but they shouldn't be able to act on it from here.*
-- **D5. What happens when there are zero stalled caregivers?** A blank dashboard is jarring. *Recommendation: show all caregivers grouped by phase, with the "stalled-only" filter off by default. Operators see their pipeline regardless of stall state.*
+All five §8 decisions were signed off by the owner on **2026-05-15** in the conversation that produced this spec. Locked answers:
+
+- **D1. Sidebar section.** `/pipeline-health` lives under the existing "Caregivers" section, alongside Dashboard / Board / Roster. Revisit when the client pipeline ships its own Pipeline Health surface in Phase 3.
+- **D2. Default route on app load.** `/` (the existing Dashboard) remains the default. Operators discover `/pipeline-health` via the sidebar; no forced default change.
+- **D3. Stalled thresholds.** Ship at **5 days** for the amber highlight on "Days in this phase" and **14 days** for the strong red-text highlight. Revisit after ~4 weeks of production use; both thresholds become editable per-org in Phase D.
+- **D4. AI badge interaction depth.** Single-click expands a tooltip showing the suggestion's `detail` field (the AI's reasoning). **No action buttons inside the tooltip** — operators act through the regular per-caregiver UI surfaces, which PR #347's loop closure already converts into positive autonomy signal.
+- **D5. Empty-state behavior.** When zero caregivers are stalled, the dashboard renders the phase-grouped table with **all** caregivers (not blank). The "Stalled only" filter is off by default; operators see the full pipeline regardless of stall state and can opt into the stalled-only view.
+
+Implementation of UI-A is unblocked once this spec lands on `main`.
 
 ---
 
