@@ -5,11 +5,16 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  buildPriorityItems,
   getRecommendation,
   computeStaleCaregivers,
   getLastActivityTimestamp,
 } from '../aiPriorities';
+
+// `buildPriorityItems` was removed when the AIPrioritiesPanel
+// sidebar widget was retired in favor of /pipeline-health (Phase 1.5
+// follow-up). The dashboard-feed concept no longer exists; pipeline
+// state is surfaced by `pipelineHealth.js` and tested in
+// `pipelineHealth.test.js`.
 
 const NOW = Date.now();
 const DAYS = 86400000;
@@ -122,68 +127,6 @@ describe('computeStaleCaregivers', () => {
 
   it('returns empty array for null input', () => {
     expect(computeStaleCaregivers(null)).toEqual([]);
-  });
-});
-
-// ─── buildPriorityItems ───
-
-describe('buildPriorityItems', () => {
-  it('returns empty array when no suggestions and no stale caregivers', () => {
-    const cg = makeCg(); // recent activity
-    expect(buildPriorityItems([], [cg])).toEqual([]);
-  });
-
-  it('includes pending AI suggestions', () => {
-    const sug = makeSuggestion();
-    const cg = makeCg(); // matching entity_id 'cg_1'
-    const result = buildPriorityItems([sug], [cg]);
-    expect(result.length).toBe(1);
-    expect(result[0].type).toBe('suggestion');
-    expect(result[0].title).toBe('Send follow-up SMS');
-    expect(result[0].entityId).toBe('cg_1');
-  });
-
-  it('includes stale caregivers', () => {
-    const cg = makeCg({ id: 'cg_stale', notes: [{ text: 'old', timestamp: NOW - 5 * DAYS }] });
-    const result = buildPriorityItems([], [cg]);
-    expect(result.length).toBe(1);
-    expect(result[0].type).toBe('stale');
-    expect(result[0].entityId).toBe('cg_stale');
-  });
-
-  it('sorts by urgency (critical first)', () => {
-    const sugHigh = makeSuggestion({ id: 'h', title: '[HIGH] Urgent' });
-    const sugLow = makeSuggestion({ id: 'l', entity_id: 'cg_2', title: '[LOW] Low priority' });
-    const caregivers = [makeCg(), makeCg({ id: 'cg_2' })];
-    const result = buildPriorityItems([sugLow, sugHigh], caregivers);
-    expect(result[0].urgency).toBe('critical');
-    expect(result[1].urgency).toBe('info');
-  });
-
-  it('caps at 5 items', () => {
-    const suggestions = Array.from({ length: 10 }, (_, i) =>
-      makeSuggestion({ id: `s${i}`, entity_id: `cg_${i}`, title: `[MEDIUM] Item ${i}` })
-    );
-    const caregivers = Array.from({ length: 10 }, (_, i) => makeCg({ id: `cg_${i}` }));
-    const result = buildPriorityItems(suggestions, caregivers);
-    expect(result.length).toBe(5);
-  });
-
-  it('filters out suggestions whose entity is not in the caregiver list', () => {
-    const sug = makeSuggestion({ entity_id: 'cg_unknown' });
-    const cg = makeCg(); // id: 'cg_1', doesn't match 'cg_unknown'
-    const result = buildPriorityItems([sug], [cg]);
-    expect(result.length).toBe(0);
-  });
-
-  it('deduplicates entity appearing in both suggestions and stale list', () => {
-    const sug = makeSuggestion({ entity_id: 'cg_dup' });
-    const cg = makeCg({ id: 'cg_dup', notes: [{ text: 'old', timestamp: NOW - 5 * DAYS }] });
-    const result = buildPriorityItems([sug], [cg]);
-    // Should only appear once (as suggestion, not stale)
-    const dupItems = result.filter(i => i.entityId === 'cg_dup');
-    expect(dupItems.length).toBe(1);
-    expect(dupItems[0].type).toBe('suggestion');
   });
 });
 
