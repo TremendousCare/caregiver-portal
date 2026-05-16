@@ -700,10 +700,303 @@ export async function runRouterHandler(
   };
 }
 
+// ─── Extractor handler (Phase 1.6.2 — call_analyst) ───
+//
+// One-shot agent invocation: read one call transcript + matched-entity
+// context + active taxonomy, call Anthropic with a single bespoke tool
+// (`submit_call_analysis`), validate the tool_use response, and write
+// outputs atomically (call_sessions.ai_summary + ai_outcome + N
+// ai_suggestions rows).
+//
+// The handler does NOT iterate. Extractors are one input, one
+// classification — no tool-use loop, no follow-up turns. If the
+// model returns text instead of a tool_use block, the invocation
+// fails and the row stays at ai_summary IS NULL so the next cron
+// tick retries (up to the post-call-processor giveup window).
+//
+// Idempotency lives in the caller (post-call-processor):
+// `call_sessions.ai_summary IS NULL` is the "not yet processed"
+// guard. The handler itself is non-idempotent; double-invocation
+// would write twice.
+
+export interface ExtractorHandlerRequest {
+  /** The call_session id being analysed. Required. */
+  callSessionId: string;
+  /**
+   * Pre-assembled prompt blocks. The caller (extractor shell or
+   * post-call-processor wrapper) composes the four call-context
+   * helpers from `callContext.ts` and concatenates them into a
+   * single `contextBlock` string. Keeping prompt-assembly outside
+   * the handler keeps it deterministic + testable.
+   */
+  contextBlock: string;
+  /**
+   * The active taxonomy slug sets — used to validate the tool_use
+   * response without re-querying the DB. Computed by the caller from
+   * the same `fetchCallTaxonomyContext` it built the prompt from.
+   */
+  callTypeSlugs: string[];
+  redFlagSlugs:  string[];
+  /**
+   * Matched entity reference. Threaded through so the handler can
+   * stamp it on each ai_suggestions row without re-fetching.
+   */
+  matchedEntityType: "caregiver" | "client" | null;
+  matchedEntityId:   string | null;
+  /** Org id for stamping writes. Required. */
+  orgId: string;
+  /** Optional max_tokens override (tests). Default 2048. */
+  maxTokens?: number;
+}
+
+export interface ExtractorHandlerResult extends HandlerResult {
+  /** The parsed structured-output payload, if Anthropic returned a
+   *  valid tool_use. Undefined on error / on non-tool-use response. */
+  analysis?: {
+    call_type: string;
+    summary: string;
+    sentiment: "positive" | "neutral" | "negative";
+    red_flags: string[];
+    action_items: Array<{ title: string; detail: string; priority: "high" | "medium" | "low" }>;
+    memory_candidates: Array<{ content: string; confidence: number; tags: string[] }>;
+    suggested_phase_change: { to_phase: string; rationale: string } | null;
+  };
+}
+
+const EXTRACTOR_DEFAULT_MAX_TOKENS = 2048;
+
+const SUBMIT_CALL_ANALYSIS_TOOL = {
+  name: "submit_call_analysis",
+  description:
+    "Emit the structured analysis of a single call. Call this exactly once per invocation. Use the slugs from the runtime Taxonomy section for call_type and red_flags. Empty arrays are valid; do not skip the call when nothing applies.",
+  input_schema: {
+    type: "object",
+    properties: {
+      call_type: { type: "string" },
+      summary:   { type: "string" },
+      sentiment: { type: "string", enum: ["positive", "neutral", "negative"] },
+      red_flags: { type: "array", items: { type: "string" } },
+      action_items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title:    { type: "string" },
+            detail:   { type: "string" },
+            priority: { type: "string", enum: ["high", "medium", "low"] },
+          },
+          required: ["title", "detail", "priority"],
+        },
+      },
+      memory_candidates: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            content:    { type: "string" },
+            confidence: { type: "number" },
+            tags:       { type: "array", items: { type: "string" } },
+          },
+          required: ["content", "confidence", "tags"],
+        },
+      },
+      suggested_phase_change: {
+        type: ["object", "null"],
+        properties: {
+          to_phase:  { type: "string" },
+          rationale: { type: "string" },
+        },
+        required: ["to_phase", "rationale"],
+      },
+    },
+    required: ["call_type", "summary", "sentiment", "red_flags", "action_items", "memory_candidates", "suggested_phase_change"],
+  },
+} as const;
+
+export async function runExtractorHandler(
+  manifest: AgentManifest,
+  deps: HandlerDeps,
+  req: ExtractorHandlerRequest,
+): Promise<ExtractorHandlerResult> {
+  const now = deps.now ?? (() => Date.now());
+  const startedAt = now();
+  const callImpl = deps.callAnthropicImpl ?? callAnthropic;
+
+  if (!req.callSessionId) {
+    return {
+      status: "error",
+      error: { message: "callSessionId is required", code: "invalid_request" },
+      cost: { ...zeroCost(), duration_ms: now() - startedAt },
+    };
+  }
+  if (!req.orgId) {
+    return {
+      status: "error",
+      error: { message: "orgId is required", code: "invalid_request" },
+      cost: { ...zeroCost(), duration_ms: now() - startedAt },
+    };
+  }
+
+  // The tool must be in the manifest's allowlist. This is a
+  // belt-and-suspenders check; the seed migration sets it but a
+  // future admin edit could break the invariant.
+  if (!isToolAllowed(manifest, "submit_call_analysis")) {
+    return {
+      status: "error",
+      error: {
+        message: "submit_call_analysis not in manifest tool_allowlist",
+        code: "tool_not_allowed",
+      },
+      cost: { ...zeroCost(), duration_ms: now() - startedAt },
+    };
+  }
+
+  const systemPrompt = [manifest.system_prompt, req.contextBlock].filter(Boolean).join("\n\n");
+
+  const callResult = await callImpl({
+    apiKey: deps.apiKey,
+    body: {
+      model:       manifest.model,
+      max_tokens:  req.maxTokens ?? EXTRACTOR_DEFAULT_MAX_TOKENS,
+      system:      systemPrompt,
+      messages: [
+        {
+          role:    "user",
+          content: "Analyse the call transcript above per the operating contract. Call submit_call_analysis exactly once.",
+        },
+      ],
+      tools:        [SUBMIT_CALL_ANALYSIS_TOOL],
+      tool_choice:  { type: "tool", name: "submit_call_analysis" },
+    },
+    fetchImpl: deps.fetchImpl,
+    sleep:     deps.sleep,
+  });
+
+  if (!callResult.ok) {
+    return {
+      status: "error",
+      error: {
+        message: `Anthropic API error: HTTP ${callResult.status}`,
+        code: "anthropic_error",
+      },
+      cost: { ...zeroCost(), iterations: 1, duration_ms: now() - startedAt },
+    };
+  }
+
+  const data         = callResult.data;
+  const inputTokens  = data?.usage?.input_tokens || 0;
+  const outputTokens = data?.usage?.output_tokens || 0;
+  const cost: HandlerCost = {
+    input_tokens:  inputTokens,
+    output_tokens: outputTokens,
+    iterations:    1,
+    duration_ms:   now() - startedAt,
+  };
+
+  // Locate the tool_use block. Anthropic returns content as a
+  // mixed array of `{type: 'text', ...}` and `{type: 'tool_use', ...}`
+  // entries — text-only responses fail the contract.
+  const contentBlocks = Array.isArray(data?.content) ? data.content : [];
+  const toolUse = contentBlocks.find(
+    (b: any) => b && b.type === "tool_use" && b.name === "submit_call_analysis",
+  );
+  if (!toolUse || !toolUse.input || typeof toolUse.input !== "object") {
+    return {
+      status: "error",
+      error: {
+        message: "Model returned no submit_call_analysis tool_use block",
+        code: "no_tool_use",
+      },
+      cost,
+    };
+  }
+
+  // Validate slugs against the live taxonomy. Anthropic doesn't
+  // strictly enforce string enums in tool_use schemas, so we have to
+  // re-check at the handler boundary.
+  const callTypeSet = new Set(req.callTypeSlugs);
+  const redFlagSet  = new Set(req.redFlagSlugs);
+  const input = toolUse.input as any;
+
+  if (!input.call_type || typeof input.call_type !== "string" || !callTypeSet.has(input.call_type)) {
+    return {
+      status: "error",
+      error: {
+        message: `Invalid call_type slug: ${input.call_type}`,
+        code: "invalid_call_type",
+      },
+      cost,
+    };
+  }
+  const redFlags: string[] = Array.isArray(input.red_flags) ? input.red_flags.filter(
+    (s: any) => typeof s === "string" && redFlagSet.has(s),
+  ) : [];
+  // Note: we silently drop unknown red_flag slugs rather than failing
+  // the whole invocation — partial-but-valid analysis is more useful
+  // than no analysis at all.
+
+  const summary   = typeof input.summary === "string" ? input.summary.trim() : "";
+  const sentiment: "positive" | "neutral" | "negative" =
+    input.sentiment === "positive" || input.sentiment === "neutral" || input.sentiment === "negative"
+      ? input.sentiment
+      : "neutral";
+
+  const actionItems: Array<{ title: string; detail: string; priority: "high" | "medium" | "low" }> =
+    Array.isArray(input.action_items)
+      ? input.action_items
+          .filter((a: any) => a && typeof a.title === "string" && typeof a.detail === "string")
+          .map((a: any) => ({
+            title:    String(a.title).slice(0, 80),
+            detail:   String(a.detail).slice(0, 500),
+            priority: a.priority === "high" || a.priority === "low" ? a.priority : "medium",
+          }))
+      : [];
+
+  const memoryCandidates: Array<{ content: string; confidence: number; tags: string[] }> =
+    Array.isArray(input.memory_candidates)
+      ? input.memory_candidates
+          .filter((m: any) => m && typeof m.content === "string")
+          .map((m: any) => ({
+            content:    String(m.content).slice(0, 600),
+            confidence: typeof m.confidence === "number" ? Math.max(0, Math.min(1, m.confidence)) : 0.5,
+            tags:       Array.isArray(m.tags) ? m.tags.filter((t: any) => typeof t === "string").slice(0, 8) : [],
+          }))
+      : [];
+
+  let suggestedPhaseChange: { to_phase: string; rationale: string } | null = null;
+  if (
+    input.suggested_phase_change &&
+    typeof input.suggested_phase_change === "object" &&
+    typeof input.suggested_phase_change.to_phase === "string" &&
+    input.suggested_phase_change.to_phase.length > 0
+  ) {
+    suggestedPhaseChange = {
+      to_phase:  input.suggested_phase_change.to_phase,
+      rationale: typeof input.suggested_phase_change.rationale === "string" ? input.suggested_phase_change.rationale : "",
+    };
+  }
+
+  return {
+    status: "ok",
+    cost,
+    analysis: {
+      call_type: input.call_type,
+      summary,
+      sentiment,
+      red_flags: redFlags,
+      action_items: actionItems,
+      memory_candidates: memoryCandidates,
+      suggested_phase_change: suggestedPhaseChange,
+    },
+  };
+}
+
 // ─── Helpers exported for tests ───
 
 export const __testables = {
   zeroCost,
   CHAT_DEFAULT_MAX_TOKENS,
+  EXTRACTOR_DEFAULT_MAX_TOKENS,
+  SUBMIT_CALL_ANALYSIS_TOOL,
   levelForAction,
 };

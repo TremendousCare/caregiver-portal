@@ -43,9 +43,12 @@ import {
   PlannerHandlerRequest,
   RouterHandlerRequest,
   RouterClassification,
+  ExtractorHandlerRequest,
+  ExtractorHandlerResult,
   runChatHandler,
   runPlannerHandler,
   runRouterHandler,
+  runExtractorHandler,
 } from "./agentRuntime/handlers.ts";
 
 export type {
@@ -54,6 +57,8 @@ export type {
   PlannerHandlerRequest,
   RouterHandlerRequest,
   RouterClassification,
+  ExtractorHandlerRequest,
+  ExtractorHandlerResult,
 };
 export {
   AgentNotFoundError,
@@ -65,7 +70,7 @@ export {
 
 // ─── Public types ───
 
-export type AgentInvocationShape = "chat" | "planner" | "router";
+export type AgentInvocationShape = "chat" | "planner" | "router" | "extractor";
 
 export interface AgentRequest {
   shape: AgentInvocationShape;
@@ -75,6 +80,10 @@ export interface AgentRequest {
   planner?: PlannerHandlerRequest;
   /** Router-shape payload. Required when shape === "router". */
   router?: RouterHandlerRequest;
+  /** Extractor-shape payload. Required when shape === "extractor".
+   *  One-shot agent that emits a single structured-output tool call
+   *  (Phase 1.6.2 — call_analyst is the first instance). */
+  extractor?: ExtractorHandlerRequest;
 }
 
 export interface AgentResult {
@@ -86,6 +95,9 @@ export interface AgentResult {
   suggestions?: HandlerSuggestion[];
   /** Router-only: the parsed classification (null when error). */
   classification?: RouterClassification | null;
+  /** Extractor-only: the parsed structured-output payload. Undefined
+   *  on error / on non-tool-use response. */
+  analysis?: ExtractorHandlerResult["analysis"];
   cost: {
     input_tokens: number;
     output_tokens: number;
@@ -309,6 +321,24 @@ export async function runAgent(
         );
         break;
       }
+      case "extractor": {
+        if (!request.extractor) {
+          return shapeMismatch("extractor", agentRef, manifest.shadow_mode);
+        }
+        // The extractor handler is pure read-the-prompt-call-Anthropic.
+        // No tool-use loop (the bespoke submit_call_analysis tool is
+        // forced via tool_choice in the handler). The handler returns
+        // the parsed `analysis` payload; the caller (post-call-
+        // processor wrapper) is responsible for persisting it
+        // atomically. We do NOT do any persistence in the runtime —
+        // the runtime is an orchestrator, not a writer.
+        handlerResult = await runExtractorHandler(
+          manifest,
+          handlerDeps,
+          request.extractor,
+        );
+        break;
+      }
       default:
         return {
           status: "error",
@@ -359,6 +389,7 @@ export async function runAgent(
     toolResults: handlerResult.toolResults,
     suggestions: handlerResult.suggestions,
     classification: handlerResult.classification,
+    analysis: (handlerResult as ExtractorHandlerResult).analysis,
     cost: handlerResult.cost,
     contextHealth: handlerResult.contextHealth,
     agent: agentRef,
