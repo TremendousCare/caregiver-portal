@@ -1,18 +1,15 @@
 // ─── AI Priorities — Pure Logic ───
-// Testable functions for building priority items (dashboard)
-// and per-entity recommendations (profile card).
+// Testable functions for per-entity recommendations (profile card)
+// and last-activity computation (reused by /pipeline-health).
 // No React, no Supabase — just data transformation.
-
-// ─── Action type display config (mirrors NotificationCenter) ───
-const ACTION_ICONS = {
-  send_sms: '\u{1F4F1}',
-  send_email: '\u{1F4E7}',
-  add_note: '\u{1F4DD}',
-  update_phase: '\u{1F4C8}',
-  complete_task: '\u2705',
-  create_calendar_event: '\u{1F4C5}',
-  send_docusign_envelope: '\u{1F58A}\uFE0F',
-};
+//
+// NOTE: `buildPriorityItems` was retired alongside the
+// AIPrioritiesPanel sidebar widget when the Pipeline Health UI
+// shipped (replaces the AI-as-attention-grabber pattern with a
+// pipeline-state view at /pipeline-health). The remaining exports
+// — `getLastActivityTimestamp`, `computeStaleCaregivers`,
+// `getRecommendation` — are reused by `pipelineHealth.js` and
+// `RecommendedNextStep.jsx`.
 
 const ACTION_CTA_LABELS = {
   send_sms: 'Send SMS',
@@ -76,80 +73,6 @@ export function computeStaleCaregivers(caregivers, thresholdDays = 3) {
   // Sort: most stale first
   stale.sort((a, b) => b.daysSinceActivity - a.daysSinceActivity);
   return stale;
-}
-
-// ─── Build priority items for dashboard ───
-
-export function buildPriorityItems(aiSuggestions, caregivers) {
-  const items = [];
-  const seenEntityIds = new Set();
-
-  // Build a set of known caregiver IDs for filtering
-  const knownIds = new Set((caregivers || []).map((cg) => cg.id));
-
-  // 1. Pending AI suggestions (highest priority)
-  //    Skip suggestions whose entity is no longer in the active pipeline
-  for (const sug of (aiSuggestions || [])) {
-    if (sug.entity_id && !knownIds.has(sug.entity_id)) continue;
-
-    const urgency = sug.title?.includes('[HIGH]') ? 'critical'
-      : sug.title?.includes('[LOW]') ? 'info'
-      : 'warning';
-
-    // Resolve entity_id — if it's not a valid UUID, try matching by name
-    let resolvedEntityId = sug.entity_id;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedEntityId || '');
-    if (!isUuid && sug.entity_name && Array.isArray(caregivers)) {
-      const nameLower = sug.entity_name.toLowerCase();
-      const match = caregivers.find((cg) => {
-        const full = `${cg.first_name || ''} ${cg.last_name || ''}`.trim().toLowerCase();
-        return full === nameLower;
-      });
-      if (match) resolvedEntityId = match.id;
-    }
-
-    items.push({
-      id: `sug_${sug.id}`,
-      type: 'suggestion',
-      icon: ACTION_ICONS[sug.action_type] || '\u26A1',
-      title: (sug.title || 'AI Suggestion').replace(/^\[(HIGH|MEDIUM|LOW)\]\s*/, ''),
-      reason: sug.detail || 'AI-recommended action',
-      urgency,
-      entityId: resolvedEntityId,
-      entityName: sug.entity_name || 'Unknown',
-      ctaLabel: ACTION_CTA_LABELS[sug.action_type] || 'Review',
-      ctaAction: 'view_profile',
-      suggestionId: sug.id,
-    });
-
-    if (resolvedEntityId) seenEntityIds.add(resolvedEntityId);
-  }
-
-  // 2. Stale caregivers (only if not already covered by a suggestion)
-  const staleCaregivers = computeStaleCaregivers(caregivers || []);
-  for (const { caregiver, daysSinceActivity, name } of staleCaregivers) {
-    if (seenEntityIds.has(caregiver.id)) continue;
-
-    items.push({
-      id: `stale_${caregiver.id}`,
-      type: 'stale',
-      icon: '\u{1F551}',  // clock
-      title: `${name} — no activity in ${daysSinceActivity} days`,
-      reason: 'Consider following up to keep onboarding moving',
-      urgency: daysSinceActivity >= 7 ? 'critical' : 'warning',
-      entityId: caregiver.id,
-      entityName: name,
-      ctaLabel: 'View Profile',
-      ctaAction: 'view_profile',
-      suggestionId: null,
-    });
-  }
-
-  // Sort: critical > warning > info
-  const urgencyOrder = { critical: 0, warning: 1, info: 2 };
-  items.sort((a, b) => (urgencyOrder[a.urgency] ?? 1) - (urgencyOrder[b.urgency] ?? 1));
-
-  return items.slice(0, 5);
 }
 
 // ─── Get recommendation for a specific caregiver ───

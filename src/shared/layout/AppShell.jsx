@@ -47,6 +47,13 @@ export function AppShell() {
         label: 'Caregivers',
         items: [
           { id: 'dashboard', path: '/', icon: '⊞', label: 'Dashboard', onNavigate: () => setFilterPhase('all') },
+          // Pipeline Health is admin-only (per spec D1) but lives in
+          // the Caregivers section because it IS the daily-driver
+          // pipeline view — not an agent-platform admin tool. Hidden
+          // from non-admin users via the spread guard below.
+          ...(isAdmin ? [
+            { id: 'pipeline-health', path: '/pipeline-health', icon: '🩺', label: 'Pipeline Health' },
+          ] : []),
           { id: 'board', path: '/board', icon: '▤', label: 'Caregiver Board' },
           { id: 'roster', path: '/roster', icon: '👥', label: 'Active Roster' },
           { id: 'add', path: '/add', icon: '＋', label: 'New Caregiver' },
