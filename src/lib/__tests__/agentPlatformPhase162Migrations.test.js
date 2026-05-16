@@ -19,11 +19,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SOURCE_TYPE_PATH = join(
   __dirname,
-  '../../../supabase/migrations/20260516020000_agent_platform_phase_1_6_2_ai_suggestions_source_type_call_analyst.sql',
+  '../../../supabase/migrations/20260516023000_agent_platform_phase_1_6_2_ai_suggestions_source_type_call_analyst.sql',
 );
 const SOURCE_TYPE_ROLLBACK = join(
   __dirname,
-  '../../../supabase/migrations/_rollback/20260516020000_agent_platform_phase_1_6_2_ai_suggestions_source_type_call_analyst_down.sql',
+  '../../../supabase/migrations/_rollback/20260516023000_agent_platform_phase_1_6_2_ai_suggestions_source_type_call_analyst_down.sql',
 );
 const AGENT_SEED_PATH = join(
   __dirname,

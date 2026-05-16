@@ -1,20 +1,20 @@
 -- Phase 1.6.2 hotfix — repair ai_suggestions.source_type CHECK
 -- constraint to include all six values.
 --
--- The previous migration (20260516020000) initially shipped with a
+-- The previous migration (20260516023000) initially shipped with a
 -- buggy five-value enum that dropped 'event_triggered'. Production
 -- caught the regression at deploy time (the proactive planner had
 -- been writing `source_type='event_triggered'` since migration
 -- 20260321220555, so existing rows violated the new CHECK and the
--- transaction rolled back). 20260516020000 was edited in place to
+-- transaction rolled back). 20260516023000 was edited in place to
 -- include all six values — that's the fix for any environment where
 -- the original deploy failed and the migration was never recorded
 -- in `supabase_migrations.schema_migrations`.
 --
--- This migration repairs the rare case where 20260516020000 was
+-- This migration repairs the rare case where 20260516023000 was
 -- applied successfully WITH the buggy 5-value enum (i.e. an env
 -- that happened to have zero event_triggered rows at apply time).
--- It's also a no-op when 20260516020000 ran with the correct
+-- It's also a no-op when 20260516023000 ran with the correct
 -- 6-value enum, so it's safe to re-run unconditionally — that's
 -- the whole point of an idempotent repair.
 --
