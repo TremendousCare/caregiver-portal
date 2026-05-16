@@ -34,6 +34,15 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { runAgent } from '../_shared/operations/agentRuntime.ts';
+import {
+  loadCallSessionContext,
+  fetchCallTranscriptContext,
+  fetchCallTaxonomyContext,
+  fetchEntityMemoriesForCall,
+  fetchCallEntityIdentity,
+} from '../_shared/operations/agentRuntime/callContext.ts';
+import { persistCallAnalysis } from '../_shared/operations/agentRuntime/persistCallAnalysis.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -68,6 +77,9 @@ interface ProcessResult {
   call_session_id: string;
   outcome: 'transcribed' | 'note_attached' | 'no_match' | 'gave_up' | 'failed';
   error?: string;
+  /** Phase 1.6.2: call_analyst invocation outcome, if attempted. */
+  analyst?: 'analysed' | 'shadow' | 'killed' | 'skipped' | 'analyst_error';
+  analyst_error?: string;
 }
 
 async function fetchPending(): Promise<PendingCallRow[]> {
@@ -185,19 +197,167 @@ async function processOne(row: PendingCallRow): Promise<ProcessResult> {
     // (much more expensive) transcription call.
     await markTranscriptFetched(row.id);
 
+    let noteOutcome: ProcessResult['outcome'] = 'transcribed';
     if (row.matched_entity_type && row.matched_entity_id) {
       const ok = await appendCallNote(row, transcript);
-      return {
-        call_session_id: row.id,
-        outcome: ok ? 'note_attached' : 'transcribed',
-      };
+      noteOutcome = ok ? 'note_attached' : 'transcribed';
+    } else {
+      noteOutcome = 'no_match';
     }
-    return { call_session_id: row.id, outcome: 'no_match' };
+
+    // ─── Phase 1.6.2: invoke the call_analyst extractor ───
+    const analyst = await runCallAnalyst(row);
+    return {
+      call_session_id: row.id,
+      outcome:         noteOutcome,
+      analyst:         analyst.analyst,
+      analyst_error:   analyst.analyst_error,
+    };
   } catch (err) {
     return {
       call_session_id: row.id,
       outcome: 'failed',
       error: (err as Error).message || String(err),
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 1.6.2 — call_analyst integration
+//
+// After the transcript is fetched + the note appended, the
+// extractor agent reads the transcript + matched-entity context
+// + active call_taxonomy and emits a single structured-output tool
+// call. The runtime handles kill_switch / shadow_mode:
+//   * kill_switch=true → returns { status: 'killed' } immediately,
+//     no Anthropic call, no DB writes. Default for the seeded
+//     agent; flip via Settings to start the shadow bake.
+//   * shadow_mode=true → ai_suggestions still write at status='pending'
+//     so /agent-grading can show them; agent_actions audit rows
+//     stamp phase='shadow' instead of 'executed'.
+//
+// Idempotency anchor: `call_sessions.ai_summary IS NULL` ─ a re-run
+// on an already-analysed row is a no-op (we skip before invoking
+// Anthropic). This is what allows the cron to be safely re-entrant.
+// ═══════════════════════════════════════════════════════════════
+
+interface AnalystOutcome {
+  analyst: ProcessResult['analyst'];
+  analyst_error?: string;
+}
+
+async function runCallAnalyst(row: PendingCallRow): Promise<AnalystOutcome> {
+  try {
+    // Idempotency: re-runs are a no-op if the call has already been
+    // analysed. Cheap pre-check before assembling context.
+    const { data: existing } = await supabase
+      .from('call_sessions')
+      .select('ai_summary')
+      .eq('id', row.id)
+      .maybeSingle();
+    if (existing?.ai_summary) {
+      return { analyst: 'skipped' };
+    }
+
+    // Load the full call session row for the analysis. The
+    // PendingCallRow shape doesn't carry every field the helpers
+    // want (recording_id is there, but loadCallSessionContext also
+    // returns ended_at + duration for prompt formatting). Cheap
+    // single-row read.
+    const session = await loadCallSessionContext(supabase, row.id);
+    if (!session) return { analyst: 'skipped', analyst_error: 'call_session not found' };
+    if (!session.org_id) return { analyst: 'skipped', analyst_error: 'call_session missing org_id' };
+
+    // ─── Assemble context blocks (read helpers in callContext.ts) ───
+    const [
+      identityBlock,
+      transcriptBlock,
+      taxonomyBlock,
+      memoriesBlock,
+    ] = await Promise.all([
+      fetchCallEntityIdentity(supabase, session.matched_entity_type, session.matched_entity_id),
+      fetchCallTranscriptContext(supabase, session.recording_id),
+      fetchCallTaxonomyContext(supabase, session.org_id),
+      fetchEntityMemoriesForCall(
+        supabase,
+        session.matched_entity_type,
+        session.matched_entity_id,
+        { limit: 10, orgId: session.org_id },
+      ),
+    ]);
+
+    // Transcript missing → nothing meaningful to analyse. This
+    // shouldn't happen because we only reach here after the
+    // transcript fetch succeeded, but tolerate stale state.
+    if (!transcriptBlock) {
+      return { analyst: 'skipped', analyst_error: 'transcript missing at analysis time' };
+    }
+
+    const contextBlock = [identityBlock, transcriptBlock, memoriesBlock, taxonomyBlock]
+      .filter((b) => b && b.length > 0)
+      .join("\n\n");
+
+    // Extract the taxonomy slug sets so the handler can validate
+    // the model's tool_use response without a second DB query.
+    const { data: taxonomyRows } = await supabase
+      .from('call_taxonomy')
+      .select('axis, slug')
+      .eq('org_id', session.org_id)
+      .eq('is_active', true);
+    const callTypeSlugs: string[] = [];
+    const redFlagSlugs:  string[] = [];
+    for (const r of taxonomyRows || []) {
+      if (r.axis === 'call_type') callTypeSlugs.push(r.slug);
+      else if (r.axis === 'red_flag') redFlagSlugs.push(r.slug);
+    }
+
+    const result = await runAgent(
+      supabase,
+      'call_analyst',
+      {
+        shape: 'extractor',
+        extractor: {
+          callSessionId:    session.id,
+          contextBlock,
+          callTypeSlugs,
+          redFlagSlugs,
+          matchedEntityType: session.matched_entity_type,
+          matchedEntityId:   session.matched_entity_id,
+          orgId:             session.org_id,
+        },
+      },
+      { orgId: session.org_id },
+    );
+
+    if (result.status === 'killed')   return { analyst: 'killed' };
+    if (result.status === 'error')    return { analyst: 'analyst_error', analyst_error: result.error?.message };
+    if (!result.analysis)             return { analyst: 'analyst_error', analyst_error: 'no analysis returned' };
+
+    const persistResult = await persistCallAnalysis(supabase, {
+      callSessionId:    session.id,
+      orgId:            session.org_id,
+      matchedEntityType: session.matched_entity_type,
+      matchedEntityId:   session.matched_entity_id,
+      agentId:           result.agent.id,
+      agentVersion:      result.agent.version,
+      shadowMode:        result.shadow,
+      analysis:          result.analysis,
+    });
+
+    if (persistResult.errors.length > 0) {
+      console.warn('[post-call-processor] persistCallAnalysis errors:',
+        JSON.stringify(persistResult.errors));
+    }
+    return {
+      analyst: result.shadow ? 'shadow' : 'analysed',
+      analyst_error: persistResult.errors.length > 0
+        ? `${persistResult.errors.length} partial-write error(s)`
+        : undefined,
+    };
+  } catch (err) {
+    return {
+      analyst: 'analyst_error',
+      analyst_error: (err as Error).message || String(err),
     };
   }
 }
@@ -224,6 +384,11 @@ Deno.serve(async (req) => {
           no_match: results.filter((r) => r.outcome === 'no_match').length,
           gave_up: results.filter((r) => r.outcome === 'gave_up').length,
           failed: results.filter((r) => r.outcome === 'failed').length,
+          analysed: results.filter((r) => r.analyst === 'analysed').length,
+          shadow: results.filter((r) => r.analyst === 'shadow').length,
+          analyst_killed: results.filter((r) => r.analyst === 'killed').length,
+          analyst_skipped: results.filter((r) => r.analyst === 'skipped').length,
+          analyst_error: results.filter((r) => r.analyst === 'analyst_error').length,
         },
         results,
       }),

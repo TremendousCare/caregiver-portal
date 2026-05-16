@@ -165,12 +165,19 @@ describe('recordAutonomyOutcome — v2 wiring', () => {
       true,
       { agentId: AGENT_ID, latestPhase: 'executed' },
     );
-    // Wait one microtask cycle for the dynamic import + fire-and-forget v2 path.
-    await new Promise((r) => setTimeout(r, 30));
+    // Poll for the v2 path to land instead of using a fixed sleep.
+    // The dynamic import + fire-and-forget v2 chain can take a
+    // variable amount of time under parallel test load — previously
+    // a hardcoded 30ms timeout flaked when other test files added
+    // module-import overhead. `vi.waitFor` polls with a short
+    // interval until the assertion passes or the timeout fires.
+    await vi.waitFor(() => {
+      const tables = sb.from.mock.calls.map((c) => c[0]);
+      expect(tables).toContain('agents');
+      expect(tables).toContain('agent_actions');
+    }, { timeout: 1000, interval: 10 });
     const tables = sb.from.mock.calls.map((c) => c[0]);
     expect(tables).toContain('autonomy_config'); // legacy still ran
-    expect(tables).toContain('agents');          // v2 ran too
-    expect(tables).toContain('agent_actions');
   });
 
   it('returns the legacy verdict shape regardless of v2 outcome', async () => {
