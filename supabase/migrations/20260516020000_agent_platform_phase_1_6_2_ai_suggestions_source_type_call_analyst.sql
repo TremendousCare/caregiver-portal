@@ -4,9 +4,13 @@
 -- The Phase 1.6.2 `call_analyst` agent writes per-action-item rows to
 -- ai_suggestions with `source_type='call_analyst'` so downstream
 -- consumers (notification center, /agent-grading, autonomy v2) can
--- filter by origin. The existing enum covers inbound classifiers and
--- the proactive planner cron but not call-derived suggestions; adding
--- the value is purely additive — no existing row's value changes.
+-- filter by origin. The pre-1.6.2 enum is a five-value set
+-- ('inbound_sms', 'inbound_email', 'proactive', 'outcome',
+-- 'event_triggered') — the original four from migration
+-- 20260311200407 plus 'event_triggered' added later by
+-- 20260321220555_fix_source_type_constraint.sql when the proactive
+-- planner started writing event-triggered suggestions. Adding
+-- 'call_analyst' is purely additive on top of that.
 --
 -- Per Prime Directive #1 (production safety, additive only), this
 -- migration only adds a value to the CHECK enum. No rows are touched.
@@ -53,6 +57,7 @@ ALTER TABLE public.ai_suggestions
     'inbound_email',
     'proactive',
     'outcome',
+    'event_triggered',
     'call_analyst'
   ));
 
@@ -70,10 +75,18 @@ BEGIN
     RAISE EXCEPTION
       'ai_suggestions source_type extension failed: call_analyst not present in CHECK after migration';
   END IF;
+  -- Also confirm we didn't accidentally drop 'event_triggered' (a
+  -- regression that caused the original 1.6.2 deploy to fail because
+  -- production rows already used it).
+  IF v_defn NOT ILIKE '%event_triggered%' THEN
+    RAISE EXCEPTION
+      'ai_suggestions source_type extension regression: event_triggered missing from CHECK after migration';
+  END IF;
 END
 $$;
 
 COMMENT ON CONSTRAINT ai_suggestions_source_type_check
   ON public.ai_suggestions IS
-  'Phase 1.6.2: enum extended to include call_analyst (call-derived suggestions). '
-  'Existing four values preserved unchanged.';
+  'Phase 1.6.2: enum extended to include call_analyst (call-derived '
+  'suggestions). Previous five values preserved exactly: inbound_sms, '
+  'inbound_email, proactive, outcome, event_triggered.';

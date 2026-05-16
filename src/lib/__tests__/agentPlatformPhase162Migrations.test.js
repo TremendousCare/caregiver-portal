@@ -45,9 +45,20 @@ describe('ai_suggestions.source_type extension — schema', () => {
     expect(sourceTypeSql).toMatch(/ALTER TABLE public\.ai_suggestions DROP CONSTRAINT/);
   });
 
-  it('recreates the CHECK with the new five-value enum', () => {
+  it('recreates the CHECK with the full six-value enum (including event_triggered)', () => {
+    // The pre-1.6.2 production enum is FIVE values — the original
+    // four from migration 20260311200407 plus 'event_triggered' added
+    // later by 20260321220555_fix_source_type_constraint.sql when the
+    // proactive planner started writing event-triggered suggestions.
+    // The 1.6.2 migration must include all five plus 'call_analyst'.
+    // (The first version of this migration dropped 'event_triggered'
+    // and the production deploy rolled back because rows already used
+    // it — see commit history.)
     expect(sourceTypeSql).toMatch(/CHECK \(source_type IN \(/);
-    for (const value of ['inbound_sms', 'inbound_email', 'proactive', 'outcome', 'call_analyst']) {
+    for (const value of [
+      'inbound_sms', 'inbound_email', 'proactive', 'outcome',
+      'event_triggered', 'call_analyst',
+    ]) {
       expect(sourceTypeSql).toContain(`'${value}'`);
     }
   });
@@ -56,12 +67,19 @@ describe('ai_suggestions.source_type extension — schema', () => {
     expect(sourceTypeSql).toMatch(/ai_suggestions source_type extension failed/);
     expect(sourceTypeSql).toMatch(/call_analyst not present in CHECK/);
   });
+
+  it('runs a sanity DO block that fails the migration if event_triggered is missing (regression guard)', () => {
+    expect(sourceTypeSql).toMatch(/event_triggered missing from CHECK/);
+  });
 });
 
 describe('ai_suggestions.source_type extension — rollback', () => {
-  it('restores the original four-value enum', () => {
+  it('restores the pre-1.6.2 five-value enum (NOT the original four)', () => {
     expect(sourceTypeBack).toMatch(/CHECK \(source_type IN \(/);
-    for (const value of ['inbound_sms', 'inbound_email', 'proactive', 'outcome']) {
+    for (const value of [
+      'inbound_sms', 'inbound_email', 'proactive', 'outcome',
+      'event_triggered',
+    ]) {
       expect(sourceTypeBack).toContain(`'${value}'`);
     }
     // Critically: call_analyst is NOT in the recreated CHECK clause.
