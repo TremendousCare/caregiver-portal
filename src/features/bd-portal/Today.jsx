@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Map, ListOrdered } from 'lucide-react';
+import { MapPin, Map, ListOrdered, Gauge } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
 import { useBdBriefing } from './hooks/useBdBriefing';
@@ -228,6 +228,13 @@ export function Today({ displayName }) {
             <div className={s.counterLabel}>drop-offs</div>
           </div>
         </div>
+        <button
+          type="button"
+          className={s.linkBtn}
+          onClick={() => navigate('/bd/mileage')}
+        >
+          <Gauge size={14} strokeWidth={1.75} aria-hidden /> Mileage
+        </button>
       </div>
 
       <div className={s.card}>
