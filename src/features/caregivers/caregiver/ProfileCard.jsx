@@ -15,7 +15,7 @@ import { EditField } from './constants';
 export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
-  const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') !== 'false');
+  const [expanded, setExpanded] = useState(() => localStorage.getItem('tc_profile_expanded') === 'true');
   const [togglingOptOut, setTogglingOptOut] = useState(false);
   const [togglingAvailPaused, setTogglingAvailPaused] = useState(false);
   const [inviting, setInviting] = useState(false);
