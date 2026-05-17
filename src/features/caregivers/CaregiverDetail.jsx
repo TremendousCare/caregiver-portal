@@ -30,7 +30,7 @@ export function CaregiverDetail({
   const [detailTab, setDetailTab] = useState('tasks');
   const [surveyStatus, setSurveyStatus] = useState(null);
 
-  const { smsMessages, emailMessages, callEntries, rcLoading, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
+  const { mergedTimeline, smsMessages, emailMessages, callEntries, rcLoading, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
 
   const greenLight = isGreenLight(caregiver);
   const currentPhase = getCurrentPhase(caregiver);
@@ -123,6 +123,9 @@ export function CaregiverDetail({
       <ActivityLog
         caregiver={caregiver}
         onAddNote={onAddNote}
+        mergedTimeline={mergedTimeline}
+        rcLoading={rcLoading}
+        accessToken={accessToken}
       />
 
       <SurveyResults caregiver={caregiver} />
