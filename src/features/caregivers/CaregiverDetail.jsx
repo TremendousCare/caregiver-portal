@@ -12,7 +12,6 @@ import { PhaseDetail } from './caregiver/PhaseDetail';
 import { DocumentsSection } from './caregiver/DocumentsSection';
 import { ActivityLog } from './caregiver/ActivityLog';
 import { InterviewCard } from './caregiver/InterviewCard';
-import { RecommendedNextStep } from './caregiver/RecommendedNextStep';
 import { SurveyResults } from './caregiver/SurveyResults';
 import { DetailTabBar } from './caregiver/DetailTabBar';
 import { MessagingCenter } from './caregiver/MessagingCenter';
@@ -131,8 +130,6 @@ export function CaregiverDetail({
         currentUser={currentUser}
         showToast={showToast}
       />
-
-      <RecommendedNextStep caregiver={caregiver} />
 
       <DetailTabBar
         activeTab={detailTab}
