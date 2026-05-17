@@ -120,6 +120,11 @@ export function CaregiverDetail({
         onUpdateCaregiver={onUpdateCaregiver}
       />
 
+      <ActivityLog
+        caregiver={caregiver}
+        onAddNote={onAddNote}
+      />
+
       <SurveyResults caregiver={caregiver} />
 
       <ProgressOverview
@@ -159,11 +164,6 @@ export function CaregiverDetail({
             currentUser={currentUser}
             showToast={showToast}
             onUpdateCaregiver={onUpdateCaregiver}
-          />
-
-          <ActivityLog
-            caregiver={caregiver}
-            onAddNote={onAddNote}
           />
         </>
       )}
