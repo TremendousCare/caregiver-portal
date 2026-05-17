@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
-import { useCommsTimeline } from './useCommsTimeline';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -12,7 +11,7 @@ const FILTER_OPTIONS = [
   ...NOTE_TYPES,
 ];
 
-export function ActivityLog({ caregiver, onAddNote }) {
+export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, accessToken }) {
   const [noteText, setNoteText] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
@@ -21,9 +20,6 @@ export function ActivityLog({ caregiver, onAddNote }) {
   const [transcriptLoading, setTranscriptLoading] = useState(null);
   const [transcriptError, setTranscriptError] = useState(null);
   const transcriptCacheRef = useRef({});
-
-  // Use the shared comms timeline hook
-  const { mergedTimeline, rcLoading, accessToken } = useCommsTimeline(caregiver);
 
   const handleAddNote = () => {
     const trimmed = noteText.trim();
