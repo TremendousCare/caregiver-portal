@@ -13,7 +13,7 @@ const FILTER_OPTIONS = [
 
 export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, accessToken }) {
   const [noteText, setNoteText] = useState('');
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('note');
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState(null);
