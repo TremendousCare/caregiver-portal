@@ -34,7 +34,7 @@ const STATUS_CONFIG = {
 export function SurveyResults({ caregiver }) {
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [togglingReminders, setTogglingReminders] = useState(false);
 
   useEffect(() => {
