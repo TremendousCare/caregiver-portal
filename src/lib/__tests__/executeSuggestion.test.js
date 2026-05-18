@@ -208,7 +208,7 @@ describe('add_note / add_client_note param validation', () => {
 describe('update_phase / update_client_phase param validation', () => {
   it('accepts params with new_phase', () => {
     expect(validateActionParams('update_phase', { new_phase: 'interview' })).toEqual({ valid: true });
-    expect(validateActionParams('update_client_phase', { new_phase: 'consultation' })).toEqual({ valid: true });
+    expect(validateActionParams('update_client_phase', { new_phase: 'consult' })).toEqual({ valid: true });
   });
 
   it('accepts optional reason', () => {

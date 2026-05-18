@@ -93,7 +93,7 @@ describe('resolveClientMergeFields', () => {
     email: 'robert@family.com',
     careRecipientName: 'Mary Smith',
     contactName: 'Robert Smith',
-    phase: 'consultation',
+    phase: 'consult',
   };
 
   it('replaces {{firstName}}', () => {

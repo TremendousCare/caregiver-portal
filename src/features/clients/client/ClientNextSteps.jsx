@@ -4,12 +4,15 @@ import { getClientPhaseTasks } from '../storage';
 import { getClientPhase, isTaskDone, getClientPhaseProgress } from '../utils';
 
 // ─── Overdue Thresholds (in milliseconds) ────────────────────
+// Tuned to the 3-active-phase model. Consult covers attempt-to-contact
+// through completed-consultation, so we use the more lenient end of the
+// old window (3d). Proposal now wraps the home visit + proposal flow,
+// so we use 5d — a midpoint between the old 7d assessment and 3d
+// proposal windows.
 const OVERDUE_THRESHOLDS = {
   new_lead: 1 * 60 * 60 * 1000,          // 1 hour
-  initial_contact: 2 * 24 * 60 * 60 * 1000, // 2 days
-  consultation: 3 * 24 * 60 * 60 * 1000,    // 3 days
-  assessment: 7 * 24 * 60 * 60 * 1000,      // 7 days
-  proposal: 3 * 24 * 60 * 60 * 1000,        // 3 days
+  consult: 3 * 24 * 60 * 60 * 1000,      // 3 days
+  proposal: 5 * 24 * 60 * 60 * 1000,     // 5 days
 };
 
 // ─── Helpers ─────────────────────────────────────────────────
