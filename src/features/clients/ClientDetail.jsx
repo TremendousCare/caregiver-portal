@@ -180,6 +180,12 @@ export function ClientDetail({
 
       {detailTab === 'overview' && (
         <>
+          <ClientActivityLog
+            client={client}
+            currentUser={currentUser}
+            onAddNote={onAddNote}
+          />
+
           <ClientNextSteps
             client={client}
             onUpdateTask={onUpdateTask}
@@ -228,12 +234,6 @@ export function ClientDetail({
             onUpdateTask={onUpdateTask}
             onUpdateTasksBulk={onUpdateTasksBulk}
             onRefreshTasks={onRefreshTasks}
-          />
-
-          <ClientActivityLog
-            client={client}
-            currentUser={currentUser}
-            onAddNote={onAddNote}
           />
         </>
       )}

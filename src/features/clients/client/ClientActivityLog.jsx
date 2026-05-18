@@ -40,7 +40,7 @@ function normalizePhone(phone) {
 // ─── Unified Activity Log ───────────────────────────────────
 export function ClientActivityLog({ client, currentUser, onAddNote }) {
   const [noteText, setNoteText] = useState('');
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('note');
 
   // RingCentral data
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
