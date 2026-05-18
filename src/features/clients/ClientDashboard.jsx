@@ -59,7 +59,7 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
       onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
     >
       <td
-        style={{ padding: '12px 8px', textAlign: 'center' }}
+        style={{ padding: '6px 8px', textAlign: 'center' }}
         onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
       >
         <input
@@ -69,19 +69,27 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#2E4E8D' }}
         />
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Avatar
-            path={client.avatarPath}
-            firstName={client.firstName}
-            lastName={client.lastName}
-            size="sm"
-          />
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: 'linear-gradient(135deg, #2E4E8D, #1084C3)',
+            color: '#fff', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontWeight: 700, fontSize: 11,
+            flexShrink: 0,
+          }}>
+            {client.firstName?.[0]}{client.lastName?.[0]}
+          </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontWeight: 600, color: '#0F1724', fontSize: 14 }}>
                 {client.firstName} {client.lastName}
               </span>
+              {client.careRecipientName && (
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+                  · {client.careRecipientName}
+                </span>
+              )}
               {overdue && (
                 <span style={{
                   background: '#FEF2F0', color: '#DC3545',
@@ -90,18 +98,13 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
                 }}>Overdue</span>
               )}
             </div>
-            {client.careRecipientName && (
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
-                {client.careRecipientName}
-              </div>
-            )}
           </div>
         </div>
       </td>
-      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '6px 14px', color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>
         {fmtPhone(client.phone)}
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         {phaseInfo && (
           <span
             className={progress.phaseBadge}
@@ -115,7 +118,7 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           </span>
         )}
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         {priorityInfo && priorityInfo.id !== 'normal' ? (
           <span
             className={progress.phaseBadge}
@@ -129,14 +132,14 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           </span>
         ) : <span style={{ color: '#9CA3AF' }}>—</span>}
       </td>
-      <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>
+      <td style={{ padding: '6px 14px', fontSize: 13, color: '#374151' }}>
         {nextStep ? (
           <span style={{ color: nextStep.critical ? '#DC3545' : '#374151' }}>
             {nextStep.critical ? '! ' : '→ '}{nextStep.label}
           </span>
         ) : <span style={{ color: '#9CA3AF' }}>—</span>}
       </td>
-      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '6px 14px', color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>
         Day {days}
       </td>
     </tr>
@@ -299,7 +302,7 @@ export function ClientDashboard({
 }) {
   const [viewMode, setViewMode] = useState(() => {
     const stored = localStorage.getItem('tc_client_dashboard_view_mode');
-    return stored === 'list' ? 'list' : 'grid';
+    return stored === 'grid' ? 'grid' : 'list';
   });
 
   const handleViewModeChange = (mode) => {
