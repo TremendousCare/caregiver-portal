@@ -12,6 +12,7 @@ import { RouteBuilder } from './RouteBuilder';
 import { MileageList } from './MileageList';
 import { MileageEntryForm } from './MileageEntryForm';
 import { BottomNav } from './BottomNav';
+import { BDMenuDrawer } from './BDMenuDrawer';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
 
@@ -60,6 +61,11 @@ export function BDApp() {
         <Route path="/bd/*"                                          element={<Navigate to="/bd" replace />} />
       </Routes>
       <BottomNav />
+      {/* Hamburger menu — opens a drawer with links into the rest of
+          the admin app (Dashboard, Schedule, Boards, etc.) so the rep
+          isn't trapped inside the BD surface. Mirrors the existing
+          sign-out floating button, top-left. */}
+      <BDMenuDrawer onSignOut={handleSignOut} />
       {/* Floating sign-out — hidden inside a tiny corner so the bottom
           nav stays as the primary navigation. Dev/owner can use it
           when switching accounts. */}
