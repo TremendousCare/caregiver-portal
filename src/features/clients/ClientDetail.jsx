@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { getClientPhase } from './utils';
+import { getClientPhase, shouldShowClientPlanPanels } from './utils';
 import { LOST_REASONS } from './constants';
 
 import { ClientHeader } from './client/ClientHeader';
@@ -214,17 +214,21 @@ export function ClientDetail({
             showToast={showToast}
           />
 
-          <CarePlanPanel
-            client={client}
-            currentUser={currentUser}
-            showToast={showToast}
-          />
+          {shouldShowClientPlanPanels(client) && (
+            <>
+              <CarePlanPanel
+                client={client}
+                currentUser={currentUser}
+                showToast={showToast}
+              />
 
-          <ServicePlansPanel
-            client={client}
-            currentUser={currentUser}
-            showToast={showToast}
-          />
+              <ServicePlansPanel
+                client={client}
+                currentUser={currentUser}
+                showToast={showToast}
+              />
+            </>
+          )}
 
           <ClientPhaseDetail
             client={client}

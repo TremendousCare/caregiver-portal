@@ -20,6 +20,17 @@ export const getClientPhase = (client) => {
   return client.phase || 'new_lead';
 };
 
+// Care Plan and Service Plans are clinical/operational artifacts that
+// only become relevant once we're actively closing the deal. Showing
+// them for early-funnel leads (new_lead → assessment) just adds empty
+// state noise. They appear together at proposal and stay through won.
+// Lost/nurture are terminal — hide there too.
+const PLAN_VISIBLE_PHASES = new Set(['proposal', 'won']);
+
+export const shouldShowClientPlanPanels = (client) => {
+  return PLAN_VISIBLE_PHASES.has(getClientPhase(client));
+};
+
 // ─── Phase Progress ─────────────────────────────────────────
 
 export const getClientPhaseProgress = (client, phaseId) => {
