@@ -19,6 +19,7 @@ import {
 } from '../../lib/scheduling/timezone';
 import {
   SHIFT_CANCEL_REASONS,
+  applyAutoConfirmOnAssign,
   buildShiftUpdatePatch,
   canMarkShiftNoShow,
   formatShiftTimeRange,
@@ -137,7 +138,10 @@ export function ShiftDrawer({
     return counts;
   }, [offers]);
 
-  const patch = useMemo(() => buildShiftUpdatePatch(shift, draft), [shift, draft]);
+  const patch = useMemo(
+    () => applyAutoConfirmOnAssign(shift, buildShiftUpdatePatch(shift, draft)),
+    [shift, draft],
+  );
   const isDirty = Object.keys(patch).length > 0;
   const isCancelled = shift?.status === 'cancelled';
   const isNoShow = shift?.status === 'no_show';

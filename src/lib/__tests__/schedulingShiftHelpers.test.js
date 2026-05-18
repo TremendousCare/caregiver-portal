@@ -16,6 +16,7 @@ import {
   shiftToCalendarEvent,
   validateShiftDraft,
   buildShiftUpdatePatch,
+  applyAutoConfirmOnAssign,
   computeShiftActuals,
   formatClockEventTime,
   formatDurationMs,
@@ -540,6 +541,125 @@ describe('buildShiftUpdatePatch', () => {
       status: 'confirmed',
       notes: 'Updated note',
     });
+  });
+});
+
+// ─── applyAutoConfirmOnAssign ──────────────────────────────────
+//
+// Manual placement collapses the legacy "open → assigned → confirmed"
+// two-step into a single direct jump to "confirmed", so a caregiver
+// the scheduler placed by hand shows up on the schedule immediately
+// instead of staying in the Open bucket. Broadcast-driven paths
+// bypass this helper and stay at "assigned" until the scheduler
+// verifies — see ShiftDrawer.performAssignment and runAutoAssign in
+// supabase/functions/_shared/operations/shiftOfferMatching.ts.
+
+describe('applyAutoConfirmOnAssign', () => {
+  it('promotes status to "confirmed" when assigning to an open shift', () => {
+    const original = { status: 'open', assignedCaregiverId: null };
+    const patch = { assignedCaregiverId: 'cg1' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: 'cg1',
+      status: 'confirmed',
+    });
+  });
+
+  it('promotes status to "confirmed" when assigning to an offered (broadcast-out) shift', () => {
+    const original = { status: 'offered', assignedCaregiverId: null };
+    const patch = { assignedCaregiverId: 'cg1' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: 'cg1',
+      status: 'confirmed',
+    });
+  });
+
+  it('promotes status to "confirmed" when the scheduler manually swaps caregivers on a broadcast-assigned shift', () => {
+    // After a broadcast reply, status sits at "assigned". If the
+    // scheduler then changes the caregiver by hand via the header
+    // picker, that manual action is an explicit confirmation.
+    const original = { status: 'assigned', assignedCaregiverId: 'cgOld' };
+    const patch = { assignedCaregiverId: 'cgNew' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: 'cgNew',
+      status: 'confirmed',
+    });
+  });
+
+  it('leaves patch alone when assigning to an already-confirmed shift', () => {
+    // No-op caregiver patches won't reach this helper (buildShiftUpdatePatch
+    // drops same-value fields), but a defensive call should not churn the
+    // status field.
+    const original = { status: 'confirmed', assignedCaregiverId: 'cgOld' };
+    const patch = { assignedCaregiverId: 'cgNew' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: 'cgNew',
+    });
+  });
+
+  it('does not touch terminal or in-progress shifts', () => {
+    for (const status of ['in_progress', 'completed', 'cancelled', 'no_show']) {
+      const original = { status, assignedCaregiverId: 'cgOld' };
+      const patch = { assignedCaregiverId: 'cgNew' };
+      expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+        assignedCaregiverId: 'cgNew',
+      });
+    }
+  });
+
+  it('drops status back to "open" when unassigning from a confirmed shift', () => {
+    // Without this, the screen would show a "Confirmed" shift with no
+    // caregiver attached after the scheduler clicks Unassign — a state
+    // that the new auto-confirm path makes more reachable.
+    const original = { status: 'confirmed', assignedCaregiverId: 'cg1' };
+    const patch = { assignedCaregiverId: null };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: null,
+      status: 'open',
+    });
+  });
+
+  it('drops status back to "open" when unassigning from an assigned shift', () => {
+    const original = { status: 'assigned', assignedCaregiverId: 'cg1' };
+    const patch = { assignedCaregiverId: null };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: null,
+      status: 'open',
+    });
+  });
+
+  it('does not touch status when unassigning from an open shift', () => {
+    const original = { status: 'open', assignedCaregiverId: 'cg1' };
+    const patch = { assignedCaregiverId: null };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: null,
+    });
+  });
+
+  it('respects an explicit status set by the caller', () => {
+    // Used by callers like performAssignment that explicitly pin
+    // status='assigned' on a broadcast reply — the helper must not
+    // overwrite that.
+    const original = { status: 'open', assignedCaregiverId: null };
+    const patch = { assignedCaregiverId: 'cg1', status: 'assigned' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      assignedCaregiverId: 'cg1',
+      status: 'assigned',
+    });
+  });
+
+  it('returns the patch unchanged when assignedCaregiverId is not in the patch', () => {
+    const original = { status: 'open', assignedCaregiverId: null };
+    const patch = { notes: 'just a note edit' };
+    expect(applyAutoConfirmOnAssign(original, patch)).toEqual({
+      notes: 'just a note edit',
+    });
+  });
+
+  it('handles missing original or patch gracefully', () => {
+    expect(applyAutoConfirmOnAssign(null, { assignedCaregiverId: 'cg1' })).toEqual({
+      assignedCaregiverId: 'cg1',
+    });
+    expect(applyAutoConfirmOnAssign({ status: 'open' }, null)).toBeNull();
   });
 });
 

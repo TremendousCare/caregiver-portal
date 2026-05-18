@@ -330,6 +330,53 @@ export function validateShiftDraft(draft) {
 }
 
 /**
+ * Auto-promote the shift status when a manual assignment happens.
+ *
+ * The legacy two-step flow forced schedulers to assign a caregiver,
+ * click "Mark assigned", then click "Mark confirmed" before the shift
+ * left the "Open" bucket on the calendar. When a scheduler manually
+ * places a caregiver, that placement is already an explicit commitment
+ * — there is no value in the intermediate "assigned" stop. This
+ * helper collapses the manual path:
+ *
+ *   - Assigning a caregiver (null → someone, or A → B) on an
+ *     open / offered / assigned shift → bumps status to 'confirmed'.
+ *   - Unassigning (someone → null) on an assigned / confirmed shift
+ *     → drops status back to 'open' so the shift can be re-broadcast
+ *     and doesn't sit as "Confirmed" with no caregiver.
+ *   - If the caller already set `status` in the patch, that explicit
+ *     choice wins and we leave it alone.
+ *   - Shifts that are already in_progress / completed / cancelled /
+ *     no_show are never auto-rewritten.
+ *
+ * Broadcast-driven assignments (ShiftDrawer.performAssignment after a
+ * "yes" reply, and the runAutoAssign path in the message-router edge
+ * function) pin status to 'assigned' explicitly and bypass this helper.
+ * Per product intent, a broadcast "yes" must NOT auto-confirm — the
+ * scheduler still verifies before the shift leaves the assigned bucket.
+ */
+const AUTO_CONFIRM_ELIGIBLE_STATUSES = new Set(['open', 'offered', 'assigned']);
+const AUTO_REOPEN_ELIGIBLE_STATUSES = new Set(['assigned', 'confirmed']);
+
+export function applyAutoConfirmOnAssign(original, patch) {
+  if (!original || !patch || typeof patch !== 'object') return patch;
+  if (!('assignedCaregiverId' in patch)) return patch;
+  if ('status' in patch) return patch;
+
+  if (patch.assignedCaregiverId) {
+    if (AUTO_CONFIRM_ELIGIBLE_STATUSES.has(original.status)) {
+      return { ...patch, status: 'confirmed' };
+    }
+    return patch;
+  }
+
+  if (AUTO_REOPEN_ELIGIBLE_STATUSES.has(original.status)) {
+    return { ...patch, status: 'open' };
+  }
+  return patch;
+}
+
+/**
  * Build a patch object to send to updateShift() given an edited draft
  * and the original shift. Only includes fields that actually changed.
  */
