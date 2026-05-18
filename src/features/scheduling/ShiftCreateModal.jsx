@@ -49,7 +49,13 @@ export function ShiftCreateModal({
         assignedCaregiverId: draft.assignedCaregiverId || null,
         startTime: draft.startTime,
         endTime: draft.endTime,
-        status: draft.assignedCaregiverId ? 'assigned' : 'open',
+        // Manual placement is an explicit commitment — skip the
+        // legacy "assigned" stop and land directly on "confirmed" so
+        // the shift shows up on the schedule. Broadcast-driven
+        // assignments (performAssignment, runAutoAssign) take a
+        // separate path and stay at "assigned" until the scheduler
+        // verifies.
+        status: draft.assignedCaregiverId ? 'confirmed' : 'open',
         locationAddress: draft.locationAddress || null,
         hourlyRate: draft.hourlyRate ?? null,
         billableRate: draft.billableRate ?? null,

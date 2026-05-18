@@ -19,6 +19,7 @@ import {
 } from '../../lib/scheduling/timezone';
 import {
   SHIFT_CANCEL_REASONS,
+  applyAutoConfirmOnAssign,
   buildShiftUpdatePatch,
   canMarkShiftNoShow,
   formatShiftTimeRange,
@@ -137,7 +138,10 @@ export function ShiftDrawer({
     return counts;
   }, [offers]);
 
-  const patch = useMemo(() => buildShiftUpdatePatch(shift, draft), [shift, draft]);
+  const patch = useMemo(
+    () => applyAutoConfirmOnAssign(shift, buildShiftUpdatePatch(shift, draft)),
+    [shift, draft],
+  );
   const isDirty = Object.keys(patch).length > 0;
   const isCancelled = shift?.status === 'cancelled';
   const isNoShow = shift?.status === 'no_show';
@@ -185,6 +189,14 @@ export function ShiftDrawer({
         const propagable = { ...patch };
         delete propagable.startTime;
         delete propagable.endTime;
+        // Auto-confirm is per-shift: the parent's status was promoted
+        // against its own current state, but each future sibling may
+        // be in a different state (open, cancelled, already confirmed
+        // with a different caregiver). Bulk-applying the parent's
+        // synthetic 'confirmed' would resurrect cancelled siblings.
+        // Strip it here and let applyAutoConfirmOnAssign recompute the
+        // right status per sibling below.
+        delete propagable.status;
         // Only propagate if there's actually something non-time to apply
         if (Object.keys(propagable).length > 0) {
           // Resolve day-of-week and the calendar date in the org's wall
@@ -228,7 +240,11 @@ export function ShiftDrawer({
           });
           for (const sib of futureSiblings) {
             try {
-              await updateShift(sib.id, propagable);
+              // Resolve auto-confirm against each sibling's own status so
+              // a cancelled occurrence in the series isn't resurrected
+              // and an already-confirmed one isn't churned needlessly.
+              const sibPatch = applyAutoConfirmOnAssign(sib, propagable);
+              await updateShift(sib.id, sibPatch);
             } catch (sibErr) {
               console.warn(`Failed to update sibling shift ${sib.id}:`, sibErr);
             }
