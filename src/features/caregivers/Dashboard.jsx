@@ -353,7 +353,7 @@ function CaregiverListRow({ caregiver, isSelected, onToggleSelect, onSelect, sur
             borderRadius: 8, fontSize: 11, fontWeight: 600,
             whiteSpace: 'nowrap',
           }} title="Interview link sent, awaiting response">
-            ⏳ {linkAgoLabel}
+            ⏳ Link sent{linkAgoLabel ? ` · ${linkAgoLabel}` : ''}
           </span>
         ) : awaitingHca ? (
           <span style={{
