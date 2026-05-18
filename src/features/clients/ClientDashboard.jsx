@@ -4,26 +4,12 @@ import { getClientPhase, getDaysSinceCreated, getNextStep } from './utils';
 import { generateClientActionItems } from '../../lib/actionItemEngine';
 import { supabase } from '../../lib/supabase';
 import { resolveClientMergeFields } from '../../lib/mergeFields';
-import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
 import progress from '../../styles/progress.module.css';
 import layout from '../../styles/layout.module.css';
 import d from './ClientDashboard.module.css';
 import { Avatar } from '../../shared/components/Avatar';
-
-// ─── STAT CARD ───────────────────────────────────────────────
-function StatCard({ label, value, accent, icon }) {
-  return (
-    <div className={cards.statCard}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 24 }}>{icon}</span>
-        <span className={cards.statValue} style={{ color: accent }}>{value}</span>
-      </div>
-      <div className={cards.statLabel}>{label}</div>
-    </div>
-  );
-}
 
 // ─── HELPERS ────────────────────────────────────────────────
 function fmtPhone(val) {
@@ -346,17 +332,6 @@ export function ClientDashboard({
       .catch(() => {});
   }, []);
 
-  const totalActive = allClients.length;
-
-  // Won this month
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const wonThisMonth = allClients.filter((c) => {
-    const phase = getClientPhase(c);
-    const wonTs = c.phaseTimestamps?.won;
-    return phase === 'won' && wonTs && wonTs >= monthStart;
-  }).length;
-
   const actionItems = generateClientActionItems(allClients);
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
 
@@ -366,7 +341,6 @@ export function ClientDashboard({
   const overdueIds = new Set(
     actionItems.filter((a) => a.severity === 'critical').map((a) => a.clientId)
   );
-  const overdueCount = overdueIds.size;
 
   const sortedClients = [...clients].sort((a, b) => {
     const pOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -418,20 +392,6 @@ export function ClientDashboard({
             {addLabel}
           </button>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className={cards.statsRow}>
-        {[
-          { label: 'Active Leads', value: totalActive, accent: '#2E4E8D', icon: '👥' },
-          { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
-          { label: 'Won This Month', value: wonThisMonth, accent: '#16A34A', icon: '✅' },
-          { label: 'Overdue', value: overdueCount, accent: '#DC3545', icon: '⚠️' },
-        ].map((s, i) => (
-          <div key={s.label} style={{ animation: `fadeInUp 0.4s cubic-bezier(0.4,0,0.2,1) ${i * 0.07}s both` }}>
-            <StatCard {...s} />
-          </div>
-        ))}
       </div>
 
       {/* Action Items */}
