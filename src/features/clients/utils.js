@@ -77,59 +77,6 @@ export const getDaysSinceCreated = (client) => {
   return Math.floor((Date.now() - created) / 86400000);
 };
 
-// ─── Overdue Detection ──────────────────────────────────────
-
-// isClientOverdue() removed — card-level "overdue" status is now
-// derived from the configurable action item rules engine, so the
-// Settings toggles are the single source of truth. See
-// generateClientActionItems() and the dashboard's overdueIds set.
-
-// Per-phase SLA windows in milliseconds — how long a client can sit in
-// a phase before a top-of-profile overdue banner shows up. New Lead is
-// the strictest (1h Speed-to-Lead rule); the other active phases get
-// a few days of grace. Terminal phases (won/lost/nurture) never go
-// overdue.
-//
-// Keys cover both the pre- and post-consolidation phase sets so this
-// helper keeps working through and after the phase migration PR.
-const PHASE_SLA_MS = {
-  new_lead: 1 * 60 * 60 * 1000,             // 1 hour
-  initial_contact: 2 * 24 * 60 * 60 * 1000, // 2 days (legacy)
-  consultation: 3 * 24 * 60 * 60 * 1000,    // 3 days (legacy)
-  assessment: 7 * 24 * 60 * 60 * 1000,      // 7 days (legacy)
-  consult: 3 * 24 * 60 * 60 * 1000,         // 3 days (consolidated)
-  proposal: 5 * 24 * 60 * 60 * 1000,        // 5 days
-};
-
-function phaseEntryTime(client, phase) {
-  if (phase === 'new_lead') {
-    if (!client.createdAt) return null;
-    return typeof client.createdAt === 'number'
-      ? client.createdAt
-      : new Date(client.createdAt).getTime();
-  }
-  const ts = client.phaseTimestamps?.[phase];
-  if (!ts) return null;
-  return typeof ts === 'number' ? ts : new Date(ts).getTime();
-}
-
-export const getClientOverdueStatus = (client, now = Date.now()) => {
-  const phase = getClientPhase(client);
-  if (['won', 'lost', 'nurture'].includes(phase)) return null;
-  const sla = PHASE_SLA_MS[phase];
-  if (!sla) return null;
-  const entryTime = phaseEntryTime(client, phase);
-  if (!entryTime) return null;
-  const elapsed = now - entryTime;
-  if (elapsed <= sla) return null;
-  return {
-    phase,
-    elapsedMs: elapsed,
-    overdueMs: elapsed - sla,
-    slaMs: sla,
-  };
-};
-
 // ─── Next Step ──────────────────────────────────────────────
 
 export const getNextStep = (client) => {
