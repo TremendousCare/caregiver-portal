@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import {
   Flame,
   Star,
-  Clock,
   Rocket,
   CheckCircle2,
   XCircle,
@@ -16,46 +15,6 @@ import { ClientPhaseIcon } from '../lib/clientPhaseIcon';
 import btn from '../../../styles/buttons.module.css';
 import cl from './client.module.css';
 import progress from '../../../styles/progress.module.css';
-
-// ─── Overdue Thresholds (in milliseconds) ────────────────────
-// Tuned to the 3-active-phase model. Consult covers attempt-to-contact
-// through completed-consultation, so we use the more lenient end of the
-// old window (3d). Proposal now wraps the home visit + proposal flow,
-// so we use 5d — a midpoint between the old 7d assessment and 3d
-// proposal windows.
-const OVERDUE_THRESHOLDS = {
-  new_lead: 1 * 60 * 60 * 1000,          // 1 hour
-  consult: 3 * 24 * 60 * 60 * 1000,      // 3 days
-  proposal: 5 * 24 * 60 * 60 * 1000,     // 5 days
-};
-
-// ─── Helpers ─────────────────────────────────────────────────
-
-function getPhaseEntryTime(client, phase) {
-  // For new_lead, use createdAt
-  if (phase === 'new_lead') {
-    if (!client.createdAt) return null;
-    return typeof client.createdAt === 'number'
-      ? client.createdAt
-      : new Date(client.createdAt).getTime();
-  }
-  // For other phases, use phaseTimestamps
-  const ts = client.phaseTimestamps?.[phase];
-  if (!ts) return null;
-  return typeof ts === 'number' ? ts : new Date(ts).getTime();
-}
-
-function formatOverdueTime(ms) {
-  if (ms < 0) return null;
-  const minutes = Math.floor(ms / 60000);
-  const hours = Math.floor(ms / 3600000);
-  const days = Math.floor(ms / 86400000);
-
-  if (days > 0) return `${days} day${days !== 1 ? 's' : ''} overdue`;
-  if (hours > 0) return `${hours} hour${hours !== 1 ? 's' : ''} overdue`;
-  if (minutes > 0) return `${minutes} min${minutes !== 1 ? 's' : ''} overdue`;
-  return 'Just overdue';
-}
 
 // ─── Main Component ──────────────────────────────────────────
 // Absorbs the old ClientPhaseDetail card: scripts panel, edit-checklist
@@ -85,39 +44,16 @@ export function ClientNextSteps({
   const allDone = phaseTasks.length > 0 && phaseTasks.every((t) => isTaskDone(client.tasks?.[t.id]));
   const noneDone = phaseTasks.every((t) => !isTaskDone(client.tasks?.[t.id]));
 
-  // Sorted task list with overdue metadata. Critical+overdue floats to
-  // the top, then non-critical overdue, then other incomplete (critical
-  // first), then completed at the bottom.
+  // Sorted task list: completed always last, critical incomplete first.
   const sortedTasks = useMemo(() => {
     if (['won', 'lost', 'nurture'].includes(phase)) return [];
     if (!phaseTasks.length) return [];
 
-    const threshold = OVERDUE_THRESHOLDS[phase];
-    const entryTime = getPhaseEntryTime(client, phase);
-    const now = Date.now();
-    const elapsed = entryTime ? now - entryTime : 0;
-    const isOverThreshold = threshold && entryTime ? elapsed > threshold : false;
-    const overdueMs = threshold && entryTime ? elapsed - threshold : 0;
-
     return phaseTasks
-      .map((t) => {
-        const done = isTaskDone(client.tasks?.[t.id]);
-        return {
-          ...t,
-          done,
-          overdue: !done && isOverThreshold,
-          overdueLabel: !done && isOverThreshold ? formatOverdueTime(overdueMs) : null,
-        };
-      })
+      .map((t) => ({ ...t, done: isTaskDone(client.tasks?.[t.id]) }))
       .sort((a, b) => {
-        // Completed always last
         if (a.done && !b.done) return 1;
         if (b.done && !a.done) return -1;
-        // Within incomplete: critical+overdue → non-critical overdue → critical → rest
-        if (a.overdue && a.critical && !(b.overdue && b.critical)) return -1;
-        if (b.overdue && b.critical && !(a.overdue && a.critical)) return 1;
-        if (a.overdue && !b.overdue) return -1;
-        if (b.overdue && !a.overdue) return 1;
         if (a.critical && !b.critical) return -1;
         if (b.critical && !a.critical) return 1;
         return 0;
@@ -129,7 +65,6 @@ export function ClientNextSteps({
   const currentIndex = CLIENT_PHASES.findIndex((p) => p.id === phase);
   const nextPhase = CLIENT_PHASES[currentIndex + 1];
   const canAdvance = allDone && nextPhase && !['lost', 'nurture'].includes(nextPhase.id);
-  const hasOverdue = sortedTasks.some((t) => t.overdue);
 
   // First chase script for the active phase, used for the Speed-to-Lead
   // (new_lead) inline callout and as the first row when scripts are
@@ -213,20 +148,12 @@ export function ClientNextSteps({
   };
 
   return (
-    <div style={{
-      ...styles.container,
-      ...(hasOverdue ? styles.containerUrgent : {}),
-    }}>
+    <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <span style={styles.fireIcon}><Flame size={20} strokeWidth={2} aria-hidden /></span>
           <h3 style={styles.title}>Next Steps</h3>
-          {hasOverdue && (
-            <span style={styles.urgentBadge}>
-              ACTION NEEDED
-            </span>
-          )}
         </div>
         <div style={styles.headerRight}>
           <span style={{ ...styles.phaseLabel, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -319,17 +246,9 @@ export function ClientNextSteps({
       {!editingTasks && (
         <div style={styles.taskList}>
           {sortedTasks.map((task) => {
-            const isOverdueCritical = task.overdue && task.critical;
-            const isOverdueNonCritical = task.overdue && !task.critical;
-
-            let itemStyle = { ...styles.taskItem };
-            if (task.done) {
-              itemStyle = { ...itemStyle, ...styles.taskItemDone };
-            } else if (isOverdueCritical) {
-              itemStyle = { ...itemStyle, ...styles.taskItemCritical };
-            } else if (isOverdueNonCritical) {
-              itemStyle = { ...itemStyle, ...styles.taskItemWarning };
-            }
+            const itemStyle = task.done
+              ? { ...styles.taskItem, ...styles.taskItemDone }
+              : styles.taskItem;
 
             return (
               <div key={task.id} style={itemStyle}>
@@ -360,17 +279,6 @@ export function ClientNextSteps({
                       <span className={progress.criticalBadge} style={{ marginLeft: 4 }}>Required</span>
                     )}
                   </div>
-                  {task.overdueLabel && (
-                    <div style={{
-                      ...styles.overdueTag,
-                      color: isOverdueCritical ? '#991B1B' : '#854D0E',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}>
-                      <Clock size={12} strokeWidth={2} aria-hidden /> {task.overdueLabel}
-                    </div>
-                  )}
                 </div>
               </div>
             );
@@ -464,11 +372,6 @@ const styles = {
     marginBottom: 20,
     boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
   },
-  containerUrgent: {
-    border: '2px solid #FECDC8',
-    background: 'linear-gradient(135deg, #FFFFFF 0%, #FFFBFA 100%)',
-    boxShadow: '0 4px 16px rgba(220,53,69,0.08)',
-  },
 
   // Header
   header: {
@@ -499,16 +402,6 @@ const styles = {
     fontFamily: "'Outfit', sans-serif",
     color: '#0F1724',
     letterSpacing: -0.2,
-  },
-  urgentBadge: {
-    fontSize: 10,
-    fontWeight: 800,
-    color: '#DC3545',
-    background: '#FEE2E2',
-    padding: '3px 10px',
-    borderRadius: 6,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
   },
   phaseLabel: {
     fontSize: 12,
@@ -599,16 +492,6 @@ const styles = {
     border: '1px solid #F0F2F6',
     padding: '8px 16px',
   },
-  taskItemCritical: {
-    background: 'linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)',
-    border: '1px solid #FECACA',
-    boxShadow: '0 2px 8px rgba(220,53,69,0.08)',
-  },
-  taskItemWarning: {
-    background: 'linear-gradient(135deg, #FFFBEB 0%, #FEF9C3 100%)',
-    border: '1px solid #FDE68A',
-    boxShadow: '0 2px 8px rgba(217,119,6,0.06)',
-  },
 
   // Checkbox
   taskCheckbox: {
@@ -656,12 +539,6 @@ const styles = {
   criticalStar: {
     marginRight: 6,
     fontSize: 13,
-  },
-  overdueTag: {
-    fontSize: 12,
-    fontWeight: 700,
-    marginTop: 4,
-    letterSpacing: 0.1,
   },
 
   // Advance banner

@@ -7,7 +7,6 @@ import { ClientHeader } from './client/ClientHeader';
 import { ClientNextSteps } from './client/ClientNextSteps';
 import { ClientProfileCard } from './client/ClientProfileCard';
 import { ClientPipelineStepper } from './client/ClientPipelineStepper';
-import { ClientOverdueBanner } from './client/ClientOverdueBanner';
 import { ClientContextRail } from './client/ClientContextRail';
 import { ClientSequences } from './client/ClientSequences';
 import { ClientActivityLog } from './client/ClientActivityLog';
@@ -190,8 +189,6 @@ export function ClientDetail({
 
       {detailTab === 'overview' && (
         <>
-          <ClientOverdueBanner client={client} />
-
           {/* Two-column Overview layout. Main work surface on the left,
               sticky context rail on the right. The rail surfaces the
               key client metadata (contact info, care recipient, needs,
