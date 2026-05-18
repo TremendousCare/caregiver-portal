@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Archive } from 'lucide-react';
 import { getClientPhase, shouldShowClientPlanPanels } from './utils';
 import { LOST_REASONS } from './constants';
 
@@ -27,7 +28,9 @@ function ArchiveBanner({ client }) {
   return (
     <div className={cl.archiveBanner}>
       <div className={cl.archiveBannerHeader}>
-        <span className={cl.archiveBannerIcon}>📦</span>
+        <span className={cl.archiveBannerIcon}>
+          <Archive size={18} strokeWidth={2} aria-hidden />
+        </span>
         <strong className={cl.archiveBannerTitle}>Archived Client</strong>
       </div>
       <div className={cl.archiveBannerDetails}>

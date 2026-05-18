@@ -1,4 +1,22 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  ClipboardList,
+  StickyNote,
+  Phone,
+  MessageSquare,
+  Mail,
+  Users,
+  Cog,
+  Circle,
+  FileText,
+  Loader2,
+  X,
+  AlertTriangle,
+  Play,
+  Square,
+  ArrowDownLeft,
+  ArrowUpRight,
+} from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
@@ -7,14 +25,23 @@ import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
 
 // ─── Constants ──────────────────────────────────────────────
+// `icon` is now a lucide component reference, rendered via the
+// `NoteTypeIcon` helper below. The old emoji glyphs are gone per the
+// CLAUDE.md "no emoji in UI" rule.
 const NOTE_TYPES = [
-  { value: 'note', label: 'Note', icon: '📝' },
-  { value: 'call', label: 'Call', icon: '📞' },
-  { value: 'text', label: 'Text', icon: '💬' },
-  { value: 'email', label: 'Email', icon: '✉️' },
-  { value: 'meeting', label: 'Meeting', icon: '🤝' },
-  { value: 'auto', label: 'Auto', icon: '⚙️' },
+  { value: 'note', label: 'Note', Icon: StickyNote },
+  { value: 'call', label: 'Call', Icon: Phone },
+  { value: 'text', label: 'Text', Icon: MessageSquare },
+  { value: 'email', label: 'Email', Icon: Mail },
+  { value: 'meeting', label: 'Meeting', Icon: Users },
+  { value: 'auto', label: 'Auto', Icon: Cog },
 ];
+
+function NoteTypeIcon({ type, size = 13, ...rest }) {
+  const entry = NOTE_TYPES.find((t) => t.value === type || (t.value === 'text' && type === 'sms'));
+  const Cmp = entry?.Icon || Circle;
+  return <Cmp size={size} strokeWidth={2} aria-hidden {...rest} />;
+}
 
 const COMM_TYPES = ['call', 'text', 'email', 'meeting'];
 
@@ -28,7 +55,7 @@ const NOTE_OUTCOMES = [
 ];
 
 const FILTER_OPTIONS = [
-  { value: 'all', label: 'All', icon: '📋' },
+  { value: 'all', label: 'All', Icon: ClipboardList },
   ...NOTE_TYPES,
 ];
 
@@ -215,25 +242,34 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
   return (
     <div className={cl.notesSection}>
-      <h3 className={cl.notesSectionTitle}>📋 Activity Log</h3>
+      <h3
+        className={cl.notesSectionTitle}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+      >
+        <ClipboardList size={18} strokeWidth={2} aria-hidden /> Activity Log
+      </h3>
 
       {/* Filter pills */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {FILTER_OPTIONS.map((t) => (
-          <button
-            key={t.value}
-            style={{
-              padding: '5px 12px', borderRadius: 20, border: '1px solid',
-              borderColor: activeFilter === t.value ? '#2E4E8D' : '#D1D5DB',
-              background: activeFilter === t.value ? '#EBF0FA' : '#FAFBFC',
-              color: activeFilter === t.value ? '#2E4E8D' : '#6B7B8F',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-            onClick={() => setActiveFilter(activeFilter === t.value ? 'all' : t.value)}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
+        {FILTER_OPTIONS.map((t) => {
+          const Icon = t.Icon;
+          return (
+            <button
+              key={t.value}
+              style={{
+                padding: '5px 12px', borderRadius: 20, border: '1px solid',
+                borderColor: activeFilter === t.value ? '#2E4E8D' : '#D1D5DB',
+                background: activeFilter === t.value ? '#EBF0FA' : '#FAFBFC',
+                color: activeFilter === t.value ? '#2E4E8D' : '#6B7B8F',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+              onClick={() => setActiveFilter(activeFilter === t.value ? 'all' : t.value)}
+            >
+              {Icon && <Icon size={13} strokeWidth={2} aria-hidden />} {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Note text input */}
@@ -258,7 +294,9 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
 
       {/* Error message */}
       {rcError && !rcLoading && (
-        <div style={styles.errorRow}>⚠️ {rcError}</div>
+        <div style={{ ...styles.errorRow, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <AlertTriangle size={13} strokeWidth={2} aria-hidden /> {rcError}
+        </div>
       )}
 
       {/* Unified timeline */}
@@ -290,8 +328,14 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                 <div style={styles.badgeRow}>
                   {/* Type badge */}
                   {entry.type && entry.type !== 'note' && (
-                    <span style={styles.typeBadge}>
-                      {typeInfo?.icon || '📝'} {typeInfo?.label || entry.type}
+                    <span style={{
+                      ...styles.typeBadge,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}>
+                      <NoteTypeIcon type={entry.type} size={11} />
+                      {typeInfo?.label || entry.type}
                     </span>
                   )}
 
@@ -301,8 +345,14 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                       ...styles.directionBadge,
                       background: entry.direction === 'inbound' ? '#E8F5E9' : '#FFF8ED',
                       color: entry.direction === 'inbound' ? '#388E3C' : '#D97706',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3,
                     }}>
-                      {entry.direction === 'inbound' ? '↙ In' : '↗ Out'}
+                      {entry.direction === 'inbound'
+                        ? <ArrowDownLeft size={11} strokeWidth={2} aria-hidden />
+                        : <ArrowUpRight size={11} strokeWidth={2} aria-hidden />}
+                      {entry.direction === 'inbound' ? 'In' : 'Out'}
                     </span>
                   )}
 
@@ -326,7 +376,11 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                       title={entry.recordingId ? 'Play/stop recording' : 'Recording ID unavailable'}
                       disabled={!entry.recordingId}
                     >
-                      {playingRecordingId === entry.recordingId ? '⏹ Stop' : '▶ Play'}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {playingRecordingId === entry.recordingId
+                          ? (<><Square size={10} strokeWidth={2} fill="currentColor" aria-hidden /> Stop</>)
+                          : (<><Play size={10} strokeWidth={2} fill="currentColor" aria-hidden /> Play</>)}
+                      </span>
                     </button>
                   )}
                   {entry.hasRecording && entry.recordingId && (
@@ -337,10 +391,15 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
                         background: expandedTranscriptId === entry.recordingId ? '#7C3AED' : '#F3E8FF',
                         color: expandedTranscriptId === entry.recordingId ? '#fff' : '#7C3AED',
                         fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
                       }}
                       disabled={transcriptLoading === entry.recordingId}
                     >
-                      {transcriptLoading === entry.recordingId ? '⏳ Transcribing...' : expandedTranscriptId === entry.recordingId ? '✕ Hide Transcript' : '📝 Transcript'}
+                      {transcriptLoading === entry.recordingId
+                        ? (<><Loader2 size={11} strokeWidth={2} aria-hidden style={{ animation: 'spin 0.8s linear infinite' }} /> Transcribing...</>)
+                        : expandedTranscriptId === entry.recordingId
+                          ? (<><X size={11} strokeWidth={2} aria-hidden /> Hide Transcript</>)
+                          : (<><FileText size={11} strokeWidth={2} aria-hidden /> Transcript</>)}
                     </button>
                   )}
                 </div>

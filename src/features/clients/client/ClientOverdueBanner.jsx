@@ -1,3 +1,4 @@
+import { Clock } from 'lucide-react';
 import { CLIENT_PHASES } from '../constants';
 import { getClientOverdueStatus } from '../utils';
 
@@ -39,7 +40,9 @@ export function ClientOverdueBanner({ client }) {
 
   return (
     <div style={styles.banner} role="alert">
-      <div style={styles.icon} aria-hidden="true">&#x23F0;</div>
+      <div style={styles.icon} aria-hidden="true">
+        <Clock size={24} strokeWidth={2} />
+      </div>
       <div style={styles.content}>
         <div style={styles.title}>
           {phaseLabel} is {overdueText} overdue

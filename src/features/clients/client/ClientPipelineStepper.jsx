@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
 import { CLIENT_PHASES } from '../constants';
 import {
   getClientPhase,
@@ -6,6 +7,7 @@ import {
   getClientPhaseProgress,
   getDaysSinceCreated,
 } from '../utils';
+import { ClientPhaseIcon } from '../lib/clientPhaseIcon';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 
 // ClientPipelineStepper
@@ -80,9 +82,13 @@ export function ClientPipelineStepper({ client, onUpdateClient }) {
                 background: `${currentPhaseInfo.color}18`,
                 color: currentPhaseInfo.color,
                 border: `1px solid ${currentPhaseInfo.color}30`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
               }}
             >
-              {currentPhaseInfo.icon} {currentPhaseInfo.label}
+              <ClientPhaseIcon phaseId={currentPhase} size={12} />
+              {currentPhaseInfo.label}
             </span>
           )}
         </div>
@@ -94,9 +100,14 @@ export function ClientPipelineStepper({ client, onUpdateClient }) {
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              style={styles.menuTrigger}
+              style={{
+                ...styles.menuTrigger,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
             >
-              Change status ▾
+              Change status <ChevronDown size={12} strokeWidth={2} aria-hidden />
             </button>
             {menuOpen && (
               <div style={styles.menu} role="menu">
@@ -118,9 +129,15 @@ export function ClientPipelineStepper({ client, onUpdateClient }) {
                         ...(isSelected ? styles.menuItemSelected : {}),
                       }}
                     >
-                      <span style={{ color: info.color, marginRight: 8 }}>{info.icon}</span>
+                      <span style={{ color: info.color, marginRight: 8, display: 'inline-flex', alignItems: 'center' }}>
+                        <ClientPhaseIcon phaseId={phaseId} size={14} />
+                      </span>
                       {info.label}
-                      {isSelected && <span style={styles.menuItemCheck}>&#x2713;</span>}
+                      {isSelected && (
+                        <span style={styles.menuItemCheck}>
+                          <Check size={14} strokeWidth={2.5} aria-hidden />
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -165,7 +182,9 @@ export function ClientPipelineStepper({ client, onUpdateClient }) {
                 title={phase.description}
               >
                 <span style={styles.nodeIcon}>
-                  {isPast ? '✓' : phase.icon}
+                  {isPast
+                    ? <Check size={16} strokeWidth={2.5} aria-hidden />
+                    : <ClientPhaseIcon phaseId={phase.id} size={16} />}
                 </span>
                 <div style={styles.nodeBody}>
                   <div style={styles.nodeLabel}>{phase.short || phase.label}</div>

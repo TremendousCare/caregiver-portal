@@ -1,7 +1,18 @@
 import { useMemo, useState } from 'react';
+import {
+  Flame,
+  Star,
+  Clock,
+  Rocket,
+  CheckCircle2,
+  XCircle,
+  Sprout,
+  Check,
+} from 'lucide-react';
 import { CLIENT_PHASES, CLIENT_CHASE_SCRIPTS } from '../constants';
 import { getClientPhaseTasks } from '../storage';
 import { getClientPhase, isTaskDone, getClientPhaseProgress } from '../utils';
+import { ClientPhaseIcon } from '../lib/clientPhaseIcon';
 import btn from '../../../styles/buttons.module.css';
 import cl from './client.module.css';
 import progress from '../../../styles/progress.module.css';
@@ -137,7 +148,7 @@ export function ClientNextSteps({
     return (
       <div style={styles.container}>
         <div style={styles.lostBanner}>
-          <div style={styles.lostIcon}>&#x274C;</div>
+          <div style={styles.lostIcon}><XCircle size={32} strokeWidth={2} aria-hidden /></div>
           <div>
             <div style={styles.lostTitle}>Client Lost</div>
             <div style={styles.lostText}>
@@ -162,7 +173,7 @@ export function ClientNextSteps({
     return (
       <div style={styles.container}>
         <div style={styles.nurtureBanner}>
-          <div style={styles.nurtureIcon}>&#x1F331;</div>
+          <div style={styles.nurtureIcon}><Sprout size={32} strokeWidth={2} aria-hidden /></div>
           <div>
             <div style={styles.nurtureTitle}>Nurture Mode</div>
             <div style={styles.nurtureText}>
@@ -209,7 +220,7 @@ export function ClientNextSteps({
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.fireIcon}>&#x1F525;</span>
+          <span style={styles.fireIcon}><Flame size={20} strokeWidth={2} aria-hidden /></span>
           <h3 style={styles.title}>Next Steps</h3>
           {hasOverdue && (
             <span style={styles.urgentBadge}>
@@ -218,8 +229,9 @@ export function ClientNextSteps({
           )}
         </div>
         <div style={styles.headerRight}>
-          <span style={styles.phaseLabel}>
-            {phaseInfo?.icon} {phaseInfo?.label}
+          <span style={{ ...styles.phaseLabel, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ClientPhaseIcon phaseId={phase} size={12} />
+            {phaseInfo?.label}
           </span>
           <span style={styles.progressLabel}>
             {done}/{total} tasks done
@@ -329,28 +341,34 @@ export function ClientNextSteps({
                   onClick={() => onUpdateTask(client.id, task.id, !task.done)}
                   title={task.done ? 'Mark as not done' : 'Mark as complete'}
                 >
-                  {task.done && <span style={styles.taskCheckmark}>&#x2713;</span>}
+                  {task.done && <Check size={14} strokeWidth={3} color="#fff" aria-hidden />}
                 </button>
 
                 <div style={styles.taskContent}>
                   <div style={{
                     ...styles.taskLabel,
                     ...(task.done ? styles.taskLabelDone : {}),
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}>
                     {task.critical && !task.done && (
-                      <span style={styles.criticalStar}>&#x2B50;</span>
+                      <Star size={13} strokeWidth={2} fill="#D97706" color="#D97706" aria-hidden />
                     )}
-                    {task.label}
+                    <span>{task.label}</span>
                     {task.critical && !task.done && (
-                      <span className={progress.criticalBadge} style={{ marginLeft: 8 }}>Required</span>
+                      <span className={progress.criticalBadge} style={{ marginLeft: 4 }}>Required</span>
                     )}
                   </div>
                   {task.overdueLabel && (
                     <div style={{
                       ...styles.overdueTag,
                       color: isOverdueCritical ? '#991B1B' : '#854D0E',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}>
-                      &#x23F0; {task.overdueLabel}
+                      <Clock size={12} strokeWidth={2} aria-hidden /> {task.overdueLabel}
                     </div>
                   )}
                 </div>
@@ -361,7 +379,9 @@ export function ClientNextSteps({
           {/* Phase advancement suggestion */}
           {canAdvance && (
             <div style={styles.advanceBanner}>
-              <span style={styles.advanceIcon}>&#x1F680;</span>
+              <span style={styles.advanceIcon}>
+                <Rocket size={20} strokeWidth={2} aria-hidden />
+              </span>
               <div style={styles.advanceText}>
                 All {phaseInfo?.label} tasks complete &mdash; ready to advance to{' '}
                 <strong>{nextPhase.label}</strong>
@@ -371,8 +391,9 @@ export function ClientNextSteps({
 
           {/* Empty state — no tasks configured for this phase */}
           {sortedTasks.length === 0 && !canAdvance && (
-            <div style={styles.allDoneMessage}>
-              &#x2705; No tasks configured for this phase.
+            <div style={{ ...styles.allDoneMessage, display: 'inline-flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+              <CheckCircle2 size={16} strokeWidth={2} aria-hidden />
+              No tasks configured for this phase.
             </div>
           )}
         </div>
