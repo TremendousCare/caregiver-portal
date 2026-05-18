@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Archive } from 'lucide-react';
 import { getClientPhase, shouldShowClientPlanPanels } from './utils';
 import { LOST_REASONS } from './constants';
@@ -8,6 +8,7 @@ import { ClientNextSteps } from './client/ClientNextSteps';
 import { ClientProfileCard } from './client/ClientProfileCard';
 import { ClientPipelineStepper } from './client/ClientPipelineStepper';
 import { ClientOverdueBanner } from './client/ClientOverdueBanner';
+import { ClientContextRail } from './client/ClientContextRail';
 import { ClientSequences } from './client/ClientSequences';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
@@ -129,6 +130,14 @@ export function ClientDetail({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [detailTab, setDetailTab] = useState('overview');
+  const profileCardRef = useRef(null);
+
+  // Scroll the canonical edit surface (ClientProfileCard) into view
+  // when a user clicks "Edit details" inside the sticky context rail.
+  // Single source of truth for editing — rail stays read-only.
+  const focusProfileCard = () => {
+    profileCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // Comms timeline drives both the Messages tab content and the
   // "needs response" badge on the tab itself.
@@ -183,55 +192,70 @@ export function ClientDetail({
         <>
           <ClientOverdueBanner client={client} />
 
-          <ClientActivityLog
-            client={client}
-            currentUser={currentUser}
-            onAddNote={onAddNote}
-          />
+          {/* Two-column Overview layout. Main work surface on the left,
+              sticky context rail on the right. The rail surfaces the
+              key client metadata (contact info, care recipient, needs,
+              source) as a read-only summary that stays visible while
+              the rep scrolls through the activity log and task list.
+              "Edit details" in the rail scrolls down to the canonical
+              ClientProfileCard, which is the only edit surface. */}
+          <div className={cl.overviewLayout}>
+            <div className={cl.overviewMain}>
+              <ClientActivityLog
+                client={client}
+                currentUser={currentUser}
+                onAddNote={onAddNote}
+              />
 
-          <ClientNextSteps
-            client={client}
-            onUpdateTask={onUpdateTask}
-            onUpdateTasksBulk={onUpdateTasksBulk}
-            onRefreshTasks={onRefreshTasks}
-            onAddNote={onAddNote}
-            currentUser={currentUser}
-          />
+              <ClientNextSteps
+                client={client}
+                onUpdateTask={onUpdateTask}
+                onUpdateTasksBulk={onUpdateTasksBulk}
+                onRefreshTasks={onRefreshTasks}
+                onAddNote={onAddNote}
+                currentUser={currentUser}
+              />
 
-          <ClientProfileCard
-            client={client}
-            onUpdateClient={onUpdateClient}
-          />
+              {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
+              {getClientPhase(client) !== 'won' && (
+                <ClientPipelineStepper
+                  client={client}
+                  onUpdateClient={onUpdateClient}
+                />
+              )}
 
-          {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
-          {getClientPhase(client) !== 'won' && (
-            <ClientPipelineStepper
-              client={client}
-              onUpdateClient={onUpdateClient}
-            />
-          )}
-
-          <ClientSequences
-            client={client}
-            currentUser={currentUser}
-            showToast={showToast}
-          />
-
-          {shouldShowClientPlanPanels(client) && (
-            <>
-              <CarePlanPanel
+              <ClientSequences
                 client={client}
                 currentUser={currentUser}
                 showToast={showToast}
               />
 
-              <ServicePlansPanel
-                client={client}
-                currentUser={currentUser}
-                showToast={showToast}
-              />
-            </>
-          )}
+              {shouldShowClientPlanPanels(client) && (
+                <>
+                  <CarePlanPanel
+                    client={client}
+                    currentUser={currentUser}
+                    showToast={showToast}
+                  />
+
+                  <ServicePlansPanel
+                    client={client}
+                    currentUser={currentUser}
+                    showToast={showToast}
+                  />
+                </>
+              )}
+
+              <div ref={profileCardRef}>
+                <ClientProfileCard
+                  client={client}
+                  onUpdateClient={onUpdateClient}
+                />
+              </div>
+            </div>
+
+            <ClientContextRail client={client} onEdit={focusProfileCard} />
+          </div>
         </>
       )}
 
@@ -260,3 +284,4 @@ export function ClientDetail({
     </div>
   );
 }
+
