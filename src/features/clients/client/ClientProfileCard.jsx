@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { User, Pencil } from 'lucide-react';
 import { CLIENT_PHASES, CLIENT_SOURCES, CLIENT_PRIORITIES } from '../constants';
 import { getClientPhase, getDaysSinceCreated } from '../utils';
 import { supabase } from '../../../lib/supabase';
@@ -132,7 +133,7 @@ export function ClientProfileCard({ client, onUpdateClient }) {
     { label: 'Referral Source', value: [client.referralSource, client.referralDetail].filter(Boolean).join(' — ') || null },
     { label: 'Assigned To', value: client.assignedTo },
     { label: 'Priority', value: CLIENT_PRIORITIES.find((p) => p.id === client.priority)?.label || 'Normal' },
-    { label: 'Current Phase', value: phaseInfo ? `${phaseInfo.icon} ${phaseInfo.label}` : phase },
+    { label: 'Current Phase', value: phaseInfo?.label || phase },
     { label: 'Days Since Created', value: `${days} day${days !== 1 ? 's' : ''}` },
   ];
 
@@ -146,7 +147,12 @@ export function ClientProfileCard({ client, onUpdateClient }) {
         style={{ cursor: editing ? 'default' : 'pointer', userSelect: 'none' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <h3 className={cards.profileCardTitle}>👤 Client Profile</h3>
+          <h3
+            className={cards.profileCardTitle}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          >
+            <User size={18} strokeWidth={2} aria-hidden /> Client Profile
+          </h3>
           {!editing && (
             <span style={{
               fontSize: 18,
@@ -162,7 +168,10 @@ export function ClientProfileCard({ client, onUpdateClient }) {
           <button
             className={btn.editBtn}
             onClick={(e) => { e.stopPropagation(); startEditing(); }}
-          >✏️ Edit</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Pencil size={13} strokeWidth={2} aria-hidden /> Edit
+          </button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className={btn.primaryBtn} onClick={saveEdits}>Save</button>
