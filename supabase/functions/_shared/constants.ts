@@ -15,19 +15,22 @@ export const CAREGIVER_PHASE_LABELS: Record<string, string> = {
   orientation: "Orientation",
 };
 
-/** Client pipeline phase IDs */
+/** Client pipeline phase IDs.
+ * Three active phases plus three terminal phases. The old IDs
+ * 'initial_contact', 'consultation', 'assessment' were remapped to
+ * 'consult'/'proposal' by 20260518000000_consolidate_client_phases.sql.
+ * They are intentionally absent here so edge functions that read this
+ * enum (ai-chat tools, execute-automation) only operate on the
+ * canonical post-consolidation set. */
 export const CLIENT_PHASES = [
-  "new_lead", "initial_contact", "consultation", "assessment",
-  "proposal", "won", "lost", "nurture",
+  "new_lead", "consult", "proposal", "won", "lost", "nurture",
 ] as const;
 export type ClientPhase = typeof CLIENT_PHASES[number];
 
 /** Human-readable labels for client pipeline phases */
 export const CLIENT_PHASE_LABELS: Record<string, string> = {
   new_lead: "New Lead",
-  initial_contact: "Initial Contact",
-  consultation: "Consultation",
-  assessment: "In-Home Assessment",
+  consult: "Consult",
   proposal: "Proposal",
   won: "Won",
   lost: "Lost",

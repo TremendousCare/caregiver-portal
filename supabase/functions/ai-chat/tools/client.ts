@@ -21,17 +21,30 @@ import {
 } from "../../_shared/operations/client.ts";
 import { UPDATABLE_CLIENT_FIELDS } from "../../_shared/operations/constants.ts";
 
-// Valid phase IDs for client pipeline
+// Valid phase IDs for client pipeline.
+// Post-consolidation (20260518000000_consolidate_client_phases.sql):
+// initial_contact + consultation -> consult; assessment -> proposal.
+// The legacy IDs are accepted on the way in so a stale agent prompt
+// or tool-call from an in-flight session keeps working; they are
+// normalized to the new canonical IDs before any write.
 const CLIENT_PHASE_IDS = [
   "new_lead",
-  "initial_contact",
-  "consultation",
-  "assessment",
+  "consult",
   "proposal",
   "won",
   "lost",
   "nurture",
 ];
+
+const LEGACY_PHASE_REMAP: Record<string, string> = {
+  initial_contact: "consult",
+  consultation: "consult",
+  assessment: "proposal",
+};
+
+function normalizeClientPhase(phase: string): string {
+  return LEGACY_PHASE_REMAP[phase] ?? phase;
+}
 
 // ── search_clients (auto) ──
 
@@ -44,7 +57,7 @@ registerTool(
       type: "object",
       properties: {
         query: { type: "string", description: "Search term (name, city, phone, email, care needs, etc.)" },
-        phase: { type: "string", description: "Filter by pipeline phase (new_lead, initial_contact, consultation, assessment, proposal, won, lost, nurture)" },
+        phase: { type: "string", description: "Filter by pipeline phase (new_lead, consult, proposal, won, lost, nurture)" },
         priority: { type: "string", description: "Filter by priority (urgent, high, normal, low)" },
         city: { type: "string", description: "Filter by city" },
         include_archived: { type: "boolean", description: "Include archived clients (default false)" },
@@ -57,7 +70,10 @@ registerTool(
   async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     let results = [...(ctx.clients || [])];
     if (!input.include_archived) results = results.filter((c: any) => !c.archived);
-    if (input.phase) results = results.filter((c: any) => getClientPhase(c).toLowerCase() === input.phase.toLowerCase());
+    if (input.phase) {
+      const filterPhase = normalizeClientPhase(input.phase.toLowerCase());
+      results = results.filter((c: any) => normalizeClientPhase(getClientPhase(c).toLowerCase()) === filterPhase);
+    }
     if (input.priority) results = results.filter((c: any) => (c.priority || "normal").toLowerCase() === input.priority.toLowerCase());
     if (input.city) results = results.filter((c: any) => c.city?.toLowerCase().includes(input.city.toLowerCase()));
     if (input.query) {
@@ -229,13 +245,14 @@ registerTool(
   },
   withResolve(async (input: any, ctx: ToolContext): Promise<ToolResult> => {
     const client = await requireClient(input, ctx);
-    if (!CLIENT_PHASE_IDS.includes(input.phase)) return { error: `Invalid phase "${input.phase}". Valid phases: ${CLIENT_PHASE_IDS.join(", ")}` };
+    const targetPhase = normalizeClientPhase(input.phase);
+    if (!CLIENT_PHASE_IDS.includes(targetPhase)) return { error: `Invalid phase "${input.phase}". Valid phases: ${CLIENT_PHASE_IDS.join(", ")}` };
     return {
       requires_confirmation: true,
       action: "update_client_phase",
-      summary: `Move **${client.first_name} ${client.last_name}** from **${getClientPhaseLabel(client)}** to **${input.phase}**${input.reason ? ` — ${input.reason}` : ""}`,
+      summary: `Move **${client.first_name} ${client.last_name}** from **${getClientPhaseLabel(client)}** to **${targetPhase}**${input.reason ? ` — ${input.reason}` : ""}`,
       client_id: client.id,
-      params: { phase: input.phase, reason: input.reason },
+      params: { phase: targetPhase, reason: input.reason },
     };
   }),
   // Confirmed handler — delegates to shared operation

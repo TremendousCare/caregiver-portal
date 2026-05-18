@@ -302,7 +302,7 @@ describe('evaluateTimeSinceCreation', () => {
   });
 
   it('rejects when wrong phase', () => {
-    const entity = makeEntity({ _phase: 'assessment', _minutesSinceCreation: 100 });
+    const entity = makeEntity({ _phase: 'proposal', _minutesSinceCreation: 100 });
     const result = evaluateTimeSinceCreation(entity, { min_minutes: 30, phase: 'new_lead' }, clientAdapter);
     expect(result.matches).toBe(false);
   });
@@ -523,10 +523,10 @@ describe('evaluateRulesForEntity', () => {
   });
 
   it('includes client compatibility fields', () => {
-    const entity = makeEntity({ _phase: 'initial_contact', _daysInPhase: 5, firstName: 'Test', lastName: 'Client' });
+    const entity = makeEntity({ _phase: 'consult', _daysInPhase: 5, firstName: 'Test', lastName: 'Client' });
     const rules = [{
       id: 'cl_no_contact', entity_type: 'client', condition_type: 'phase_time',
-      condition_config: { phase: 'initial_contact', min_days: 2 },
+      condition_config: { phase: 'consult', min_days: 2 },
       urgency: 'warning', icon: '📞',
       title_template: 'No contact', detail_template: 'Day {{days_in_phase}}',
       action_template: '',
@@ -536,7 +536,7 @@ describe('evaluateRulesForEntity', () => {
     expect(result[0].clientId).toBe('test-1');
     expect(result[0].clientName).toBe('Test Client');
     expect(result[0].severity).toBe('warning');
-    expect(result[0].phase).toBe('initial_contact');
+    expect(result[0].phase).toBe('consult');
     expect(result[0].type).toBe('cl_no_contact');
   });
 

@@ -30,13 +30,18 @@ const PHASE_LABELS: Record<string, string> = {
 
 const CLIENT_PHASE_LABELS: Record<string, string> = {
   new_lead: "New Lead",
-  initial_contact: "Initial Contact",
-  consultation: "Consultation",
-  assessment: "In-Home Assessment",
+  consult: "Consult",
   proposal: "Proposal",
   won: "Won",
   lost: "Lost",
   nurture: "Nurture",
+  // Pre-consolidation phase IDs — left here so historical action_outcome
+  // rows / events that referenced the old phases still render with a
+  // human label rather than the raw string. 20260518000000 remapped all
+  // live clients away from these.
+  initial_contact: "Consult (legacy: initial contact)",
+  consultation: "Consult (legacy: consultation)",
+  assessment: "Proposal (legacy: assessment)",
 };
 
 // ─── Whitelisted Fields for update_field Action ───
