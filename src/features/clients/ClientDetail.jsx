@@ -5,7 +5,8 @@ import { LOST_REASONS } from './constants';
 import { ClientHeader } from './client/ClientHeader';
 import { ClientNextSteps } from './client/ClientNextSteps';
 import { ClientProfileCard } from './client/ClientProfileCard';
-import { ClientProgressOverview } from './client/ClientProgressOverview';
+import { ClientPipelineStepper } from './client/ClientPipelineStepper';
+import { ClientOverdueBanner } from './client/ClientOverdueBanner';
 import { ClientSequences } from './client/ClientSequences';
 import { ClientPhaseDetail } from './client/ClientPhaseDetail';
 import { ClientActivityLog } from './client/ClientActivityLog';
@@ -123,7 +124,6 @@ export function ClientDetail({
   onArchive, onUnarchive, onDelete, onUpdateClient,
   onRefreshTasks, showToast,
 }) {
-  const [activePhase, setActivePhase] = useState(getClientPhase(client));
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showScripts, setShowScripts] = useState(null);
@@ -180,6 +180,8 @@ export function ClientDetail({
 
       {detailTab === 'overview' && (
         <>
+          <ClientOverdueBanner client={client} />
+
           <ClientActivityLog
             client={client}
             currentUser={currentUser}
@@ -200,10 +202,8 @@ export function ClientDetail({
 
           {/* Hide pipeline UI once a client is active (won) — the header phase badge is enough. */}
           {getClientPhase(client) !== 'won' && (
-            <ClientProgressOverview
+            <ClientPipelineStepper
               client={client}
-              activePhase={activePhase}
-              onPhaseChange={setActivePhase}
               onUpdateClient={onUpdateClient}
             />
           )}
@@ -228,7 +228,7 @@ export function ClientDetail({
 
           <ClientPhaseDetail
             client={client}
-            activePhase={activePhase}
+            activePhase={getClientPhase(client)}
             showScripts={showScripts}
             onToggleScripts={setShowScripts}
             onUpdateTask={onUpdateTask}

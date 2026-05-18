@@ -55,8 +55,8 @@ const SURFACES = [
     expectedParamKeys: ['from_phase', 'to_phase'],
   },
   {
-    name: 'ClientProgressOverview — client phase change',
-    file: 'src/features/clients/client/ClientProgressOverview.jsx',
+    name: 'ClientPipelineStepper — client phase change',
+    file: 'src/features/clients/client/ClientPipelineStepper.jsx',
     entityType: "'client'",
     actionType: 'update_phase',
     expectedParamKeys: ['from_phase', 'to_phase'],
