@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
-import { CLIENT_PHASES } from '../constants';
+import { useMemo, useState } from 'react';
+import { CLIENT_PHASES, CLIENT_CHASE_SCRIPTS } from '../constants';
 import { getClientPhaseTasks } from '../storage';
 import { getClientPhase, isTaskDone, getClientPhaseProgress } from '../utils';
+import btn from '../../../styles/buttons.module.css';
+import cl from './client.module.css';
+import progress from '../../../styles/progress.module.css';
 
 // ─── Overdue Thresholds (in milliseconds) ────────────────────
 // Tuned to the 3-active-phase model. Consult covers attempt-to-contact
@@ -44,18 +47,39 @@ function formatOverdueTime(ms) {
 }
 
 // ─── Main Component ──────────────────────────────────────────
+// Absorbs the old ClientPhaseDetail card: scripts panel, edit-checklist
+// mode, select-all/deselect-all, and the full task list (including
+// already-completed tasks, rendered dimmed). The previous "Next Steps"
+// card surfaced only incomplete tasks AND there was a separate "Phase
+// Detail" card at the bottom of the page showing the same checklist
+// again. One source of truth now.
 
-export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }) {
+export function ClientNextSteps({
+  client,
+  onUpdateTask,
+  onUpdateTasksBulk,
+  onRefreshTasks,
+  onAddNote,
+  currentUser,
+}) {
   const phase = getClientPhase(client);
   const phaseInfo = CLIENT_PHASES.find((p) => p.id === phase);
 
-  // Calculate all action items for the current phase
-  const actionItems = useMemo(() => {
-    // Terminal phases handled separately
-    if (['won', 'lost', 'nurture'].includes(phase)) return [];
+  const [showScripts, setShowScripts] = useState(false);
+  const [editingTasks, setEditingTasks] = useState(false);
+  const [taskDraft, setTaskDraft] = useState([]);
 
-    const tasks = getClientPhaseTasks()[phase];
-    if (!tasks) return [];
+  const CLIENT_PHASE_TASKS = getClientPhaseTasks();
+  const phaseTasks = CLIENT_PHASE_TASKS[phase] || [];
+  const allDone = phaseTasks.length > 0 && phaseTasks.every((t) => isTaskDone(client.tasks?.[t.id]));
+  const noneDone = phaseTasks.every((t) => !isTaskDone(client.tasks?.[t.id]));
+
+  // Sorted task list with overdue metadata. Critical+overdue floats to
+  // the top, then non-critical overdue, then other incomplete (critical
+  // first), then completed at the bottom.
+  const sortedTasks = useMemo(() => {
+    if (['won', 'lost', 'nurture'].includes(phase)) return [];
+    if (!phaseTasks.length) return [];
 
     const threshold = OVERDUE_THRESHOLDS[phase];
     const entryTime = getPhaseEntryTime(client, phase);
@@ -64,16 +88,21 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
     const isOverThreshold = threshold && entryTime ? elapsed > threshold : false;
     const overdueMs = threshold && entryTime ? elapsed - threshold : 0;
 
-    return tasks
-      .filter((t) => !isTaskDone(client.tasks?.[t.id]))
-      .map((t) => ({
-        ...t,
-        overdue: isOverThreshold,
-        overdueMs: isOverThreshold ? overdueMs : 0,
-        overdueLabel: isOverThreshold ? formatOverdueTime(overdueMs) : null,
-      }))
+    return phaseTasks
+      .map((t) => {
+        const done = isTaskDone(client.tasks?.[t.id]);
+        return {
+          ...t,
+          done,
+          overdue: !done && isOverThreshold,
+          overdueLabel: !done && isOverThreshold ? formatOverdueTime(overdueMs) : null,
+        };
+      })
       .sort((a, b) => {
-        // Critical overdue first, then non-critical overdue, then rest
+        // Completed always last
+        if (a.done && !b.done) return 1;
+        if (b.done && !a.done) return -1;
+        // Within incomplete: critical+overdue → non-critical overdue → critical → rest
         if (a.overdue && a.critical && !(b.overdue && b.critical)) return -1;
         if (b.overdue && b.critical && !(a.overdue && a.critical)) return 1;
         if (a.overdue && !b.overdue) return -1;
@@ -82,16 +111,20 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
         if (b.critical && !a.critical) return 1;
         return 0;
       });
-  }, [client, phase]);
+  }, [client, phase, phaseTasks]);
 
-  // Check if all current phase tasks are done
+  // Progress + advancement
   const { done, total } = getClientPhaseProgress(client, phase);
-  const allDone = total > 0 && done === total;
-
-  // Next phase info
   const currentIndex = CLIENT_PHASES.findIndex((p) => p.id === phase);
   const nextPhase = CLIENT_PHASES[currentIndex + 1];
   const canAdvance = allDone && nextPhase && !['lost', 'nurture'].includes(nextPhase.id);
+  const hasOverdue = sortedTasks.some((t) => t.overdue);
+
+  // First chase script for the active phase, used for the Speed-to-Lead
+  // (new_lead) inline callout and as the first row when scripts are
+  // expanded.
+  const scriptBundle = CLIENT_CHASE_SCRIPTS[phase];
+  const firstScript = scriptBundle?.scripts?.[0];
 
   // ─── Terminal Phase Renders ────────────────────────────────
 
@@ -145,7 +178,28 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
 
   // ─── Active Phase Render ───────────────────────────────────
 
-  const hasOverdue = actionItems.some((t) => t.overdue);
+  const startEditing = () => {
+    setTaskDraft((CLIENT_PHASE_TASKS[phase] || []).map((t) => ({ ...t })));
+    setEditingTasks(true);
+  };
+
+  const saveEdits = () => {
+    CLIENT_PHASE_TASKS[phase] = taskDraft.filter((t) => t.label.trim());
+    if (onRefreshTasks) onRefreshTasks();
+    setEditingTasks(false);
+  };
+
+  const selectAll = () => {
+    const u = {};
+    phaseTasks.forEach((t) => { u[t.id] = true; });
+    onUpdateTasksBulk?.(client.id, u);
+  };
+
+  const deselectAll = () => {
+    const u = {};
+    phaseTasks.forEach((t) => { u[t.id] = false; });
+    onUpdateTasksBulk?.(client.id, u);
+  };
 
   return (
     <div style={{
@@ -173,69 +227,207 @@ export function ClientNextSteps({ client, onUpdateTask, onAddNote, currentUser }
         </div>
       </div>
 
-      {/* Action Items */}
-      <div style={styles.taskList}>
-        {actionItems.map((task) => {
-          const isOverdueCritical = task.overdue && task.critical;
-          const isOverdueNonCritical = task.overdue && !task.critical;
+      {/* Phase description */}
+      {phaseInfo?.description && (
+        <div style={styles.phaseDescription}>{phaseInfo.description}</div>
+      )}
 
-          let itemStyle = { ...styles.taskItem };
-          if (isOverdueCritical) {
-            itemStyle = { ...itemStyle, ...styles.taskItemCritical };
-          } else if (isOverdueNonCritical) {
-            itemStyle = { ...itemStyle, ...styles.taskItemWarning };
-          }
-
-          return (
-            <div key={task.id} style={itemStyle}>
-              {/* Checkbox */}
-              <button
-                style={styles.taskCheckbox}
-                onClick={() => onUpdateTask(client.id, task.id, true)}
-                title="Mark as complete"
-              >
-                <span style={styles.taskCheckboxInner} />
-              </button>
-
-              {/* Task content */}
-              <div style={styles.taskContent}>
-                <div style={styles.taskLabel}>
-                  {task.critical && (
-                    <span style={styles.criticalStar}>&#x2B50;</span>
-                  )}
-                  {task.label}
-                </div>
-                {task.overdueLabel && (
-                  <div style={{
-                    ...styles.overdueTag,
-                    color: isOverdueCritical ? '#991B1B' : '#854D0E',
-                  }}>
-                    &#x23F0; {task.overdueLabel}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Phase advancement suggestion */}
-        {canAdvance && (
-          <div style={styles.advanceBanner}>
-            <span style={styles.advanceIcon}>&#x1F680;</span>
-            <div style={styles.advanceText}>
-              All {phaseInfo?.label} tasks complete &mdash; ready to advance to{' '}
-              <strong>{nextPhase.label}</strong>
-            </div>
-          </div>
+      {/* Action buttons row */}
+      <div style={styles.actionRow}>
+        {scriptBundle && (
+          <button
+            className={btn.secondaryBtn}
+            onClick={() => setShowScripts((s) => !s)}
+          >
+            {showScripts ? 'Hide Scripts' : 'Show Scripts'}
+          </button>
         )}
-
-        {/* All caught up state */}
-        {actionItems.length === 0 && !canAdvance && (
-          <div style={styles.allDoneMessage}>
-            &#x2705; All tasks for this phase are up to date.
-          </div>
+        {!editingTasks && phaseTasks.length > 0 && (
+          <>
+            {!allDone && onUpdateTasksBulk && (
+              <button className={btn.secondaryBtn} onClick={selectAll}>
+                ✓ Select All
+              </button>
+            )}
+            {!noneDone && onUpdateTasksBulk && (
+              <button className={btn.secondaryBtn} onClick={deselectAll}>
+                ✗ Deselect All
+              </button>
+            )}
+            <button className={btn.secondaryBtn} onClick={startEditing}>
+              Edit Checklist
+            </button>
+          </>
+        )}
+        {editingTasks && (
+          <>
+            <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={saveEdits}>
+              Save
+            </button>
+            <button className={`tc-btn-secondary ${btn.secondaryBtn}`} onClick={() => setEditingTasks(false)}>
+              Cancel
+            </button>
+          </>
         )}
       </div>
+
+      {/* Speed-to-Lead inline callout: only renders for new_lead and
+          surfaces the first chase script (Minute 0-15: Call + Text)
+          inline so the rep doesn't have to click into a Scripts panel
+          to see what to say. */}
+      {phase === 'new_lead' && firstScript && !showScripts && (
+        <div style={styles.speedToLeadCallout}>
+          <div style={styles.speedToLeadHeader}>
+            <span style={styles.speedToLeadTag}>{firstScript.day}</span>
+            <span style={styles.speedToLeadAction}>{firstScript.action}</span>
+          </div>
+          {firstScript.script && (
+            <div style={styles.speedToLeadScript}>&ldquo;{firstScript.script}&rdquo;</div>
+          )}
+        </div>
+      )}
+
+      {/* Scripts panel (expanded view) */}
+      {showScripts && scriptBundle && (
+        <div className={cl.scriptsPanel}>
+          <h4 className={cl.scriptsPanelTitle}>{scriptBundle.title}</h4>
+          {scriptBundle.scripts.map((s, i) => (
+            <div key={i} className={cl.scriptRow}>
+              <div className={cl.scriptDay}>{s.day}</div>
+              <div style={{ flex: 1 }}>
+                <div className={cl.scriptAction}>{s.action}</div>
+                {s.script && <div className={cl.scriptText}>&ldquo;{s.script}&rdquo;</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Task list — view mode */}
+      {!editingTasks && (
+        <div style={styles.taskList}>
+          {sortedTasks.map((task) => {
+            const isOverdueCritical = task.overdue && task.critical;
+            const isOverdueNonCritical = task.overdue && !task.critical;
+
+            let itemStyle = { ...styles.taskItem };
+            if (task.done) {
+              itemStyle = { ...itemStyle, ...styles.taskItemDone };
+            } else if (isOverdueCritical) {
+              itemStyle = { ...itemStyle, ...styles.taskItemCritical };
+            } else if (isOverdueNonCritical) {
+              itemStyle = { ...itemStyle, ...styles.taskItemWarning };
+            }
+
+            return (
+              <div key={task.id} style={itemStyle}>
+                <button
+                  style={{
+                    ...styles.taskCheckbox,
+                    ...(task.done ? styles.taskCheckboxDone : {}),
+                  }}
+                  onClick={() => onUpdateTask(client.id, task.id, !task.done)}
+                  title={task.done ? 'Mark as not done' : 'Mark as complete'}
+                >
+                  {task.done && <span style={styles.taskCheckmark}>&#x2713;</span>}
+                </button>
+
+                <div style={styles.taskContent}>
+                  <div style={{
+                    ...styles.taskLabel,
+                    ...(task.done ? styles.taskLabelDone : {}),
+                  }}>
+                    {task.critical && !task.done && (
+                      <span style={styles.criticalStar}>&#x2B50;</span>
+                    )}
+                    {task.label}
+                    {task.critical && !task.done && (
+                      <span className={progress.criticalBadge} style={{ marginLeft: 8 }}>Required</span>
+                    )}
+                  </div>
+                  {task.overdueLabel && (
+                    <div style={{
+                      ...styles.overdueTag,
+                      color: isOverdueCritical ? '#991B1B' : '#854D0E',
+                    }}>
+                      &#x23F0; {task.overdueLabel}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Phase advancement suggestion */}
+          {canAdvance && (
+            <div style={styles.advanceBanner}>
+              <span style={styles.advanceIcon}>&#x1F680;</span>
+              <div style={styles.advanceText}>
+                All {phaseInfo?.label} tasks complete &mdash; ready to advance to{' '}
+                <strong>{nextPhase.label}</strong>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state — no tasks configured for this phase */}
+          {sortedTasks.length === 0 && !canAdvance && (
+            <div style={styles.allDoneMessage}>
+              &#x2705; No tasks configured for this phase.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Task list — edit mode */}
+      {editingTasks && (
+        <div className={cl.taskList}>
+          {taskDraft.map((task, idx) => (
+            <div key={task.id} className={cl.row}>
+              <span className={cl.handle}>⠿</span>
+              <input
+                className={cl.input}
+                value={task.label}
+                onChange={(e) => setTaskDraft((prev) => prev.map((t, i) => i === idx ? { ...t, label: e.target.value } : t))}
+                placeholder="Task description..."
+              />
+              <label className={cl.criticalToggle} title="Mark as required">
+                <input
+                  type="checkbox"
+                  checked={!!task.critical}
+                  onChange={(e) => setTaskDraft((prev) => prev.map((t, i) => i === idx ? { ...t, critical: e.target.checked } : t))}
+                />
+                <span className={cl.criticalLabel}>Required</span>
+              </label>
+              <button
+                className={cl.moveBtn}
+                disabled={idx === 0}
+                onClick={() => setTaskDraft((prev) => { const arr = [...prev]; [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]; return arr; })}
+              >
+                ↑
+              </button>
+              <button
+                className={cl.moveBtn}
+                disabled={idx === taskDraft.length - 1}
+                onClick={() => setTaskDraft((prev) => { const arr = [...prev]; [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]; return arr; })}
+              >
+                ↓
+              </button>
+              <button
+                className={cl.deleteBtn}
+                onClick={() => setTaskDraft((prev) => prev.filter((_, i) => i !== idx))}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            className={cl.addBtn}
+            onClick={() => setTaskDraft((prev) => [...prev, { id: 'custom_' + Date.now().toString(36), label: '', critical: false }])}
+          >
+            ＋ Add Task
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -262,7 +454,7 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 8,
     flexWrap: 'wrap',
     gap: 10,
   },
@@ -311,6 +503,60 @@ const styles = {
     color: '#7A8BA0',
   },
 
+  // Phase description (was in ClientPhaseDetail)
+  phaseDescription: {
+    fontSize: 13,
+    color: '#6B7B8F',
+    marginBottom: 12,
+    lineHeight: 1.5,
+  },
+
+  // Action buttons row
+  actionRow: {
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 14,
+  },
+
+  // Speed-to-Lead callout (new_lead only)
+  speedToLeadCallout: {
+    padding: '14px 16px',
+    borderRadius: 12,
+    background: 'linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%)',
+    border: '1px solid #FED7AA',
+    marginBottom: 14,
+  },
+  speedToLeadHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+    flexWrap: 'wrap',
+  },
+  speedToLeadTag: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: '#C2410C',
+    background: '#FED7AA',
+    padding: '3px 10px',
+    borderRadius: 6,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  speedToLeadAction: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#9A3412',
+  },
+  speedToLeadScript: {
+    fontSize: 13,
+    color: '#7C2D12',
+    lineHeight: 1.55,
+    fontStyle: 'italic',
+  },
+
   // Task list
   taskList: {
     display: 'flex',
@@ -326,6 +572,11 @@ const styles = {
     background: '#F9FAFB',
     border: '1px solid #E2E8F0',
     transition: 'all 0.15s',
+  },
+  taskItemDone: {
+    background: '#FFFFFF',
+    border: '1px solid #F0F2F6',
+    padding: '8px 16px',
   },
   taskItemCritical: {
     background: 'linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)',
@@ -354,11 +605,14 @@ const styles = {
     marginTop: 1,
     transition: 'all 0.2s cubic-bezier(0.4,0,0.2,1)',
   },
-  taskCheckboxInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-    background: 'transparent',
+  taskCheckboxDone: {
+    background: '#16A34A',
+    borderColor: '#16A34A',
+  },
+  taskCheckmark: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 700,
   },
 
   // Task content
@@ -371,6 +625,12 @@ const styles = {
     fontWeight: 500,
     color: '#1A1A1A',
     lineHeight: 1.5,
+  },
+  taskLabelDone: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textDecoration: 'line-through',
+    fontWeight: 400,
   },
   criticalStar: {
     marginRight: 6,
