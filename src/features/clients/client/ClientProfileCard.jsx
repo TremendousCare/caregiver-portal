@@ -20,6 +20,15 @@ export function ClientProfileCard({ client, onUpdateClient }) {
   const [editForm, setEditForm] = useState({});
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeMessage, setGeocodeMessage] = useState(null);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('tc_client_profile_collapsed') !== 'false'
+  );
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('tc_client_profile_collapsed', String(next));
+  };
 
   const hasAddress = !!(client.address || client.city || client.zip);
   const isGeocoded = client.latitude != null && client.longitude != null;
@@ -55,6 +64,7 @@ export function ClientProfileCard({ client, onUpdateClient }) {
   const phaseInfo = CLIENT_PHASES.find((p) => p.id === phase);
 
   const startEditing = () => {
+    setCollapsed(false);
     setEditForm({
       firstName: client.firstName || '',
       lastName: client.lastName || '',
@@ -126,12 +136,33 @@ export function ClientProfileCard({ client, onUpdateClient }) {
     { label: 'Days Since Created', value: `${days} day${days !== 1 ? 's' : ''}` },
   ];
 
+  const showBody = !collapsed || editing;
+
   return (
     <div className={cards.profileCard}>
-      <div className={cards.profileCardHeader}>
-        <h3 className={cards.profileCardTitle}>👤 Client Profile</h3>
+      <div
+        className={cards.profileCardHeader}
+        onClick={editing ? undefined : toggleCollapsed}
+        style={{ cursor: editing ? 'default' : 'pointer', userSelect: 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 className={cards.profileCardTitle}>👤 Client Profile</h3>
+          {!editing && (
+            <span style={{
+              fontSize: 18,
+              color: '#7A8BA0',
+              transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
+              transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+              display: 'inline-block',
+              lineHeight: 1,
+            }}>▾</span>
+          )}
+        </div>
         {!editing ? (
-          <button className={btn.editBtn} onClick={startEditing}>✏️ Edit</button>
+          <button
+            className={btn.editBtn}
+            onClick={(e) => { e.stopPropagation(); startEditing(); }}
+          >✏️ Edit</button>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className={btn.primaryBtn} onClick={saveEdits}>Save</button>
@@ -140,7 +171,7 @@ export function ClientProfileCard({ client, onUpdateClient }) {
         )}
       </div>
 
-      {!editing ? (
+      {showBody && (!editing ? (
         <>
           <div className={cards.profileGrid}>
             {profileFields.map((item) => (
@@ -293,7 +324,7 @@ export function ClientProfileCard({ client, onUpdateClient }) {
             </div>
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
