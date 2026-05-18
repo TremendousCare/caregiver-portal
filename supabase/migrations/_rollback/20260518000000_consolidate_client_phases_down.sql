@@ -28,8 +28,8 @@ WHERE id = 'cl_no_contact'
 UPDATE public.action_item_rules
 SET condition_config = jsonb_set(condition_config, '{phase}', '"assessment"'::jsonb),
     name = 'Assessment Overdue',
-    template_title = 'Assessment overdue — Day {{days_in_phase}}',
-    template_message = 'Assessment phase open {{days_in_phase}} days — home visit may be delayed or needs rescheduling.'
+    title_template = 'Assessment overdue — Day {{days_in_phase}}',
+    detail_template = 'Assessment phase open {{days_in_phase}} days — home visit may be delayed or needs rescheduling.'
 WHERE id = 'cl_assessment_overdue'
   AND condition_config->>'phase' = 'proposal';
 
