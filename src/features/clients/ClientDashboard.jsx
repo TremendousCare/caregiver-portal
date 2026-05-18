@@ -4,26 +4,12 @@ import { getClientPhase, getDaysSinceCreated, getNextStep } from './utils';
 import { generateClientActionItems } from '../../lib/actionItemEngine';
 import { supabase } from '../../lib/supabase';
 import { resolveClientMergeFields } from '../../lib/mergeFields';
-import cards from '../../styles/cards.module.css';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
 import progress from '../../styles/progress.module.css';
 import layout from '../../styles/layout.module.css';
 import d from './ClientDashboard.module.css';
 import { Avatar } from '../../shared/components/Avatar';
-
-// ─── STAT CARD ───────────────────────────────────────────────
-function StatCard({ label, value, accent, icon }) {
-  return (
-    <div className={cards.statCard}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 24 }}>{icon}</span>
-        <span className={cards.statValue} style={{ color: accent }}>{value}</span>
-      </div>
-      <div className={cards.statLabel}>{label}</div>
-    </div>
-  );
-}
 
 // ─── HELPERS ────────────────────────────────────────────────
 function fmtPhone(val) {
@@ -59,7 +45,7 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
       onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
     >
       <td
-        style={{ padding: '12px 8px', textAlign: 'center' }}
+        style={{ padding: '6px 8px', textAlign: 'center' }}
         onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
       >
         <input
@@ -69,19 +55,27 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#2E4E8D' }}
         />
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Avatar
-            path={client.avatarPath}
-            firstName={client.firstName}
-            lastName={client.lastName}
-            size="sm"
-          />
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: 'linear-gradient(135deg, #2E4E8D, #1084C3)',
+            color: '#fff', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontWeight: 700, fontSize: 11,
+            flexShrink: 0,
+          }}>
+            {client.firstName?.[0]}{client.lastName?.[0]}
+          </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontWeight: 600, color: '#0F1724', fontSize: 14 }}>
                 {client.firstName} {client.lastName}
               </span>
+              {client.careRecipientName && (
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+                  · {client.careRecipientName}
+                </span>
+              )}
               {overdue && (
                 <span style={{
                   background: '#FEF2F0', color: '#DC3545',
@@ -90,18 +84,13 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
                 }}>Overdue</span>
               )}
             </div>
-            {client.careRecipientName && (
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
-                {client.careRecipientName}
-              </div>
-            )}
           </div>
         </div>
       </td>
-      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '6px 14px', color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>
         {fmtPhone(client.phone)}
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         {phaseInfo && (
           <span
             className={progress.phaseBadge}
@@ -115,7 +104,7 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           </span>
         )}
       </td>
-      <td style={{ padding: '12px 16px' }}>
+      <td style={{ padding: '6px 14px' }}>
         {priorityInfo && priorityInfo.id !== 'normal' ? (
           <span
             className={progress.phaseBadge}
@@ -129,14 +118,14 @@ function ClientListRow({ client, overdue, isSelected, onToggleSelect, onSelect }
           </span>
         ) : <span style={{ color: '#9CA3AF' }}>—</span>}
       </td>
-      <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>
+      <td style={{ padding: '6px 14px', fontSize: 13, color: '#374151' }}>
         {nextStep ? (
           <span style={{ color: nextStep.critical ? '#DC3545' : '#374151' }}>
             {nextStep.critical ? '! ' : '→ '}{nextStep.label}
           </span>
         ) : <span style={{ color: '#9CA3AF' }}>—</span>}
       </td>
-      <td style={{ padding: '12px 16px', color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '6px 14px', color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>
         Day {days}
       </td>
     </tr>
@@ -299,7 +288,7 @@ export function ClientDashboard({
 }) {
   const [viewMode, setViewMode] = useState(() => {
     const stored = localStorage.getItem('tc_client_dashboard_view_mode');
-    return stored === 'list' ? 'list' : 'grid';
+    return stored === 'grid' ? 'grid' : 'list';
   });
 
   const handleViewModeChange = (mode) => {
@@ -343,17 +332,6 @@ export function ClientDashboard({
       .catch(() => {});
   }, []);
 
-  const totalActive = allClients.length;
-
-  // Won this month
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const wonThisMonth = allClients.filter((c) => {
-    const phase = getClientPhase(c);
-    const wonTs = c.phaseTimestamps?.won;
-    return phase === 'won' && wonTs && wonTs >= monthStart;
-  }).length;
-
   const actionItems = generateClientActionItems(allClients);
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
 
@@ -363,7 +341,6 @@ export function ClientDashboard({
   const overdueIds = new Set(
     actionItems.filter((a) => a.severity === 'critical').map((a) => a.clientId)
   );
-  const overdueCount = overdueIds.size;
 
   const sortedClients = [...clients].sort((a, b) => {
     const pOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -415,20 +392,6 @@ export function ClientDashboard({
             {addLabel}
           </button>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className={cards.statsRow}>
-        {[
-          { label: 'Active Leads', value: totalActive, accent: '#2E4E8D', icon: '👥' },
-          { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
-          { label: 'Won This Month', value: wonThisMonth, accent: '#16A34A', icon: '✅' },
-          { label: 'Overdue', value: overdueCount, accent: '#DC3545', icon: '⚠️' },
-        ].map((s, i) => (
-          <div key={s.label} style={{ animation: `fadeInUp 0.4s cubic-bezier(0.4,0,0.2,1) ${i * 0.07}s both` }}>
-            <StatCard {...s} />
-          </div>
-        ))}
       </div>
 
       {/* Action Items */}
