@@ -78,19 +78,6 @@ function ExportButton({ filterPhase, filteredCount, totalCount, onExportFiltered
   );
 }
 
-// ─── STAT CARD ───────────────────────────────────────────────
-function StatCard({ label, value, accent, icon }) {
-  return (
-    <div className={cards.statCard}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 24 }}>{icon}</span>
-        <span className={cards.statValue} style={{ color: accent }}>{value}</span>
-      </div>
-      <div className={cards.statLabel}>{label}</div>
-    </div>
-  );
-}
-
 // ─── CAREGIVER CARD ──────────────────────────────────────────
 function CaregiverCard({ caregiver, onClick, isSelected, onToggleSelect, selectionMode, surveyStatus, urgent }) {
   const phase = getCurrentPhase(caregiver);
@@ -596,12 +583,6 @@ export function Dashboard({
     setBulkAction(null);
   }, [filterPhase, searchTerm]);
 
-  const totalActive = allCaregivers.length;
-  const greenLightCount = allCaregivers.filter(isGreenLight).length;
-  const avgProgress = totalActive
-    ? Math.round(allCaregivers.reduce((s, c) => s + getOverallProgress(c), 0) / totalActive)
-    : 0;
-
   const allActionItems = generateActionItems(allCaregivers);
   const actionItems = allActionItems.filter((it) => !dismissedActionKeys.has(actionItemKey(it)));
   const visibleActions = showAllActions ? actionItems : actionItems.slice(0, 5);
@@ -707,20 +688,6 @@ export function Dashboard({
             ＋ New Caregiver
           </button>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className={cards.statsRow}>
-        {[
-          { label: 'Active Pipeline', value: totalActive, accent: '#2E4E8D', icon: '👥' },
-          { label: 'Action Items', value: actionItems.length, accent: '#E85D4A', icon: '🔔' },
-          { label: 'Green Light Ready', value: greenLightCount, accent: '#29BEE4', icon: '🟢' },
-          { label: 'Avg. Progress', value: `${avgProgress}%`, accent: '#1084C3', icon: '📊' },
-        ].map((s, i) => (
-          <div key={s.label} style={{ animation: `fadeInUp 0.4s cubic-bezier(0.4,0,0.2,1) ${i * 0.07}s both` }}>
-            <StatCard {...s} />
-          </div>
-        ))}
       </div>
 
       {/* Action Items */}
