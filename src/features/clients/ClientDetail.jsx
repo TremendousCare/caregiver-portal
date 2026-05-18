@@ -8,7 +8,6 @@ import { ClientProfileCard } from './client/ClientProfileCard';
 import { ClientPipelineStepper } from './client/ClientPipelineStepper';
 import { ClientOverdueBanner } from './client/ClientOverdueBanner';
 import { ClientSequences } from './client/ClientSequences';
-import { ClientPhaseDetail } from './client/ClientPhaseDetail';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
@@ -126,7 +125,6 @@ export function ClientDetail({
 }) {
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showScripts, setShowScripts] = useState(null);
   const [detailTab, setDetailTab] = useState('overview');
 
   // Comms timeline drives both the Messages tab content and the
@@ -191,6 +189,8 @@ export function ClientDetail({
           <ClientNextSteps
             client={client}
             onUpdateTask={onUpdateTask}
+            onUpdateTasksBulk={onUpdateTasksBulk}
+            onRefreshTasks={onRefreshTasks}
             onAddNote={onAddNote}
             currentUser={currentUser}
           />
@@ -229,16 +229,6 @@ export function ClientDetail({
               />
             </>
           )}
-
-          <ClientPhaseDetail
-            client={client}
-            activePhase={getClientPhase(client)}
-            showScripts={showScripts}
-            onToggleScripts={setShowScripts}
-            onUpdateTask={onUpdateTask}
-            onUpdateTasksBulk={onUpdateTasksBulk}
-            onRefreshTasks={onRefreshTasks}
-          />
         </>
       )}
 
