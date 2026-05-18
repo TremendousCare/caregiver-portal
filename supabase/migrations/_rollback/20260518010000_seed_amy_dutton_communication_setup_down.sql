@@ -1,4 +1,4 @@
--- Rollback for 20260518000000_seed_amy_dutton_communication_setup.sql
+-- Rollback for 20260518010000_seed_amy_dutton_communication_setup.sql
 --
 -- Reverses the three writes from the seed:
 --   1. Clears Amy's user_roles row.
@@ -11,12 +11,12 @@
 
 DELETE FROM public.user_roles
  WHERE email = 'amy.dutton@tremendouscareca.com'
-   AND updated_by = 'migration:20260518000000_seed_amy_dutton';
+   AND updated_by = 'migration:20260518010000_seed_amy_dutton';
 
 UPDATE public.team_members
    SET is_active = false,
        updated_at = NOW(),
-       updated_by = 'rollback:20260518000000_seed_amy_dutton'
+       updated_by = 'rollback:20260518010000_seed_amy_dutton'
  WHERE email = 'amy.dutton@tremendouscareca.com';
 
 DO $$

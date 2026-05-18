@@ -43,7 +43,12 @@
 -- UPDATE on org_memberships), so this seed is safe to re-run.
 -- Production safety: no DROP, no DELETE, only INSERT/UPDATE on three
 -- rows scoped by primary key. Rollback at
--- _rollback/20260518000000_seed_amy_dutton_communication_setup_down.sql.
+-- _rollback/20260518010000_seed_amy_dutton_communication_setup_down.sql.
+--
+-- Renamed from 20260518000000 → 20260518010000 to avoid a version
+-- collision with the unrelated consolidate_client_phases migration
+-- that already claimed the 20260518000000 slot in
+-- supabase_migrations.schema_migrations.
 
 -- ── 1. user_roles ────────────────────────────────────────────────
 INSERT INTO public.user_roles (email, role, mailbox_email, updated_by)
@@ -51,7 +56,7 @@ VALUES (
   'amy.dutton@tremendouscareca.com',
   'member',
   'amy.dutton@tremendouscareca.com',
-  'migration:20260518000000_seed_amy_dutton'
+  'migration:20260518010000_seed_amy_dutton'
 )
 ON CONFLICT (email) DO UPDATE
    SET role          = COALESCE(public.user_roles.role, EXCLUDED.role),
@@ -76,7 +81,7 @@ VALUES (
   '(949) 867-1046',
   public.default_org_id(),
   true,
-  'migration:20260518000000_seed_amy_dutton'
+  'migration:20260518010000_seed_amy_dutton'
 )
 ON CONFLICT (email) DO UPDATE
    SET display_name   = COALESCE(public.team_members.display_name, EXCLUDED.display_name),

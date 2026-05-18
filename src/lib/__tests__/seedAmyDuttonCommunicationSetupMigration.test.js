@@ -13,11 +13,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const MIGRATION_PATH = join(
   __dirname,
-  '../../../supabase/migrations/20260518000000_seed_amy_dutton_communication_setup.sql',
+  '../../../supabase/migrations/20260518010000_seed_amy_dutton_communication_setup.sql',
 );
 const ROLLBACK_PATH = join(
   __dirname,
-  '../../../supabase/migrations/_rollback/20260518000000_seed_amy_dutton_communication_setup_down.sql',
+  '../../../supabase/migrations/_rollback/20260518010000_seed_amy_dutton_communication_setup_down.sql',
 );
 
 const sql = readFileSync(MIGRATION_PATH, 'utf-8');
@@ -74,7 +74,7 @@ describe('Amy Dutton communication-setup seed migration', () => {
 
   describe('rollback', () => {
     it('exists and references the same migration tag in updated_by', () => {
-      expect(rollback).toContain('migration:20260518000000_seed_amy_dutton');
+      expect(rollback).toContain('migration:20260518010000_seed_amy_dutton');
     });
 
     it('clears the extension binding and resets the role to caregiver', () => {
