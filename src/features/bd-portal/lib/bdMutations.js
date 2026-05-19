@@ -577,6 +577,238 @@ export async function updateContact(supabase, { contactId, draft }) {
   return { data: updateRes.data, error: null };
 }
 
+// ─── Account creation ──────────────────────────────────────────
+//
+// Backs the "+ Add Account" flow on the Accounts list. Lets a rep
+// stand up a brand-new bd_accounts row (and optionally seed 0..N
+// contacts in the same flow) without having to wait for the next
+// research-import batch. Source is stamped as 'manual' so we can
+// distinguish rep-created accounts from imports later.
+
+// bd_accounts.account_type CHECK constraint domain.
+export const ACCOUNT_TYPES = ['facility', 'professional'];
+
+export const ACCOUNT_TYPE_LABELS = {
+  facility:     'Facility',
+  professional: 'Professional',
+};
+
+// bd_accounts.facility_subtype CHECK constraint domain.
+export const FACILITY_SUBTYPES = [
+  'hospital',
+  'snf',
+  'alf',
+  'independent_living',
+  'memory_care',
+  'rehab',
+  'hospice',
+  'home_health',
+  'other',
+];
+
+export const FACILITY_SUBTYPE_LABELS = {
+  hospital:           'Hospital',
+  snf:                'SNF (Skilled nursing)',
+  alf:                'ALF (Assisted living)',
+  independent_living: 'Independent living',
+  memory_care:        'Memory care',
+  rehab:              'Rehab',
+  hospice:            'Hospice',
+  home_health:        'Home health',
+  other:              'Other',
+};
+
+// bd_accounts.professional_subtype CHECK constraint domain.
+export const PROFESSIONAL_SUBTYPES = [
+  'gcm',
+  'attorney',
+  'financial_planner',
+  'physician',
+  'social_worker',
+  'other',
+];
+
+export const PROFESSIONAL_SUBTYPE_LABELS = {
+  gcm:               'Geriatric care manager',
+  attorney:          'Attorney',
+  financial_planner: 'Financial planner',
+  physician:         'Physician',
+  social_worker:     'Social worker',
+  other:             'Other',
+};
+
+export function validateAccountDraft(draft) {
+  if (!draft || typeof draft !== 'object') {
+    return { ok: false, error: 'Missing form data.' };
+  }
+  if (!draft.name || !String(draft.name).trim()) {
+    return { ok: false, error: 'Enter an account name.' };
+  }
+  if (!ACCOUNT_TYPES.includes(draft.account_type)) {
+    return { ok: false, error: 'Pick an account type.' };
+  }
+  if (draft.account_type === 'facility') {
+    if (!draft.facility_subtype) {
+      return { ok: false, error: 'Pick a facility subtype.' };
+    }
+    if (!FACILITY_SUBTYPES.includes(draft.facility_subtype)) {
+      return { ok: false, error: 'Invalid facility subtype.' };
+    }
+    if (draft.professional_subtype) {
+      return { ok: false, error: 'A facility cannot have a professional subtype.' };
+    }
+  }
+  if (draft.account_type === 'professional') {
+    if (!draft.professional_subtype) {
+      return { ok: false, error: 'Pick a professional subtype.' };
+    }
+    if (!PROFESSIONAL_SUBTYPES.includes(draft.professional_subtype)) {
+      return { ok: false, error: 'Invalid professional subtype.' };
+    }
+    if (draft.facility_subtype) {
+      return { ok: false, error: 'A professional cannot have a facility subtype.' };
+    }
+  }
+  if (draft.website) {
+    const w = String(draft.website).trim();
+    if (w && !/^https?:\/\/|^[\w-]+\.[\w.-]+/i.test(w)) {
+      return { ok: false, error: 'Website looks invalid.' };
+    }
+  }
+  return { ok: true };
+}
+
+// Shapes the row written to bd_accounts. Trims strings, nulls empties,
+// and never writes user-controllable booleans we don't expose.
+export function buildAccountRow(draft, orgId, createdBy) {
+  const subtype = draft.account_type === 'facility'
+    ? (draft.facility_subtype || null)
+    : null;
+  const profSubtype = draft.account_type === 'professional'
+    ? (draft.professional_subtype || null)
+    : null;
+  return {
+    org_id:               orgId,
+    name:                 String(draft.name).trim(),
+    account_type:         draft.account_type,
+    facility_subtype:     subtype,
+    professional_subtype: profSubtype,
+    address:              draft.address?.trim() || null,
+    city:                 draft.city?.trim()    || null,
+    state:                draft.state?.trim()   || null,
+    zip:                  draft.zip?.trim()     || null,
+    phone:                draft.phone?.trim()   || null,
+    website:              draft.website?.trim() || null,
+    notes:                draft.notes?.trim()   || null,
+    is_strategic_shared:  Boolean(draft.is_strategic_shared),
+    is_active:            true,
+    source:               'manual',
+    created_by:           createdBy ?? null,
+  };
+}
+
+// Looks up case-insensitive name matches inside the same org. Returns
+// up to `limit` rows shaped for the duplicate warning UI. RLS scopes
+// the result to the caller's org regardless of whether org_id is
+// passed; the explicit filter is belt-and-braces in case RLS is ever
+// relaxed.
+export async function findAccountDuplicates(supabase, { orgId, name, limit = 5 }) {
+  if (!supabase) return { data: [], error: new Error('Supabase not configured.') };
+  const clean = (name ?? '').trim();
+  if (!clean) return { data: [], error: null };
+  let q = supabase
+    .from('bd_accounts')
+    .select('id, name, city, account_type, facility_subtype, professional_subtype')
+    .ilike('name', clean);
+  if (orgId) q = q.eq('org_id', orgId);
+  const res = await q.limit(limit);
+  if (res.error) return { data: [], error: res.error };
+  return { data: res.data ?? [], error: null };
+}
+
+// Creates a single bd_accounts row. When `force` is falsy, refuses to
+// insert if a case-insensitive same-name match exists in the org and
+// returns the existing rows so the caller can show a duplicate
+// warning. Pass `force: true` to bypass after the user confirms.
+// Returns { data, error, duplicate, duplicates }.
+export async function createAccount(supabase, { orgId, draft, createdBy, force = false }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  const validation = validateAccountDraft(draft);
+  if (!validation.ok) return { data: null, error: new Error(validation.error) };
+  if (!orgId) return { data: null, error: new Error('Missing org_id from session — sign out and back in.') };
+
+  if (!force) {
+    const dupRes = await findAccountDuplicates(supabase, { orgId, name: draft.name });
+    if (dupRes.error) return { data: null, error: dupRes.error };
+    if ((dupRes.data ?? []).length > 0) {
+      return {
+        data: null,
+        error: null,
+        duplicate: true,
+        duplicates: dupRes.data,
+      };
+    }
+  }
+
+  const row = buildAccountRow(draft, orgId, createdBy);
+  const insertRes = await supabase
+    .from('bd_accounts')
+    .insert(row)
+    .select('id, name, account_type, facility_subtype, professional_subtype, city, state')
+    .single();
+  if (insertRes.error) return { data: null, error: insertRes.error };
+
+  return { data: insertRes.data, error: null, duplicate: false };
+}
+
+// Creates an account and, in the same call, inserts 0..N contact rows
+// linked to the new account. Best-effort on contacts: if one contact
+// insert fails, the others (and the account) are kept; failures are
+// returned in `contactErrors` so the UI can show a partial-success
+// message. Only the first contact marked is_primary keeps the flag;
+// the rest are demoted to false to avoid multiple primaries on the
+// same account.
+export async function createAccountWithContacts(supabase, {
+  orgId, draft, contactDrafts = [], createdBy, force = false,
+}) {
+  const accountRes = await createAccount(supabase, { orgId, draft, createdBy, force });
+  if (accountRes.error) return { ...accountRes, contacts: [], contactErrors: [] };
+  if (accountRes.duplicate) return { ...accountRes, contacts: [], contactErrors: [] };
+
+  const account = accountRes.data;
+  const cleaned = (contactDrafts ?? [])
+    .filter((c) => c && c.name && String(c.name).trim());
+
+  // Only the first primary stays primary.
+  let primaryClaimed = false;
+  const contacts = [];
+  const contactErrors = [];
+  for (const c of cleaned) {
+    const keepPrimary = Boolean(c.is_primary) && !primaryClaimed;
+    if (keepPrimary) primaryClaimed = true;
+    const cDraft = {
+      account_id:   account.id,
+      name:         c.name,
+      title:        c.title,
+      role:         c.role || null,
+      email:        c.email,
+      phone_mobile: c.phone_mobile,
+      phone_office: c.phone_office,
+      notes:        c.notes,
+      is_primary:   keepPrimary,
+    };
+    const cRes = await createContact(supabase, { orgId, draft: cDraft, createdBy });
+    if (cRes.error) {
+      contactErrors.push({ name: c.name, error: cRes.error });
+      continue;
+    }
+    if (cRes.data?.created) contacts.push(cRes.data.created);
+    else if (cRes.data?.existing) contacts.push(cRes.data.existing);
+  }
+
+  return { data: account, error: null, duplicate: false, contacts, contactErrors };
+}
+
 // ─── Account stars (personal favorites) ─────────────────────────────
 //
 // Toggle a star on/off for the current user. RLS enforces user

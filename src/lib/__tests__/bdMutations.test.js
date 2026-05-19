@@ -20,6 +20,14 @@ import {
   validateAccountLocationDraft,
   buildAccountLocationPatch,
   updateAccountLocation,
+  ACCOUNT_TYPES,
+  FACILITY_SUBTYPES,
+  PROFESSIONAL_SUBTYPES,
+  validateAccountDraft,
+  buildAccountRow,
+  findAccountDuplicates,
+  createAccount,
+  createAccountWithContacts,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -957,5 +965,456 @@ describe('updateAccountLocation', () => {
       draft: { address: '100 Main St' },
     });
     expect(r.error?.message).toMatch(/row level/i);
+  });
+});
+
+// ─── Account creation ─────────────────────────────────────────────
+
+const validFacilityAccountDraft = () => ({
+  name: 'Hoag Hospital — Newport Beach',
+  account_type: 'facility',
+  facility_subtype: 'hospital',
+  address: '1 Hoag Dr',
+  city: 'Newport Beach',
+  state: 'CA',
+  zip: '92663',
+  phone: '949-764-4624',
+  website: 'hoag.org',
+  notes: '',
+  is_strategic_shared: false,
+});
+
+const validProfessionalAccountDraft = () => ({
+  name: 'Sarah Connor, Esq.',
+  account_type: 'professional',
+  professional_subtype: 'attorney',
+});
+
+describe('ACCOUNT_TYPES / subtype domains', () => {
+  it('matches the bd_accounts.account_type CHECK constraint', () => {
+    expect(ACCOUNT_TYPES).toEqual(['facility', 'professional']);
+  });
+  it('matches the bd_accounts.facility_subtype CHECK constraint', () => {
+    expect(FACILITY_SUBTYPES).toEqual([
+      'hospital', 'snf', 'alf', 'independent_living',
+      'memory_care', 'rehab', 'hospice', 'home_health', 'other',
+    ]);
+  });
+  it('matches the bd_accounts.professional_subtype CHECK constraint', () => {
+    expect(PROFESSIONAL_SUBTYPES).toEqual([
+      'gcm', 'attorney', 'financial_planner',
+      'physician', 'social_worker', 'other',
+    ]);
+  });
+});
+
+describe('validateAccountDraft', () => {
+  it('accepts a valid facility draft', () => {
+    expect(validateAccountDraft(validFacilityAccountDraft())).toEqual({ ok: true });
+  });
+  it('accepts a valid professional draft', () => {
+    expect(validateAccountDraft(validProfessionalAccountDraft())).toEqual({ ok: true });
+  });
+  it('rejects null / non-object input', () => {
+    expect(validateAccountDraft(null).ok).toBe(false);
+    expect(validateAccountDraft('hi').ok).toBe(false);
+  });
+  it('requires a non-empty name', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), name: '' }).ok).toBe(false);
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), name: '   ' }).ok).toBe(false);
+  });
+  it('rejects an unknown account_type', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), account_type: 'partner' }).ok).toBe(false);
+  });
+  it('requires a facility subtype when account_type=facility', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), facility_subtype: '' }).ok).toBe(false);
+  });
+  it('rejects an unknown facility subtype', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), facility_subtype: 'clinic' }).ok).toBe(false);
+  });
+  it('rejects a facility draft with a professional subtype set', () => {
+    expect(validateAccountDraft({
+      ...validFacilityAccountDraft(),
+      professional_subtype: 'attorney',
+    }).ok).toBe(false);
+  });
+  it('requires a professional subtype when account_type=professional', () => {
+    expect(validateAccountDraft({ ...validProfessionalAccountDraft(), professional_subtype: '' }).ok).toBe(false);
+  });
+  it('rejects an unknown professional subtype', () => {
+    expect(validateAccountDraft({ ...validProfessionalAccountDraft(), professional_subtype: 'dentist' }).ok).toBe(false);
+  });
+  it('rejects a professional draft with a facility subtype set', () => {
+    expect(validateAccountDraft({
+      ...validProfessionalAccountDraft(),
+      facility_subtype: 'hospital',
+    }).ok).toBe(false);
+  });
+  it('rejects a malformed website', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), website: 'not a url' }).ok).toBe(false);
+  });
+  it('accepts a website with or without scheme', () => {
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), website: 'https://hoag.org' }).ok).toBe(true);
+    expect(validateAccountDraft({ ...validFacilityAccountDraft(), website: 'hoag.org' }).ok).toBe(true);
+  });
+});
+
+describe('buildAccountRow', () => {
+  it('shapes the row for bd_accounts insert (facility)', () => {
+    const row = buildAccountRow(validFacilityAccountDraft(), 'org-1', 'Sasha');
+    expect(row).toMatchObject({
+      org_id: 'org-1',
+      name: 'Hoag Hospital — Newport Beach',
+      account_type: 'facility',
+      facility_subtype: 'hospital',
+      professional_subtype: null,
+      city: 'Newport Beach',
+      state: 'CA',
+      zip: '92663',
+      source: 'manual',
+      is_active: true,
+      is_strategic_shared: false,
+      created_by: 'Sasha',
+    });
+  });
+  it('clears the wrong-axis subtype on a professional row', () => {
+    const row = buildAccountRow(
+      { ...validProfessionalAccountDraft(), facility_subtype: 'hospital' },
+      'org-1', 'Sasha',
+    );
+    expect(row.facility_subtype).toBe(null);
+    expect(row.professional_subtype).toBe('attorney');
+  });
+  it('trims strings and nulls empties', () => {
+    const row = buildAccountRow({
+      ...validFacilityAccountDraft(),
+      name:  '  Hoag  ',
+      city:  '  ',
+      phone: '',
+      notes: '',
+    }, 'org-1', 'Sasha');
+    expect(row.name).toBe('Hoag');
+    expect(row.city).toBe(null);
+    expect(row.phone).toBe(null);
+    expect(row.notes).toBe(null);
+  });
+});
+
+// Stub that supports the bd_accounts INSERT + dupcheck SELECT paths.
+function makeAccountCreateStub({
+  dupResult    = { data: [], error: null },
+  insertResult = { data: { id: 'acc-new', name: 'Hoag Hospital — Newport Beach', account_type: 'facility', facility_subtype: 'hospital', city: 'Newport Beach', state: 'CA' }, error: null },
+  observed     = [],
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table !== 'bd_accounts') throw new Error(`unexpected ${table}`);
+      return {
+        select() {
+          // Used by findAccountDuplicates: select().ilike().limit() or .eq().ilike().limit()
+          return {
+            ilike() { return this; },
+            eq()    { return this; },
+            limit:  () => Promise.resolve(dupResult),
+            // Used by the INSERT chain: .insert().select().single()
+            single: () => Promise.resolve(insertResult),
+          };
+        },
+        insert(row) {
+          observed.push({ op: 'insert', row });
+          return {
+            select() { return this; },
+            single:  () => Promise.resolve(insertResult),
+          };
+        },
+      };
+    },
+  };
+}
+
+describe('findAccountDuplicates', () => {
+  it('returns rows from supabase when a match exists', async () => {
+    const stub = makeAccountCreateStub({
+      dupResult: { data: [{ id: 'acc-1', name: 'Hoag Hospital', city: 'Irvine' }], error: null },
+    });
+    const r = await findAccountDuplicates(stub, { orgId: 'org-1', name: 'Hoag Hospital' });
+    expect(r.error).toBe(null);
+    expect(r.data).toHaveLength(1);
+    expect(r.data[0].id).toBe('acc-1');
+  });
+  it('returns an empty list when name is blank', async () => {
+    const stub = makeAccountCreateStub();
+    const r = await findAccountDuplicates(stub, { orgId: 'org-1', name: '   ' });
+    expect(r.data).toEqual([]);
+  });
+  it('surfaces supabase errors', async () => {
+    const stub = makeAccountCreateStub({ dupResult: { data: null, error: new Error('rls') } });
+    const r = await findAccountDuplicates(stub, { orgId: 'org-1', name: 'Hoag' });
+    expect(r.error?.message).toMatch(/rls/i);
+    expect(r.data).toEqual([]);
+  });
+});
+
+describe('createAccount', () => {
+  it('rejects when supabase client is missing', async () => {
+    const r = await createAccount(null, { orgId: 'o', draft: validFacilityAccountDraft(), createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects when validation fails', async () => {
+    const stub = makeAccountCreateStub();
+    const r = await createAccount(stub, { orgId: 'o', draft: { ...validFacilityAccountDraft(), name: '' }, createdBy: 'u' });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects without org_id', async () => {
+    const stub = makeAccountCreateStub();
+    const r = await createAccount(stub, { orgId: null, draft: validFacilityAccountDraft(), createdBy: 'u' });
+    expect(r.error?.message).toMatch(/org/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('returns duplicate=true and the matching rows when a same-name account exists', async () => {
+    const stub = makeAccountCreateStub({
+      dupResult: { data: [{ id: 'acc-1', name: 'Hoag Hospital', city: 'Irvine' }], error: null },
+    });
+    const r = await createAccount(stub, { orgId: 'org-1', draft: validFacilityAccountDraft(), createdBy: 'Sasha' });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(true);
+    expect(r.duplicates).toHaveLength(1);
+    expect(stub._observed.find((o) => o.op === 'insert')).toBeUndefined();
+  });
+
+  it('skips the duplicate check when force=true', async () => {
+    const stub = makeAccountCreateStub({
+      dupResult: { data: [{ id: 'acc-1', name: 'Hoag Hospital' }], error: null },
+    });
+    const r = await createAccount(stub, {
+      orgId: 'org-1', draft: validFacilityAccountDraft(), createdBy: 'Sasha', force: true,
+    });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(false);
+    expect(r.data?.id).toBe('acc-new');
+    expect(stub._observed.find((o) => o.op === 'insert')).toBeTruthy();
+  });
+
+  it('inserts a fresh account when no duplicate exists', async () => {
+    const stub = makeAccountCreateStub();
+    const r = await createAccount(stub, { orgId: 'org-1', draft: validFacilityAccountDraft(), createdBy: 'Sasha' });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(false);
+    expect(r.data?.id).toBe('acc-new');
+    const insertOp = stub._observed.find((o) => o.op === 'insert');
+    expect(insertOp.row).toMatchObject({
+      org_id: 'org-1',
+      name: 'Hoag Hospital — Newport Beach',
+      account_type: 'facility',
+      facility_subtype: 'hospital',
+      source: 'manual',
+      is_active: true,
+      created_by: 'Sasha',
+    });
+  });
+});
+
+// Composite stub that handles bd_accounts (insert + dup check) AND
+// bd_account_contacts (dup check + insert) so we can exercise
+// createAccountWithContacts end-to-end.
+function makeAccountWithContactsStub({
+  accountInsertResult = { data: { id: 'acc-new', name: 'Hoag Hospital — Newport Beach' }, error: null },
+  contactDupResult    = { data: [], error: null },
+  contactInsertResult = null,
+  accountDupResult    = { data: [], error: null },
+  observed            = [],
+} = {}) {
+  return {
+    _observed: observed,
+    from(table) {
+      if (table === 'bd_accounts') {
+        return {
+          select() {
+            return {
+              ilike() { return this; },
+              eq()    { return this; },
+              limit:  () => Promise.resolve(accountDupResult),
+              single: () => Promise.resolve(accountInsertResult),
+            };
+          },
+          insert(row) {
+            observed.push({ table, op: 'insert', row });
+            return {
+              select() { return this; },
+              single:  () => Promise.resolve(accountInsertResult),
+            };
+          },
+        };
+      }
+      if (table === 'bd_account_contacts') {
+        return {
+          select() {
+            return {
+              eq()   { return this; },
+              ilike() { return this; },
+              limit: () => Promise.resolve(contactDupResult),
+              single: () => Promise.resolve(contactInsertResult ?? { data: null, error: null }),
+            };
+          },
+          insert(row) {
+            observed.push({ table, op: 'insert', row });
+            return {
+              select() { return this; },
+              single:  () => Promise.resolve(contactInsertResult ?? {
+                data: { id: `c-${row.name.replace(/\s+/g, '-').toLowerCase()}`, ...row },
+                error: null,
+              }),
+            };
+          },
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  };
+}
+
+describe('createAccountWithContacts', () => {
+  it('creates the account and zero contacts when none provided', async () => {
+    const stub = makeAccountWithContactsStub();
+    const r = await createAccountWithContacts(stub, {
+      orgId: 'org-1',
+      draft: validFacilityAccountDraft(),
+      contactDrafts: [],
+      createdBy: 'Sasha',
+    });
+    expect(r.error).toBe(null);
+    expect(r.duplicate).toBe(false);
+    expect(r.data?.id).toBe('acc-new');
+    expect(r.contacts).toHaveLength(0);
+    expect(r.contactErrors).toHaveLength(0);
+    const accountInserts = stub._observed.filter((o) => o.table === 'bd_accounts' && o.op === 'insert');
+    expect(accountInserts).toHaveLength(1);
+  });
+
+  it('inserts each named contact and skips blank rows', async () => {
+    const stub = makeAccountWithContactsStub();
+    const r = await createAccountWithContacts(stub, {
+      orgId: 'org-1',
+      draft: validFacilityAccountDraft(),
+      contactDrafts: [
+        { name: 'Sarah Connor', role: 'case_manager', email: 's@hoag.org' },
+        { name: '   ' }, // skipped
+        { name: 'John Doe', role: null },
+      ],
+      createdBy: 'Sasha',
+    });
+    expect(r.error).toBe(null);
+    expect(r.contacts).toHaveLength(2);
+    const contactInserts = stub._observed.filter((o) => o.table === 'bd_account_contacts' && o.op === 'insert');
+    expect(contactInserts).toHaveLength(2);
+    expect(contactInserts[0].row.account_id).toBe('acc-new');
+    expect(contactInserts[0].row.name).toBe('Sarah Connor');
+    expect(contactInserts[1].row.name).toBe('John Doe');
+  });
+
+  it('keeps only the first is_primary contact primary', async () => {
+    const stub = makeAccountWithContactsStub();
+    await createAccountWithContacts(stub, {
+      orgId: 'org-1',
+      draft: validFacilityAccountDraft(),
+      contactDrafts: [
+        { name: 'A', is_primary: true },
+        { name: 'B', is_primary: true },
+        { name: 'C', is_primary: true },
+      ],
+      createdBy: 'Sasha',
+    });
+    const contactInserts = stub._observed.filter((o) => o.table === 'bd_account_contacts' && o.op === 'insert');
+    expect(contactInserts.map((o) => o.row.is_primary)).toEqual([true, false, false]);
+  });
+
+  it('does not insert contacts when the account creation hits a duplicate', async () => {
+    const stub = makeAccountWithContactsStub({
+      accountDupResult: { data: [{ id: 'acc-existing', name: 'Hoag Hospital' }], error: null },
+    });
+    const r = await createAccountWithContacts(stub, {
+      orgId: 'org-1',
+      draft: validFacilityAccountDraft(),
+      contactDrafts: [{ name: 'Sarah Connor' }],
+      createdBy: 'Sasha',
+    });
+    expect(r.duplicate).toBe(true);
+    expect(r.contacts).toHaveLength(0);
+    const contactInserts = stub._observed.filter((o) => o.table === 'bd_account_contacts' && o.op === 'insert');
+    expect(contactInserts).toHaveLength(0);
+  });
+
+  it('continues past a failed contact and surfaces it in contactErrors', async () => {
+    // Make the *second* contact fail by hijacking the stub at runtime.
+    let callCount = 0;
+    const observed = [];
+    const stub = {
+      _observed: observed,
+      from(table) {
+        if (table === 'bd_accounts') {
+          return {
+            select() {
+              return {
+                ilike() { return this; },
+                eq()    { return this; },
+                limit:  () => Promise.resolve({ data: [], error: null }),
+                single: () => Promise.resolve({ data: { id: 'acc-new', name: 'H' }, error: null }),
+              };
+            },
+            insert(row) {
+              observed.push({ table, op: 'insert', row });
+              return {
+                select() { return this; },
+                single:  () => Promise.resolve({ data: { id: 'acc-new', name: 'H' }, error: null }),
+              };
+            },
+          };
+        }
+        if (table === 'bd_account_contacts') {
+          return {
+            select() {
+              return {
+                eq()   { return this; },
+                ilike() { return this; },
+                limit: () => Promise.resolve({ data: [], error: null }),
+              };
+            },
+            insert(row) {
+              observed.push({ table, op: 'insert', row });
+              callCount += 1;
+              const isSecond = callCount === 2;
+              return {
+                select() { return this; },
+                single:  () => Promise.resolve(
+                  isSecond
+                    ? { data: null, error: new Error('contact blocked') }
+                    : { data: { id: `c-${callCount}`, ...row }, error: null },
+                ),
+              };
+            },
+          };
+        }
+        throw new Error(`unexpected ${table}`);
+      },
+    };
+    const r = await createAccountWithContacts(stub, {
+      orgId: 'org-1',
+      draft: validFacilityAccountDraft(),
+      contactDrafts: [
+        { name: 'First' },
+        { name: 'Second' },
+        { name: 'Third' },
+      ],
+      createdBy: 'Sasha',
+    });
+    expect(r.error).toBe(null);
+    expect(r.contacts).toHaveLength(2);
+    expect(r.contactErrors).toHaveLength(1);
+    expect(r.contactErrors[0].name).toBe('Second');
   });
 });
