@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star } from 'lucide-react';
+import { Star, Plus } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
 import { rankAccounts, searchAccounts, daysSince, filterToTerritory } from './lib/bdQueries';
@@ -78,7 +78,17 @@ export function AccountList() {
           <p className={s.greeting}>{headerCount} accounts{headerLabel}</p>
           <h1 className={s.pageTitle}>Accounts</h1>
         </div>
-        <button type="button" className={s.signOutBtn} onClick={refresh}>Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className={s.signOutBtn}
+            onClick={() => navigate('/bd/accounts/new')}
+            aria-label="Add a new account"
+          >
+            <Plus size={14} aria-hidden style={{ verticalAlign: '-2px' }} /> Add
+          </button>
+          <button type="button" className={s.signOutBtn} onClick={refresh}>Refresh</button>
+        </div>
       </div>
 
       {error && <div className={s.error}>Couldn&rsquo;t load accounts: {error.message}</div>}

@@ -4,6 +4,7 @@ import { BDLogin } from './BDLogin';
 import { Today } from './Today';
 import { AccountList } from './AccountList';
 import { AccountProfile } from './AccountProfile';
+import { AccountEditor } from './AccountEditor';
 import { QuickCapture } from './QuickCapture';
 import { ReferralIntake } from './ReferralIntake';
 import { ContactCardCapture } from './ContactCardCapture';
@@ -52,6 +53,7 @@ export function BDApp() {
         <Route path="/bd/mileage/new"                  element={<MileageEntryForm />} />
         <Route path="/bd/mileage/:entryId"             element={<MileageEntryForm />} />
         <Route path="/bd/accounts"                     element={<AccountList />} />
+        <Route path="/bd/accounts/new"                 element={<AccountEditor />} />
         <Route path="/bd/accounts/:accountId"          element={<AccountProfile />} />
         <Route path="/bd/accounts/:accountId/log"      element={<QuickCapture />} />
         <Route path="/bd/accounts/:accountId/refer"    element={<ReferralIntake />} />
