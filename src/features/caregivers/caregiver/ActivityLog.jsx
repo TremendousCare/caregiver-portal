@@ -15,7 +15,7 @@ const FILTER_OPTIONS = [
 
 export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, accessToken }) {
   const [noteText, setNoteText] = useState('');
-  const { supported: speechSupported, listening: isListening, toggle: toggleListening } =
+  const { supported: speechSupported, listening: isListening, toggle: toggleListening, stop: stopListening } =
     useSpeechRecognition({ onTranscript: setNoteText });
   const [activeFilter, setActiveFilter] = useState('note');
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
@@ -28,6 +28,10 @@ export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, a
   const handleAddNote = () => {
     const trimmed = noteText.trim();
     if (!trimmed) return;
+    // Stop any active dictation before clearing — otherwise the next
+    // interim onresult rebuilds the full transcript from the session
+    // and re-fills the just-cleared input.
+    stopListening();
     const persistPromise = onAddNote(caregiver.id, { text: trimmed, type: 'note' });
     setNoteText('');
     // Phase 1.5 follow-up — close any matching pending ai_suggestion
