@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
+import { Mic } from 'lucide-react';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
+import { useSpeechRecognition } from '../../../shared/hooks/useSpeechRecognition';
 import cg from './caregiver.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -13,6 +15,8 @@ const FILTER_OPTIONS = [
 
 export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, accessToken }) {
   const [noteText, setNoteText] = useState('');
+  const { supported: speechSupported, listening: isListening, toggle: toggleListening } =
+    useSpeechRecognition({ onTranscript: setNoteText });
   const [activeFilter, setActiveFilter] = useState('note');
   const [playingRecordingId, setPlayingRecordingId] = useState(null);
   const [recordingError, setRecordingError] = useState(null);
@@ -112,7 +116,27 @@ export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, a
 
       {/* Note text input */}
       <div className={forms.noteInputRow}>
-        <input className={forms.noteInput} placeholder="Add an internal note..." value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+        <input className={forms.noteInput} placeholder={isListening ? 'Listening — speak now…' : 'Add an internal note...'} value={noteText} onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddNote()} />
+        {speechSupported && (
+          <button
+            type="button"
+            onClick={toggleListening}
+            title={isListening ? 'Stop voice input' : 'Voice input'}
+            aria-label={isListening ? 'Stop voice input' : 'Voice input'}
+            aria-pressed={isListening}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 40, height: 40, borderRadius: 11,
+              border: '1px solid', borderColor: isListening ? '#DC3545' : '#E0E4EA',
+              background: isListening ? '#DC3545' : 'var(--tc-bg-hover)',
+              color: isListening ? '#fff' : '#6B7B8F',
+              cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+              transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
+            }}
+          >
+            <Mic size={18} aria-hidden />
+          </button>
+        )}
         <button className={`tc-btn-primary ${btn.primaryBtn}`} onClick={handleAddNote}>Add</button>
       </div>
 
