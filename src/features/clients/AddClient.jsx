@@ -1,5 +1,9 @@
 import { useState, useCallback } from 'react';
 import { CLIENT_SOURCES, CLIENT_PRIORITIES } from './constants';
+import {
+  EmergencyContactsSection, emptyEmergencyContact,
+  ResponsiblePartiesSection, emptyResponsiblePartySet,
+} from './contactInputs';
 import btn from '../../styles/buttons.module.css';
 import forms from '../../styles/forms.module.css';
 import layout from '../../styles/layout.module.css';
@@ -50,10 +54,16 @@ export function AddClient({ onAdd, onCancel, mode = 'lead' }) {
     priority: 'normal',
     initialNotes: '',
   });
+  // Emergency contacts + responsible parties live in dedicated tables
+  // (migration 20260523010000). Held in local state here, then handed
+  // to the parent in the onAdd payload so ClientContext.addClient can
+  // persist them alongside the client row.
+  const [emergencyContacts, setEmergencyContacts] = useState([emptyEmergencyContact()]);
+  const [responsibleParties, setResponsibleParties] = useState(emptyResponsiblePartySet());
 
   const handleSubmit = () => {
     if (!form.firstName || !form.lastName) return;
-    onAdd(form);
+    onAdd({ ...form, emergencyContacts, responsibleParties });
   };
 
   const handleFieldChange = useCallback((field, value) => {
@@ -85,6 +95,10 @@ export function AddClient({ onAdd, onCancel, mode = 'lead' }) {
           <FormField label="State" field="state" placeholder="CA" value={form.state} onChange={handleFieldChange} />
           <FormField label="Zip Code" field="zip" placeholder="92627" value={form.zip} onChange={handleFieldChange} />
         </div>
+
+        <EmergencyContactsSection value={emergencyContacts} onChange={setEmergencyContacts} />
+
+        <ResponsiblePartiesSection value={responsibleParties} onChange={setResponsibleParties} />
 
         <h3 className={forms.formSection}>Care Recipient</h3>
         <div className={forms.formGrid}>
