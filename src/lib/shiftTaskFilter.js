@@ -162,13 +162,21 @@ const CATEGORY_LABELS = {
   'iadl.observation': 'Health Observations',
   'iadl.companionship': 'Companionship',
   'iadl.exercise': 'Exercise',
+  // 'caregiver.*' covers system_default_tasks (migration 20260524000000)
+  // — break, lunch, hand hygiene. Rendered as a distinct "Caregiver
+  // Compliance" group so caregivers see right away these are about
+  // them, not the client.
+  'caregiver.hygiene': 'Caregiver Compliance',
+  'caregiver.break': 'Caregiver Compliance',
+  'caregiver.lunch': 'Caregiver Compliance',
 };
 
 export function categoryLabel(category) {
   if (!category) return 'Other';
   if (CATEGORY_LABELS[category]) return CATEGORY_LABELS[category];
-  // Strip leading 'adl.' / 'iadl.' and Title Case the remainder.
-  const rest = category.replace(/^(adl|iadl)\./, '');
+  // Strip leading 'adl.' / 'iadl.' / 'caregiver.' and Title Case the
+  // remainder so a future, unseeded category still renders cleanly.
+  const rest = category.replace(/^(adl|iadl|caregiver)\./, '');
   return rest
     .split(/[._-]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))

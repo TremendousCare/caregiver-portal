@@ -134,7 +134,15 @@ describe('loadCarePlanForShift', () => {
       ],
       error: null,
     });
-    // 4. care_plan_observations select for shift
+    // 4. loadActiveSystemDefaults → system_default_tasks select
+    // (migration 20260524000000). Empty for this test so we only
+    // assert care_plan_tasks landed; a dedicated test below covers
+    // the union path.
+    mock.enqueue('system_default_tasks', 'select', 'noTerminal', {
+      data: [],
+      error: null,
+    });
+    // 5. care_plan_observations select for shift
     mock.enqueue('care_plan_observations', 'select', 'noTerminal', {
       data: [],
       error: null,
@@ -147,6 +155,61 @@ describe('loadCarePlanForShift', () => {
     expect(out.tasks[0].id).toBe('task-1');
     expect(out.observations).toEqual([]);
   });
+
+  it('unions system_default_tasks into the returned tasks array', async () => {
+    mock.enqueue('care_plans', 'select', 'noTerminal', {
+      data: [{
+        id: 'plan-1', client_id: 'c1', status: 'active',
+        current_version_id: 'ver-1',
+        created_at: '2026-04-26T00:00:00Z', updated_at: '2026-04-26T00:00:00Z',
+      }],
+      error: null,
+    });
+    mock.enqueue('care_plan_versions', 'select', 'maybeSingle', {
+      data: {
+        id: 'ver-1', care_plan_id: 'plan-1', version_number: 3,
+        status: 'published', data: {},
+        created_at: '2026-04-26T00:00:00Z', updated_at: '2026-04-26T00:00:00Z',
+      },
+      error: null,
+    });
+    mock.enqueue('care_plan_tasks', 'select', 'noTerminal', {
+      data: [
+        {
+          id: 'task-1', version_id: 'ver-1', category: 'adl.bathing',
+          task_name: 'Shower', shifts: ['all'], days_of_week: [],
+          priority: 'standard', sort_order: 0,
+        },
+      ],
+      error: null,
+    });
+    mock.enqueue('system_default_tasks', 'select', 'noTerminal', {
+      data: [
+        {
+          id: 'sd-hygiene', category: 'caregiver.hygiene',
+          task_name: 'Hand hygiene', shifts: ['all'], days_of_week: [],
+          priority: 'critical', sort_order: 1, is_active: true,
+        },
+        {
+          id: 'sd-break', category: 'caregiver.break',
+          task_name: 'Caregiver break', shifts: ['all'], days_of_week: [],
+          priority: 'standard', sort_order: 100, is_active: true,
+        },
+      ],
+      error: null,
+    });
+    mock.enqueue('care_plan_observations', 'select', 'noTerminal', { data: [], error: null });
+
+    const out = await loadCarePlanForShift({ id: 's1', clientId: 'c1' });
+    expect(out.tasks).toHaveLength(3);
+    // Care-plan task first, then system defaults appended.
+    expect(out.tasks[0].id).toBe('task-1');
+    expect(out.tasks[0].__source).toBeUndefined();
+    expect(out.tasks[1].id).toBe('sd-hygiene');
+    expect(out.tasks[1].__source).toBe('system_default');
+    expect(out.tasks[2].id).toBe('sd-break');
+  });
+
 
   it('returns empty tasks when plan has no current version', async () => {
     mock.enqueue('care_plans', 'select', 'noTerminal', {
@@ -233,6 +296,43 @@ describe('logTaskObservation', () => {
       shiftId: 's1', caregiverId: 'cg-1', rating: 'definitely',
     })).rejects.toThrow(/invalid rating/);
   });
+
+  it('throws when neither taskId nor systemDefaultTaskId is provided', async () => {
+    await expect(logTaskObservation({
+      carePlanId: 'plan-1', versionId: 'ver-1',
+      shiftId: 's1', caregiverId: 'cg-1', rating: 'done',
+    })).rejects.toThrow(/taskId or systemDefaultTaskId/);
+  });
+
+  it('throws when both taskId and systemDefaultTaskId are provided (XOR)', async () => {
+    await expect(logTaskObservation({
+      carePlanId: 'plan-1', versionId: 'ver-1',
+      taskId: 'task-1', systemDefaultTaskId: 'sd-1',
+      shiftId: 's1', caregiverId: 'cg-1', rating: 'done',
+    })).rejects.toThrow(/mutually exclusive/);
+  });
+
+  it('routes systemDefaultTaskId to the system_default_task_id column (task_id stays null)', async () => {
+    mock.enqueue('care_plan_observations', 'insert', 'single', {
+      data: {
+        id: 'obs-sd', care_plan_id: 'plan-1', version_id: 'ver-1',
+        task_id: null, system_default_task_id: 'sd-hygiene',
+        shift_id: 's1', caregiver_id: 'cg-1',
+        observation_type: 'task_completion', rating: 'done',
+      },
+      error: null,
+    });
+
+    await logTaskObservation({
+      carePlanId: 'plan-1', versionId: 'ver-1',
+      systemDefaultTaskId: 'sd-hygiene',
+      shiftId: 's1', caregiverId: 'cg-1', rating: 'done',
+    });
+
+    const insertCall = mock.calls.find((c) => c.action === 'insert');
+    expect(insertCall.payload.task_id).toBeNull();
+    expect(insertCall.payload.system_default_task_id).toBe('sd-hygiene');
+  });
 });
 
 // ─── logShiftNote ────────────────────────────────────────────
@@ -318,6 +418,33 @@ describe('logRefusal', () => {
       shiftId: 's1', caregiverId: 'cg-1', note: '   ',
     })).rejects.toThrow(/empty/);
   });
+
+  it('throws when both taskId and systemDefaultTaskId are provided (XOR)', async () => {
+    await expect(logRefusal({
+      carePlanId: 'plan-1', versionId: 'ver-1',
+      taskId: 'task-1', systemDefaultTaskId: 'sd-1',
+      shiftId: 's1', caregiverId: 'cg-1',
+      note: 'why',
+    })).rejects.toThrow(/mutually exclusive/);
+  });
+
+  it('routes systemDefaultTaskId to the right column on the refusal row', async () => {
+    mock.enqueue('care_plan_observations', 'insert', 'single', {
+      data: { id: 'obs-sd-refusal', observation_type: 'refusal' },
+      error: null,
+    });
+
+    await logRefusal({
+      carePlanId: 'plan-1', versionId: 'ver-1',
+      systemDefaultTaskId: 'sd-break',
+      shiftId: 's1', caregiverId: 'cg-1',
+      note: 'No coverage available',
+    });
+
+    const insertCall = mock.calls.find((c) => c.action === 'insert');
+    expect(insertCall.payload.task_id).toBeNull();
+    expect(insertCall.payload.system_default_task_id).toBe('sd-break');
+  });
 });
 
 // ─── Pure digest helpers ────────────────────────────────────
@@ -359,6 +486,35 @@ describe('indexLatestTaskCompletions', () => {
       { observationType: 'task_completion', taskId: null, rating: 'done', loggedAt: '2026-04-26T10:00:00Z' },
     ]);
     expect(index.size).toBe(0);
+  });
+
+  it('keys system-default observations by systemDefaultTaskId so the checklist lookup works', () => {
+    const index = indexLatestTaskCompletions([
+      {
+        id: 'a', taskId: null, systemDefaultTaskId: 'sd-hygiene',
+        observationType: 'task_completion', rating: 'done',
+        loggedAt: '2026-04-26T10:00:00Z',
+      },
+      {
+        id: 'b', taskId: null, systemDefaultTaskId: 'sd-hygiene',
+        observationType: 'task_completion', rating: 'partial',
+        loggedAt: '2026-04-26T09:00:00Z',
+      },
+    ]);
+    expect(index.size).toBe(1);
+    expect(index.get('sd-hygiene').rating).toBe('done');
+  });
+
+  it('handles a mix of plan-task and system-default completions in one shift', () => {
+    const index = indexLatestTaskCompletions([
+      { taskId: 'task-bath', observationType: 'task_completion', rating: 'done',
+        loggedAt: '2026-04-26T10:00:00Z' },
+      { taskId: null, systemDefaultTaskId: 'sd-break', observationType: 'task_completion',
+        rating: 'done', loggedAt: '2026-04-26T10:15:00Z' },
+    ]);
+    expect(index.size).toBe(2);
+    expect(index.get('task-bath').rating).toBe('done');
+    expect(index.get('sd-break').rating).toBe('done');
   });
 });
 
@@ -408,10 +564,22 @@ describe('dbToObservation', () => {
     });
     expect(out).toEqual({
       id: 'x', carePlanId: 'p', versionId: 'v', taskId: 't',
+      systemDefaultTaskId: null,
       shiftId: 's', caregiverId: 'c', observationType: 'task_completion',
       rating: 'done', note: 'ok', loggedAt: 'now',
       createdAt: 'c1', updatedAt: 'c2',
     });
+  });
+
+  it('maps system_default_task_id when set (system-default completion)', () => {
+    const out = dbToObservation({
+      id: 'x', care_plan_id: 'p', version_id: 'v',
+      task_id: null, system_default_task_id: 'sd-hygiene',
+      observation_type: 'task_completion', rating: 'done',
+      logged_at: 'now', created_at: 'c1', updated_at: 'c2',
+    });
+    expect(out.taskId).toBeNull();
+    expect(out.systemDefaultTaskId).toBe('sd-hygiene');
   });
 
   it('returns null for null input', () => {
@@ -425,6 +593,7 @@ describe('dbToObservation', () => {
       created_at: 'c1', updated_at: 'c2',
     });
     expect(out.taskId).toBeNull();
+    expect(out.systemDefaultTaskId).toBeNull();
     expect(out.shiftId).toBeNull();
     expect(out.caregiverId).toBeNull();
     expect(out.rating).toBeNull();
