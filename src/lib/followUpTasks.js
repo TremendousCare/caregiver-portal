@@ -188,6 +188,73 @@ export async function loadFollowUpTemplates(client = supabase) {
   return data ?? [];
 }
 
+/**
+ * Update a follow_up_templates row. Allowed patch keys: name,
+ * description, guidance, offset_days, recurring_interval_days,
+ * default_urgency, default_assignee_email, enabled, sort_order.
+ *
+ * Slug + anchor_event are intentionally NOT editable from the
+ * settings UI — those identify the template across the codebase
+ * (the trigger filters on anchor_event) and need a migration to
+ * change. v2 may relax this.
+ *
+ * Returns { row, error }; surfacing errors lets the UI toast and
+ * roll back optimistic state.
+ */
+export async function updateFollowUpTemplate(templateId, patch, client = supabase) {
+  if (!client || !templateId) {
+    return { row: null, error: new Error('Missing template id or client') };
+  }
+  const allowed = {};
+  const keys = [
+    'name', 'description', 'guidance', 'offset_days',
+    'recurring_interval_days', 'default_urgency',
+    'default_assignee_email', 'enabled', 'sort_order',
+  ];
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, k)) {
+      allowed[k] = patch[k];
+    }
+  }
+  if (Object.keys(allowed).length === 0) {
+    return { row: null, error: new Error('No editable fields provided') };
+  }
+
+  // Server-side bounds: schema CHECKs catch < 0 / null / etc, but
+  // surface a friendlier message before the round-trip.
+  if ('offset_days' in allowed) {
+    const n = Number(allowed.offset_days);
+    if (!Number.isInteger(n) || n < 0) {
+      return { row: null, error: new Error('offset_days must be a non-negative integer') };
+    }
+    allowed.offset_days = n;
+  }
+  if ('recurring_interval_days' in allowed) {
+    const v = allowed.recurring_interval_days;
+    if (v === null || v === '') {
+      allowed.recurring_interval_days = null;
+    } else {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n <= 0) {
+        return { row: null, error: new Error('recurring_interval_days must be null or a positive integer') };
+      }
+      allowed.recurring_interval_days = n;
+    }
+  }
+  if ('default_urgency' in allowed && !['critical', 'warning', 'info'].includes(allowed.default_urgency)) {
+    return { row: null, error: new Error('default_urgency must be critical, warning, or info') };
+  }
+
+  const { data, error } = await client
+    .from('follow_up_templates')
+    .update(allowed)
+    .eq('id', templateId)
+    .select('*')
+    .single();
+  if (error) return { row: null, error };
+  return { row: data, error: null };
+}
+
 // ─── Mutations ────────────────────────────────────────────────
 
 /**

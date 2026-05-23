@@ -7,6 +7,7 @@ import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
+import { FollowUpTemplateSettings } from '../features/tasks/FollowUpTemplateSettings';
 import { LeadNotificationSettings } from './LeadNotificationSettings';
 import { SmsOptOutList } from './SmsOptOutList';
 import { PausedCheckInsList } from './PausedCheckInsList';
@@ -2612,6 +2613,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Automation Engine */}
       <div style={{ marginBottom: 20 }}>
         <AutomationSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* Follow-up Templates (cadence for caregiver-match follow-ups) */}
+      <div style={{ marginBottom: 20 }}>
+        <FollowUpTemplateSettings showToast={showToast} />
       </div>
 
       {/* Message Templates (reusable SMS inserted from the composer) */}
