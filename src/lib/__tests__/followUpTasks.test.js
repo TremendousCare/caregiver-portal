@@ -10,6 +10,7 @@ import {
   snoozeFollowUp,
   cancelFollowUp,
   reassignFollowUp,
+  updateFollowUpTemplate,
 } from '../followUpTasks';
 
 // ─── Fake Supabase client (records UPDATE calls) ─────────
@@ -242,5 +243,81 @@ describe('reassignFollowUp', () => {
     const client = createFakeClient({ data: { id: 't-1', status: 'pending', due_at: 'x' } });
     await reassignFollowUp('t-1', '   ', client);
     expect(client._calls[0].patch.assigned_to).toBeNull();
+  });
+});
+
+describe('updateFollowUpTemplate', () => {
+  it('whitelists patch keys — drops slug, anchor_event, anything else', async () => {
+    const client = createFakeClient({ data: { id: 'tmpl-1' } });
+    await updateFollowUpTemplate('tmpl-1', {
+      name: 'Renamed',
+      slug: 'should_not_change',
+      anchor_event: 'should_not_change',
+      arbitrary: 'nope',
+      enabled: false,
+    }, client);
+    expect(client._calls[0].patch).toEqual({ name: 'Renamed', enabled: false });
+  });
+
+  it('coerces offset_days to integer', async () => {
+    const client = createFakeClient({ data: { id: 'tmpl-1' } });
+    await updateFollowUpTemplate('tmpl-1', { offset_days: '14' }, client);
+    expect(client._calls[0].patch).toEqual({ offset_days: 14 });
+  });
+
+  it('rejects negative offset_days', async () => {
+    const out = await updateFollowUpTemplate('tmpl-1', { offset_days: -1 }, createFakeClient());
+    expect(out.row).toBeNull();
+    expect(out.error.message).toMatch(/non-negative integer/);
+  });
+
+  it('rejects non-integer offset_days', async () => {
+    const out = await updateFollowUpTemplate('tmpl-1', { offset_days: 'three' }, createFakeClient());
+    expect(out.row).toBeNull();
+    expect(out.error.message).toMatch(/non-negative integer/);
+  });
+
+  it('accepts null for recurring_interval_days (one-shot)', async () => {
+    const client = createFakeClient({ data: { id: 'tmpl-1' } });
+    await updateFollowUpTemplate('tmpl-1', { recurring_interval_days: null }, client);
+    expect(client._calls[0].patch).toEqual({ recurring_interval_days: null });
+  });
+
+  it('treats empty string as null for recurring_interval_days', async () => {
+    const client = createFakeClient({ data: { id: 'tmpl-1' } });
+    await updateFollowUpTemplate('tmpl-1', { recurring_interval_days: '' }, client);
+    expect(client._calls[0].patch).toEqual({ recurring_interval_days: null });
+  });
+
+  it('rejects 0 or negative recurring_interval_days', async () => {
+    const a = await updateFollowUpTemplate('tmpl-1', { recurring_interval_days: 0 }, createFakeClient());
+    expect(a.error.message).toMatch(/positive integer/);
+    const b = await updateFollowUpTemplate('tmpl-1', { recurring_interval_days: -5 }, createFakeClient());
+    expect(b.error.message).toMatch(/positive integer/);
+  });
+
+  it('rejects invalid urgency', async () => {
+    const out = await updateFollowUpTemplate('tmpl-1', { default_urgency: 'extreme' }, createFakeClient());
+    expect(out.row).toBeNull();
+    expect(out.error.message).toMatch(/critical, warning, or info/);
+  });
+
+  it('rejects empty patch', async () => {
+    const out = await updateFollowUpTemplate('tmpl-1', {}, createFakeClient());
+    expect(out.row).toBeNull();
+    expect(out.error.message).toMatch(/No editable fields/);
+  });
+
+  it('rejects missing template id', async () => {
+    const out = await updateFollowUpTemplate(null, { name: 'x' }, createFakeClient());
+    expect(out.row).toBeNull();
+    expect(out.error.message).toMatch(/Missing template id/);
+  });
+
+  it('returns the supabase error verbatim when DB rejects', async () => {
+    const client = createFakeClient({ data: null, error: new Error('rls-denied') });
+    const out = await updateFollowUpTemplate('tmpl-1', { name: 'x' }, client);
+    expect(out.row).toBeNull();
+    expect(out.error.message).toBe('rls-denied');
   });
 });
