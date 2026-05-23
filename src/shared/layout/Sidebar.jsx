@@ -117,7 +117,26 @@ function SidebarSection({ section, sidebarCollapsed, isExpanded, onToggle }) {
               title={item.label}
             >
               {sidebarCollapsed && <span className={layout.navIcon}>{item.icon}</span>}
-              {!sidebarCollapsed && <span className="sidebar-text">{item.label}</span>}
+              {!sidebarCollapsed && (
+                <>
+                  <span className="sidebar-text" style={{ flex: 1 }}>{item.label}</span>
+                  {item.badge > 0 && (
+                    <span style={{
+                      background: '#DC3545',
+                      color: '#fff',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      minWidth: 18,
+                      textAlign: 'center',
+                      lineHeight: '14px',
+                    }}>
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </>
+              )}
             </button>
           ))}
         </nav>

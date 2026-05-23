@@ -10,6 +10,7 @@ import { NotificationBell } from '../components/NotificationBell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CaregiverSidebarExtra } from '../../features/caregivers/CaregiverSidebarExtra';
 import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
+import { useFollowUps } from '../context/FollowUpContext';
 import layout from '../../styles/layout.module.css';
 
 export function AppShell() {
@@ -17,6 +18,7 @@ export function AppShell() {
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
   const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
+  const { badgeCount: followUpsBadgeCount } = useFollowUps();
 
   const loaded = caregiversLoaded && clientsLoaded;
 
@@ -79,6 +81,16 @@ export function AppShell() {
           { id: 'schedule', path: '/schedule', icon: '📅', label: 'Calendar' },
         ],
       },
+      {
+        id: 'operations',
+        label: 'Operations',
+        items: [
+          // Emoji icon kept to match the rest of the sidebar today;
+          // sidebar refactor to lucide-react components is its own
+          // follow-up PR (would touch every section).
+          { id: 'tasks', path: '/tasks', icon: '✔', label: 'Tasks', badge: followUpsBadgeCount },
+        ],
+      },
       ...(accountingVisible ? [{
         id: 'accounting',
         label: 'Accounting',
@@ -135,7 +147,7 @@ export function AppShell() {
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];
-  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible, isAdmin, payrollEnabled, invoicingEnabled]);
+  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible, isAdmin, payrollEnabled, invoicingEnabled, followUpsBadgeCount]);
 
   return (
     <div className={layout.app}>
