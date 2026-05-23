@@ -20,6 +20,10 @@ import {
   computeInterviewFollowUpLookbackDays,
   getBookingUrlFromOrgSettings,
 } from "../_shared/helpers/bookings.ts";
+import {
+  isClientSequenceInQuietHours,
+  nextClientSequenceSendTime,
+} from "../_shared/helpers/clientSequenceQuietHours.ts";
 
 /**
  * Generate a unique survey token (mirrors frontend generateSurveyToken).
@@ -221,6 +225,7 @@ Deno.serve(async (req) => {
     sequences_processed: 0,
     sequence_steps_executed: 0,
     sequence_steps_enqueued: 0,
+    sequence_steps_deferred_quiet_hours: 0,
     response_cancellations: 0,
     out_of_order_skips: 0,
     survey_reminders_sent: 0,
@@ -1566,9 +1571,40 @@ Deno.serve(async (req) => {
                 continue;
               }
 
+              const normalizedAction = normalizeActionType(step.action_type);
+
+              // ── Quiet-hours gate ──
+              // Defers customer-facing SMS/email sends outside the 9am-7pm
+              // America/Los_Angeles window. Phase 1 is org-wide and
+              // timezone-naive: all leads are treated as PT. Instead of
+              // dropping the send, we push scheduled_at forward to the
+              // next window open — the same "defer don't drop" pattern
+              // the lead-notification dispatcher uses. create_task is an
+              // internal note write and bypasses the gate. Day-1
+              // immediate sends (delay_hours === 0) fire from the
+              // frontend and never reach this code.
+              if (normalizedAction === 'send_sms' || normalizedAction === 'send_email') {
+                const sendNow = new Date();
+                if (isClientSequenceInQuietHours(sendNow)) {
+                  const nextOpen = nextClientSequenceSendTime(sendNow);
+                  const deferredMs = nextOpen.getTime();
+                  const { error: deferError } = await supabase
+                    .from("client_sequence_log")
+                    .update({ scheduled_at: deferredMs })
+                    .eq("id", pendingEntry.id);
+                  if (deferError) {
+                    console.error(`Failed to defer step for client ${client.id}, sequence ${sequence.id}:`, deferError);
+                    summary.errors++;
+                  } else {
+                    summary.sequence_steps_deferred_quiet_hours++;
+                    console.log(`Deferred sequence step ${stepIndex} for client ${client.id} until ${nextOpen.toISOString()} (quiet hours)`);
+                  }
+                  continue;
+                }
+              }
+
               // ── Execute the step ──
               let stepSuccess = false;
-              const normalizedAction = normalizeActionType(step.action_type);
 
               if (normalizedAction === 'send_sms' || normalizedAction === 'send_email') {
                 const resolvedMessage = resolveAutomationMergeFields(step.template || '', client);
