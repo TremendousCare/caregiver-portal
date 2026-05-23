@@ -18,6 +18,7 @@ import { MessagingCenter } from './caregiver/MessagingCenter';
 import { useCommsTimeline } from './caregiver/useCommsTimeline';
 import { AvailabilityEditor } from '../scheduling/AvailabilityEditor';
 import { CaregiverSchedulePanel } from '../scheduling/CaregiverSchedulePanel';
+import { UpcomingFollowUpsPanel } from '../tasks/UpcomingFollowUpsPanel';
 
 export function CaregiverDetail({
   caregiver, allCaregivers, currentUser, onBack, onUpdateTask, onUpdateTasksBulk,
@@ -119,6 +120,8 @@ export function CaregiverDetail({
         caregiver={caregiver}
         onUpdateCaregiver={onUpdateCaregiver}
       />
+
+      <UpcomingFollowUpsPanel kind="caregiver" entityId={caregiver.id} />
 
       <ActivityLog
         caregiver={caregiver}

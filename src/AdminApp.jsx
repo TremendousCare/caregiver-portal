@@ -8,6 +8,7 @@ import { useApp } from './shared/context/AppContext';
 import { useCaregivers, CaregiverProvider } from './shared/context/CaregiverContext';
 import { useClients, ClientProvider } from './shared/context/ClientContext';
 import { BoardProvider, useBoards } from './shared/context/BoardContext';
+import { FollowUpProvider } from './shared/context/FollowUpContext';
 import { AuthGate } from './shared/components/AuthGate';
 import { ToolsFAB } from './shared/components/ToolsFAB';
 import { AppShell } from './shared/layout/AppShell';
@@ -29,6 +30,7 @@ import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
 import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
+import { TasksDashboard } from './features/tasks/TasksDashboard';
 import { AdminSettings } from './components/AdminSettings';
 import { AgentMetricsPage } from './components/agentMetrics/AgentMetricsPage';
 import { AgentGradingPage } from './components/agentGrading/AgentGradingPage';
@@ -630,6 +632,7 @@ export default function AdminApp() {
     <AuthGate onUserReady={handleUserReady} onLogout={handleLogout}>
       <CaregiverProvider>
         <ClientProvider>
+          <FollowUpProvider>
           <BoardProviderBridge>
             <VoiceProvider>
             <NotificationProvider>
@@ -651,6 +654,7 @@ export default function AdminApp() {
                 <Route path="clients/sequences" element={<SequenceSettingsPage />} />
                 <Route path="clients/:id" element={<ClientDetailPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
+                <Route path="tasks" element={<TasksDashboard />} />
                 <Route path="accounting" element={<AdminOnly><AccountingPage /></AdminOnly>} />
                 <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
                 <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
@@ -665,6 +669,7 @@ export default function AdminApp() {
             </NotificationProvider>
             </VoiceProvider>
           </BoardProviderBridge>
+          </FollowUpProvider>
         </ClientProvider>
       </CaregiverProvider>
     </AuthGate>

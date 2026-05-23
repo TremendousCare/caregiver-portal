@@ -13,6 +13,7 @@ import { ClientActivityLog } from './client/ClientActivityLog';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
+import { UpcomingFollowUpsPanel } from '../tasks/UpcomingFollowUpsPanel';
 import { DetailTabBar } from '../caregivers/caregiver/DetailTabBar';
 import { MessagingCenter } from '../caregivers/caregiver/MessagingCenter';
 import { useCommsTimeline } from '../caregivers/caregiver/useCommsTimeline';
@@ -198,6 +199,8 @@ export function ClientDetail({
               ClientProfileCard, which is the only edit surface. */}
           <div className={cl.overviewLayout}>
             <div className={cl.overviewMain}>
+              <UpcomingFollowUpsPanel kind="client" entityId={client.id} />
+
               <ClientActivityLog
                 client={client}
                 currentUser={currentUser}
