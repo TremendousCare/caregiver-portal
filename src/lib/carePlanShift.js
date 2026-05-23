@@ -16,6 +16,7 @@ import {
   getCarePlanForClient,
   getTasksForVersion,
 } from '../features/care-plans/storage';
+import { loadActiveSystemDefaults, isSystemDefaultTask } from './systemDefaultTasks';
 
 // ─── Observation mapper ───────────────────────────────────────
 // camelCase for the app, snake_case for the DB. The mapper is forgiving
@@ -28,6 +29,11 @@ export function dbToObservation(row) {
     carePlanId: row.care_plan_id,
     versionId: row.version_id,
     taskId: row.task_id ?? null,
+    // Sibling FK populated when the observation is a completion of a
+    // system default (migration 20260524000000). The CHECK constraint
+    // on care_plan_observations guarantees taskId and
+    // systemDefaultTaskId are never both set.
+    systemDefaultTaskId: row.system_default_task_id ?? null,
     shiftId: row.shift_id ?? null,
     caregiverId: row.caregiver_id ?? null,
     observationType: row.observation_type,
@@ -67,10 +73,20 @@ export async function loadCarePlanForShift(shift) {
   }
   const { plan, currentVersion } = planRes;
 
-  // 2. Tasks for the current version (empty array if no published version).
-  const tasks = currentVersion
+  // 2. Tasks for the current version (empty array if no published
+  //    version). Then union the org-wide system defaults (caregiver
+  //    break, lunch, hand hygiene — migration 20260524000000) so they
+  //    appear on every shift's checklist regardless of the client's
+  //    plan. System defaults are skipped when there is no published
+  //    version: an observation requires a non-null version_id, so
+  //    we can't accept completions without one.
+  const planTasks = currentVersion
     ? await getTasksForVersion(currentVersion.id)
     : [];
+  const systemDefaults = currentVersion
+    ? await loadActiveSystemDefaults()
+    : [];
+  const tasks = [...planTasks, ...systemDefaults];
 
   // 3. This caregiver's observations on this shift. The PWA only ever
   // sees its own caregiver_id thanks to RLS, but we filter here too
@@ -117,18 +133,30 @@ async function insertObservation(row) {
  * Log a task-completion observation. Rating must be 'done' | 'partial'
  * | 'not_done' (DB CHECK enforces a free string but the UI only
  * generates these three).
+ *
+ * Exactly one of `taskId` (a care_plan_tasks.id) and
+ * `systemDefaultTaskId` (a system_default_tasks.id) must be set —
+ * the DB CHECK constraint `care_plan_observations_task_source_xor`
+ * rejects observations that try to reference both at once.
  */
 export async function logTaskObservation({
   carePlanId,
   versionId,
   taskId,
+  systemDefaultTaskId,
   shiftId,
   caregiverId,
   rating,
   note = null,
 }) {
-  if (!carePlanId || !versionId || !taskId) {
-    throw new Error('logTaskObservation: carePlanId, versionId, and taskId are required.');
+  if (!carePlanId || !versionId) {
+    throw new Error('logTaskObservation: carePlanId and versionId are required.');
+  }
+  if (!taskId && !systemDefaultTaskId) {
+    throw new Error('logTaskObservation: either taskId or systemDefaultTaskId is required.');
+  }
+  if (taskId && systemDefaultTaskId) {
+    throw new Error('logTaskObservation: taskId and systemDefaultTaskId are mutually exclusive.');
   }
   if (!['done', 'partial', 'not_done'].includes(rating)) {
     throw new Error(`logTaskObservation: invalid rating '${rating}'.`);
@@ -136,7 +164,8 @@ export async function logTaskObservation({
   return insertObservation({
     care_plan_id: carePlanId,
     version_id: versionId,
-    task_id: taskId,
+    task_id: taskId ?? null,
+    system_default_task_id: systemDefaultTaskId ?? null,
     shift_id: shiftId ?? null,
     caregiver_id: caregiverId ?? null,
     observation_type: 'task_completion',
@@ -179,20 +208,25 @@ export async function logShiftNote({
 
 /**
  * Log a refusal — typically tied to a specific task ("client refused
- * morning meds"). taskId is optional only because not every refusal
- * lines up with a checklist item (e.g. "refused breakfast"); when in
- * doubt, leave taskId null and put the detail in `note`.
+ * morning meds"). Both taskId and systemDefaultTaskId are optional
+ * because not every refusal lines up with a checklist item (e.g.
+ * "refused breakfast"); when in doubt, leave both null and put the
+ * detail in `note`. The DB CHECK guarantees they're never both set.
  */
 export async function logRefusal({
   carePlanId,
   versionId,
   taskId = null,
+  systemDefaultTaskId = null,
   shiftId,
   caregiverId,
   note,
 }) {
   if (!carePlanId || !versionId) {
     throw new Error('logRefusal: carePlanId and versionId are required.');
+  }
+  if (taskId && systemDefaultTaskId) {
+    throw new Error('logRefusal: taskId and systemDefaultTaskId are mutually exclusive.');
   }
   const trimmed = (note || '').trim();
   if (!trimmed) {
@@ -202,6 +236,7 @@ export async function logRefusal({
     care_plan_id: carePlanId,
     version_id: versionId,
     task_id: taskId,
+    system_default_task_id: systemDefaultTaskId,
     shift_id: shiftId ?? null,
     caregiver_id: caregiverId ?? null,
     observation_type: 'refusal',
@@ -219,18 +254,23 @@ export async function logRefusal({
 
 /**
  * Build a Map(taskId → latest task_completion observation) so the
- * checklist can show each task's current rating. Falls back to an
- * empty Map for non-array input.
+ * checklist can show each task's current rating. The key is whichever
+ * of taskId / systemDefaultTaskId is set on the observation (the DB
+ * CHECK guarantees exactly one of them is set for a task_completion
+ * row), so the same Map works for both care-plan tasks and system
+ * defaults — the CarePlanChecklist looks up by `task.id` regardless
+ * of source. Falls back to an empty Map for non-array input.
  */
 export function indexLatestTaskCompletions(observations) {
   const index = new Map();
   if (!Array.isArray(observations)) return index;
   for (const obs of observations) {
     if (!obs || obs.observationType !== 'task_completion') continue;
-    if (!obs.taskId) continue;
-    const prior = index.get(obs.taskId);
+    const key = obs.taskId ?? obs.systemDefaultTaskId;
+    if (!key) continue;
+    const prior = index.get(key);
     if (!prior || new Date(obs.loggedAt) >= new Date(prior.loggedAt)) {
-      index.set(obs.taskId, obs);
+      index.set(key, obs);
     }
   }
   return index;

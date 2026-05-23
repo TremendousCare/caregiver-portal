@@ -8,6 +8,7 @@ import {
   pickLatestShiftNote,
   listRefusals,
 } from '../../lib/carePlanShift';
+import { isSystemDefaultTask } from '../../lib/systemDefaultTasks';
 import {
   filterTasksForShift,
   groupTasksByCategory,
@@ -109,10 +110,12 @@ export function CarePlanChecklist({ shift, caregiver }) {
     setSubmittingTaskId(task.id);
     setErrorMsg(null);
     try {
+      const isDefault = isSystemDefaultTask(task);
       await logTaskObservation({
         carePlanId: data.plan.id,
         versionId: data.version.id,
-        taskId: task.id,
+        taskId: isDefault ? null : task.id,
+        systemDefaultTaskId: isDefault ? task.id : null,
         shiftId: shift.id,
         caregiverId: caregiver?.id,
         rating,
@@ -134,10 +137,12 @@ export function CarePlanChecklist({ shift, caregiver }) {
       // Re-log the task with the current rating + note. If no rating yet,
       // default to 'partial' so the note has somewhere to live.
       const currentRating = taskRatings.get(task.id)?.rating || 'partial';
+      const isDefault = isSystemDefaultTask(task);
       await logTaskObservation({
         carePlanId: data.plan.id,
         versionId: data.version.id,
-        taskId: task.id,
+        taskId: isDefault ? null : task.id,
+        systemDefaultTaskId: isDefault ? task.id : null,
         shiftId: shift.id,
         caregiverId: caregiver?.id,
         rating: currentRating,
@@ -159,10 +164,12 @@ export function CarePlanChecklist({ shift, caregiver }) {
     setSubmittingTaskId(task.id);
     setErrorMsg(null);
     try {
+      const isDefault = isSystemDefaultTask(task);
       await logRefusal({
         carePlanId: data.plan.id,
         versionId: data.version.id,
-        taskId: task.id,
+        taskId: isDefault ? null : task.id,
+        systemDefaultTaskId: isDefault ? task.id : null,
         shiftId: shift.id,
         caregiverId: caregiver?.id,
         note: trimmed,
