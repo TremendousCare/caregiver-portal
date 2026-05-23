@@ -350,12 +350,13 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
             center: 'title',
             right: '',
           }}
-          height="auto"
+          height="100%"
           allDaySlot={false}
-          slotDuration="00:15:00"
+          slotDuration="01:00:00"
+          snapDuration="00:15:00"
           slotLabelInterval="01:00"
-          slotMinTime="05:00:00"
-          slotMaxTime="23:00:00"
+          slotMinTime="00:00:00"
+          slotMaxTime="24:00:00"
           nowIndicator
           firstDay={0}
           stickyHeaderDates
