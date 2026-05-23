@@ -115,8 +115,8 @@
   border: 1px solid #E1E7EF;
   border-radius: 10px;
   padding: 10px;
-  height: calc(100vh - 340px);
-  min-height: 480px;
+  height: calc(100vh - 300px);
+  min-height: 500px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -140,7 +140,7 @@
 
 .calendarWrap :global(.fc-timegrid-slot),
 .calendarWrap :global(.fc-timegrid-slot-lane) {
-  height: clamp(20px, calc((100vh - 400px) / 24), 48px);
+  height: clamp(18px, calc((100vh - 460px) / 24), 46px);
 }
 
 .calendarWrap :global(.fc-timegrid-slot-label-cushion) {
