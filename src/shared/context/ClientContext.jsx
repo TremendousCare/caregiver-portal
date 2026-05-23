@@ -5,6 +5,7 @@ import { loadClients, saveClient, saveClientsBulk, deleteClientsFromDb, dbToClie
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { fireClientEventTriggers, fireClientSequences } from '../../features/clients/automations';
 import { describeDeleteError } from '../../lib/errors';
+import { saveEmergencyContacts, saveResponsibleParties } from '../../lib/clientContacts';
 import { useApp } from './AppContext';
 
 // ─── Auto-advance helper ────────────────────────────────────
@@ -111,23 +112,44 @@ export function ClientProvider({ children }) {
 
   // ─── Client CRUD ───
   const addClient = useCallback((data, { phase = 'new_lead' } = {}) => {
+    // Strip contact tree fields off the client row — they live in
+    // dedicated tables (client_emergency_contacts /
+    // client_responsible_parties, migration 20260523010000) so the
+    // intake form can capture them up-front without a care plan.
+    const { emergencyContacts, responsibleParties, ...clientFields } = data;
     const newClient = {
       id: crypto.randomUUID(),
-      ...data,
+      ...clientFields,
       tasks: {},
       notes: [],
       phase,
       phaseTimestamps: { [phase]: Date.now() },
-      priority: data.priority || 'normal',
+      priority: clientFields.priority || 'normal',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     setClients((prev) => [newClient, ...prev]);
     recentLocalEdits.current.set(newClient.id, Date.now());
     saveClient(newClient).catch(() => showToast('Failed to save \u2014 check your connection'));
+    // Fire-and-forget contact persistence. We deliberately do NOT
+    // block intake on contact saves — the client row is the primary
+    // artifact, and a failed contact save (rare; RLS misconfig,
+    // network blip) should still let the user land on the detail
+    // page where they can re-enter contacts. Toast surfaces errors.
+    if (emergencyContacts && emergencyContacts.length > 0) {
+      saveEmergencyContacts(newClient.id, emergencyContacts).then(({ error }) => {
+        if (error) showToast('Client saved, but emergency contacts failed to save');
+      });
+    }
+    if (responsibleParties && (responsibleParties.primary?.name || responsibleParties.secondary?.name)) {
+      saveResponsibleParties(newClient.id, responsibleParties).then(({ error }) => {
+        if (error) showToast('Client saved, but responsible party failed to save');
+      });
+    }
+
     fireClientEventTriggers('new_client', newClient);
     fireClientSequences(newClient); // Immediately execute zero-delay sequence steps
-    showToast(`${data.firstName || ''} ${data.lastName || ''} added as new client!`);
+    showToast(`${clientFields.firstName || ''} ${clientFields.lastName || ''} added as new client!`);
     return newClient;
   }, [showToast]);
 
