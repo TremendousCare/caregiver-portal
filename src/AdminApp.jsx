@@ -12,6 +12,7 @@ import { AuthGate } from './shared/components/AuthGate';
 import { ToolsFAB } from './shared/components/ToolsFAB';
 import { AppShell } from './shared/layout/AppShell';
 import { VoiceProvider } from './shared/context/VoiceContext';
+import { NotificationProvider } from './shared/context/NotificationContext';
 import { IncomingCallToast } from './features/voice/IncomingCallToast';
 import { ActiveCallBar } from './features/voice/ActiveCallBar';
 import { Dashboard } from './features/caregivers/Dashboard';
@@ -631,6 +632,7 @@ export default function AdminApp() {
         <ClientProvider>
           <BoardProviderBridge>
             <VoiceProvider>
+            <NotificationProvider>
             <IncomingCallToast />
             <ActiveCallBar />
             <Routes>
@@ -660,6 +662,7 @@ export default function AdminApp() {
               </Route>
             </Routes>
             <ToolsFAB currentUser={currentUserName} />
+            </NotificationProvider>
             </VoiceProvider>
           </BoardProviderBridge>
         </ClientProvider>

@@ -6,6 +6,7 @@ import { useClients } from '../context/ClientContext';
 import { useBoards } from '../context/BoardContext';
 import { Sidebar } from './Sidebar';
 import { Toast } from '../components/Toast';
+import { NotificationBell } from '../components/NotificationBell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CaregiverSidebarExtra } from '../../features/caregivers/CaregiverSidebarExtra';
 import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
@@ -139,6 +140,7 @@ export function AppShell() {
   return (
     <div className={layout.app}>
       <Toast message={toast} />
+      <NotificationBell />
       <Sidebar sections={sidebarSections} />
 
       <main className={layout.main}>
