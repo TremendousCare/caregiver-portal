@@ -144,10 +144,59 @@ const FEATURES_ENABLED_KEYS: Record<string, (v: unknown) => boolean> = {
   invoicing: isBoolean,
 };
 
+// Lead Notifications (PR 2 of the lead-notif feature). Reads:
+//   lead_notifications.enabled                  : boolean
+//   lead_notifications.sms_recipient_emails     : string[]  (resolved to phone via team_members at send time)
+//   lead_notifications.teams_webhook_url        : string ('' to clear)
+//   lead_notifications.toast_recipient_emails   : string[]
+//   lead_notifications.quiet_hours_start_hour   : 0–23
+//   lead_notifications.quiet_hours_end_hour     : 0–23
+//   lead_notifications.quiet_hours_timezone     : IANA tz id (e.g. America/Los_Angeles)
+//
+// The dispatcher edge function in PR 3 reads these straight off
+// organizations.settings.lead_notifications. Storing emails (not phone
+// numbers) means changing a team member's phone on the directory
+// updates the notification target with no settings edit needed.
+function isHourNumber(v: unknown): boolean {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23;
+}
+function isIanaTimezone(v: unknown): boolean {
+  if (typeof v !== "string" || v.length === 0) return false;
+  // Crude but effective: IANA tz ids are <Area>/<Location> with optional
+  // sub-zones. Reject obvious garbage; the dispatcher rechecks via
+  // Intl.DateTimeFormat at send time.
+  return /^[A-Za-z]+\/[A-Za-z0-9_+\-/]+$/.test(v) || v === "UTC";
+}
+function isHttpsUrlOrEmpty(v: unknown): boolean {
+  if (typeof v !== "string") return false;
+  if (v === "") return true;
+  return /^https:\/\/[^\s]+$/.test(v);
+}
+function isEmailArray(v: unknown): boolean {
+  return (
+    Array.isArray(v)
+    && v.every((s) =>
+      typeof s === "string"
+      && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+    )
+  );
+}
+
+const LEAD_NOTIFICATIONS_KEYS: Record<string, (v: unknown) => boolean> = {
+  enabled: isBoolean,
+  sms_recipient_emails: isEmailArray,
+  teams_webhook_url: isHttpsUrlOrEmpty,
+  toast_recipient_emails: isEmailArray,
+  quiet_hours_start_hour: isHourNumber,
+  quiet_hours_end_hour: isHourNumber,
+  quiet_hours_timezone: isIanaTimezone,
+};
+
 const SECTION_SCHEMAS: Record<string, Record<string, (v: unknown) => boolean>> = {
   payroll: PAYROLL_KEYS,
   paychex: PAYCHEX_KEYS,
   features_enabled: FEATURES_ENABLED_KEYS,
+  lead_notifications: LEAD_NOTIFICATIONS_KEYS,
 };
 
 function validatePatch(

@@ -7,6 +7,7 @@ import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
 import layout from '../styles/layout.module.css';
 import { AutomationSettings } from './AutomationSettings';
+import { LeadNotificationSettings } from './LeadNotificationSettings';
 import { SmsOptOutList } from './SmsOptOutList';
 import { PausedCheckInsList } from './PausedCheckInsList';
 import ActionItemRuleSettings from './ActionItemRuleSettings';
@@ -2601,6 +2602,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Pre-Screening Surveys */}
       <div style={{ marginBottom: 20 }}>
         <SurveySettings showToast={showToast} />
+      </div>
+
+      {/* Lead Notifications (PR 2 of new-lead notification feature) */}
+      <div style={{ marginBottom: 20 }}>
+        <LeadNotificationSettings showToast={showToast} />
       </div>
 
       {/* Automation Engine */}
