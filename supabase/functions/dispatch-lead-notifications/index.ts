@@ -33,7 +33,7 @@
 //     halt the cron tick for everyone.
 // ─────────────────────────────────────────────────────────────────
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
   buildSmsBody,
   buildTeamsAdaptiveCard,

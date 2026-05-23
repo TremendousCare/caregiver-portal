@@ -2,7 +2,7 @@
 // Fire-and-forget metric logging. Never blocks the main response path.
 // Usage: logMetric(supabase, 'message-router', 'classification', 1200, true, { tokens: 150 })
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 export interface MetricEntry {
   function_name: string;

@@ -27,7 +27,7 @@
 // total chain size (VERIFY_CAP) prevents OOM on a future huge org;
 // chunked verification is a follow-up if it ever matters.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   AgentActionRow,
   verifyAgentActionsChain,

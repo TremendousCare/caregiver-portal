@@ -30,7 +30,7 @@
 //   - Persisting business state (caregivers.paychex_worker_id, sync
 //     status fields) on success/failure.
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 // ─── Configuration ─────────────────────────────────────────────────
 

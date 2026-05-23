@@ -25,7 +25,7 @@
 // See docs/BD_MODULE.md → "Trello import strategy" for the full plan.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 // ─── Environment ────────────────────────────────────────────────
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL")!;

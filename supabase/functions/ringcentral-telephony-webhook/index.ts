@@ -20,7 +20,7 @@
 // the same plumbing the SMS webhook uses.
 // ─────────────────────────────────────────────────────────────────
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   RC_API_URL,
   getRingCentralAccessTokenWithJwt,

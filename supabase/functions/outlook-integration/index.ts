@@ -16,7 +16,7 @@
 // Application-level permissions (Mail.ReadWrite, Mail.Send, Calendars.ReadWrite)
 // with admin consent, which allows it to read/write any mailbox in the tenant.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
