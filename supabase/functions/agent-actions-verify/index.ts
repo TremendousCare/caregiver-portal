@@ -17,7 +17,7 @@
 // Returns 200 with a JSON report on success or break detection. Only
 // 5xx if the function itself fails (e.g. env var missing).
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   AgentActionRow,
   verifyAgentActionsChain,

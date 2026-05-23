@@ -6,7 +6,7 @@
 // Phase 0.4 closeout: the cutover flag and `index_legacy.ts` rollback
 // sibling have been removed after 7 days of clean stamping.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 import { runMessageRouterShell } from "./shell.ts";
 

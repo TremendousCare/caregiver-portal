@@ -17,7 +17,7 @@
 //   - Supabase query error → 500. Front-end shows the briefing stub.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY  = Deno.env.get("SUPABASE_ANON_KEY")!;

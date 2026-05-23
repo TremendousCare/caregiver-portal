@@ -33,7 +33,7 @@
 // No new env vars. Uses the existing SERVICE_ROLE_KEY for self-calls.
 // ─────────────────────────────────────────────────────────────────
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { runAgent } from '../_shared/operations/agentRuntime.ts';
 import {
   loadCallSessionContext,
