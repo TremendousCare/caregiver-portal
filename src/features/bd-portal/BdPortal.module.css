@@ -1252,3 +1252,267 @@
   flex: 1;
   min-width: 0;
 }
+
+/* ─── Week recap ─── */
+
+.weekNavRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.weekNavBtn {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  color: #2E4E8D;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+.weekNavBtn:active { background: #EEF1F6; }
+.weekNavBtn:disabled {
+  color: #B0B8C4;
+  cursor: not-allowed;
+  background: #F7F8FB;
+}
+
+.weekNavLabel {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1A2332;
+}
+
+.weekSummaryRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.weekSummaryStat {
+  background: #FFFFFF;
+  border-radius: 10px;
+  padding: 10px 6px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.06);
+}
+
+.weekSummaryValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: #2E4E8D;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.weekSummaryDenom {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5A6B85;
+}
+
+.weekSummaryLabel {
+  font-size: 10px;
+  color: #5A6B85;
+  margin-top: 2px;
+}
+
+.dayStrip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.dayTile {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 8px 4px 6px;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.dayTile:active { background: #EEF1F6; }
+
+.dayTileActive {
+  background: #2E4E8D;
+  border-color: #2E4E8D;
+  color: #FFFFFF;
+}
+.dayTileActive .dayTileWeekday,
+.dayTileActive .dayTileCounter,
+.dayTileActive .dayTileRatio { color: #FFFFFF; }
+.dayTileActive .dayTileDate { color: #FFFFFF; }
+
+.dayTileWeekday {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5A6B85;
+}
+
+.dayTileDate {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1A2332;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  line-height: 1;
+}
+
+.dayTileCounter {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2E4E8D;
+  margin-top: 2px;
+}
+
+.dayTileRatio {
+  font-size: 10px;
+  color: #5A6B85;
+}
+.dayTileRatioDone { color: #2E8D5A; font-weight: 700; }
+.dayTileActive .dayTileRatioDone { color: #B7F0CC; }
+
+.dayDetailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dayDetailTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1A2332;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.recapList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recapRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #F7F8FB;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.recapBody {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.recapBody:disabled { cursor: default; opacity: 0.7; }
+
+.recapStatusOk {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #DFF4E5;
+  color: #2E8D5A;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.recapStatusMissed {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #FCE2E2;
+  color: #B83232;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.recapStatusNeutral {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #E5EEFB;
+  color: #2E4E8D;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.recapActivityLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12px;
+  color: #5A6B85;
+  margin-top: 4px;
+}
+
+.recapActivityChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.recapNotes {
+  font-size: 12px;
+  color: #1A2332;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.recapBackfillBtn {
+  flex-shrink: 0;
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #2E4E8D;
+  font-family: inherit;
+}
+.recapBackfillBtn:active { background: #EEF1F6; }

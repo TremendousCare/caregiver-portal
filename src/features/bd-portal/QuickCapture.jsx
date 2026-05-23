@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Mic, Square, MapPin } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdLogActivity, getCurrentPosition } from './hooks/useBdLogActivity';
@@ -32,11 +32,26 @@ function nowLocalForInput() {
   return d.toISOString().slice(0, 16);
 }
 
+// Accepts the `?when=YYYY-MM-DDTHH:mm` query param the WeekRecap uses
+// for backfill. Returns the param value when it matches the format the
+// datetime-local input accepts, else null so the caller falls back to
+// "right now."
+function parseWhenParam(raw) {
+  if (typeof raw !== 'string') return null;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw) ? raw : null;
+}
+
 export function QuickCapture() {
   const { accountId: lockedAccountId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { accounts, loading: accountsLoading } = useBdAccounts();
   const { submitting, submit } = useBdLogActivity();
+
+  // `?when=YYYY-MM-DDTHH:mm` is set by the WeekRecap backfill flow so
+  // the rep lands on the form with the right date pre-filled. Falls
+  // back to "right now" for the normal log-from-Today path.
+  const initialWhen = parseWhenParam(searchParams.get('when')) ?? nowLocalForInput();
 
   const [activityType, setActivityType] = useState('visit');
   const [accountId, setAccountId]       = useState(lockedAccountId ?? '');
@@ -44,7 +59,7 @@ export function QuickCapture() {
   const [notes, setNotes]               = useState('');
   const [spendInput, setSpendInput]     = useState('');
   const [spendCategory, setSpendCategory] = useState('meal');
-  const [occurredLocal, setOccurredLocal] = useState(nowLocalForInput);
+  const [occurredLocal, setOccurredLocal] = useState(initialWhen);
   const [gps, setGps]                   = useState(null);
   const [formError, setFormError]       = useState('');
   const [success, setSuccess]           = useState(null);

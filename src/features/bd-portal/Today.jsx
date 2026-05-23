@@ -18,6 +18,7 @@ import {
 import { hydrateStops, pruneStopsAgainstAccounts } from './lib/bdRoutePlans';
 import { fetchBdGoals, findActiveGoal, progressVsTarget } from '../bd-goals/lib/goalsQueries';
 import { supabase } from '../../lib/supabase';
+import { WeekRecap } from './WeekRecap';
 import s from './BdPortal.module.css';
 
 function timeOfDayGreeting(now = new Date()) {
@@ -238,11 +239,12 @@ export function Today({ displayName }) {
       </div>
 
       <div className={s.card}>
-        {/* Mode toggle — plan if she has one saved, top-5 otherwise.
-            Once the rep manually switches, their pick wins for the
-            rest of the session. Same segmented-pill pattern as the
-            territory toggle on the Accounts list so the design
-            language stays consistent. */}
+        {/* Mode toggle — plan if she has one saved, top-5 otherwise,
+            or the week recap for a Mon–Sun retrospective. Once the rep
+            manually switches, their pick wins for the rest of the
+            session. Same segmented-pill pattern as the territory
+            toggle on the Accounts list so the design language stays
+            consistent. */}
         <div className={s.territoryToggleRow}>
           <button
             type="button"
@@ -260,9 +262,17 @@ export function Today({ displayName }) {
           >
             Top 5
           </button>
+          <button
+            type="button"
+            className={`${s.territoryToggle} ${mode === 'week' ? s.territoryToggleActive : ''}`}
+            onClick={() => setUserMode('week')}
+            aria-pressed={mode === 'week'}
+          >
+            This week
+          </button>
         </div>
 
-        <div className={s.routeHeader}>
+        {mode !== 'week' && <div className={s.routeHeader}>
           {/* Section title slot stays empty — the toggle is the title.
               Right-side action pill changes per mode. */}
           <div />
@@ -301,9 +311,11 @@ export function Today({ displayName }) {
               </a>
             )
           )}
-        </div>
+        </div>}
 
-        {mode === 'plan' ? (
+        {mode === 'week' ? (
+          <WeekRecap />
+        ) : mode === 'plan' ? (
           planStops.length === 0 ? (
             <div className={s.planCardEmpty}>
               No plan yet — tap <strong>Build</strong> to pick your stops for today.
