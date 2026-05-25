@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Mic } from 'lucide-react';
 import { FieldRenderer, shouldRender } from './FieldRenderer';
 import { useAutosave } from './useAutosave';
 import { saveDraft } from './storage';
@@ -9,6 +10,8 @@ import {
 } from './sections';
 import { migrateSectionData } from './carePlanMigrations';
 import { TaskEditor } from './TaskEditor';
+import { VoiceCaptureModal } from './voice/VoiceCaptureModal';
+import { sectionSupportsVoiceCapture } from './voice/voiceFieldSchema';
 import btn from '../../styles/buttons.module.css';
 import s from './SectionEditor.module.css';
 
@@ -34,10 +37,12 @@ export function SectionEditor({
   section,
   version,
   currentUser,
+  clientId,
   onClose,
   onSaved,
   showToast,
 }) {
+  const [voiceOpen, setVoiceOpen] = useState(false);
   // Local editing state — seeded from the version's saved data,
   // then run through any per-section migrations (e.g., legacy
   // bathing_method arrays of strings become {method, level} rows).
@@ -73,6 +78,19 @@ export function SectionEditor({
     pendingPatchRef.current = { ...pendingPatchRef.current, [fieldId]: newValue };
     trigger({ ...pendingPatchRef.current });
   }, [trigger]);
+
+  // Apply a batch of voice-extracted field values in one shot. We
+  // update local state once and trigger a single autosave with the
+  // combined patch — debounced autosave would coalesce per-field
+  // triggers anyway, but doing it explicitly here is clearer and
+  // avoids 10+ setState renders for a large extraction.
+  const handleApplyVoicePatch = useCallback((patch) => {
+    if (!patch || Object.keys(patch).length === 0) return;
+    setValues((prev) => ({ ...prev, ...patch }));
+    pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
+    trigger({ ...pendingPatchRef.current });
+    showToast?.(`Voice capture: ${Object.keys(patch).length} field${Object.keys(patch).length === 1 ? '' : 's'} updated.`);
+  }, [trigger, showToast]);
 
   const handleClose = useCallback(async () => {
     await flush();
@@ -114,13 +132,27 @@ export function SectionEditor({
             <h2 className={s.title}>{section.label}</h2>
             <p className={s.description}>{section.description}</p>
           </div>
-          <button
-            className={s.closeBtn}
-            onClick={handleClose}
-            aria-label="Close drawer"
-          >
-            ✕
-          </button>
+          <div className={s.headerActions}>
+            {!disabled && sectionSupportsVoiceCapture(section) && (
+              <button
+                type="button"
+                className={s.voiceBtn}
+                onClick={() => setVoiceOpen(true)}
+                aria-label={`Fill ${section.label} with voice`}
+                title="Fill with voice"
+              >
+                <Mic size={14} />
+                <span>Voice</span>
+              </button>
+            )}
+            <button
+              className={s.closeBtn}
+              onClick={handleClose}
+              aria-label="Close drawer"
+            >
+              ✕
+            </button>
+          </div>
         </header>
 
         <div className={s.body}>
@@ -200,6 +232,18 @@ export function SectionEditor({
           </button>
         </footer>
       </aside>
+
+      {voiceOpen && (
+        <VoiceCaptureModal
+          section={section}
+          currentValues={values}
+          versionId={version?.id}
+          clientId={clientId}
+          currentUser={currentUser}
+          onApply={handleApplyVoicePatch}
+          onClose={() => setVoiceOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -85,6 +85,35 @@
   color: var(--tc-text-primary);
 }
 
+/* Voice button — sits next to the close X in the header. */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.voiceBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  height: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2D7DD2;
+  background: #EFF6FE;
+  border: 1px solid #C6DFF6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.voiceBtn:hover {
+  background: #DBEBFB;
+  border-color: #94C2F0;
+}
+
 .body {
   flex: 1;
   overflow-y: auto;
