@@ -181,3 +181,104 @@ export function defaultSelectedIds(rows) {
   }
   return selected;
 }
+
+
+// ─── Task proposals (Phase 3) ──────────────────────────────────
+
+/**
+ * Stable client-side key for a proposed task. The edge function
+ * doesn't assign ids (tasks aren't persisted until the user accepts),
+ * so the modal needs a deterministic key for selection state and
+ * React's reconciliation.
+ *
+ * Uses category + task_name + a positional suffix to disambiguate
+ * duplicates from the same dictation.
+ */
+export function makeTaskKey(task, index) {
+  const base = `${task.category}:${task.task_name || ''}`;
+  return `${base}:${index}`;
+}
+
+
+/**
+ * Default-select task proposals: skip low confidence + unverified.
+ * Tasks are higher-stakes than fields (caregivers execute them on
+ * shift), so the same opt-in policy applies as for fields — anything
+ * borderline lands unchecked.
+ */
+export function defaultSelectedTaskKeys(tasks) {
+  const selected = new Set();
+  (tasks || []).forEach((t, i) => {
+    if (!t.quoteVerified) return;
+    if (t.confidence === 'low') return;
+    selected.add(makeTaskKey(t, i));
+  });
+  return selected;
+}
+
+
+/**
+ * Render a task's schedule as a short summary string, e.g.:
+ *   "Mornings · Mon/Wed/Fri · critical"
+ *   "All shifts · daily"
+ *
+ * Used in the review UI's task row to give the nurse a one-glance
+ * read of when this task would run.
+ */
+export function formatTaskSchedule(task) {
+  const bits = [];
+  const shifts = Array.isArray(task.shifts) ? task.shifts : ['all'];
+  if (shifts.length === 1 && shifts[0] === 'all') {
+    bits.push('All shifts');
+  } else {
+    bits.push(shifts.map(capitalize).join(', '));
+  }
+  const days = Array.isArray(task.days_of_week) ? task.days_of_week : [];
+  if (days.length === 0)      bits.push('daily');
+  else if (days.length === 7) bits.push('every day');
+  else                        bits.push(days.join('/'));
+  if (task.priority && task.priority !== 'standard') {
+    bits.push(task.priority);
+  }
+  return bits.join(' · ');
+}
+
+
+function capitalize(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+
+/**
+ * Bucket proposed tasks by their group hint, preserving schemaGroups
+ * order. Tasks without a groupId (because their category's group
+ * wasn't found) land in a trailing ungrouped bucket so they're
+ * still visible to the user.
+ *
+ * Returns: [{ groupId, groupLabel, tasks: [{ task, key }, ...] }, ...]
+ */
+export function groupTaskProposals(tasks, schemaGroups) {
+  const groups = Array.isArray(schemaGroups) ? schemaGroups : [];
+  const byGroup = new Map();
+  for (const g of groups) {
+    byGroup.set(g.id, { groupId: g.id, groupLabel: g.label, tasks: [] });
+  }
+  const ungrouped = { groupId: null, groupLabel: null, tasks: [] };
+
+  (tasks || []).forEach((task, i) => {
+    const key = makeTaskKey(task, i);
+    const bucket = task.groupId && byGroup.has(task.groupId)
+      ? byGroup.get(task.groupId)
+      : ungrouped;
+    bucket.tasks.push({ task, key });
+  });
+
+  const result = [];
+  for (const g of groups) {
+    const bucket = byGroup.get(g.id);
+    if (bucket.tasks.length > 0) result.push(bucket);
+  }
+  if (ungrouped.tasks.length > 0) result.push(ungrouped);
+  return result;
+}

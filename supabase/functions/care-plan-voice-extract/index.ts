@@ -32,8 +32,11 @@ import {
   buildSystemPrompt,
   buildUserMessage,
   validateClaims,
+  validateTaskClaims,
   type ExtractionSchema,
   type FieldClaim,
+  type TaskClaim,
+  type TaskSchema,
 } from "./prompt.ts";
 
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL") ?? "";
@@ -159,6 +162,34 @@ Deno.serve(async (req: Request) => {
     currentValues = {};
   }
 
+  // Phase 3: optional task schema. Only sent for sections with a
+  // care_plan_tasks side table (ADLs, IADLs). Bad/missing schema =
+  // tasks not in scope for this call; we don't error so flat
+  // sections continue to work.
+  const taskSchemaRaw = String(form.get("taskSchema") ?? "");
+  let taskSchema: TaskSchema | null = null;
+  if (taskSchemaRaw) {
+    if (taskSchemaRaw.length > MAX_SCHEMA_BYTES) {
+      return json(413, { error: "taskSchema too large" }, cors);
+    }
+    try {
+      const parsed = JSON.parse(taskSchemaRaw);
+      if (
+        parsed
+        && Array.isArray(parsed.categories) && parsed.categories.length > 0
+        && Array.isArray(parsed.shifts)
+        && Array.isArray(parsed.daysOfWeek)
+        && Array.isArray(parsed.priorities)
+      ) {
+        taskSchema = parsed as TaskSchema;
+      }
+    } catch {
+      // Bad task schema = silently treat as no-tasks. Flat-section
+      // path is unaffected.
+      taskSchema = null;
+    }
+  }
+
   const clientId  = String(form.get("clientId")  ?? "") || null;
   const versionId = String(form.get("versionId") ?? "") || null;
   const userId    = String(form.get("userId")    ?? "") || null;
@@ -222,9 +253,9 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── 2. Extract structured fields via Claude tool use ─────────
-  const tool = buildExtractionTool();
-  const system = buildSystemPrompt();
-  const userMessage = buildUserMessage({ schema, transcript, currentValues });
+  const tool = buildExtractionTool({ taskSchema });
+  const system = buildSystemPrompt({ includeTasks: !!taskSchema });
+  const userMessage = buildUserMessage({ schema, transcript, currentValues, taskSchema });
 
   const claudeStart = Date.now();
   let claudeResp: Response;
@@ -261,7 +292,7 @@ Deno.serve(async (req: Request) => {
   const claudeMs = Date.now() - claudeStart;
 
   // Pull the tool_use block.
-  let toolInput: { fields?: FieldClaim[] } | null = null;
+  let toolInput: { fields?: FieldClaim[]; tasks?: TaskClaim[] } | null = null;
   for (const block of claudePayload.content || []) {
     if (block.type === "tool_use" && block.name === tool.name) {
       toolInput = block.input;
@@ -282,6 +313,12 @@ Deno.serve(async (req: Request) => {
     schema,
     transcript,
   });
+
+  // Validate task claims when the section accepts tasks.
+  const taskClaims: TaskClaim[] = Array.isArray(toolInput.tasks) ? toolInput.tasks : [];
+  const taskValidation = taskSchema
+    ? validateTaskClaims({ claims: taskClaims, taskSchema, transcript })
+    : { accepted: [], rejected: [] };
 
   // ── 4. Cost + observability ─────────────────────────────────
   const usage = claudePayload.usage || {};
@@ -313,6 +350,9 @@ Deno.serve(async (req: Request) => {
           claimsTotal: toolInput.fields.length,
           claimsAccepted: accepted.length,
           claimsRejected: rejected.length,
+          tasksProposed: taskClaims.length,
+          tasksAccepted: taskValidation.accepted.length,
+          tasksRejected: taskValidation.rejected.length,
           model: CLAUDE_MODEL,
           costUsd,
           whisperMs,
@@ -332,6 +372,8 @@ Deno.serve(async (req: Request) => {
     transcriptDurationSec: whisperData.duration ?? null,
     extracted: accepted,
     rejected,
+    proposedTasks: taskValidation.accepted,
+    rejectedTasks: taskValidation.rejected,
     usage: {
       inputTokens: usage.input_tokens || 0,
       outputTokens: usage.output_tokens || 0,
