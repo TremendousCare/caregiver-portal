@@ -93,6 +93,7 @@ export function sameValue(a, b) {
  * One row per claim:
  *   {
  *     id, fieldLabel, fieldType,
+ *     groupId?, groupLabel?,        // present for grouped sections
  *     currentValue,                 // already in the form
  *     proposedValue,                // what the extractor wants to set
  *     confidence, quote, quoteVerified,
@@ -106,7 +107,7 @@ export function buildProposalRows(claims, currentValues) {
   const cv = currentValues || {};
   return (claims || []).map((claim) => {
     const currentValue = cv[claim.id];
-    return {
+    const row = {
       id: claim.id,
       fieldLabel: claim.fieldLabel,
       fieldType: claim.fieldType,
@@ -117,7 +118,49 @@ export function buildProposalRows(claims, currentValues) {
       quoteVerified: claim.quoteVerified,
       isUnchanged: sameValue(currentValue, claim.value),
     };
+    if (claim.groupId)    row.groupId    = claim.groupId;
+    if (claim.groupLabel) row.groupLabel = claim.groupLabel;
+    return row;
   });
+}
+
+
+/**
+ * Bucket rows by groupId, preserving group order from the schema's
+ * `groups` array. Rows with no groupId land in a single ungrouped
+ * bucket (returned with `groupId: null`).
+ *
+ * Returns: [{ groupId, groupLabel, rows: [] }, ...]
+ *
+ * Used by the review UI to render an accordion-style breakdown for
+ * grouped sections without breaking the flat list for Phase 1 sections.
+ */
+export function groupProposalRows(rows, schemaGroups) {
+  const groups = Array.isArray(schemaGroups) ? schemaGroups : [];
+  const byGroup = new Map();
+  // Seed groups in declaration order so empty groups stay in
+  // position if all rows for a group were rejected.
+  for (const g of groups) {
+    byGroup.set(g.id, { groupId: g.id, groupLabel: g.label, rows: [] });
+  }
+  // Catch-all bucket for rows whose groupId isn't in the schema, or
+  // for flat (non-grouped) sections.
+  const ungrouped = { groupId: null, groupLabel: null, rows: [] };
+
+  for (const row of rows || []) {
+    const bucket = row.groupId && byGroup.has(row.groupId)
+      ? byGroup.get(row.groupId)
+      : ungrouped;
+    bucket.rows.push(row);
+  }
+
+  const result = [];
+  for (const g of groups) {
+    const bucket = byGroup.get(g.id);
+    if (bucket.rows.length > 0) result.push(bucket);
+  }
+  if (ungrouped.rows.length > 0) result.push(ungrouped);
+  return result;
 }
 
 

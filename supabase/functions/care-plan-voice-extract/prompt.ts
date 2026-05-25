@@ -36,12 +36,25 @@ export type ExtractionField = {
   placeholder?: string;
   conditionalHint?: string;
   suggestionsKey?: string;
+  // Phase 2: grouped sections (ADLs, IADLs) tag each field with its
+  // accordion group so the prompt can organize by group and the
+  // review UI can render group headers. Undefined for flat sections.
+  groupId?: string;
+  groupLabel?: string;
+};
+
+export type ExtractionGroup = {
+  id: string;
+  label: string;
+  description?: string;
 };
 
 export type ExtractionSchema = {
   sectionId: string;
   sectionLabel: string;
   sectionDescription: string;
+  // Present only for grouped sections.
+  groups?: ExtractionGroup[];
   fields: ExtractionField[];
 };
 
@@ -155,9 +168,29 @@ export function buildUserMessage(args: {
     parts.push(`Section description: ${schema.sectionDescription}`);
   }
   parts.push("");
-  parts.push("FIELDS YOU CAN FILL:");
-  parts.push(formatFieldSchemaForPrompt(schema.fields, 0));
-  parts.push("");
+
+  // Grouped sections (Daily Living ADLs, Home & Life IADLs) get
+  // organized by accordion group so Claude understands the semantic
+  // boundaries the speaker is dictating across. Flat sections render
+  // as a single field list (same as Phase 1).
+  if (Array.isArray(schema.groups) && schema.groups.length > 0) {
+    parts.push("FIELDS YOU CAN FILL — organized by sub-area within this section:");
+    parts.push("");
+    parts.push("The speaker may discuss these sub-areas in any order. A single sentence may touch multiple sub-areas (e.g., 'she walks fine but needs full help bathing' covers Ambulation AND Bathing).");
+    parts.push("");
+    for (const group of schema.groups) {
+      const groupFields = schema.fields.filter((f) => f.groupId === group.id);
+      if (groupFields.length === 0) continue;
+      parts.push(`── ${group.label} ──`);
+      if (group.description) parts.push(`(${group.description})`);
+      parts.push(formatFieldSchemaForPrompt(groupFields, 0));
+      parts.push("");
+    }
+  } else {
+    parts.push("FIELDS YOU CAN FILL:");
+    parts.push(formatFieldSchemaForPrompt(schema.fields, 0));
+    parts.push("");
+  }
 
   if (currentValues && Object.keys(currentValues).length > 0) {
     parts.push("CURRENT VALUES IN THIS SECTION (preserve unless the speaker explicitly updated them):");
@@ -218,6 +251,11 @@ export type FieldClaim = {
 export type ValidatedClaim = FieldClaim & {
   fieldLabel: string;
   fieldType: string;
+  // Group context for grouped sections (ADLs, IADLs). Lets the
+  // review UI render group headers without re-looking-up the schema.
+  // Undefined for flat sections.
+  groupId?: string;
+  groupLabel?: string;
   // True if the quote was found in the transcript. False = likely
   // hallucination; we drop the claim but emit a warning.
   quoteVerified: boolean;
@@ -268,13 +306,16 @@ export function validateClaims(args: {
       ? normalizedTranscript.includes(normalizeForQuoteMatch(claim.quote))
       : false;
 
-    accepted.push({
+    const accepted_claim: ValidatedClaim = {
       ...claim,
       value: valueCheck.normalized,
       fieldLabel: field.label,
       fieldType: field.type,
       quoteVerified,
-    });
+    };
+    if (field.groupId)    accepted_claim.groupId    = field.groupId;
+    if (field.groupLabel) accepted_claim.groupLabel = field.groupLabel;
+    accepted.push(accepted_claim);
   }
 
   return { accepted, rejected };
