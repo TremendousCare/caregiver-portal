@@ -332,6 +332,7 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
           section={editingSection}
           version={currentVersion}
           currentUser={currentUser}
+          clientId={client?.id}
           onClose={handleDrawerClose}
           onSaved={handleDrawerSaved}
           showToast={showToast}
