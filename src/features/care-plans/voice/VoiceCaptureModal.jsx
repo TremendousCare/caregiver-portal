@@ -256,7 +256,11 @@ export function VoiceCaptureModal({
 
         <div className={s.body}>
           {state === STATE.RECORDING && (
-            <RecordingPanel elapsed={elapsed} onStop={stopRecording} />
+            <RecordingPanel
+              elapsed={elapsed}
+              onStop={stopRecording}
+              supportsTasks={!!taskSchema}
+            />
           )}
           {state === STATE.STOPPED && (
             <StoppedPanel
@@ -318,7 +322,7 @@ export function VoiceCaptureModal({
 
 // ─── Sub-panels ────────────────────────────────────────────────
 
-function RecordingPanel({ elapsed, onStop }) {
+function RecordingPanel({ elapsed, onStop, supportsTasks }) {
   return (
     <div className={s.panel}>
       <div className={s.recordingIndicator}>
@@ -330,6 +334,19 @@ function RecordingPanel({ elapsed, onStop }) {
         Speak naturally about what you know. When you're done, tap stop —
         you'll review what was captured before anything is saved.
       </p>
+      {supportsTasks && (
+        <div className={s.tipBox}>
+          <div className={s.tipBoxHeader}>Tip — this section supports tasks</div>
+          <p className={s.tipBoxBody}>
+            For caregiver tasks, you can say things like:
+          </p>
+          <ul className={s.tipExamples}>
+            <li>&ldquo;Add a task to walk the dog every morning.&rdquo;</li>
+            <li>&ldquo;Add task: help with shower Tuesdays and Fridays.&rdquo;</li>
+            <li>&ldquo;She needs help bathing twice a week.&rdquo;</li>
+          </ul>
+        </div>
+      )}
       <button className={s.stopBtn} onClick={onStop} aria-label="Stop recording">
         <Square size={18} fill="currentColor" />
         <span>Stop</span>

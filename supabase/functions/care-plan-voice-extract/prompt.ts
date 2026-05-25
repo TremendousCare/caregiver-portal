@@ -226,10 +226,25 @@ export function buildSystemPrompt(options: { includeTasks?: boolean } = {}): str
     lines.push(
       "",
       "TASK PROPOSALS — additional rules for the `tasks` array (only present when this section has a tasks side table):",
-      "T1. A task is something the caregiver DOES on a shift — an action, not a status. 'She bathes in the shower' is a field (bathing method). 'Help her with the shower' is a task.",
-      "T2. Only propose a task when the speaker explicitly described it as something the caregiver should do or has been doing. If they only described the client's abilities or preferences, that's a field — not a task.",
-      "T3. Be CONSERVATIVE on tasks. Caregivers will execute these on shift. Wrong tasks are higher-stakes than wrong fields. If you're not sure, OMIT.",
-      "T4. Task name should be short and action-oriented (max ~6 words). 'Assist with shower', 'Prepare breakfast', 'Walk dog'. Never include client-specific context in the name — that goes in `description`.",
+      "",
+      "WHAT COUNTS AS A TASK SIGNAL — both of these styles are valid and should produce task proposals:",
+      "  (a) IMPLICIT — the speaker describes what the caregiver does:",
+      "      • 'She needs help with bathing twice a week'",
+      "      • 'Walk the dog every morning'",
+      "      • 'Help her prepare breakfast around 8am'",
+      "      • 'Remind her to take her evening medications'",
+      "  (b) EXPLICIT — the speaker tells the system to add/create a task. These are DIRECT instructions; treat them as the strongest possible task signal:",
+      "      • 'Add a task to walk the dog Mondays, Wednesdays, Fridays'",
+      "      • 'Add task: help with shower in the mornings'",
+      "      • 'Create a task for medication reminders'",
+      "      • 'Let's add a task to prepare lunch'",
+      "      • 'We need a task for laundry on Saturdays'",
+      "    For explicit signals, IGNORE the meta phrase ('add a task', 'create a task', 'let's add', 'we need a task', etc.) — it's the speaker addressing the system. Use the REST of the sentence as the task description. Do NOT treat the meta phrase as a reason to skip the proposal.",
+      "",
+      "T1. A task is something the caregiver DOES on a shift — an action. 'She bathes in the shower' is a field (bathing_method). 'Help her with the shower' is a task. 'Add task: bathe her' is also a task.",
+      "T2. Propose a task whenever EITHER (a) or (b) above applies. Do NOT additionally require some 'clear enough' threshold beyond that — the user knows their dictation; if they said 'add a task to X', that IS the signal.",
+      "T3. Conservatism applies to AMBIGUOUS cases: if the speaker only described a CLIENT ability or preference (e.g., 'she likes oatmeal', 'she walks fine') without describing a caregiver action, do NOT invent a task. But explicit and implicit task signals should be acted on — being so conservative that you reject clear task signals is itself an error.",
+      "T4. Task name should be short and action-oriented (max ~6 words). 'Assist with shower', 'Prepare breakfast', 'Walk dog'. Strip the meta-phrase if there was one — 'Add a task to walk the dog' becomes a task named 'Walk dog'.",
       "T5. Schedule mapping:",
       "    - 'twice a week' or other frequency without specific days → days_of_week: [] (empty means no day restriction; caregiver decides)",
       "    - 'Mondays, Wednesdays, Fridays' → days_of_week: ['Mon', 'Wed', 'Fri']",
@@ -239,6 +254,7 @@ export function buildSystemPrompt(options: { includeTasks?: boolean } = {}): str
       "T6. Shifts: if the speaker didn't specify a shift, use ['all']. If they said 'mornings', 'in the evening', etc., use the matching shift(s).",
       "T7. Priority 'critical' only when the speaker explicitly flagged safety/medical urgency (e.g., 'must do this', 'safety-critical', 'never miss'). Default 'standard'. Use 'optional' if the speaker said 'if there's time' or similar.",
       "T8. NEVER propose duplicate tasks. If the speaker mentioned bathing assistance twice in different sentences, produce ONE task with the combined details.",
+      "T9. The `quote` for a task MUST be a real excerpt from the transcript. If the speaker used the meta-phrase 'add a task to walk the dog every morning', the quote can include 'add a task to walk the dog every morning' — that whole excerpt is in the transcript.",
     );
   }
 
@@ -325,7 +341,44 @@ export function buildUserMessage(args: {
     parts.push(`Allowed days_of_week (use 3-letter form): ${taskSchema.daysOfWeek.join(', ')}`);
     parts.push(`Allowed priorities: ${taskSchema.priorities.join(', ')} — default 'standard'`);
     parts.push("");
-    parts.push("Remember rule T2: only propose tasks the speaker explicitly described as ACTIONS for the caregiver to perform. Don't infer tasks from a stated ability or preference.");
+    parts.push("WORKED EXAMPLES (study these carefully — they show the exact mapping from natural dictation to tasks):");
+    parts.push("");
+    parts.push("  Speaker says: \"Add a task to walk the dog every morning.\"");
+    parts.push("  → tasks: [{");
+    parts.push("      category: \"iadl.errands\",  // or whichever Errands-like category exists in this section");
+    parts.push("      task_name: \"Walk dog\",");
+    parts.push("      shifts: [\"morning\"],");
+    parts.push("      days_of_week: [],   // 'every morning' = every day, no day restriction");
+    parts.push("      priority: \"standard\",");
+    parts.push("      confidence: \"high\",");
+    parts.push("      quote: \"Add a task to walk the dog every morning\"");
+    parts.push("    }]");
+    parts.push("");
+    parts.push("  Speaker says: \"Add task: help with shower Tuesdays and Fridays, mornings. Use the gait belt.\"");
+    parts.push("  → tasks: [{");
+    parts.push("      category: \"adl.bathing\",");
+    parts.push("      task_name: \"Assist with shower\",");
+    parts.push("      shifts: [\"morning\"],");
+    parts.push("      days_of_week: [\"Tue\", \"Fri\"],");
+    parts.push("      priority: \"standard\",");
+    parts.push("      safety_notes: \"Use gait belt\",");
+    parts.push("      confidence: \"high\",");
+    parts.push("      quote: \"Add task: help with shower Tuesdays and Fridays, mornings. Use the gait belt.\"");
+    parts.push("    }]");
+    parts.push("");
+    parts.push("  Speaker says: \"She likes oatmeal for breakfast.\"");
+    parts.push("  → tasks: []  // this is a preference (field), not a caregiver action");
+    parts.push("");
+    parts.push("  Speaker says: \"She needs help getting in and out of the shower twice a week.\"");
+    parts.push("  → tasks: [{");
+    parts.push("      category: \"adl.bathing\",");
+    parts.push("      task_name: \"Assist with shower\",");
+    parts.push("      shifts: [\"all\"],");
+    parts.push("      days_of_week: [],   // 'twice a week' without specific days");
+    parts.push("      priority: \"standard\",");
+    parts.push("      confidence: \"high\",");
+    parts.push("      quote: \"She needs help getting in and out of the shower twice a week\"");
+    parts.push("    }]");
     parts.push("");
   }
 
@@ -334,7 +387,11 @@ export function buildUserMessage(args: {
   parts.push(transcript);
   parts.push('"""');
   parts.push("");
-  parts.push("Now call the `record_care_plan_facts` tool with one entry per fact the speaker explicitly stated. Remember: omit fields the speaker did not address.");
+  if (taskSchema && taskSchema.categories.length > 0) {
+    parts.push("Now call the `record_care_plan_facts` tool. Populate `fields` with the facts the speaker stated about the client. Populate `tasks` with the caregiver actions the speaker described — including any cases where the speaker explicitly said 'add a task to...', 'create a task for...', etc. Omit fields and tasks the speaker did not address.");
+  } else {
+    parts.push("Now call the `record_care_plan_facts` tool with one entry per fact the speaker explicitly stated. Remember: omit fields the speaker did not address.");
+  }
 
   return parts.join("\n");
 }
