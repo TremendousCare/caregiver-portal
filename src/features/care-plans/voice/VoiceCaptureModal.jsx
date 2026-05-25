@@ -8,7 +8,12 @@ import {
 } from '../../bd-portal/lib/voiceRecorder';
 import { buildVoiceFieldSchema, sectionSupportsVoiceCapture } from './voiceFieldSchema';
 import { extractVoiceFields } from './voiceExtractClient';
-import { buildProposalRows, defaultSelectedIds, formatValueForDisplay } from './voiceExtractDiff';
+import {
+  buildProposalRows,
+  defaultSelectedIds,
+  formatValueForDisplay,
+  groupProposalRows,
+} from './voiceExtractDiff';
 import btn from '../../../styles/buttons.module.css';
 import s from './VoiceCaptureModal.module.css';
 
@@ -231,6 +236,7 @@ export function VoiceCaptureModal({
             <ReviewPanel
               transcript={transcript}
               rows={rows}
+              schemaGroups={schema?.groups}
               rejected={rejected}
               selected={selected}
               onToggle={handleToggle}
@@ -349,12 +355,13 @@ function ErrorPanel({ error, onRetry }) {
 
 
 function ReviewPanel({
-  transcript, rows, rejected, selected, onToggle,
+  transcript, rows, schemaGroups, rejected, selected, onToggle,
   showRejected, onToggleShowRejected,
 }) {
   // Sort: changed-and-high-confidence first, then changed-medium,
   // then unchanged, then anything else. Keeps the user's eye on
-  // the actionable rows.
+  // the actionable rows. The sort runs BEFORE grouping so the order
+  // within each accordion group is also priority-driven.
   const sorted = useMemo(() => {
     const score = (r) => {
       if (r.isUnchanged) return 100;
@@ -365,6 +372,16 @@ function ReviewPanel({
     };
     return [...rows].sort((a, b) => score(a) - score(b));
   }, [rows]);
+
+  // For grouped sections (ADLs, IADLs) we render the proposals as
+  // an accordion-style breakdown so the nurse can scan changes by
+  // sub-area. For flat sections, this collapses to a single ungrouped
+  // bucket and renders the same as Phase 1.
+  const buckets = useMemo(
+    () => groupProposalRows(sorted, schemaGroups),
+    [sorted, schemaGroups],
+  );
+  const hasGroups = Array.isArray(schemaGroups) && schemaGroups.length > 0;
 
   return (
     <div className={s.reviewWrap}>
@@ -385,13 +402,30 @@ function ReviewPanel({
       )}
 
       <div className={s.proposalList}>
-        {sorted.map((row) => (
-          <ProposalRow
-            key={row.id}
-            row={row}
-            checked={selected.has(row.id)}
-            onToggle={() => onToggle(row.id)}
-          />
+        {buckets.map((bucket) => (
+          <div
+            key={bucket.groupId || '_ungrouped'}
+            className={hasGroups ? s.groupBucket : ''}
+          >
+            {hasGroups && bucket.groupLabel && (
+              <div className={s.groupHeader}>
+                {bucket.groupLabel}
+                <span className={s.groupCount}>
+                  {bucket.rows.filter((r) => !r.isUnchanged).length} change{
+                    bucket.rows.filter((r) => !r.isUnchanged).length === 1 ? '' : 's'
+                  }
+                </span>
+              </div>
+            )}
+            {bucket.rows.map((row) => (
+              <ProposalRow
+                key={row.id}
+                row={row}
+                checked={selected.has(row.id)}
+                onToggle={() => onToggle(row.id)}
+              />
+            ))}
+          </div>
         ))}
       </div>
 

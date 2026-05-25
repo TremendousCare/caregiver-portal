@@ -279,6 +279,38 @@
   gap: 8px;
 }
 
+/* Grouped sections (Daily Living ADLs, Home & Life IADLs) get an
+   accordion-style breakdown so the nurse can scan changes by area. */
+.groupBucket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.groupBucket:last-child { margin-bottom: 0; }
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #ECEFF3;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #1A222F;
+}
+
+.groupCount {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tc-text-secondary, #5C6677);
+  letter-spacing: 0.2px;
+  text-transform: none;
+}
+
 .proposalRow {
   display: flex;
   align-items: flex-start;

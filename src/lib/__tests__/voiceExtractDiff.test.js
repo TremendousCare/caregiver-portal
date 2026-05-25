@@ -4,6 +4,7 @@ import {
   sameValue,
   buildProposalRows,
   defaultSelectedIds,
+  groupProposalRows,
 } from '../../features/care-plans/voice/voiceExtractDiff';
 
 
@@ -116,6 +117,106 @@ describe('buildProposalRows', () => {
     expect(rows[0].confidence).toBe('high');
     expect(rows[0].quote).toBe('her name is Mary Johnson');
     expect(rows[0].quoteVerified).toBe(true);
+  });
+});
+
+
+describe('buildProposalRows with group context', () => {
+  it('carries groupId/groupLabel through to the proposal row', () => {
+    const claims = [
+      {
+        id: 'ambulation_mobilityLevel', fieldLabel: 'Mobility level',
+        fieldType: 'levelPick', value: 'Independent', confidence: 'high',
+        quote: 'walks on her own', quoteVerified: true,
+        groupId: 'ambulation', groupLabel: 'Ambulation & Transfers',
+      },
+    ];
+    const [row] = buildProposalRows(claims, {});
+    expect(row.groupId).toBe('ambulation');
+    expect(row.groupLabel).toBe('Ambulation & Transfers');
+  });
+
+  it('leaves groupId undefined when the claim has none (flat sections)', () => {
+    const claims = [
+      {
+        id: 'fullName', fieldLabel: 'Full name', fieldType: 'text',
+        value: 'Mary', confidence: 'high', quote: 'Mary', quoteVerified: true,
+      },
+    ];
+    const [row] = buildProposalRows(claims, {});
+    expect(row.groupId).toBeUndefined();
+    expect(row.groupLabel).toBeUndefined();
+  });
+});
+
+
+describe('groupProposalRows', () => {
+  const schemaGroups = [
+    { id: 'ambulation', label: 'Ambulation & Transfers' },
+    { id: 'bathing',    label: 'Bathing & Grooming' },
+    { id: 'dressing',   label: 'Dressing' },
+  ];
+
+  it('buckets rows by groupId preserving schema declaration order', () => {
+    const rows = [
+      { id: 'bathing_method',          groupId: 'bathing' },
+      { id: 'ambulation_mobility',     groupId: 'ambulation' },
+      { id: 'dressing_assistLevel',    groupId: 'dressing' },
+      { id: 'ambulation_aids',         groupId: 'ambulation' },
+    ];
+    const out = groupProposalRows(rows, schemaGroups);
+    expect(out.map((b) => b.groupId)).toEqual(['ambulation', 'bathing', 'dressing']);
+    expect(out[0].rows.map((r) => r.id))
+      .toEqual(['ambulation_mobility', 'ambulation_aids']);
+    expect(out[1].rows.map((r) => r.id)).toEqual(['bathing_method']);
+    expect(out[2].rows.map((r) => r.id)).toEqual(['dressing_assistLevel']);
+  });
+
+  it('omits groups that have no rows', () => {
+    const rows = [
+      { id: 'ambulation_mobility', groupId: 'ambulation' },
+    ];
+    const out = groupProposalRows(rows, schemaGroups);
+    expect(out.map((b) => b.groupId)).toEqual(['ambulation']);
+  });
+
+  it('puts rows without a groupId into a separate ungrouped bucket', () => {
+    const rows = [
+      { id: 'a', groupId: 'ambulation' },
+      { id: 'orphan' /* no groupId */ },
+    ];
+    const out = groupProposalRows(rows, schemaGroups);
+    expect(out.map((b) => b.groupId)).toEqual(['ambulation', null]);
+    expect(out[1].rows.map((r) => r.id)).toEqual(['orphan']);
+  });
+
+  it('handles flat sections (no schemaGroups) by lumping everything ungrouped', () => {
+    const rows = [
+      { id: 'fullName' },
+      { id: 'gender' },
+    ];
+    const out = groupProposalRows(rows, undefined);
+    expect(out).toHaveLength(1);
+    expect(out[0].groupId).toBeNull();
+    expect(out[0].rows.map((r) => r.id)).toEqual(['fullName', 'gender']);
+  });
+
+  it('returns empty array when there are no rows', () => {
+    expect(groupProposalRows([], schemaGroups)).toEqual([]);
+    expect(groupProposalRows(null, schemaGroups)).toEqual([]);
+  });
+
+  it('routes rows whose groupId is unknown into the ungrouped bucket', () => {
+    const rows = [
+      { id: 'a', groupId: 'ambulation' },
+      { id: 'b', groupId: 'phantomGroup' /* not in schemaGroups */ },
+    ];
+    const out = groupProposalRows(rows, schemaGroups);
+    // Phantom rows shouldn't silently vanish — they go to ungrouped
+    // so the user still sees them.
+    const ungrouped = out.find((b) => b.groupId === null);
+    expect(ungrouped).toBeDefined();
+    expect(ungrouped.rows.map((r) => r.id)).toEqual(['b']);
   });
 });
 
