@@ -10,6 +10,7 @@ import {
 } from './sections';
 import { migrateSectionData } from './carePlanMigrations';
 import { TaskEditor } from './TaskEditor';
+import { createTask } from './storage';
 import { VoiceCaptureModal } from './voice/VoiceCaptureModal';
 import { sectionSupportsVoiceCapture } from './voice/voiceFieldSchema';
 import btn from '../../styles/buttons.module.css';
@@ -79,18 +80,59 @@ export function SectionEditor({
     trigger({ ...pendingPatchRef.current });
   }, [trigger]);
 
-  // Apply a batch of voice-extracted field values in one shot. We
-  // update local state once and trigger a single autosave with the
-  // combined patch — debounced autosave would coalesce per-field
-  // triggers anyway, but doing it explicitly here is clearer and
-  // avoids 10+ setState renders for a large extraction.
-  const handleApplyVoicePatch = useCallback((patch) => {
-    if (!patch || Object.keys(patch).length === 0) return;
-    setValues((prev) => ({ ...prev, ...patch }));
-    pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
-    trigger({ ...pendingPatchRef.current });
-    showToast?.(`Voice capture: ${Object.keys(patch).length} field${Object.keys(patch).length === 1 ? '' : 's'} updated.`);
-  }, [trigger, showToast]);
+  // Apply a batch of voice-extracted field values plus (Phase 3)
+  // a list of accepted task drafts. The modal calls this with shape
+  // { fields, tasks }. Fields go through the existing autosave path;
+  // tasks are created via the existing createTask helper, one row
+  // per accepted draft. We intentionally do not parallelize task
+  // inserts — sequential keeps the event log readable and total
+  // task count is small in practice.
+  const handleApplyVoiceExtraction = useCallback(async ({ fields, tasks } = {}) => {
+    const fieldCount = fields ? Object.keys(fields).length : 0;
+    if (fieldCount > 0) {
+      setValues((prev) => ({ ...prev, ...fields }));
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...fields };
+      trigger({ ...pendingPatchRef.current });
+    }
+
+    let tasksCreated = 0;
+    if (Array.isArray(tasks) && tasks.length > 0 && version?.id) {
+      const userId = currentUser?.displayName || currentUser?.email || null;
+      for (const draft of tasks) {
+        try {
+          await createTask(
+            version.id,
+            {
+              category:    draft.category,
+              taskName:    draft.task_name,
+              description: draft.description ?? null,
+              shifts:      Array.isArray(draft.shifts) && draft.shifts.length > 0
+                ? draft.shifts
+                : ['all'],
+              daysOfWeek:  Array.isArray(draft.days_of_week) ? draft.days_of_week : [],
+              priority:    draft.priority || 'standard',
+              safetyNotes: draft.safety_notes ?? null,
+            },
+            { userId },
+          );
+          tasksCreated += 1;
+        } catch (e) {
+          // One bad task shouldn't abort the rest. Surface the error
+          // via toast but keep iterating.
+          // eslint-disable-next-line no-console
+          console.error('[voice] task create failed:', e?.message || e);
+          showToast?.(`Couldn't create task "${draft.task_name}": ${e?.message || 'unknown error'}`);
+        }
+      }
+    }
+
+    if (fieldCount > 0 || tasksCreated > 0) {
+      const bits = [];
+      if (fieldCount > 0)   bits.push(`${fieldCount} field${fieldCount === 1 ? '' : 's'} updated`);
+      if (tasksCreated > 0) bits.push(`${tasksCreated} task${tasksCreated === 1 ? '' : 's'} added`);
+      showToast?.(`Voice capture: ${bits.join(', ')}.`);
+    }
+  }, [trigger, showToast, version?.id, currentUser]);
 
   const handleClose = useCallback(async () => {
     await flush();
@@ -240,7 +282,7 @@ export function SectionEditor({
           versionId={version?.id}
           clientId={clientId}
           currentUser={currentUser}
-          onApply={handleApplyVoicePatch}
+          onApply={handleApplyVoiceExtraction}
           onClose={() => setVoiceOpen(false)}
         />
       )}

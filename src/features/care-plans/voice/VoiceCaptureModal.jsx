@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, Square, AlertTriangle, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { Mic, Square, AlertTriangle, CheckCircle2, X, Loader2, ListChecks } from 'lucide-react';
 import {
   VoiceRecorder,
   formatDuration,
@@ -7,12 +7,17 @@ import {
   MAX_RECORDING_SECONDS,
 } from '../../bd-portal/lib/voiceRecorder';
 import { buildVoiceFieldSchema, sectionSupportsVoiceCapture } from './voiceFieldSchema';
+import { buildVoiceTaskSchema } from './voiceTaskSchema';
 import { extractVoiceFields } from './voiceExtractClient';
 import {
   buildProposalRows,
   defaultSelectedIds,
+  defaultSelectedTaskKeys,
+  formatTaskSchedule,
   formatValueForDisplay,
   groupProposalRows,
+  groupTaskProposals,
+  makeTaskKey,
 } from './voiceExtractDiff';
 import btn from '../../../styles/buttons.module.css';
 import s from './VoiceCaptureModal.module.css';
@@ -63,7 +68,10 @@ export function VoiceCaptureModal({
   const [transcript, setTranscript] = useState('');
   const [extracted, setExtracted] = useState([]);
   const [rejected, setRejected] = useState([]);
+  const [proposedTasks, setProposedTasks] = useState([]);
+  const [rejectedTasks, setRejectedTasks] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
+  const [selectedTaskKeys, setSelectedTaskKeys] = useState(() => new Set());
   const [showRejected, setShowRejected] = useState(false);
 
   const recorderRef = useRef(null);
@@ -71,6 +79,7 @@ export function VoiceCaptureModal({
   const autoStopTimerRef = useRef(null);
 
   const schema = useMemo(() => buildVoiceFieldSchema(section), [section]);
+  const taskSchema = useMemo(() => buildVoiceTaskSchema(section), [section]);
 
   // ── Recording lifecycle ──────────────────────────────────────
 
@@ -138,6 +147,7 @@ export function VoiceCaptureModal({
       const result = await extractVoiceFields({
         audio: audioBlob,
         schema,
+        taskSchema,
         currentValues: currentValues || {},
         versionId,
         clientId,
@@ -146,17 +156,22 @@ export function VoiceCaptureModal({
       const tx = result?.transcript || '';
       const ex = Array.isArray(result?.extracted) ? result.extracted : [];
       const rj = Array.isArray(result?.rejected) ? result.rejected : [];
+      const pt = Array.isArray(result?.proposedTasks) ? result.proposedTasks : [];
+      const rt = Array.isArray(result?.rejectedTasks) ? result.rejectedTasks : [];
       setTranscript(tx);
       setExtracted(ex);
       setRejected(rj);
+      setProposedTasks(pt);
+      setRejectedTasks(rt);
       const rows = buildProposalRows(ex, currentValues || {});
       setSelected(defaultSelectedIds(rows));
+      setSelectedTaskKeys(defaultSelectedTaskKeys(pt));
       setState(STATE.REVIEW);
     } catch (e) {
       setError(e?.message || 'Voice extraction failed');
       setState(STATE.ERROR);
     }
-  }, [audioBlob, schema, currentValues, versionId, clientId, currentUser]);
+  }, [audioBlob, schema, taskSchema, currentValues, versionId, clientId, currentUser]);
 
 
   // ── Apply selected ──────────────────────────────────────────
@@ -175,24 +190,43 @@ export function VoiceCaptureModal({
     });
   }, []);
 
+  const handleToggleTask = useCallback((key) => {
+    setSelectedTaskKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const handleApply = useCallback(() => {
+    // Field patch
     const patch = {};
     for (const row of rows) {
       if (!selected.has(row.id)) continue;
       if (row.isUnchanged) continue;
       patch[row.id] = row.proposedValue;
     }
-    if (Object.keys(patch).length > 0) {
-      onApply?.(patch);
+    // Selected task drafts (in their original input order so makeTaskKey
+    // index stays meaningful)
+    const tasks = [];
+    proposedTasks.forEach((task, i) => {
+      const key = makeTaskKey(task, i);
+      if (selectedTaskKeys.has(key)) tasks.push(task);
+    });
+
+    if (Object.keys(patch).length > 0 || tasks.length > 0) {
+      onApply?.({ fields: patch, tasks });
     }
     onClose?.();
-  }, [rows, selected, onApply, onClose]);
+  }, [rows, selected, proposedTasks, selectedTaskKeys, onApply, onClose]);
 
 
   const selectedCount = useMemo(
     () => rows.filter((r) => selected.has(r.id) && !r.isUnchanged).length,
     [rows, selected],
   );
+  const selectedTaskCount = selectedTaskKeys.size;
 
   // ── Render ──────────────────────────────────────────────────
   // Defense in depth — SectionEditor already gates the trigger button
@@ -240,6 +274,10 @@ export function VoiceCaptureModal({
               rejected={rejected}
               selected={selected}
               onToggle={handleToggle}
+              proposedTasks={proposedTasks}
+              rejectedTasks={rejectedTasks}
+              selectedTaskKeys={selectedTaskKeys}
+              onToggleTask={handleToggleTask}
               showRejected={showRejected}
               onToggleShowRejected={() => setShowRejected((v) => !v)}
             />
@@ -253,16 +291,16 @@ export function VoiceCaptureModal({
           {state === STATE.REVIEW ? (
             <>
               <span className={s.footerCount}>
-                {selectedCount} field{selectedCount === 1 ? '' : 's'} selected to apply
+                {formatApplySummary(selectedCount, selectedTaskCount)}
               </span>
               <div className={s.footerActions}>
                 <button className={btn.secondaryBtn} onClick={onClose}>Cancel</button>
                 <button
                   className={btn.primaryBtn}
                   onClick={handleApply}
-                  disabled={selectedCount === 0}
+                  disabled={selectedCount === 0 && selectedTaskCount === 0}
                 >
-                  Apply {selectedCount > 0 ? `(${selectedCount})` : ''}
+                  Apply {(selectedCount + selectedTaskCount) > 0 ? `(${selectedCount + selectedTaskCount})` : ''}
                 </button>
               </div>
             </>
@@ -356,12 +394,11 @@ function ErrorPanel({ error, onRetry }) {
 
 function ReviewPanel({
   transcript, rows, schemaGroups, rejected, selected, onToggle,
+  proposedTasks, rejectedTasks, selectedTaskKeys, onToggleTask,
   showRejected, onToggleShowRejected,
 }) {
-  // Sort: changed-and-high-confidence first, then changed-medium,
-  // then unchanged, then anything else. Keeps the user's eye on
-  // the actionable rows. The sort runs BEFORE grouping so the order
-  // within each accordion group is also priority-driven.
+  // Sort fields: changed-and-high-confidence first, then changed-medium,
+  // then unchanged. Keeps the user's eye on actionable rows.
   const sorted = useMemo(() => {
     const score = (r) => {
       if (r.isUnchanged) return 100;
@@ -373,15 +410,18 @@ function ReviewPanel({
     return [...rows].sort((a, b) => score(a) - score(b));
   }, [rows]);
 
-  // For grouped sections (ADLs, IADLs) we render the proposals as
-  // an accordion-style breakdown so the nurse can scan changes by
-  // sub-area. For flat sections, this collapses to a single ungrouped
-  // bucket and renders the same as Phase 1.
   const buckets = useMemo(
     () => groupProposalRows(sorted, schemaGroups),
     [sorted, schemaGroups],
   );
+  const taskBuckets = useMemo(
+    () => groupTaskProposals(proposedTasks || [], schemaGroups),
+    [proposedTasks, schemaGroups],
+  );
   const hasGroups = Array.isArray(schemaGroups) && schemaGroups.length > 0;
+  const totalRejected = (rejected?.length || 0) + (rejectedTasks?.length || 0);
+  const nothingExtracted =
+    sorted.length === 0 && (proposedTasks?.length || 0) === 0;
 
   return (
     <div className={s.reviewWrap}>
@@ -394,52 +434,97 @@ function ReviewPanel({
         </div>
       </details>
 
-      {sorted.length === 0 && (
+      {nothingExtracted && (
         <div className={s.emptyResult}>
-          No fields could be extracted from this dictation. Try recording
-          again with more specific details about each field you want to fill.
+          No fields or tasks could be extracted from this dictation. Try recording
+          again with more specific details.
         </div>
       )}
 
-      <div className={s.proposalList}>
-        {buckets.map((bucket) => (
-          <div
-            key={bucket.groupId || '_ungrouped'}
-            className={hasGroups ? s.groupBucket : ''}
-          >
-            {hasGroups && bucket.groupLabel && (
-              <div className={s.groupHeader}>
-                {bucket.groupLabel}
-                <span className={s.groupCount}>
-                  {bucket.rows.filter((r) => !r.isUnchanged).length} change{
-                    bucket.rows.filter((r) => !r.isUnchanged).length === 1 ? '' : 's'
-                  }
-                </span>
+      {sorted.length > 0 && (
+        <div className={s.proposalList}>
+          {buckets.map((bucket) => (
+            <div
+              key={bucket.groupId || '_ungrouped'}
+              className={hasGroups ? s.groupBucket : ''}
+            >
+              {hasGroups && bucket.groupLabel && (
+                <div className={s.groupHeader}>
+                  {bucket.groupLabel}
+                  <span className={s.groupCount}>
+                    {bucket.rows.filter((r) => !r.isUnchanged).length} change{
+                      bucket.rows.filter((r) => !r.isUnchanged).length === 1 ? '' : 's'
+                    }
+                  </span>
+                </div>
+              )}
+              {bucket.rows.map((row) => (
+                <ProposalRow
+                  key={row.id}
+                  row={row}
+                  checked={selected.has(row.id)}
+                  onToggle={() => onToggle(row.id)}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(proposedTasks?.length || 0) > 0 && (
+        <div className={s.taskSection}>
+          <div className={s.taskSectionHeader}>
+            <ListChecks size={14} />
+            <span>Proposed new tasks ({proposedTasks.length})</span>
+          </div>
+          <p className={s.taskSectionHint}>
+            These would be created as new tasks for the caregiver's shifts.
+            Check the ones you want to add — anything unchecked is dropped.
+          </p>
+          <div className={s.taskList}>
+            {taskBuckets.map((bucket) => (
+              <div
+                key={bucket.groupId || '_taskungrouped'}
+                className={hasGroups ? s.groupBucket : ''}
+              >
+                {hasGroups && bucket.groupLabel && (
+                  <div className={s.groupHeader}>
+                    {bucket.groupLabel}
+                    <span className={s.groupCount}>
+                      {bucket.tasks.length} task{bucket.tasks.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                )}
+                {bucket.tasks.map(({ task, key }) => (
+                  <TaskProposalRow
+                    key={key}
+                    task={task}
+                    checked={selectedTaskKeys.has(key)}
+                    onToggle={() => onToggleTask(key)}
+                  />
+                ))}
               </div>
-            )}
-            {bucket.rows.map((row) => (
-              <ProposalRow
-                key={row.id}
-                row={row}
-                checked={selected.has(row.id)}
-                onToggle={() => onToggle(row.id)}
-              />
             ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {rejected.length > 0 && (
+      {totalRejected > 0 && (
         <div className={s.rejectedBlock}>
           <button className={s.rejectedToggle} onClick={onToggleShowRejected}>
-            {showRejected ? 'Hide' : 'Show'} {rejected.length} rejected{' '}
-            extraction{rejected.length === 1 ? '' : 's'}
+            {showRejected ? 'Hide' : 'Show'} {totalRejected} rejected{' '}
+            extraction{totalRejected === 1 ? '' : 's'}
           </button>
           {showRejected && (
             <ul className={s.rejectedList}>
-              {rejected.map((r, i) => (
-                <li key={i} className={s.rejectedItem}>
+              {(rejected || []).map((r, i) => (
+                <li key={`f-${i}`} className={s.rejectedItem}>
                   <code>{r.claim?.id || '?'}</code>: {r.reason}
+                </li>
+              ))}
+              {(rejectedTasks || []).map((r, i) => (
+                <li key={`t-${i}`} className={s.rejectedItem}>
+                  <code>task: {r.claim?.task_name || r.claim?.category || '?'}</code>: {r.reason}
                 </li>
               ))}
             </ul>
@@ -448,6 +533,62 @@ function ReviewPanel({
       )}
     </div>
   );
+}
+
+
+function TaskProposalRow({ task, checked, onToggle }) {
+  const cls = [
+    s.proposalRow,
+    s.taskProposalRow,
+    !task.quoteVerified ? s.proposalUnverified : '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <label className={cls}>
+      <input
+        type="checkbox"
+        className={s.proposalCheckbox}
+        checked={checked}
+        onChange={onToggle}
+      />
+      <div className={s.proposalContent}>
+        <div className={s.proposalLabel}>
+          {task.task_name}
+          <ConfidenceChip confidence={task.confidence} verified={task.quoteVerified} />
+          <span className={s.taskCategoryBadge}>{task.categoryLabel}</span>
+        </div>
+        <div className={s.taskSchedule}>
+          {formatTaskSchedule(task)}
+        </div>
+        {task.description && (
+          <div className={s.taskDescription}>{task.description}</div>
+        )}
+        {task.safety_notes && (
+          <div className={s.taskSafetyNotes}>
+            <AlertTriangle size={11} /> {task.safety_notes}
+          </div>
+        )}
+        {task.quote && (
+          <div className={s.proposalQuote}>
+            <span aria-hidden="true">“</span>{task.quote}<span aria-hidden="true">”</span>
+          </div>
+        )}
+      </div>
+    </label>
+  );
+}
+
+
+function formatApplySummary(fieldCount, taskCount) {
+  const parts = [];
+  if (fieldCount > 0) {
+    parts.push(`${fieldCount} field${fieldCount === 1 ? '' : 's'}`);
+  }
+  if (taskCount > 0) {
+    parts.push(`${taskCount} task${taskCount === 1 ? '' : 's'}`);
+  }
+  if (parts.length === 0) return 'Nothing selected to apply';
+  return `${parts.join(' + ')} selected to apply`;
 }
 
 
