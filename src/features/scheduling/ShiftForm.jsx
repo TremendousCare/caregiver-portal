@@ -8,6 +8,12 @@ import {
 } from './shiftHelpers';
 import { CaregiverPicker } from './CaregiverPicker';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
+import {
+  applyCaregiverDefaultRate,
+  applyClientDefaultRate,
+  matchesCaregiverDefault,
+  matchesClientDefault,
+} from './shiftRateDefaults';
 import s from './ShiftForm.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -53,6 +59,17 @@ export function ShiftForm({
     [servicePlans, draft.clientId],
   );
 
+  // Lookups for the rate "(from default)" hint. The pickers store IDs;
+  // we resolve to the full objects to read their default rates.
+  const selectedClient = useMemo(
+    () => clients?.find((c) => c.id === draft.clientId) ?? null,
+    [clients, draft.clientId],
+  );
+  const assignedCaregiver = useMemo(
+    () => caregivers?.find((c) => c.id === draft.assignedCaregiverId) ?? null,
+    [caregivers, draft.assignedCaregiverId],
+  );
+
   const setField = (field, value) => onChange({ ...draft, [field]: value });
 
   const handleClientChange = (e) => {
@@ -65,7 +82,18 @@ export function ShiftForm({
       const parts = [client.address, client.city, client.state, client.zip].filter(Boolean);
       if (parts.length > 0) patch.locationAddress = parts.join(', ');
     }
-    onChange({ ...draft, ...patch });
+    // Auto-fill the client-bill rate from clients.default_billable_rate
+    // (Sprint 4 / migration 20260526000000). Never overwrites an
+    // explicit value; the DB trigger is the safety net for any path
+    // that bypasses this form.
+    const merged = applyClientDefaultRate({ ...draft, ...patch }, client);
+    onChange(merged);
+  };
+
+  const handleAssignedCaregiverChange = (id) => {
+    const caregiver = caregivers?.find((c) => c.id === id);
+    const merged = applyCaregiverDefaultRate({ ...draft, assignedCaregiverId: id }, caregiver);
+    onChange(merged);
   };
 
   const handleServicePlanChange = (e) => {
@@ -220,7 +248,7 @@ export function ShiftForm({
               proposedEndTime={draft.endTime}
               shiftId={draft.id}
               value={draft.assignedCaregiverId || null}
-              onChange={(id) => setField('assignedCaregiverId', id)}
+              onChange={handleAssignedCaregiverChange}
             />
           </div>
         </div>
@@ -241,9 +269,18 @@ export function ShiftForm({
       </div>
 
       {/* ── Rates + mileage ── */}
+      {/* Auto-fill: hourly_rate prefills from caregiver.defaultPayRate
+          when a caregiver is assigned; billable_rate prefills from
+          client.defaultBillableRate when a client is selected. The "(from
+          default)" hint appears when the input value matches the default. */}
       <div className={s.row3}>
         <label className={s.field}>
-          Hourly rate <span className={s.hint}>($/hr paid to caregiver)</span>
+          Hourly rate{' '}
+          <span className={s.hint}>
+            {matchesCaregiverDefault(draft.hourlyRate, assignedCaregiver)
+              ? '(from default)'
+              : '($/hr paid to caregiver)'}
+          </span>
           <input
             className={s.input}
             type="number"
@@ -251,11 +288,16 @@ export function ShiftForm({
             step="0.25"
             value={draft.hourlyRate ?? ''}
             onChange={(e) => setField('hourlyRate', e.target.value === '' ? null : Number(e.target.value))}
-            placeholder="24.50"
+            placeholder={assignedCaregiver?.defaultPayRate != null ? String(assignedCaregiver.defaultPayRate) : '24.50'}
           />
         </label>
         <label className={s.field}>
-          Billable rate <span className={s.hint}>($/hr to client)</span>
+          Billable rate{' '}
+          <span className={s.hint}>
+            {matchesClientDefault(draft.billableRate, selectedClient)
+              ? '(from default)'
+              : '($/hr to client)'}
+          </span>
           <input
             className={s.input}
             type="number"
@@ -263,7 +305,7 @@ export function ShiftForm({
             step="0.25"
             value={draft.billableRate ?? ''}
             onChange={(e) => setField('billableRate', e.target.value === '' ? null : Number(e.target.value))}
-            placeholder="35.00"
+            placeholder={selectedClient?.defaultBillableRate != null ? String(selectedClient.defaultBillableRate) : '35.00'}
           />
         </label>
         <label className={s.field}>
