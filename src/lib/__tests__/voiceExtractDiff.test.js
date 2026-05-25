@@ -5,6 +5,10 @@ import {
   buildProposalRows,
   defaultSelectedIds,
   groupProposalRows,
+  makeTaskKey,
+  defaultSelectedTaskKeys,
+  formatTaskSchedule,
+  groupTaskProposals,
 } from '../../features/care-plans/voice/voiceExtractDiff';
 
 
@@ -256,5 +260,134 @@ describe('defaultSelectedIds', () => {
     ];
     const sel = defaultSelectedIds(rows);
     expect(sel.has('a')).toBe(false);
+  });
+});
+
+
+// ─── Task helpers (Phase 3) ────────────────────────────────────
+
+describe('makeTaskKey', () => {
+  it('uses category + task_name + index for uniqueness', () => {
+    const k1 = makeTaskKey({ category: 'adl.bathing', task_name: 'Shower help' }, 0);
+    const k2 = makeTaskKey({ category: 'adl.bathing', task_name: 'Shower help' }, 1);
+    expect(k1).not.toBe(k2);
+    expect(k1).toContain('adl.bathing');
+    expect(k1).toContain('Shower help');
+  });
+
+  it('tolerates missing task_name', () => {
+    const k = makeTaskKey({ category: 'adl.bathing' }, 0);
+    expect(k).toBe('adl.bathing::0');
+  });
+});
+
+
+describe('defaultSelectedTaskKeys', () => {
+  const baseTasks = [
+    { category: 'adl.bathing', task_name: 'Shower help', confidence: 'high', quoteVerified: true },
+    { category: 'adl.feeding', task_name: 'Prepare breakfast', confidence: 'medium', quoteVerified: true },
+    { category: 'adl.dressing', task_name: 'Help with pants', confidence: 'low', quoteVerified: true },
+    { category: 'adl.toileting', task_name: 'Bathroom assist', confidence: 'high', quoteVerified: false },
+  ];
+
+  it('pre-selects high/medium confidence with verified quotes', () => {
+    const sel = defaultSelectedTaskKeys(baseTasks);
+    expect(sel.has(makeTaskKey(baseTasks[0], 0))).toBe(true);
+    expect(sel.has(makeTaskKey(baseTasks[1], 1))).toBe(true);
+  });
+
+  it('skips low-confidence tasks (force opt-in)', () => {
+    const sel = defaultSelectedTaskKeys(baseTasks);
+    expect(sel.has(makeTaskKey(baseTasks[2], 2))).toBe(false);
+  });
+
+  it('skips unverified-quote tasks (likely hallucinations)', () => {
+    const sel = defaultSelectedTaskKeys(baseTasks);
+    expect(sel.has(makeTaskKey(baseTasks[3], 3))).toBe(false);
+  });
+
+  it('handles empty / null input', () => {
+    expect(defaultSelectedTaskKeys([])).toEqual(new Set());
+    expect(defaultSelectedTaskKeys(null)).toEqual(new Set());
+  });
+});
+
+
+describe('formatTaskSchedule', () => {
+  it('renders "All shifts" when shifts is [all]', () => {
+    expect(formatTaskSchedule({ shifts: ['all'], days_of_week: [], priority: 'standard' }))
+      .toBe('All shifts · daily');
+  });
+
+  it('renders specific shifts capitalized', () => {
+    expect(formatTaskSchedule({ shifts: ['morning'], days_of_week: [], priority: 'standard' }))
+      .toBe('Morning · daily');
+  });
+
+  it('lists specific days', () => {
+    expect(formatTaskSchedule({
+      shifts: ['morning'],
+      days_of_week: ['Mon', 'Wed', 'Fri'],
+      priority: 'standard',
+    })).toBe('Morning · Mon/Wed/Fri');
+  });
+
+  it('shows "every day" for full week', () => {
+    expect(formatTaskSchedule({
+      shifts: ['all'],
+      days_of_week: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      priority: 'standard',
+    })).toBe('All shifts · every day');
+  });
+
+  it('appends non-standard priorities', () => {
+    expect(formatTaskSchedule({
+      shifts: ['all'], days_of_week: [], priority: 'critical',
+    })).toBe('All shifts · daily · critical');
+    expect(formatTaskSchedule({
+      shifts: ['all'], days_of_week: [], priority: 'optional',
+    })).toBe('All shifts · daily · optional');
+  });
+});
+
+
+describe('groupTaskProposals', () => {
+  const schemaGroups = [
+    { id: 'ambulation', label: 'Ambulation & Transfers' },
+    { id: 'bathing',    label: 'Bathing & Grooming' },
+  ];
+
+  const tasks = [
+    { category: 'adl.bathing', task_name: 'Shower help', groupId: 'bathing' },
+    { category: 'adl.ambulation', task_name: 'Walk to mailbox', groupId: 'ambulation' },
+    { category: 'adl.bathing', task_name: 'Dry hair', groupId: 'bathing' },
+  ];
+
+  it('buckets by groupId preserving schema order', () => {
+    const out = groupTaskProposals(tasks, schemaGroups);
+    expect(out.map((b) => b.groupId)).toEqual(['ambulation', 'bathing']);
+    expect(out[0].tasks.map((x) => x.task.task_name)).toEqual(['Walk to mailbox']);
+    expect(out[1].tasks.map((x) => x.task.task_name)).toEqual(['Shower help', 'Dry hair']);
+  });
+
+  it('attaches a stable key to each task entry', () => {
+    const out = groupTaskProposals(tasks, schemaGroups);
+    const keys = out.flatMap((b) => b.tasks.map((x) => x.key));
+    // All keys are unique
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('routes tasks with unknown groupId to ungrouped bucket', () => {
+    const out = groupTaskProposals([
+      { category: 'adl.bathing', task_name: 'X', groupId: 'phantom' },
+    ], schemaGroups);
+    expect(out).toHaveLength(1);
+    expect(out[0].groupId).toBeNull();
+    expect(out[0].tasks).toHaveLength(1);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(groupTaskProposals([], schemaGroups)).toEqual([]);
+    expect(groupTaskProposals(null, schemaGroups)).toEqual([]);
   });
 });

@@ -14,11 +14,13 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 
 /**
  * Send a recorded audio blob to the voice-extract edge function and
- * receive back the transcript + per-field extracted claims.
+ * receive back the transcript + per-field extracted claims + (for
+ * sections with a tasks side table) proposed tasks.
  *
  * @param {Object}  args
  * @param {Blob}    args.audio           - Recorded audio blob (webm/mp4)
  * @param {Object}  args.schema          - Extraction schema (from buildVoiceFieldSchema)
+ * @param {Object=} args.taskSchema      - Task schema (from buildVoiceTaskSchema); null/omitted for sections without tasks
  * @param {Object}  args.currentValues   - Current section data (preserved unless updated)
  * @param {string}  args.versionId       - care_plan_versions.id (for audit event)
  * @param {string=} args.clientId        - clients.id (for audit event)
@@ -32,6 +34,13 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
  *     quoteVerified: boolean,
  *   }>,
  *   rejected: Array<{ claim: any, reason: string }>,
+ *   proposedTasks: Array<{
+ *     category: string, task_name: string, description?: string,
+ *     shifts: string[], days_of_week: string[], priority: string,
+ *     safety_notes?: string, confidence: string, quote: string,
+ *     categoryLabel: string, groupId?: string, quoteVerified: boolean,
+ *   }>,
+ *   rejectedTasks: Array<{ claim: any, reason: string }>,
  *   costUsd: number,
  *   model: string,
  *   transcriptionMs: number,
@@ -39,7 +48,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
  * }>}
  */
 export async function extractVoiceFields({
-  audio, schema, currentValues, versionId, clientId, userId,
+  audio, schema, taskSchema, currentValues, versionId, clientId, userId,
 }) {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase is not configured');
@@ -64,6 +73,7 @@ export async function extractVoiceFields({
   const form = new FormData();
   form.append('file', audio, filename);
   form.append('schema', JSON.stringify(schema));
+  if (taskSchema) form.append('taskSchema', JSON.stringify(taskSchema));
   form.append('currentValues', JSON.stringify(currentValues || {}));
   form.append('versionId', versionId);
   if (clientId) form.append('clientId', clientId);

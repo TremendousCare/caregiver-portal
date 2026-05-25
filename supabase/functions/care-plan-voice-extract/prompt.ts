@@ -59,6 +59,25 @@ export type ExtractionSchema = {
 };
 
 
+// Phase 3 — task schema. Present for sections with a care_plan_tasks
+// side table (Daily Living, Home & Life). When present, Claude is
+// given a `tasks` array in its tool input_schema and can propose new
+// task rows. When absent, the tasks array is omitted from the tool
+// entirely so Claude can't even try.
+export type TaskCategory = {
+  key: string;       // e.g., 'adl.bathing' — matches care_plan_tasks.category
+  label: string;     // human label, e.g., 'Bathing'
+  groupHint?: string;  // accordion group id this category lives under
+};
+
+export type TaskSchema = {
+  categories: TaskCategory[];
+  shifts: string[];      // e.g., ['all', 'morning', 'afternoon', 'evening', 'overnight']
+  daysOfWeek: string[];  // e.g., ['Sun', 'Mon', ...]
+  priorities: string[];  // e.g., ['standard', 'critical', 'optional']
+};
+
+
 // ─── Tool input_schema ─────────────────────────────────────────
 //
 // The tool's input shape is intentionally loose at the per-field
@@ -68,56 +87,126 @@ export type ExtractionSchema = {
 // schema for sections with many fields and limits Claude's
 // flexibility on list/object shapes.
 
-export function buildExtractionTool() {
+export function buildExtractionTool(options: { taskSchema?: TaskSchema | null } = {}) {
+  const { taskSchema } = options;
+  const properties: Record<string, unknown> = {
+    fields: {
+      type: "array",
+      description:
+        "One entry per fact stated. Omit fields the speaker did not address. Use exact field ids from the schema.",
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description:
+              "Field id from the section schema. Must match exactly.",
+          },
+          value: {
+            description:
+              "The extracted value, shaped according to the field's type. See instructions for per-type shapes.",
+          },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+            description:
+              "high: speaker said it unambiguously. medium: said indirectly or via synonym. low: hinted but not stated.",
+          },
+          quote: {
+            type: "string",
+            description:
+              "Verbatim excerpt from the transcript that supports this value. Must be copy-pasteable from the transcript.",
+          },
+        },
+        required: ["id", "value", "confidence", "quote"],
+      },
+    },
+  };
+
+  // For sections with a tasks side table (ADLs, IADLs), give Claude
+  // a `tasks` array constrained by enum-locked categories/shifts/days/
+  // priorities. For other sections, omit the tasks key entirely so
+  // Claude physically cannot propose tasks where they don't apply.
+  if (taskSchema && taskSchema.categories.length > 0) {
+    properties.tasks = {
+      type: "array",
+      description:
+        "One entry per task the speaker explicitly described. A task is something the caregiver DOES (e.g., 'help with bathing', 'walk the dog', 'remind about medications'). Omit if the speaker only stated abilities/preferences without describing an action.",
+      items: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            enum: taskSchema.categories.map((c) => c.key),
+            description:
+              "Task category. Must be one of the allowed categories for this section.",
+          },
+          task_name: {
+            type: "string",
+            description:
+              "Short, action-oriented label (max ~6 words). E.g., 'Assist with shower', 'Prepare breakfast', 'Walk dog'. Use imperative or noun-phrase form.",
+          },
+          description: {
+            type: "string",
+            description:
+              "Optional longer detail the caregiver should know. Omit if there's nothing more to add beyond the name.",
+          },
+          shifts: {
+            type: "array",
+            description:
+              "Shifts when this task happens. If the speaker didn't specify, use ['all']. Use ['morning'], ['evening'], etc. for specific shifts. Multiple allowed.",
+            items: { type: "string", enum: taskSchema.shifts },
+          },
+          days_of_week: {
+            type: "array",
+            description:
+              "Days the task happens. Empty array means every day (no restriction). If the speaker said 'weekdays', use ['Mon','Tue','Wed','Thu','Fri']. If 'twice a week' without specific days, use empty array.",
+            items: { type: "string", enum: taskSchema.daysOfWeek },
+          },
+          priority: {
+            type: "string",
+            enum: taskSchema.priorities,
+            description:
+              "'critical' only when the speaker explicitly flagged safety/medical urgency. 'optional' if the speaker said 'if there's time' or similar. Otherwise 'standard'.",
+          },
+          safety_notes: {
+            type: "string",
+            description:
+              "Specific safety guidance the speaker mentioned for this task. Omit if none.",
+          },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+            description:
+              "Confidence the speaker actually described THIS specific task. Be conservative — tasks are higher-stakes than fields.",
+          },
+          quote: {
+            type: "string",
+            description:
+              "Verbatim transcript excerpt describing this task. Must be copy-pasteable.",
+          },
+        },
+        required: ["category", "task_name", "shifts", "priority", "confidence", "quote"],
+      },
+    };
+  }
+
   return {
     name: "record_care_plan_facts",
     description:
       "Record care plan facts the speaker explicitly stated. Call this tool exactly once with one entry per fact you are confident the speaker stated. Do NOT include guesses, inferences, or facts you cannot quote.",
     input_schema: {
       type: "object",
-      properties: {
-        fields: {
-          type: "array",
-          description:
-            "One entry per fact stated. Omit fields the speaker did not address. Use exact field ids from the schema.",
-          items: {
-            type: "object",
-            properties: {
-              id: {
-                type: "string",
-                description:
-                  "Field id from the section schema. Must match exactly.",
-              },
-              value: {
-                description:
-                  "The extracted value, shaped according to the field's type. See instructions for per-type shapes.",
-              },
-              confidence: {
-                type: "string",
-                enum: ["high", "medium", "low"],
-                description:
-                  "high: speaker said it unambiguously. medium: said indirectly or via synonym. low: hinted but not stated.",
-              },
-              quote: {
-                type: "string",
-                description:
-                  "Verbatim excerpt from the transcript that supports this value. Must be copy-pasteable from the transcript.",
-              },
-            },
-            required: ["id", "value", "confidence", "quote"],
-          },
-        },
-      },
+      properties,
       required: ["fields"],
     },
   };
 }
 
-
 // ─── System prompt ─────────────────────────────────────────────
 
-export function buildSystemPrompt(): string {
-  return [
+export function buildSystemPrompt(options: { includeTasks?: boolean } = {}): string {
+  const lines: string[] = [
     "You are a clinical care plan extraction assistant for a home-care agency.",
     "A nurse or intake coordinator has just dictated information about a client. You will receive that dictation as a transcript along with the structured form fields that need to be filled.",
     "",
@@ -131,6 +220,29 @@ export function buildSystemPrompt(): string {
     "5. For list fields (medications, allergies, diagnoses, specialists, etc.), produce one entry per item the speaker mentioned. Each entry's subfields follow the same rules — only fill subfields the speaker addressed.",
     "6. If unsure whether a fact maps to a particular field, OMIT it rather than guess.",
     "7. Output via the `record_care_plan_facts` tool. Do not write any narrative response.",
+  ];
+
+  if (options.includeTasks) {
+    lines.push(
+      "",
+      "TASK PROPOSALS — additional rules for the `tasks` array (only present when this section has a tasks side table):",
+      "T1. A task is something the caregiver DOES on a shift — an action, not a status. 'She bathes in the shower' is a field (bathing method). 'Help her with the shower' is a task.",
+      "T2. Only propose a task when the speaker explicitly described it as something the caregiver should do or has been doing. If they only described the client's abilities or preferences, that's a field — not a task.",
+      "T3. Be CONSERVATIVE on tasks. Caregivers will execute these on shift. Wrong tasks are higher-stakes than wrong fields. If you're not sure, OMIT.",
+      "T4. Task name should be short and action-oriented (max ~6 words). 'Assist with shower', 'Prepare breakfast', 'Walk dog'. Never include client-specific context in the name — that goes in `description`.",
+      "T5. Schedule mapping:",
+      "    - 'twice a week' or other frequency without specific days → days_of_week: [] (empty means no day restriction; caregiver decides)",
+      "    - 'Mondays, Wednesdays, Fridays' → days_of_week: ['Mon', 'Wed', 'Fri']",
+      "    - 'weekdays' → ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']",
+      "    - 'weekends' → ['Sat', 'Sun']",
+      "    - 'every day' or unspecified → []",
+      "T6. Shifts: if the speaker didn't specify a shift, use ['all']. If they said 'mornings', 'in the evening', etc., use the matching shift(s).",
+      "T7. Priority 'critical' only when the speaker explicitly flagged safety/medical urgency (e.g., 'must do this', 'safety-critical', 'never miss'). Default 'standard'. Use 'optional' if the speaker said 'if there's time' or similar.",
+      "T8. NEVER propose duplicate tasks. If the speaker mentioned bathing assistance twice in different sentences, produce ONE task with the combined details.",
+    );
+  }
+
+  lines.push(
     "",
     "Confidence levels:",
     "- 'high': the speaker said it clearly and unambiguously.",
@@ -159,8 +271,9 @@ export function buildUserMessage(args: {
   schema: ExtractionSchema;
   transcript: string;
   currentValues: Record<string, unknown>;
+  taskSchema?: TaskSchema | null;
 }): string {
-  const { schema, transcript, currentValues } = args;
+  const { schema, transcript, currentValues, taskSchema } = args;
   const parts: string[] = [];
 
   parts.push(`CARE PLAN SECTION: ${schema.sectionLabel}`);
@@ -195,6 +308,24 @@ export function buildUserMessage(args: {
   if (currentValues && Object.keys(currentValues).length > 0) {
     parts.push("CURRENT VALUES IN THIS SECTION (preserve unless the speaker explicitly updated them):");
     parts.push(JSON.stringify(currentValues, null, 2));
+    parts.push("");
+  }
+
+  // When the section has a tasks side table, give Claude the list of
+  // allowed categories with their group hints. Categories are
+  // enum-locked in the tool's input_schema; this block tells Claude
+  // which category goes with which sub-area so the routing is clean.
+  if (taskSchema && taskSchema.categories.length > 0) {
+    parts.push("TASK CATEGORIES YOU CAN PROPOSE INTO (one per area):");
+    for (const cat of taskSchema.categories) {
+      parts.push(`  - ${cat.key} — for tasks in the "${cat.label}" area`);
+    }
+    parts.push("");
+    parts.push(`Allowed shifts: ${taskSchema.shifts.join(', ')}`);
+    parts.push(`Allowed days_of_week (use 3-letter form): ${taskSchema.daysOfWeek.join(', ')}`);
+    parts.push(`Allowed priorities: ${taskSchema.priorities.join(', ')} — default 'standard'`);
+    parts.push("");
+    parts.push("Remember rule T2: only propose tasks the speaker explicitly described as ACTIONS for the caregiver to perform. Don't infer tasks from a stated ability or preference.");
     parts.push("");
   }
 
@@ -267,6 +398,34 @@ export type ValidationResult = {
 };
 
 
+// ─── Task claim types (Phase 3) ────────────────────────────────
+
+export type TaskClaim = {
+  category: string;
+  task_name: string;
+  description?: string;
+  shifts: string[];
+  days_of_week?: string[];
+  priority: string;
+  safety_notes?: string;
+  confidence: "high" | "medium" | "low";
+  quote: string;
+};
+
+export type ValidatedTaskClaim = TaskClaim & {
+  categoryLabel: string;
+  // Accordion group id this task lives under (mirrors a field's
+  // groupId so the review UI can group fields + tasks together).
+  groupId?: string;
+  quoteVerified: boolean;
+};
+
+export type TaskValidationResult = {
+  accepted: ValidatedTaskClaim[];
+  rejected: Array<{ claim: TaskClaim; reason: string }>;
+};
+
+
 /**
  * Validate Claude's claims against the section schema + transcript.
  * Drops claims whose:
@@ -316,6 +475,97 @@ export function validateClaims(args: {
     if (field.groupId)    accepted_claim.groupId    = field.groupId;
     if (field.groupLabel) accepted_claim.groupLabel = field.groupLabel;
     accepted.push(accepted_claim);
+  }
+
+  return { accepted, rejected };
+}
+
+
+/**
+ * Validate Claude's task claims against the task schema + transcript.
+ * Drops claims whose:
+ *   - category isn't in the allowed list for this section
+ *   - task_name is empty or only whitespace
+ *   - quote isn't found in the transcript (likely hallucination)
+ *
+ * Normalizes:
+ *   - shifts: defaults to ['all'] if empty/invalid
+ *   - days_of_week: filters to allowed days; empty array is fine
+ *     (means "no day restriction")
+ *   - priority: defaults to 'standard' if invalid
+ *
+ * Same confidence policy as fields — surfaces low-confidence claims
+ * to the frontend rather than dropping them, since the user's review
+ * UI is the gate for actual task creation.
+ */
+export function validateTaskClaims(args: {
+  claims: TaskClaim[];
+  taskSchema: TaskSchema;
+  transcript: string;
+}): TaskValidationResult {
+  const { claims, taskSchema, transcript } = args;
+  const categoriesByKey = new Map<string, TaskCategory>(
+    taskSchema.categories.map((c) => [c.key, c]),
+  );
+  const allowedShifts = new Set(taskSchema.shifts);
+  const allowedDays = new Set(taskSchema.daysOfWeek);
+  const allowedPriorities = new Set(taskSchema.priorities);
+  const normalizedTranscript = normalizeForQuoteMatch(transcript);
+
+  const accepted: ValidatedTaskClaim[] = [];
+  const rejected: Array<{ claim: TaskClaim; reason: string }> = [];
+
+  for (const claim of claims) {
+    const cat = categoriesByKey.get(claim.category);
+    if (!cat) {
+      rejected.push({ claim, reason: `unknown category: ${claim.category}` });
+      continue;
+    }
+    const name = typeof claim.task_name === "string" ? claim.task_name.trim() : "";
+    if (!name) {
+      rejected.push({ claim, reason: "empty task_name" });
+      continue;
+    }
+
+    // Normalize shifts: filter to allowed, default to ['all'] if empty.
+    const shifts = Array.isArray(claim.shifts)
+      ? claim.shifts.filter((s) => allowedShifts.has(s))
+      : [];
+    const finalShifts = shifts.length > 0 ? shifts : ["all"];
+
+    // Normalize days: filter to allowed. Empty array is meaningful
+    // (no day restriction) so we don't backfill it.
+    const days = Array.isArray(claim.days_of_week)
+      ? claim.days_of_week.filter((d) => allowedDays.has(d))
+      : [];
+
+    // Priority defaults to 'standard' if missing or invalid.
+    const priority = allowedPriorities.has(claim.priority) ? claim.priority : "standard";
+
+    const quoteVerified = claim.quote
+      ? normalizedTranscript.includes(normalizeForQuoteMatch(claim.quote))
+      : false;
+
+    const out: ValidatedTaskClaim = {
+      category: claim.category,
+      task_name: name,
+      shifts: finalShifts,
+      days_of_week: days,
+      priority,
+      confidence: claim.confidence,
+      quote: claim.quote,
+      categoryLabel: cat.label,
+      quoteVerified,
+    };
+    if (typeof claim.description === "string" && claim.description.trim()) {
+      out.description = claim.description.trim();
+    }
+    if (typeof claim.safety_notes === "string" && claim.safety_notes.trim()) {
+      out.safety_notes = claim.safety_notes.trim();
+    }
+    if (cat.groupHint) out.groupId = cat.groupHint;
+
+    accepted.push(out);
   }
 
   return { accepted, rejected };
