@@ -698,6 +698,8 @@ export const dbToCaregiver = (row) => ({
   tbTest: row.tb_test,
   autoInsurance: row.auto_insurance,
   proposedPayRate: row.proposed_pay_rate,
+  defaultPayRate: row.default_pay_rate != null ? Number(row.default_pay_rate) : null,
+  defaultPayOtRate: row.default_pay_ot_rate != null ? Number(row.default_pay_ot_rate) : null,
   initialNotes: row.initial_notes,
   tasks: row.tasks || {},
   notes: row.notes || [],
@@ -762,6 +764,13 @@ export const caregiverToDb = (cg) => ({
   tb_test: cg.tbTest || null,
   auto_insurance: cg.autoInsurance || null,
   proposed_pay_rate: cg.proposedPayRate ?? null,
+  // Coerce '' / undefined / null → null so we never POST an empty
+  // string to a numeric column. Form inputs return strings; bulk
+  // importers may pass numbers; both paths converge here.
+  default_pay_rate:    cg.defaultPayRate === '' || cg.defaultPayRate == null
+                         ? null : Number(cg.defaultPayRate),
+  default_pay_ot_rate: cg.defaultPayOtRate === '' || cg.defaultPayOtRate == null
+                         ? null : Number(cg.defaultPayOtRate),
   initial_notes: cg.initialNotes || '',
   // tasks intentionally omitted — round-tripping the whole tasks
   // object through saveCaregiver caused stale-state writes (other

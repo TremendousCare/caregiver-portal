@@ -182,6 +182,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       availabilityType: caregiver.availabilityType || '',
       currentAssignment: caregiver.currentAssignment || '',
       cprExpiryDate: caregiver.cprExpiryDate || '',
+      defaultPayRate: caregiver.defaultPayRate ?? '',
+      defaultPayOtRate: caregiver.defaultPayOtRate ?? '',
     });
     setEditing(true);
   };
@@ -208,6 +210,11 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     { label: 'Availability Type', value: (() => { const t = AVAILABILITY_TYPES.find((ty) => ty.id === caregiver.availabilityType); return t ? t.label : null; })() },
     { label: 'Current Assignment', value: caregiver.currentAssignment || null },
     { label: 'CPR Expiry Date', value: caregiver.cprExpiryDate ? (() => { const exp = new Date(caregiver.cprExpiryDate + 'T00:00:00'); const du = Math.ceil((exp - new Date()) / 86400000); const ds = exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); if (du < 0) return `Expired — ${ds}`; if (du <= 90) return `${ds} (${du} days)`; return `${ds}`; })() : null },
+    // Sprint 4: default pay rates. Migration 20260526000000 added the
+    // columns and a BEFORE-INSERT trigger that pulls these into new
+    // shifts' hourly_rate when the office assigns this caregiver.
+    { label: 'Default Pay Rate', value: caregiver.defaultPayRate != null ? `$${Number(caregiver.defaultPayRate).toFixed(2)}/hr` : null },
+    { label: 'Default OT Pay Rate', value: caregiver.defaultPayOtRate != null ? `$${Number(caregiver.defaultPayOtRate).toFixed(2)}/hr` : null },
     { label: 'Years of Experience', value: caregiver.yearsExperience ? ({ '0-1': 'Less than 1 year', '1-3': '1–3 years', '3-5': '3–5 years', '5-10': '5–10 years', '10+': '10+ years' }[caregiver.yearsExperience] || caregiver.yearsExperience) : null },
     { label: 'Preferred Shift', value: caregiver.preferredShift ? caregiver.preferredShift.charAt(0).toUpperCase() + caregiver.preferredShift.slice(1) : null },
     { label: 'Languages', value: caregiver.languages },
@@ -515,6 +522,8 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             </div>
             <EditField label="Current Assignment" value={editForm.currentAssignment} onChange={(v) => editField('currentAssignment', v)} />
             <EditField label="CPR Expiry Date" value={editForm.cprExpiryDate} onChange={(v) => editField('cprExpiryDate', v)} type="date" />
+            <EditField label="Default Pay Rate ($/hr)" value={editForm.defaultPayRate} onChange={(v) => editField('defaultPayRate', v)} type="number" />
+            <EditField label="Default OT Pay Rate ($/hr)" value={editForm.defaultPayOtRate} onChange={(v) => editField('defaultPayOtRate', v)} type="number" />
             <div className={forms.field}>
               <label className={forms.fieldLabel}>Years of Experience</label>
               <select className={forms.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>
