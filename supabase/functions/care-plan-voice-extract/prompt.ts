@@ -277,7 +277,8 @@ export function buildSystemPrompt(options: { includeTasks?: boolean } = {}): str
     "- list: array of objects, each with subfields keyed by subfield id.",
     "",
     "When the speaker is silent on a field, do not include it. The form will keep its current value.",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 
