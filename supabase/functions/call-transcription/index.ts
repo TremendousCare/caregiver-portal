@@ -1,11 +1,14 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { getRingCentralAccessToken } from "../_shared/helpers/ringcentral.ts";
+import {
+  resolveTranscriptionProvider,
+  transcribeRecording,
+} from "../_shared/operations/transcribeRecording.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RC_API_URL = "https://platform.ringcentral.com";
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? null;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,20 +16,18 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// RingCentral auth flows through the shared cached helper. The previous
-// local copy did a fresh /oauth/token POST on every invocation, which —
-// combined with post-call-processor batching 25 pending recordings per
-// minute through this endpoint — kept the per-extension 5 req/60s auth
-// bucket pinned in penalty and surfaced as CMN-301 "Request rate
-// exceeded" everywhere else that shared the same extension (notably
-// the General + Scheduling webhook subscription renewal).
-
 // ─── Main Handler ───
-// Transcribes a RingCentral call recording via OpenAI Whisper API.
-// Caches results in call_transcriptions table.
+// HTTP endpoint for fetching a transcript for a recordingId. Used by the
+// UI (client/caregiver activity log), ai-chat (get_call_transcription
+// tool), and historically by post-call-processor (now bypassed in favor
+// of an in-process shared op).
+//
+// Provider routing — RingSense (native, license-included, free) vs
+// OpenAI Whisper (paid) — is decided by the org's
+// communication_voice_config.transcription_provider column, NOT
+// hardcoded. The default in the schema is 'ringcentral_native'.
 //
 // Usage: GET /call-transcription?recordingId=123456&token=<supabase_jwt>
-
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -39,21 +40,18 @@ Deno.serve(async (req: Request) => {
     const token = url.searchParams.get("token");
 
     // ── Validate inputs ──
-
     if (!recordingId) {
       return new Response(
         JSON.stringify({ error: "recordingId query parameter is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
     if (!/^\d+$/.test(recordingId)) {
       return new Response(
         JSON.stringify({ error: "Invalid recordingId format" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
     if (!token) {
       return new Response(
         JSON.stringify({ error: "Authentication required (token parameter)" }),
@@ -62,132 +60,81 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Validate auth ──
-    // Accept either a Supabase user JWT or the service role key (for internal Edge Function calls)
-
+    // Accept either a Supabase user JWT or the service role key (the
+    // service role is used for trusted internal Edge Function callers
+    // such as ai-chat — see ai-chat/tools/communication.ts).
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
+    let callerOrgId: string | null = null;
     if (token === SUPABASE_SERVICE_ROLE_KEY) {
-      // Internal call from ai-chat or other Edge Functions — trusted
       console.log("[call-transcription] Authenticated via service role key");
     } else {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      const { data: { user }, error: authError } =
+        await supabase.auth.getUser(token);
       if (authError || !user) {
         return new Response(
           JSON.stringify({ error: "Invalid or expired authentication token" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      // org_id lives on the user JWT claims as added by the access-token
+      // hook (Phase A of the SaaS retrofit). When present we scope the
+      // provider lookup to that org; otherwise we fall back to the
+      // schema default inside resolveTranscriptionProvider.
+      callerOrgId =
+        (user.app_metadata as any)?.org_id ||
+        (user.user_metadata as any)?.org_id ||
+        null;
     }
 
-    // ── Check cache first ──
+    // Resolve the provider per the org's voice config. For service-role
+    // callers (ai-chat, etc.) we don't have an org claim, so we look up
+    // the call_session by recording_id to find its org. If that lookup
+    // fails we default to 'ringcentral_native'.
+    if (!callerOrgId) {
+      const { data: session } = await supabase
+        .from("call_sessions")
+        .select("org_id")
+        .eq("recording_id", recordingId)
+        .maybeSingle();
+      callerOrgId = session?.org_id ?? null;
+    }
+    const provider = await resolveTranscriptionProvider(supabase, callerOrgId);
 
-    const { data: cached } = await supabase
-      .from("call_transcriptions")
-      .select("transcript, duration_seconds, language")
-      .eq("recording_id", recordingId)
-      .single();
+    // Mint a cached RC access token (shared helper, ~1h TTL).
+    const rcAccessToken = await getRingCentralAccessToken();
 
-    if (cached) {
-      console.log(`[call-transcription] Cache hit for recording ${recordingId}`);
+    const result = await transcribeRecording({
+      supabase,
+      recordingId,
+      rcAccessToken,
+      provider,
+      openaiApiKey: OPENAI_API_KEY,
+    });
+
+    if (!result) {
+      // Soft "not ready yet" — surface as 202 Accepted with an empty body
+      // so the UI can render "transcript pending" without treating this
+      // as a hard error. ai-chat / post-call-processor treat 200 with
+      // empty transcript the same as a 4xx and retry later.
       return new Response(
         JSON.stringify({
-          transcript: cached.transcript,
-          duration_seconds: cached.duration_seconds,
-          language: cached.language,
-          cached: true,
+          transcript: "",
+          duration_seconds: null,
+          language: null,
+          cached: false,
+          status: "not_ready",
         }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
-    }
-
-    // ── Download recording from RingCentral ──
-
-    if (!OPENAI_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "OpenAI API key not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    console.log(`[call-transcription] Cache miss — downloading recording ${recordingId} from RC`);
-    const rcAccessToken = await getRingCentralAccessToken();
-    const rcUrl = `${RC_API_URL}/restapi/v1.0/account/~/recording/${recordingId}/content`;
-
-    const rcResponse = await fetch(rcUrl, {
-      headers: { Authorization: `Bearer ${rcAccessToken}` },
-    });
-
-    if (!rcResponse.ok) {
-      const errText = await rcResponse.text().catch(() => "Unknown error");
-      console.error(`[call-transcription] RC fetch failed (${rcResponse.status}):`, errText);
-      return new Response(
-        JSON.stringify({ error: "Recording not found or unavailable" }),
-        {
-          status: rcResponse.status === 404 ? 404 : 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
-      );
-    }
-
-    // ── Send to Whisper API ──
-
-    const audioBlob = await rcResponse.blob();
-    const contentType = rcResponse.headers.get("Content-Type") || "audio/mpeg";
-    const extension = contentType.includes("wav") ? "wav" : contentType.includes("ogg") ? "ogg" : "mp3";
-
-    console.log(`[call-transcription] Sending ${audioBlob.size} bytes to Whisper API`);
-
-    const formData = new FormData();
-    formData.append("file", audioBlob, `recording.${extension}`);
-    formData.append("model", "whisper-1");
-    formData.append("response_format", "verbose_json");
-
-    const whisperResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: formData,
-    });
-
-    if (!whisperResponse.ok) {
-      const errText = await whisperResponse.text().catch(() => "Unknown error");
-      console.error(`[call-transcription] Whisper API failed (${whisperResponse.status}):`, errText);
-      return new Response(
-        JSON.stringify({ error: "Transcription service failed. Please try again." }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const whisperData = await whisperResponse.json();
-    const transcript = whisperData.text || "";
-    const durationSeconds = whisperData.duration ? Math.round(whisperData.duration) : null;
-    const language = whisperData.language || "en";
-
-    console.log(`[call-transcription] Whisper returned ${transcript.length} chars, ${durationSeconds}s, lang=${language}`);
-
-    // ── Cache the result ──
-
-    const { error: insertError } = await supabase
-      .from("call_transcriptions")
-      .insert({
-        recording_id: recordingId,
-        transcript,
-        duration_seconds: durationSeconds,
-        language,
-      });
-
-    if (insertError) {
-      console.error("[call-transcription] Cache insert failed:", insertError);
-      // Don't fail the request — we still have the transcript
     }
 
     return new Response(
       JSON.stringify({
-        transcript,
-        duration_seconds: durationSeconds,
-        language,
-        cached: false,
+        transcript: result.transcript,
+        duration_seconds: result.duration_seconds,
+        language: result.language,
+        cached: result.source === "cache",
+        source: result.source,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
