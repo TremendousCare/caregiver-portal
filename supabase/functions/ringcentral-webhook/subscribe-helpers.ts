@@ -8,10 +8,15 @@ export type RouteRow = {
   subscription_id: string | null;
 };
 
+// "linked" means the route was attached to an existing subscription that
+// another route in the same run already created/renewed — this happens
+// when multiple routes resolve to the same JWT (= same RingCentral
+// extension), so a single RC subscription covers them all and we avoid
+// burning the per-extension auth bucket on duplicate /oauth/token calls.
 export type RouteResult = {
   category: string;
   label: string;
-  action: "renewed" | "created" | "failed";
+  action: "renewed" | "created" | "linked" | "failed";
   subscription_id?: string;
   expires_at?: string;
   error?: string;
