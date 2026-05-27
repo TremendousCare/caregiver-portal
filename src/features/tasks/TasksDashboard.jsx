@@ -11,7 +11,7 @@
 // Client dashboards — they are NOT mirrored here, per the locked
 // scope decision. This page is concrete tasks only.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp, X, User, Home, Plus } from 'lucide-react';
 import { useFollowUps } from '../../shared/context/FollowUpContext';
@@ -19,12 +19,14 @@ import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import { useClients } from '../../shared/context/ClientContext';
 import { bucketFollowUps, followUpDisplayTitle } from '../../lib/followUpTasks';
+import { snoozeTomorrowMorning } from '../../lib/snoozePresets';
+import { SnoozePopover } from './SnoozePopover';
 import layout from '../../styles/layout.module.css';
 import btn from '../../styles/buttons.module.css';
 
 const FILTERS = [
+  { id: 'mine', label: 'My Day' },
   { id: 'all', label: 'All' },
-  { id: 'mine', label: 'Mine' },
   { id: 'caregiver', label: 'Caregiver-side' },
   { id: 'client', label: 'Client-side' },
 ];
@@ -34,8 +36,38 @@ export function TasksDashboard() {
   const { currentUserName, currentUserEmail } = useApp();
   const { caregivers } = useCaregivers();
   const { clients } = useClients();
-  const [filter, setFilter] = useState('all');
+  // Default to "My Day" (assigned-to-me) per Phase 2. Power users can
+  // switch to "All" via the filter chip; their choice persists for
+  // the session via React state.
+  const [filter, setFilter] = useState('mine');
   const [expandedId, setExpandedId] = useState(null);
+
+  // ─── Keyboard shortcuts on the expanded row ──────────────
+  // `c` — mark done
+  // `s` — snooze to tomorrow 9am (the popover offers other durations)
+  // Skipped when typing in form fields so the search/note inputs are
+  // not hijacked.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!expandedId) return;
+      const t = e.target;
+      const tag = (t?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (t?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        markDone(expandedId);
+        setExpandedId(null);
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        snooze(expandedId, snoozeTomorrowMorning(new Date()));
+        setExpandedId(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedId, markDone, snooze]);
 
   // Index entities for fast name lookup in each task card.
   const caregiverById = useMemo(() => {
@@ -91,7 +123,9 @@ export function TasksDashboard() {
           <h1 className={layout.pageTitle}>Tasks</h1>
           <p className={layout.pageSubtitle}>
             {totalOpen === 0
-              ? 'You’re all caught up. New follow-ups appear here automatically when caregivers are matched to clients.'
+              ? (filter === 'mine'
+                  ? 'You’re all caught up. Follow-ups assigned to you will appear here.'
+                  : 'You’re all caught up. New follow-ups appear here automatically when caregivers are matched to clients.')
               : `${overdueCount} overdue · ${todayCount} due today · ${totalOpen} open total`}
           </p>
         </div>
@@ -122,7 +156,7 @@ export function TasksDashboard() {
       </div>
 
       {totalOpen === 0 ? (
-        <EmptyState />
+        <EmptyState filter={filter} />
       ) : (
         <div style={listWrapStyle}>
           <Section
@@ -325,18 +359,12 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
               type="button"
               className={btn.primaryBtn}
               onClick={() => { onMarkDone(task.id, note); setNote(''); }}
+              title="Mark done (c)"
             >
               <CheckCircle2 size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
               Mark done
             </button>
-            <button
-              type="button"
-              className={btn.secondaryBtn}
-              onClick={() => onSnooze(task.id, addHours(new Date(), 24))}
-            >
-              <Clock size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
-              Snooze 1 day
-            </button>
+            <SnoozePopover onSnooze={(date) => onSnooze(task.id, date)} />
             <button
               type="button"
               className={btn.secondaryBtn}
@@ -348,6 +376,9 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
               <X size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
               Cancel
             </button>
+            <span style={shortcutHintStyle}>
+              <kbd style={kbdStyle}>c</kbd> done · <kbd style={kbdStyle}>s</kbd> snooze 1d
+            </span>
           </div>
         </div>
       )}
@@ -356,10 +387,6 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
 }
 
 // ─── Helpers ───────────────────────────────────────────────
-
-function addHours(d, h) {
-  return new Date(d.getTime() + h * 60 * 60 * 1000);
-}
 
 function formatDueLabel(iso) {
   if (!iso) return '';
@@ -382,14 +409,18 @@ function UrgencyIcon({ urgency }) {
   return <CheckCircle2 size={14} style={{ color: '#1084C3', marginRight: 6, verticalAlign: 'text-bottom' }} />;
 }
 
-function EmptyState() {
+function EmptyState({ filter }) {
+  const headline = filter === 'mine'
+    ? 'Nothing on your plate.'
+    : 'No open follow-ups.';
+  const sub = filter === 'mine'
+    ? 'Tasks assigned to you will appear here. Press ⌘K to capture a new one.'
+    : 'New tasks appear here automatically when a caregiver is matched to a new client.';
   return (
     <div style={emptyStateStyle}>
       <CheckCircle2 size={32} style={{ color: '#15803D', marginBottom: 8 }} />
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>No open follow-ups.</div>
-      <div style={{ fontSize: 13, color: '#7A8BA0' }}>
-        New tasks appear here automatically when a caregiver is matched to a new client.
-      </div>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{headline}</div>
+      <div style={{ fontSize: 13, color: '#7A8BA0' }}>{sub}</div>
     </div>
   );
 }
@@ -462,7 +493,22 @@ const noteInputStyle = {
   borderRadius: 8, fontSize: 13, background: '#fff', boxSizing: 'border-box',
 };
 
-const actionsRowStyle = { display: 'flex', gap: 8, flexWrap: 'wrap' };
+const actionsRowStyle = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' };
+
+const shortcutHintStyle = {
+  marginLeft: 'auto',
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  fontSize: 11, color: '#7A8BA0',
+};
+
+const kbdStyle = {
+  display: 'inline-block',
+  padding: '1px 5px',
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 10,
+  border: '1px solid #E0E4EA', borderRadius: 4,
+  background: '#fff', color: '#5D6B7F',
+};
 
 const emptyStateStyle = {
   background: '#fff', borderRadius: 12, border: '1px solid #E0E4EA',
