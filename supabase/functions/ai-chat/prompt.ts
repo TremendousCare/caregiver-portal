@@ -103,6 +103,14 @@ You have access to tools that let you search, analyze, and modify caregiver AND 
 - If ambiguous, search BOTH pipelines (search_caregivers AND search_clients)
 - **IMPORTANT: If a search returns 0 results, ALWAYS try the other pipeline before saying "not found"**
 
+**Follow-up tasks** (ad-hoc reminders the staff set for themselves):
+- These are DIFFERENT from per-phase checklist tasks (which live on the caregiver/client record and use complete_task / complete_client_task).
+- Follow-ups have their own dashboard at /tasks. Each row has a unique task_id.
+- For viewing what's due \u2192 use list_follow_ups (auto). Default scope is "mine", bucket "today".
+- For proposing a new reminder ("set a reminder to call X on Friday") \u2192 use create_follow_up (requires user confirmation). Pass an ISO 8601 due_at; the briefing's local time is fine.
+- For proposing closure on a follow-up you have clear evidence is already done \u2192 use complete_follow_up (requires user confirmation). Only use when you have a specific task_id AND evidence (e.g. an outbound SMS in the same conversation) \u2014 never speculatively.
+- A follow-up links to AT MOST ONE entity (caregiver OR client), not both.
+
 ## Email Guidelines
 - "Show me recent emails" or "what's in my inbox" \u2192 call search_emails with NO parameters
 - "Show me emails with [caregiver]" \u2192 call search_emails with caregiver name/ID

@@ -24,6 +24,7 @@ export async function generateBriefing(
   currentUser: string,
   caregivers: any[],
   clients: any[],
+  currentUserMailbox?: string | null,
 ): Promise<Briefing> {
   const now = Date.now();
   const items: BriefingItem[] = [];
@@ -220,6 +221,65 @@ export async function generateBriefing(
       });
     }
   } catch { /* ignore — table may not exist yet */ }
+
+  // ── 7.5 Follow-up tasks for the current user (Phase 3) ──
+  // Pulls overdue + due-in-the-next-2-hours counts and the next 3
+  // pending tasks assigned to this user. Skip if we don't have an
+  // email to filter on — the dispatch path is email-keyed.
+  try {
+    const userEmail = currentUserMailbox || currentUser;
+    if (userEmail) {
+      const nowIso = new Date(now).toISOString();
+      const soonIso = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+
+      const { data: myOverdue } = await supabase
+        .from("follow_up_tasks")
+        .select("id, title, due_at, follow_up_templates(name)")
+        .eq("status", "pending")
+        .eq("assigned_to", userEmail)
+        .lt("due_at", nowIso)
+        .order("due_at", { ascending: true })
+        .limit(20);
+
+      const { data: dueSoon } = await supabase
+        .from("follow_up_tasks")
+        .select("id, title, due_at, follow_up_templates(name)")
+        .eq("status", "pending")
+        .eq("assigned_to", userEmail)
+        .gte("due_at", nowIso)
+        .lt("due_at", soonIso)
+        .order("due_at", { ascending: true })
+        .limit(5);
+
+      const overdueCount = myOverdue?.length ?? 0;
+      const soonCount = dueSoon?.length ?? 0;
+
+      if (overdueCount > 0) {
+        const sample = (myOverdue || [])
+          .slice(0, 3)
+          .map((t: any) => t.title || t.follow_up_templates?.name)
+          .filter(Boolean);
+        items.push({
+          type: "urgent",
+          text: `${overdueCount} follow-up${overdueCount > 1 ? "s" : ""} overdue${sample.length > 0 ? `: ${sample.join(", ")}` : ""}`,
+          action: "Show me my overdue follow-ups",
+        });
+        quickActions.push({
+          label: `Overdue (${overdueCount})`,
+          prompt: "List all my overdue follow-ups",
+        });
+      }
+      if (soonCount > 0) {
+        items.push({
+          type: "info",
+          text: `${soonCount} follow-up${soonCount > 1 ? "s" : ""} due in the next 2 hours`,
+          action: "What's coming up in the next two hours?",
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[briefing] task lookup failed:", err);
+  }
 
   // ── 8. Check last session context ──
   try {

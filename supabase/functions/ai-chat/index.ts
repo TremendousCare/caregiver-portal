@@ -30,6 +30,7 @@ import "./tools/docusign.ts";
 import "./tools/esign.ts";
 import "./tools/client.ts";
 import "./tools/awareness.ts";
+import "./tools/tasks.ts";
 
 import { runAiChatShell } from "./shell.ts";
 

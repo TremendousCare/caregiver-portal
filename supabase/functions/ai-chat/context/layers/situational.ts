@@ -64,6 +64,20 @@ export async function buildSituationalLayer(supabase: any): Promise<string> {
     if (groups.task_completed) {
       lines.push(`- ${groups.task_completed.length} task(s) completed`);
     }
+    if (groups.task_created) {
+      const userCreated = groups.task_created.filter((e: any) => {
+        const actor = (e.actor || "").toString();
+        return actor.startsWith("user:");
+      }).length;
+      const aiCreated = groups.task_created.length - userCreated;
+      const parts: string[] = [];
+      if (userCreated > 0) parts.push(`${userCreated} user-added`);
+      if (aiCreated > 0) parts.push(`${aiCreated} AI-proposed`);
+      lines.push(`- ${groups.task_created.length} new follow-up(s)${parts.length > 0 ? ` (${parts.join(", ")})` : ""}`);
+    }
+    if (groups.task_due) {
+      lines.push(`- ${groups.task_due.length} task(s) became due / notified`);
+    }
     if (groups.note_added) {
       lines.push(`- ${groups.note_added.length} note(s) logged`);
     }
