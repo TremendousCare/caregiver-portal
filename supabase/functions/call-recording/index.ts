@@ -1,11 +1,9 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { getRingCentralAccessToken } from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RC_CLIENT_ID = Deno.env.get("RINGCENTRAL_CLIENT_ID");
-const RC_CLIENT_SECRET = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
-const RC_JWT_TOKEN = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
 const RC_API_URL = "https://platform.ringcentral.com";
 
 const corsHeaders = {
@@ -14,30 +12,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// ─── RC Auth (same pattern as bulk-sms) ───
-
-async function getRingCentralAccessToken(): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT_TOKEN) {
-    throw new Error("RingCentral credentials not configured");
-  }
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: RC_JWT_TOKEN,
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
-  }
-  const data = await response.json();
-  return data.access_token;
-}
+// RingCentral auth flows through the shared cached helper. The previous
+// local copy did a fresh /oauth/token POST on every invocation, which
+// drained the per-extension 5 req/60s auth bucket whenever staff played
+// back several recordings in quick succession.
 
 // ─── Main Handler ───
 // Serves as an authenticated proxy between the browser <audio> element
