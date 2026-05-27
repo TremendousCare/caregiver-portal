@@ -483,35 +483,40 @@ async function handleSubscribe(): Promise<Response> {
       );
     }
 
-    // Subscribe routes serially. Two related concerns to balance:
+    // Subscribe routes serially. Three concerns to balance:
     //
-    //   1. RingCentral's auth bucket is 5 req/60s per extension with a 60s
-    //      penalty interval. We need to space out FRESH /oauth/token calls
-    //      so a multi-extension account doesn't blow the bucket.
-    //   2. The pg_cron job that calls this endpoint has a 60-second
+    //   1. RingCentral's auth bucket is 5 req/60s per EXTENSION with a 60s
+    //      penalty interval. A JWT is bound to a single extension, so two
+    //      routes with the same JWT share the same bucket. We must avoid
+    //      issuing redundant /oauth/token calls AND redundant /subscription
+    //      POSTs against the same extension — both burn quota.
+    //   2. A single RingCentral subscription on an extension already covers
+    //      every inbound SMS to that extension's phone numbers. So when two
+    //      routes (e.g. general + scheduling) point at the same extension,
+    //      one subscription is sufficient — the second would be a duplicate
+    //      that fires the same webhook twice (deduped by rc_message_id at
+    //      receive time, but still wasteful). Routes sharing a JWT this run
+    //      get LINKED to the first route's subscription_id instead of
+    //      creating their own.
+    //   3. The pg_cron job that calls this endpoint has a 60-second
     //      timeout_milliseconds (see supabase/migrations/20260417000000…).
-    //      An unconditional 12s sleep per route would tip past that wall
-    //      at 6+ routes and leave the tail unprocessed.
+    //      Unconditional 12s sleeps per route would tip past that wall at
+    //      6+ routes; bail out before the loop approaches the cap and let
+    //      the next cron tick pick up the remaining routes. RC subscriptions
+    //      live for ~7 days, so a one-tick delay is harmless.
     //
-    // Reconciliation:
-    //   - The shared auth helper caches access tokens per-JWT. Routes that
-    //     resolve to the same JWT (e.g. multiple routes falling back to the
-    //     env-var, or two routes pointing at the same extension) trigger a
-    //     fresh /oauth/token only the FIRST time — every subsequent route
-    //     with that JWT hits the cache and adds zero auth pressure.
-    //   - So we only need to space iterations when the upcoming route would
-    //     trigger a fresh auth (= JWT we haven't seen yet this run).
-    //   - Total wait budget is therefore bounded by the count of UNIQUE
-    //     JWTs across active routes, not the total route count.
-    //   - As a belt-and-suspenders safety, bail out before the loop's wall-
-    //     clock approaches the pg_cron timeout and let the next cron tick
-    //     pick up the remaining routes. They'll just renew a few minutes
-    //     later — RC subscriptions live for ~7 days, so a one-tick delay is
-    //     harmless.
+    // Failure handling:
+    //   - If subscribing a JWT fails (typically CMN-301 because the bucket
+    //     is already in penalty), record the failure and DON'T retry that
+    //     same JWT in the same run. The 60s penalty means subsequent
+    //     attempts will just fail again and waste budget. Other JWTs
+    //     (different extensions, independent buckets) proceed normally.
     const ROUTE_FRESH_AUTH_DELAY_MS = 12_000;
     const TIMEOUT_BUDGET_MS = 50_000; // leave 10s headroom under pg_cron's 60s cap
     const loopStartedAt = Date.now();
-    const seenJwts = new Set<string>();
+    type JwtSubInfo = { subscription_id: string; expires_at?: string };
+    const jwtSubscriptions = new Map<string, JwtSubInfo>();
+    const jwtFailures = new Map<string, string>();
     const results: RouteResult[] = [];
 
     for (const route of routes as RouteRow[]) {
@@ -523,14 +528,11 @@ async function handleSubscribe(): Promise<Response> {
       }
 
       // Resolve the JWT for this route once, outside subscribeOneRoute, so
-      // we know whether this iteration will trigger a fresh /oauth/token
-      // call (cache miss) or reuse a cached token (cache hit).
+      // we can dedupe by JWT before incurring any RC traffic.
       let jwt: string | null = null;
       try {
         jwt = await getJwtForRoute(route.category);
       } catch (err) {
-        // If the JWT lookup itself fails, surface the error in the same
-        // shape subscribeOneRoute would produce and skip without a wait.
         const message = (err as Error).message || String(err);
         await supabase
           .from("communication_routes")
@@ -548,14 +550,62 @@ async function handleSubscribe(): Promise<Response> {
         continue;
       }
 
-      if (!seenJwts.has(jwt) && seenJwts.size > 0) {
-        // We're about to do a fresh /oauth/token call AND we've already
-        // done at least one this run — space them to stay under 5/60s.
+      // ── JWT already succeeded this run → link this route to that subscription ──
+      const sharedSub = jwtSubscriptions.get(jwt);
+      if (sharedSub) {
+        await supabase
+          .from("communication_routes")
+          .update({
+            subscription_id: sharedSub.subscription_id,
+            subscription_expires_at: sharedSub.expires_at ?? null,
+            subscription_last_error: null,
+            subscription_synced_at: new Date().toISOString(),
+          })
+          .eq("category", route.category);
+        results.push({
+          category: route.category,
+          label: route.label,
+          action: "linked",
+          subscription_id: sharedSub.subscription_id,
+          expires_at: sharedSub.expires_at,
+        });
+        continue;
+      }
+
+      // ── JWT already failed this run → don't retry; bucket is in penalty ──
+      const priorFailure = jwtFailures.get(jwt);
+      if (priorFailure) {
+        await supabase
+          .from("communication_routes")
+          .update({
+            subscription_last_error: priorFailure,
+            subscription_synced_at: new Date().toISOString(),
+          })
+          .eq("category", route.category);
+        results.push({
+          category: route.category,
+          label: route.label,
+          action: "failed",
+          error: priorFailure,
+        });
+        continue;
+      }
+
+      // ── New JWT → space fresh auth calls to stay under 5/60s ──
+      if (jwtSubscriptions.size > 0 || jwtFailures.size > 0) {
         await new Promise((r) => setTimeout(r, ROUTE_FRESH_AUTH_DELAY_MS));
       }
-      seenJwts.add(jwt);
 
-      results.push(await subscribeOneRoute(route, webhookUrl));
+      const result = await subscribeOneRoute(route, webhookUrl);
+      results.push(result);
+      if (result.action === "failed") {
+        jwtFailures.set(jwt, result.error ?? "unknown error");
+      } else if (result.subscription_id) {
+        jwtSubscriptions.set(jwt, {
+          subscription_id: result.subscription_id,
+          expires_at: result.expires_at,
+        });
+      }
     }
 
     // Write aggregate summary so the legacy Admin UI can read a single row.

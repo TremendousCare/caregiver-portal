@@ -36,6 +36,24 @@ describe('summarizeRouteResults', () => {
     expect(summary.failed_routes).toBe(0);
   });
 
+  it('counts linked actions as subscribed', () => {
+    // "linked" means a second route attached itself to a sibling route's
+    // subscription because both resolve to the same RingCentral extension.
+    // From the operator's perspective the route IS subscribed, just via
+    // a shared subscription id.
+    const summary = summarizeRouteResults(
+      [
+        { category: 'general', label: 'General', action: 'renewed', subscription_id: 'sub-shared' },
+        { category: 'scheduling', label: 'Scheduling (OC)', action: 'linked', subscription_id: 'sub-shared' },
+      ],
+      FIXED_NOW,
+    );
+    expect(summary.total_routes).toBe(2);
+    expect(summary.subscribed_routes).toBe(2);
+    expect(summary.failed_routes).toBe(0);
+    expect(summary.subscription_id).toBe('sub-shared');
+  });
+
   it('counts failed actions separately', () => {
     const summary = summarizeRouteResults(
       [
