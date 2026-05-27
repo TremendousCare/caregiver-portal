@@ -7,9 +7,10 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Clock, AlertTriangle, X, Plus } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, Plus } from 'lucide-react';
 import { useFollowUps } from '../../shared/context/FollowUpContext';
 import { followUpDisplayTitle } from '../../lib/followUpTasks';
+import { SnoozePopover } from './SnoozePopover';
 
 /**
  * @param {object} props
@@ -75,7 +76,7 @@ export function UpcomingFollowUpsPanel({ kind, entityId }) {
           expanded={expandedId === t.id}
           onToggle={() => setExpandedId((c) => c === t.id ? null : t.id)}
           onMarkDone={(note) => markDone(t.id, note)}
-          onSnooze={() => snooze(t.id, new Date(Date.now() + 24 * 60 * 60 * 1000))}
+          onSnooze={(date) => snooze(t.id, date)}
         />
       ))}
     </div>
@@ -112,15 +113,12 @@ function Row({ task, expanded, onToggle, onMarkDone, onSnooze }) {
             onChange={(e) => setNote(e.target.value)}
             style={noteInputStyle}
           />
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
             <button type="button" style={btnPrimaryStyle} onClick={() => { onMarkDone(note); setNote(''); }}>
               <CheckCircle2 size={12} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
               Done
             </button>
-            <button type="button" style={btnSecondaryStyle} onClick={onSnooze}>
-              <Clock size={12} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
-              Snooze 1d
-            </button>
+            <SnoozePopover onSnooze={onSnooze} />
           </div>
         </div>
       )}
@@ -188,8 +186,4 @@ const noteInputStyle = {
 const btnPrimaryStyle = {
   padding: '4px 10px', border: 'none', borderRadius: 6,
   background: 'var(--tc-navy)', color: '#fff', fontSize: 12, cursor: 'pointer',
-};
-const btnSecondaryStyle = {
-  padding: '4px 10px', border: '1px solid #E0E4EA', borderRadius: 6,
-  background: '#fff', color: 'var(--tc-text-secondary)', fontSize: 12, cursor: 'pointer',
 };
