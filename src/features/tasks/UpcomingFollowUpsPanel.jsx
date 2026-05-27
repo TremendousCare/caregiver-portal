@@ -7,8 +7,9 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Clock, AlertTriangle, X } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, X, Plus } from 'lucide-react';
 import { useFollowUps } from '../../shared/context/FollowUpContext';
+import { followUpDisplayTitle } from '../../lib/followUpTasks';
 
 /**
  * @param {object} props
@@ -16,8 +17,17 @@ import { useFollowUps } from '../../shared/context/FollowUpContext';
  * @param {string} props.entityId — caregivers.id or clients.id
  */
 export function UpcomingFollowUpsPanel({ kind, entityId }) {
-  const { tasks, loaded, markDone, snooze } = useFollowUps();
+  const { tasks, loaded, markDone, snooze, openComposer } = useFollowUps();
   const [expandedId, setExpandedId] = useState(null);
+
+  // Contextual "+ Follow-up" — pre-fills and locks the entity so the
+  // user can't accidentally drop the link by clearing it in the modal.
+  const openContextualCompose = () => {
+    if (!entityId) return openComposer();
+    openComposer(kind === 'caregiver'
+      ? { caregiverId: entityId, lockEntity: true }
+      : { clientId: entityId, lockEntity: true });
+  };
 
   const mine = useMemo(() => {
     if (!entityId) return [];
@@ -34,7 +44,13 @@ export function UpcomingFollowUpsPanel({ kind, entityId }) {
   if (mine.length === 0) {
     return (
       <div style={cardStyle}>
-        <div style={headerStyle}>Upcoming follow-ups</div>
+        <div style={headerStyle}>
+          <span>Upcoming follow-ups</span>
+          <button type="button" onClick={openContextualCompose} style={addBtnStyle} title="New follow-up (⌘K)">
+            <Plus size={12} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
+            Add
+          </button>
+        </div>
         <div style={emptyStyle}>No pending follow-ups for this {kind}.</div>
       </div>
     );
@@ -43,8 +59,14 @@ export function UpcomingFollowUpsPanel({ kind, entityId }) {
   return (
     <div style={cardStyle}>
       <div style={headerStyle}>
-        Upcoming follow-ups
-        <Link to="/tasks" style={viewAllLinkStyle}>View all →</Link>
+        <span>Upcoming follow-ups</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button type="button" onClick={openContextualCompose} style={addBtnStyle} title="New follow-up (⌘K)">
+            <Plus size={12} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
+            Add
+          </button>
+          <Link to="/tasks" style={viewAllLinkStyle}>View all →</Link>
+        </span>
       </div>
       {mine.map((t) => (
         <Row
@@ -67,7 +89,7 @@ function Row({ task, expanded, onToggle, onMarkDone, onSnooze }) {
       <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={onToggle}>
         <UrgencyIcon urgency={task.urgency} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{task.template?.name ?? 'Follow-up'}</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{followUpDisplayTitle(task)}</div>
           <div style={{ fontSize: 11, color: '#5D6B7F' }}>{formatDueLabel(task.dueAt)}</div>
         </div>
       </div>
@@ -76,6 +98,11 @@ function Row({ task, expanded, onToggle, onMarkDone, onSnooze }) {
           {task.template?.guidance && (
             <div style={{ fontSize: 12, color: '#3D4A5D', marginBottom: 8, whiteSpace: 'pre-wrap' }}>
               {task.template.guidance}
+            </div>
+          )}
+          {!task.template?.guidance && task.description && (
+            <div style={{ fontSize: 12, color: '#3D4A5D', marginBottom: 8, whiteSpace: 'pre-wrap' }}>
+              {task.description}
             </div>
           )}
           <input
@@ -136,6 +163,13 @@ const headerStyle = {
 const viewAllLinkStyle = {
   fontSize: 12, fontWeight: 600, color: 'var(--tc-cyan)',
   textTransform: 'none', letterSpacing: 0, textDecoration: 'none',
+};
+const addBtnStyle = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '3px 8px',
+  background: '#fff', border: '1px solid #E0E4EA', borderRadius: 6,
+  color: 'var(--tc-navy)', fontSize: 11, fontWeight: 600,
+  textTransform: 'none', letterSpacing: 0, cursor: 'pointer',
 };
 const emptyStyle = { fontSize: 12, color: '#7A8BA0', padding: '8px 0' };
 

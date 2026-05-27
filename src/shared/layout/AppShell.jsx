@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useCaregivers } from '../context/CaregiverContext';
@@ -11,6 +11,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CaregiverSidebarExtra } from '../../features/caregivers/CaregiverSidebarExtra';
 import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
 import { useFollowUps } from '../context/FollowUpContext';
+import { QuickCaptureModal } from '../../features/tasks/QuickCaptureModal';
 import layout from '../../styles/layout.module.css';
 
 export function AppShell() {
@@ -18,7 +19,23 @@ export function AppShell() {
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
   const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
-  const { badgeCount: followUpsBadgeCount } = useFollowUps();
+  const { badgeCount: followUpsBadgeCount, openComposer, composerOpen } = useFollowUps();
+
+  // Global Cmd/Ctrl+K hotkey → Quick Capture modal. The modifier
+  // requirement means plain "k" still works in text inputs. We also
+  // skip when the modal is already open so the user's in-progress
+  // form state isn't wiped by a re-open.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== 'k' && e.key !== 'K') return;
+      if (composerOpen) return;
+      e.preventDefault();
+      openComposer();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openComposer, composerOpen]);
 
   const loaded = caregiversLoaded && clientsLoaded;
 
@@ -153,6 +170,7 @@ export function AppShell() {
     <div className={layout.app}>
       <Toast message={toast} />
       <NotificationBell />
+      <QuickCaptureModal />
       <Sidebar sections={sidebarSections} />
 
       <main className={layout.main}>
