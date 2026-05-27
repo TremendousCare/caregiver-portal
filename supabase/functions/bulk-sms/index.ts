@@ -1,17 +1,17 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveMergeFields } from "../_shared/helpers/mergeFields.ts";
-import { sendSmsToRingCentralWithRetry } from "../_shared/helpers/ringcentral.ts";
+import {
+  getRingCentralAccessTokenWithJwt,
+  sendSmsToRingCentralWithRetry,
+} from "../_shared/helpers/ringcentral.ts";
 
 // ─── Environment Variables ───
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RC_CLIENT_ID = Deno.env.get("RINGCENTRAL_CLIENT_ID");
-const RC_CLIENT_SECRET = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
 // Legacy JWT env var — used as fallback when no `category` is specified on
 // the request body. Every existing call site hits this path today, so its
 // behavior must remain byte-identical to the pre-Step-5 edge function.
 const RC_JWT_TOKEN_FALLBACK = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
-const RC_API_URL = "https://platform.ringcentral.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,31 +33,12 @@ function fullName(entity: { first_name: string; last_name: string }): string {
   return `${entity.first_name || ""} ${entity.last_name || ""}`.trim();
 }
 
-async function getRingCentralAccessToken(jwt: string): Promise<string> {
-  if (!RC_CLIENT_ID || !RC_CLIENT_SECRET) {
-    throw new Error("RingCentral client credentials not configured");
-  }
-  if (!jwt) {
-    throw new Error("RingCentral JWT not provided");
-  }
-  const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`)}`,
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`RingCentral auth failed: ${error}`);
-  }
-  const data = await response.json();
-  return data.access_token;
-}
+// Delegates to the shared cached helper. The local copy this replaces did
+// a fresh /oauth/token POST on every invocation — bursty UI-initiated
+// bulk sends with a cold-start instance contributed to the per-extension
+// auth bucket exhaustion that surfaced as CMN-301 across the app.
+const getRingCentralAccessToken = (jwt: string): Promise<string> =>
+  getRingCentralAccessTokenWithJwt(jwt);
 
 async function getRCFromNumber(supabase: any): Promise<string | null> {
   try {

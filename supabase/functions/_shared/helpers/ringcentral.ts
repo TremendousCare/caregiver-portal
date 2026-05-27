@@ -27,10 +27,30 @@ const rcTokenCache = new Map<string, RcTokenCacheEntry>();
 const rcTokenInFlight = new Map<string, Promise<string>>();
 const RC_TOKEN_SAFETY_MS = 60_000;
 
+// Negative cache: when RC's /oauth/token returns 429 (CMN-301 "Request rate
+// exceeded"), the extension's auth bucket is in a 60s penalty interval and
+// every additional request DURING THAT INTERVAL also fails AND extends the
+// penalty further. Without negative caching, a serial loop of N callers
+// (e.g. post-call-processor batching 25 transcription calls via
+// call-transcription) each fires a fresh /oauth/token, each gets 429, the
+// failure is never cached, and the bucket stays pinned in penalty
+// indefinitely. With this cache, the first 429 short-circuits subsequent
+// callers for `RC_TOKEN_429_BACKOFF_MS` so we stop poking the bucket and
+// let it clear. Cache window matches RC's documented 60s penalty.
+//
+// We ONLY negative-cache 429s. Other failure modes (401 bad creds, 5xx,
+// network blips) are transient or permanent in different ways and we want
+// the next caller to surface the underlying error rather than swallow it
+// behind a cached error message.
+type RcTokenFailureCacheEntry = { error: Error; expiresAt: number };
+const rcTokenFailureCache = new Map<string, RcTokenFailureCacheEntry>();
+const RC_TOKEN_429_BACKOFF_MS = 60_000;
+
 // Test-only: reset the cache between cases. Not part of the public API.
 export function _resetRcTokenCacheForTests() {
   rcTokenCache.clear();
   rcTokenInFlight.clear();
+  rcTokenFailureCache.clear();
 }
 
 // Category-aware helper: takes a JWT as a parameter so the caller can
@@ -55,6 +75,17 @@ export async function getRingCentralAccessTokenWithJwt(
     return cached.token;
   }
 
+  // Negative cache hit → don't hit RC, the bucket is in penalty.
+  // Replay the original error so callers see the underlying CMN-301.
+  const failure = rcTokenFailureCache.get(jwt);
+  if (failure && Date.now() < failure.expiresAt) {
+    throw failure.error;
+  }
+  if (failure) {
+    // Stale entry — drop it so we try fresh below.
+    rcTokenFailureCache.delete(jwt);
+  }
+
   const inFlight = rcTokenInFlight.get(jwt);
   if (inFlight) return inFlight;
 
@@ -73,8 +104,19 @@ export async function getRingCentralAccessTokenWithJwt(
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`RingCentral auth failed (${response.status}): ${error}`);
+        const errorText = await response.text();
+        const err = new Error(
+          `RingCentral auth failed (${response.status}): ${errorText}`,
+        );
+        // Park 429s in the negative cache so the next N callers within the
+        // RC penalty window short-circuit instead of poking the bucket.
+        if (response.status === 429) {
+          rcTokenFailureCache.set(jwt, {
+            error: err,
+            expiresAt: Date.now() + RC_TOKEN_429_BACKOFF_MS,
+          });
+        }
+        throw err;
       }
 
       const data = await response.json();
@@ -86,6 +128,9 @@ export async function getRingCentralAccessTokenWithJwt(
         token: data.access_token,
         expiresAt: Date.now() + expiresInSec * 1000,
       });
+      // On success, evict any stale negative-cache entry so we don't keep
+      // throwing the old error even though auth is healthy again.
+      rcTokenFailureCache.delete(jwt);
       return data.access_token;
     } finally {
       rcTokenInFlight.delete(jwt);

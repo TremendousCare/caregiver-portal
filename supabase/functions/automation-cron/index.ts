@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { getRingCentralAccessToken } from "../_shared/helpers/ringcentral.ts";
 import { normalizeActionType, resolveAutomationMergeFields } from "../_shared/helpers/automations.ts";
 import {
   buildSurveyUrlFromToken,
@@ -112,24 +113,13 @@ function phonesMatch(a: string, b: string): boolean {
 
 // ─── External Auth Helpers ─────────────────────────────────────────────────────
 
+// Delegates to the shared cached helper. Wrapped to preserve the
+// "return null on any failure" contract callers rely on instead of
+// surfacing the exception — the cron's call sites already branch on a
+// null token to skip the RC-dependent steps without aborting the run.
 async function getRingCentralToken(): Promise<string | null> {
-  const clientId = Deno.env.get("RINGCENTRAL_CLIENT_ID");
-  const clientSecret = Deno.env.get("RINGCENTRAL_CLIENT_SECRET");
-  const jwtToken = Deno.env.get("RINGCENTRAL_JWT_TOKEN");
-  if (!clientId || !clientSecret || !jwtToken) return null;
-
   try {
-    const response = await fetch("https://platform.ringcentral.com/restapi/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": "Basic " + btoa(`${clientId}:${clientSecret}`),
-      },
-      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwtToken}`,
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.access_token;
+    return await getRingCentralAccessToken();
   } catch {
     return null;
   }

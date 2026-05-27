@@ -144,24 +144,104 @@ describe('getRingCentralAccessTokenWithJwt — caching', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('does not cache a failed token request, and a retry can succeed', async () => {
+  it('negatively caches a 429 failure for the RC penalty window, then recovers', async () => {
+    // Why this matters: post-call-processor batches 25 sequential
+    // call-transcription invocations. If the first /oauth/token POST 429s
+    // and we DON'T cache that failure, each of the remaining 24 callers
+    // also fires a fresh POST against an extension whose bucket is in
+    // penalty — and every additional request during the penalty extends
+    // it further. Caching the 429 for ~60s short-circuits the rest of the
+    // batch without poking the bucket, lets the penalty expire, and the
+    // next caller after the window gets a clean attempt.
+    vi.useFakeTimers();
+    try {
+      const { getRingCentralAccessTokenWithJwt } = await loadHelper();
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: async () => '{"errorCode":"CMN-301","message":"Request rate exceeded"}',
+          json: async () => ({}),
+        })
+        .mockResolvedValueOnce(mockTokenResponse({ token: 'tok-recovered' }));
+      globalThis.fetch = fetchSpy;
+
+      // First call hits RC and gets 429.
+      await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/429/);
+
+      // Within the 60s backoff window, subsequent calls short-circuit on
+      // the negative cache — fetch is NOT called again, and the same error
+      // surface is preserved so callers see the underlying CMN-301.
+      await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/429/);
+      await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/429/);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      // Once the 60s window passes, a fresh attempt is allowed and can succeed.
+      vi.advanceTimersByTime(60_001);
+      const recovered = await getRingCentralAccessTokenWithJwt('jwt-A');
+      expect(recovered).toBe('tok-recovered');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT negatively cache non-429 failures (e.g. 401 bad credentials)', async () => {
+    // Other failure modes (401 invalid JWT, 5xx, network blips) don't
+    // signal a rate-limit penalty, so callers should see fresh attempts
+    // rather than have a stale error swallowed for 60s.
     const { getRingCentralAccessTokenWithJwt } = await loadHelper();
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce({
         ok: false,
-        status: 429,
-        text: async () => '{"errorCode":"CMN-301","message":"Request rate exceeded"}',
+        status: 401,
+        text: async () => '{"errorCode":"OAU-149","message":"Invalid assertion"}',
         json: async () => ({}),
       })
       .mockResolvedValueOnce(mockTokenResponse({ token: 'tok-recovered' }));
     globalThis.fetch = fetchSpy;
 
-    await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/429/);
+    await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/401/);
     const recovered = await getRingCentralAccessTokenWithJwt('jwt-A');
 
     expect(recovered).toBe('tok-recovered');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a stale negative-cache entry on a successful auth', async () => {
+    // If a 429 was cached and then somehow a later call succeeds (e.g.
+    // because the cache expired right as the call started), we must drop
+    // the negative entry so the cached SUCCESS is what callers see —
+    // otherwise the next caller within the original 60s window would
+    // still get the stale error.
+    vi.useFakeTimers();
+    try {
+      const { getRingCentralAccessTokenWithJwt } = await loadHelper();
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: async () => 'CMN-301',
+          json: async () => ({}),
+        })
+        .mockResolvedValueOnce(mockTokenResponse({ token: 'tok-good' }));
+      globalThis.fetch = fetchSpy;
+
+      await expect(getRingCentralAccessTokenWithJwt('jwt-A')).rejects.toThrow(/429/);
+      vi.advanceTimersByTime(60_001);
+      const ok = await getRingCentralAccessTokenWithJwt('jwt-A');
+      expect(ok).toBe('tok-good');
+
+      // Subsequent calls hit the SUCCESS cache, NOT the negative cache.
+      const again = await getRingCentralAccessTokenWithJwt('jwt-A');
+      expect(again).toBe('tok-good');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('throws when client credentials are missing', async () => {
