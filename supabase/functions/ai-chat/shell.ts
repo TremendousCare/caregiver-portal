@@ -219,6 +219,7 @@ export async function runAiChatShell(
         currentUser || "User",
         allCg || [],
         allCl || [],
+        currentUserMailbox || null,
       );
 
       doneInvocation(true, { request_type: "briefing" });
