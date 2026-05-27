@@ -8,18 +8,29 @@
 // call_sessions whose recording exists but whose transcript has not
 // yet been fetched. For each pending row:
 //
-//   1. Calls the existing `call-transcription` edge function — which
-//      caches the result in call_transcriptions (PK = recording_id)
-//      and handles both RC-native and Whisper paths internally.
+//   1. Resolves the org's transcription_provider preference from
+//      communication_voice_config (RingSense native vs OpenAI Whisper
+//      vs both-with-fallback) and calls the shared transcribeRecording
+//      operation directly — same op that backs the call-transcription
+//      HTTP endpoint, so cache + provider semantics are identical
+//      across both entry points. The op caches results in
+//      call_transcriptions (PK = recording_id) so a second call for
+//      the same recording is cheap.
 //   2. Stamps call_sessions.transcript_fetched_at so the partial
 //      index `idx_call_sessions_pending_transcript` no longer matches
-//      the row. Idempotent on rerun: the call-transcription cache
-//      makes a second call cheap, and the row drops out of the index
-//      regardless.
+//      the row. Idempotent on rerun: re-entry hits the cache and the
+//      row drops out of the index regardless.
 //   3. When a caregiver / client is matched, appends a note of
 //      `type: 'call'` to the entity's notes array so the call shows
 //      up in the timeline alongside SMS/email events — same shape as
 //      the SMS webhook's logInboundNote().
+//
+// Auth pressure: a single RC access token is minted at the top of
+// each cron tick (via the shared cached helper) and reused for every
+// recording in the batch. Replaces the previous "HTTP-fetch
+// call-transcription per row" pattern which fanned out into one
+// /oauth/token POST per row and parked RC's per-extension auth bucket
+// in CMN-301 penalty when batches were hot.
 //
 // Idempotency, retry, and give-up:
 //   - Success      → transcript_fetched_at = now(); row leaves the
@@ -43,9 +54,16 @@ import {
   fetchCallEntityIdentity,
 } from '../_shared/operations/agentRuntime/callContext.ts';
 import { persistCallAnalysis } from '../_shared/operations/agentRuntime/persistCallAnalysis.ts';
+import { getRingCentralAccessToken } from '../_shared/helpers/ringcentral.ts';
+import {
+  resolveTranscriptionProvider,
+  transcribeRecording,
+  type TranscriptionProvider,
+} from '../_shared/operations/transcribeRecording.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') ?? null;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -116,32 +134,54 @@ async function fetchPending(): Promise<PendingCallRow[]> {
   return (data || []) as PendingCallRow[];
 }
 
-async function fetchTranscript(recordingId: string): Promise<string | null> {
-  // call-transcription authenticates via a `token` *query parameter*
-  // (not a Bearer header) and explicitly treats SUPABASE_SERVICE_ROLE_KEY
-  // as a trusted internal-caller credential. See call-transcription's
-  // index.ts for the auth contract. Passing only the Authorization
-  // header makes call-transcription return 401, which is what caused
-  // "No transcript returned" on every backfilled row in the first
-  // post-bugfix run.
-  const params = new URLSearchParams({
-    recordingId,
-    token: SUPABASE_SERVICE_ROLE_KEY,
+// Per-tick transcription context. The cron mints ONE RC access token
+// at the top of each batch and resolves the provider ONCE per org, then
+// reuses both across every recording in that batch. This is what
+// replaces the previous "fetch /call-transcription over HTTP for each
+// of 25 rows" pattern, which incurred up to 25 fresh /oauth/token POSTs
+// per cron tick and parked the per-extension auth bucket in penalty.
+type TranscriptionContext = {
+  rcAccessToken: string;
+  providerByOrg: Map<string, TranscriptionProvider>;
+};
+
+async function buildTranscriptionContext(): Promise<TranscriptionContext> {
+  return {
+    rcAccessToken: await getRingCentralAccessToken(),
+    providerByOrg: new Map(),
+  };
+}
+
+async function getProviderForOrg(
+  ctx: TranscriptionContext,
+  orgId: string,
+): Promise<TranscriptionProvider> {
+  const cached = ctx.providerByOrg.get(orgId);
+  if (cached) return cached;
+  const provider = await resolveTranscriptionProvider(supabase, orgId);
+  ctx.providerByOrg.set(orgId, provider);
+  return provider;
+}
+
+async function fetchTranscript(
+  row: PendingCallRow,
+  ctx: TranscriptionContext,
+): Promise<string | null> {
+  const provider = await getProviderForOrg(ctx, row.org_id);
+  // Soft "not ready" returns null. Hard errors (missing RingSense
+  // scope, RC 5xx, Whisper auth, etc.) throw — those are caught one
+  // level up in processOne's try/catch, which preserves the error
+  // message in the per-row outcome so chronic failures are visible
+  // in the cron's response payload, not just buried in function logs.
+  const result = await transcribeRecording({
+    supabase,
+    recordingId: row.recording_id,
+    rcAccessToken: ctx.rcAccessToken,
+    provider,
+    openaiApiKey: OPENAI_API_KEY,
   });
-  const resp = await fetch(
-    `${SUPABASE_URL}/functions/v1/call-transcription?${params.toString()}`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-    },
-  );
-  if (!resp.ok) return null;
-  const data = await resp.json().catch(() => null);
-  if (!data) return null;
-  const text = (data.transcript || data.text || '') as string;
-  return text || null;
+  if (!result) return null;
+  return result.transcript || null;
 }
 
 async function appendCallNote(
@@ -189,7 +229,10 @@ function isPastGiveup(row: PendingCallRow): boolean {
   return ageHours > RETRY_GIVEUP_HOURS;
 }
 
-async function processOne(row: PendingCallRow): Promise<ProcessResult> {
+async function processOne(
+  row: PendingCallRow,
+  ctx: TranscriptionContext,
+): Promise<ProcessResult> {
   try {
     // Give-up path: don't keep retrying forever. Mark and move on.
     if (isPastGiveup(row)) {
@@ -197,7 +240,7 @@ async function processOne(row: PendingCallRow): Promise<ProcessResult> {
       return { call_session_id: row.id, outcome: 'gave_up' };
     }
 
-    const transcript = await fetchTranscript(row.recording_id);
+    const transcript = await fetchTranscript(row, ctx);
     if (!transcript) {
       // Soft failure — leave the row pending, cron will retry next tick.
       return { call_session_id: row.id, outcome: 'failed', error: 'No transcript returned' };
@@ -433,10 +476,41 @@ Deno.serve(async (req) => {
 
   try {
     // ─── Pool 1 — transcript-pending ───
+    // Build the transcription context BEFORE the loop so we mint exactly
+    // one RC access token per cron tick and share it across every
+    // recording in the batch. Previously each row spawned an HTTP fetch
+    // to call-transcription, which in turn did its own /oauth/token POST
+    // — up to 25 fresh auths per tick against RC's 5-req/60s ceiling,
+    // which is what was parking the per-extension auth bucket in
+    // CMN-301 penalty.
     const pending = await fetchPending();
     const results: ProcessResult[] = [];
-    for (const row of pending) {
-      results.push(await processOne(row));
+    if (pending.length > 0) {
+      let transcriptionCtx: TranscriptionContext | null = null;
+      try {
+        transcriptionCtx = await buildTranscriptionContext();
+      } catch (err) {
+        // RC auth itself failed — skip the whole transcript pool this
+        // tick rather than burning per-row retries. Rows stay pending,
+        // next tick will retry the auth.
+        console.warn(
+          '[post-call-processor] could not mint RC token for transcription batch:',
+          (err as Error).message || err,
+        );
+      }
+      if (transcriptionCtx) {
+        for (const row of pending) {
+          results.push(await processOne(row, transcriptionCtx));
+        }
+      } else {
+        for (const row of pending) {
+          results.push({
+            call_session_id: row.id,
+            outcome: 'failed',
+            error: 'RC auth unavailable',
+          });
+        }
+      }
     }
 
     // ─── Pool 2 — analysis-pending (Phase 1.6.2) ───

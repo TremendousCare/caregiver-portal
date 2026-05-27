@@ -289,6 +289,141 @@ export async function fetchRCMessages(
   return data.records || [];
 }
 
+// ─── RingSense Insights (native transcription) ───────────────────────────────
+//
+// Pulls the AI-generated transcript + metadata for a recorded call from
+// RingSense, RingCentral's first-party conversation intelligence service.
+// This is the cheap, license-included alternative to sending the raw audio
+// to OpenAI Whisper. The org's per-org transcription_provider column in
+// communication_voice_config picks which path call-transcription /
+// post-call-processor use.
+//
+// Endpoint shape (RingSense API, currently beta):
+//   GET /ai/ringsense/v1/public/accounts/~/domains/pbx/records/{recordingId}/insights
+// Requires the `RingSense` OAuth scope on the calling app PLUS a
+// "RingSense for Sales - Access Insights" user permission on the JWT's
+// extension. The org's RC plan must include RingSense (license-based).
+//
+// Timing: RingSense processes recordings asynchronously after the call
+// ends. There's no published SLA — typically minutes, occasionally longer
+// for long calls. Until processing finishes, the endpoint returns either
+// 404 or 200-with-empty-insights. Callers should treat both as
+// "not ready yet, retry later" rather than a hard failure. The
+// post-call-processor cron's existing soft-failure path (transcript_
+// fetched_at stays NULL, retries each tick, gives up after 24h) handles
+// this naturally.
+//
+// Returns null on any "transcript not available" condition (404, empty
+// insights, no transcript field on the response). Throws on hard
+// failures (403 missing scope, 5xx, network) so callers can distinguish
+// "wait and retry" from "configuration is broken".
+export type RingSenseInsights = {
+  transcript: string;
+  duration_seconds: number | null;
+  language: string | null;
+};
+
+export async function fetchRingSenseInsights(
+  accessToken: string,
+  recordingId: string,
+): Promise<RingSenseInsights | null> {
+  const url =
+    `${RC_API_URL}/ai/ringsense/v1/public/accounts/~/domains/pbx/records/` +
+    `${encodeURIComponent(recordingId)}/insights`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  // 404 → recording not yet processed by RingSense (or RingSense has no
+  // record of it). Treat as "not ready", let the caller retry later.
+  if (response.status === 404) return null;
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(
+      `RingSense insights fetch failed (${response.status}): ${errText}`,
+    );
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!data) return null;
+
+  // Insights payload layout (per RC API docs): the call body lives at the
+  // top level, and `insights` is an array of typed objects — at least one
+  // per category (Transcript, Summary, Highlight, etc.). The transcript
+  // object carries a `transcript` field that's an array of segments:
+  //   { speakerId, startTime, endTime, text }
+  // Speakers are identified by id; `speakerInfo` at the body level maps
+  // ids to names. We flatten to a single text string here because the
+  // call_transcriptions table stores `transcript text` and downstream
+  // consumers (post-call-processor note append, ai_summary extractor)
+  // operate on plain text.
+  const insights: any[] = Array.isArray(data.insights) ? data.insights : [];
+  const transcriptInsight = insights.find(
+    (ins) =>
+      Array.isArray(ins?.transcript) ||
+      (ins?.type === "Transcript" && Array.isArray(ins?.transcript)),
+  );
+  const segments: any[] = Array.isArray(transcriptInsight?.transcript)
+    ? transcriptInsight.transcript
+    : [];
+
+  if (segments.length === 0) return null;
+
+  const speakerInfo: any[] = Array.isArray(data.speakerInfo)
+    ? data.speakerInfo
+    : [];
+  const speakerLabel = (speakerId: unknown): string => {
+    if (speakerId == null) return "";
+    const found = speakerInfo.find(
+      (s: any) =>
+        s?.speakerId === speakerId ||
+        s?.id === speakerId ||
+        String(s?.speakerId) === String(speakerId),
+    );
+    const name = found?.name || found?.displayName;
+    return name ? String(name) : `Speaker ${speakerId}`;
+  };
+
+  const lines: string[] = [];
+  let lastSpeakerKey: string | null = null;
+  for (const seg of segments) {
+    const text = typeof seg?.text === "string" ? seg.text.trim() : "";
+    if (!text) continue;
+    const label = speakerLabel(seg?.speakerId);
+    if (label !== lastSpeakerKey) {
+      lines.push(`${label}: ${text}`);
+      lastSpeakerKey = label;
+    } else {
+      // Same speaker continuing — append without re-printing the label.
+      lines[lines.length - 1] += " " + text;
+    }
+  }
+
+  const transcript = lines.join("\n").trim();
+  if (!transcript) return null;
+
+  // duration_seconds: RC publishes recordingDurationMs at the body root.
+  const durationMs =
+    typeof data.recordingDurationMs === "number"
+      ? data.recordingDurationMs
+      : null;
+  const duration_seconds =
+    durationMs != null ? Math.round(durationMs / 1000) : null;
+
+  // language: RingSense doesn't always emit one; fall back to null and
+  // let the column accept it. call-transcription's prior Whisper code
+  // defaulted to 'en' — we deliberately do NOT default here so we don't
+  // silently mislabel non-English calls. If callers need a default, they
+  // can apply one at the write site.
+  const language =
+    typeof data.language === "string" && data.language ? data.language : null;
+
+  return { transcript, duration_seconds, language };
+}
+
 export async function fetchRCCallLog(
   accessToken: string,
   phoneNumber: string,
