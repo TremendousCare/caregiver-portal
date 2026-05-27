@@ -22,6 +22,8 @@ import {
 import { ShiftCreateModal } from './ShiftCreateModal';
 import { ShiftDrawer } from './ShiftDrawer';
 import { BroadcastModal } from './BroadcastModal';
+import { SearchableSelect } from '../../shared/components/SearchableSelect';
+import { sortClientsByName, clientDisplayName } from '../../lib/clientSort';
 import s from './SchedulePage.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -90,6 +92,15 @@ export function SchedulePage() {
     for (const c of activeClients || []) map[c.id] = c;
     return map;
   }, [activeClients]);
+
+  const clientFilterOptions = useMemo(
+    () =>
+      sortClientsByName(activeClients).map((c) => ({
+        value: c.id,
+        label: clientDisplayName(c),
+      })),
+    [activeClients],
+  );
 
   // Caregivers that can be assigned to a shift: full active roster plus
   // applicants still in onboarding. Onboarding caregivers are flagged
@@ -362,21 +373,17 @@ export function SchedulePage() {
       </header>
 
       <div className={s.filtersBar}>
-        <label className={s.filterLabel}>
-          Client
-          <select
-            className={s.filterInput}
+        <div className={s.filterLabel}>
+          <span id="schedule-client-filter-label">Client</span>
+          <SearchableSelect
             value={filterClient}
-            onChange={(e) => setFilterClient(e.target.value)}
-          >
-            <option value="">All clients</option>
-            {(activeClients || []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {`${c.firstName || ''} ${c.lastName || ''}`.trim() || c.id}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={setFilterClient}
+            options={clientFilterOptions}
+            emptyOption={{ value: '', label: 'All clients' }}
+            placeholder="Search clients…"
+            ariaLabel="Filter by client"
+          />
+        </div>
         <label className={s.filterLabel}>
           Status
           <select
