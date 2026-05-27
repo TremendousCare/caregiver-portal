@@ -10,6 +10,11 @@ import {
   snoozeFollowUp,
   cancelFollowUp,
   reassignFollowUp,
+  followUpDisplayTitle,
+  buildUserTaskRow,
+  createUserTask,
+  updateUserTask,
+  logTaskEvent,
 } from '../followUpTasks';
 
 // ─── Fake Supabase client (records UPDATE calls) ─────────
@@ -242,5 +247,309 @@ describe('reassignFollowUp', () => {
     const client = createFakeClient({ data: { id: 't-1', status: 'pending', due_at: 'x' } });
     await reassignFollowUp('t-1', '   ', client);
     expect(client._calls[0].patch.assigned_to).toBeNull();
+  });
+});
+
+// ─── User-source mapper & display title (migration 20260527000000) ───
+
+describe('dbToFollowUpTask user-source fields', () => {
+  it('maps the new columns onto the camelCase shape', () => {
+    const out = dbToFollowUpTask({
+      id: 't-2', org_id: 'org-1',
+      source: 'user', title: 'Call Maria',
+      description: 'About the I-9', created_by: 'jess@tc',
+      notified_at: '2026-06-15T17:05:00Z',
+      template_id: null, caregiver_id: 'cg-1', client_id: null,
+      due_at: '2026-06-16T09:00:00Z', status: 'pending',
+      urgency: 'warning', assigned_to: 'jess@tc',
+    });
+    expect(out.source).toBe('user');
+    expect(out.title).toBe('Call Maria');
+    expect(out.description).toBe('About the I-9');
+    expect(out.createdBy).toBe('jess@tc');
+    expect(out.notifiedAt).toBe('2026-06-15T17:05:00Z');
+    expect(out.caregiverId).toBe('cg-1');
+    expect(out.clientId).toBeNull();
+    expect(out.templateId).toBeNull();
+    expect(out.template).toBeNull();
+  });
+
+  it('defaults source to "template" when absent (back-compat)', () => {
+    const out = dbToFollowUpTask({ id: 't-3', status: 'pending', due_at: 'x' });
+    expect(out.source).toBe('template');
+    expect(out.title).toBeNull();
+    expect(out.notifiedAt).toBeNull();
+  });
+});
+
+describe('followUpDisplayTitle', () => {
+  it('prefers the joined template name for template tasks', () => {
+    const out = followUpDisplayTitle({
+      title: 'should-not-appear',
+      template: { name: 'First-day check-in' },
+    });
+    expect(out).toBe('First-day check-in');
+  });
+
+  it('falls back to the user-entered title for source=user', () => {
+    expect(followUpDisplayTitle({ title: 'Call Maria', template: null }))
+      .toBe('Call Maria');
+  });
+
+  it('falls back to a generic label when nothing is set', () => {
+    expect(followUpDisplayTitle({ template: null })).toBe('Follow-up');
+    expect(followUpDisplayTitle(null)).toBe('Follow-up');
+  });
+});
+
+// ─── buildUserTaskRow ────────────────────────────────────────
+
+describe('buildUserTaskRow', () => {
+  const baseValid = {
+    title: 'Call Maria re: I-9',
+    dueAt: new Date('2026-06-16T09:00:00Z'),
+    urgency: 'warning',
+  };
+
+  it('rejects missing input', () => {
+    expect(buildUserTaskRow(null).error).toBeTruthy();
+    expect(buildUserTaskRow(undefined).error).toBeTruthy();
+    expect(buildUserTaskRow('not-an-object').error).toBeTruthy();
+  });
+
+  it('requires a non-empty title', () => {
+    expect(buildUserTaskRow({ ...baseValid, title: '' }).error?.message).toMatch(/title/i);
+    expect(buildUserTaskRow({ ...baseValid, title: '   ' }).error?.message).toMatch(/title/i);
+  });
+
+  it('trims the title', () => {
+    const { row, error } = buildUserTaskRow({ ...baseValid, title: '  hello  ' });
+    expect(error).toBeNull();
+    expect(row.title).toBe('hello');
+  });
+
+  it('requires a dueAt and accepts both Date and ISO string', () => {
+    expect(buildUserTaskRow({ ...baseValid, dueAt: null }).error?.message).toMatch(/due/i);
+    const fromDate = buildUserTaskRow(baseValid).row;
+    expect(fromDate.due_at).toBe('2026-06-16T09:00:00.000Z');
+    const fromIso = buildUserTaskRow({ ...baseValid, dueAt: '2026-06-16T09:00:00Z' }).row;
+    expect(fromIso.due_at).toBe('2026-06-16T09:00:00Z');
+  });
+
+  it('rejects unknown urgency values', () => {
+    expect(buildUserTaskRow({ ...baseValid, urgency: 'high' }).error?.message).toMatch(/urgency/i);
+  });
+
+  it('rejects linking both caregiver and client (single-entity rule)', () => {
+    const { error } = buildUserTaskRow({
+      ...baseValid, caregiverId: 'cg-1', clientId: 'cl-1',
+    });
+    expect(error?.message).toMatch(/caregiver or a client/);
+  });
+
+  it('defaults assignedTo to createdBy (creator-is-assignee rule)', () => {
+    const { row } = buildUserTaskRow({ ...baseValid, createdBy: 'jess@tc' });
+    expect(row.created_by).toBe('jess@tc');
+    expect(row.assigned_to).toBe('jess@tc');
+  });
+
+  it('allows assignedTo override', () => {
+    const { row } = buildUserTaskRow({
+      ...baseValid, createdBy: 'jess@tc', assignedTo: 'laura@tc',
+    });
+    expect(row.assigned_to).toBe('laura@tc');
+  });
+
+  it('sets source=user by default and source=ai when requested', () => {
+    expect(buildUserTaskRow(baseValid).row.source).toBe('user');
+    expect(buildUserTaskRow({ ...baseValid, source: 'ai' }).row.source).toBe('ai');
+    // Anything other than 'ai' falls back to 'user' (validation here
+    // is loose; the DB CHECK is the source of truth).
+    expect(buildUserTaskRow({ ...baseValid, source: 'template' }).row.source).toBe('user');
+  });
+
+  it('coerces empty description to null', () => {
+    expect(buildUserTaskRow({ ...baseValid, description: '   ' }).row.description).toBeNull();
+    expect(buildUserTaskRow({ ...baseValid, description: '  hi  ' }).row.description).toBe('hi');
+  });
+});
+
+// ─── createUserTask ──────────────────────────────────────────
+
+function createInsertingClient({ data = null, error = null } = {}) {
+  const calls = [];
+  return {
+    from(table) {
+      return {
+        insert(row) {
+          return {
+            select(cols) {
+              return {
+                single() {
+                  calls.push({ table, row, cols });
+                  return Promise.resolve({ data, error });
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+    _calls: calls,
+  };
+}
+
+describe('createUserTask', () => {
+  const valid = {
+    title: 'Call Maria',
+    dueAt: new Date('2026-06-16T09:00:00Z'),
+    urgency: 'warning',
+    createdBy: 'jess@tc',
+  };
+
+  it('validates before round-tripping (returns error, no DB call)', async () => {
+    const client = createInsertingClient();
+    const { task, error } = await createUserTask({ ...valid, title: '' }, client);
+    expect(task).toBeNull();
+    expect(error?.message).toMatch(/title/i);
+    expect(client._calls).toHaveLength(0);
+  });
+
+  it('inserts the normalized row and maps the response', async () => {
+    const client = createInsertingClient({
+      data: {
+        id: 't-1', source: 'user', title: 'Call Maria',
+        due_at: '2026-06-16T09:00:00.000Z', urgency: 'warning',
+        assigned_to: 'jess@tc', created_by: 'jess@tc', status: 'pending',
+      },
+    });
+    const { task, error } = await createUserTask(valid, client);
+    expect(error).toBeNull();
+    expect(task.id).toBe('t-1');
+    expect(task.source).toBe('user');
+    expect(task.title).toBe('Call Maria');
+    expect(client._calls[0].row.source).toBe('user');
+    expect(client._calls[0].row.assigned_to).toBe('jess@tc');
+  });
+
+  it('propagates supabase errors verbatim', async () => {
+    const client = createInsertingClient({ error: new Error('rls-denied') });
+    const { task, error } = await createUserTask(valid, client);
+    expect(task).toBeNull();
+    expect(error.message).toBe('rls-denied');
+  });
+});
+
+// ─── updateUserTask ──────────────────────────────────────────
+
+describe('updateUserTask', () => {
+  it('rejects empty title', async () => {
+    const client = createFakeClient({ data: null });
+    const { error } = await updateUserTask('t-1', { title: '   ' }, client);
+    expect(error?.message).toMatch(/title/i);
+    expect(client._calls).toHaveLength(0);
+  });
+
+  it('resets notified_at when dueAt changes (re-arms dispatcher)', async () => {
+    const client = createFakeClient({ data: { id: 't-1', status: 'pending', due_at: 'x' } });
+    await updateUserTask('t-1', { dueAt: new Date('2026-06-20T10:00:00Z') }, client);
+    expect(client._calls[0].patch.due_at).toBe('2026-06-20T10:00:00.000Z');
+    expect(client._calls[0].patch.notified_at).toBeNull();
+  });
+
+  it('rejects linking caregiver+client simultaneously', async () => {
+    const client = createFakeClient({ data: null });
+    const { error } = await updateUserTask('t-1', { caregiverId: 'cg', clientId: 'cl' }, client);
+    expect(error?.message).toMatch(/caregiver or a client/);
+    expect(client._calls).toHaveLength(0);
+  });
+
+  it('rejects unknown urgency', async () => {
+    const client = createFakeClient({ data: null });
+    const { error } = await updateUserTask('t-1', { urgency: 'high' }, client);
+    expect(error?.message).toMatch(/urgency/i);
+  });
+
+  it('refuses to send an empty patch', async () => {
+    const client = createFakeClient({ data: null });
+    const { error } = await updateUserTask('t-1', {}, client);
+    expect(error?.message).toMatch(/Nothing to update/);
+    expect(client._calls).toHaveLength(0);
+  });
+
+  it('trims and writes title; nulls empty description', async () => {
+    const client = createFakeClient({ data: { id: 't-1', status: 'pending', due_at: 'x' } });
+    await updateUserTask('t-1', { title: '  new  ', description: '   ' }, client);
+    expect(client._calls[0].patch.title).toBe('new');
+    expect(client._calls[0].patch.description).toBeNull();
+  });
+});
+
+// ─── logTaskEvent ────────────────────────────────────────────
+
+describe('logTaskEvent', () => {
+  function createEventClient() {
+    const calls = [];
+    return {
+      from(table) {
+        return {
+          insert(row) {
+            calls.push({ table, row });
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
+      },
+      _calls: calls,
+    };
+  }
+
+  it('writes an events row with entity_type derived from the link', async () => {
+    const client = createEventClient();
+    await logTaskEvent('task_created',
+      { id: 't-1', source: 'user', title: 'Call Maria', dueAt: '2026-06-16T09:00:00Z',
+        caregiverId: 'cg-1', clientId: null, assignedTo: 'jess@tc' },
+      'user:jess@tc', client);
+    expect(client._calls).toHaveLength(1);
+    expect(client._calls[0].table).toBe('events');
+    expect(client._calls[0].row.event_type).toBe('task_created');
+    expect(client._calls[0].row.entity_type).toBe('caregiver');
+    expect(client._calls[0].row.entity_id).toBeNull(); // caregivers.id is text, events.entity_id is uuid
+    expect(client._calls[0].row.payload.task_id).toBe('t-1');
+    expect(client._calls[0].row.actor).toBe('user:jess@tc');
+  });
+
+  it('uses entity_type=client when only client is linked', async () => {
+    const client = createEventClient();
+    await logTaskEvent('task_completed',
+      { id: 't-2', clientId: 'cl-1', caregiverId: null },
+      'user:laura@tc', client);
+    expect(client._calls[0].row.entity_type).toBe('client');
+  });
+
+  it('uses entity_type=null when no entity link exists', async () => {
+    const client = createEventClient();
+    await logTaskEvent('task_created',
+      { id: 't-3', caregiverId: null, clientId: null },
+      'user:jess@tc', client);
+    expect(client._calls[0].row.entity_type).toBeNull();
+  });
+
+  it('refuses to write unknown event types (typo guard)', async () => {
+    const client = createEventClient();
+    await logTaskEvent('task_not_a_real_event', { id: 't-4' }, 'user:x', client);
+    expect(client._calls).toHaveLength(0);
+  });
+
+  it('swallows DB errors silently (fire-and-forget)', async () => {
+    const bad = {
+      from() {
+        return {
+          insert() { throw new Error('boom'); },
+        };
+      },
+    };
+    // Should not throw.
+    await expect(logTaskEvent('task_created', { id: 't-5' }, 'user:x', bad))
+      .resolves.toBeUndefined();
   });
 });

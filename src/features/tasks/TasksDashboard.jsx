@@ -13,12 +13,12 @@
 
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp, X, User, Home } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp, X, User, Home, Plus } from 'lucide-react';
 import { useFollowUps } from '../../shared/context/FollowUpContext';
 import { useApp } from '../../shared/context/AppContext';
 import { useCaregivers } from '../../shared/context/CaregiverContext';
 import { useClients } from '../../shared/context/ClientContext';
-import { bucketFollowUps } from '../../lib/followUpTasks';
+import { bucketFollowUps, followUpDisplayTitle } from '../../lib/followUpTasks';
 import layout from '../../styles/layout.module.css';
 import btn from '../../styles/buttons.module.css';
 
@@ -30,8 +30,8 @@ const FILTERS = [
 ];
 
 export function TasksDashboard() {
-  const { tasks, loaded, markDone, snooze, cancel } = useFollowUps();
-  const { currentUserName } = useApp();
+  const { tasks, loaded, markDone, snooze, cancel, openComposer } = useFollowUps();
+  const { currentUserName, currentUserEmail } = useApp();
   const { caregivers } = useCaregivers();
   const { clients } = useClients();
   const [filter, setFilter] = useState('all');
@@ -56,14 +56,23 @@ export function TasksDashboard() {
   const filtered = useMemo(() => {
     let list = tasks.filter((t) => t.status === 'pending');
     if (filter === 'mine') {
-      list = list.filter((t) => (t.assignedTo || '').toLowerCase() === (currentUserName || '').toLowerCase());
+      // User-created tasks set assigned_to = currentUserEmail (so the
+      // Phase 2 dispatcher can notify by email); template tasks have
+      // assigned_to = NULL today. Match on either email OR display
+      // name so future template-defaults-by-name still work.
+      const email = (currentUserEmail || '').toLowerCase();
+      const name = (currentUserName || '').toLowerCase();
+      list = list.filter((t) => {
+        const a = (t.assignedTo || '').toLowerCase();
+        return a !== '' && (a === email || a === name);
+      });
     } else if (filter === 'caregiver') {
       list = list.filter((t) => t.template?.targetType === 'caregiver' || t.template?.targetType === 'both');
     } else if (filter === 'client') {
       list = list.filter((t) => t.template?.targetType === 'client' || t.template?.targetType === 'both');
     }
     return list;
-  }, [tasks, filter, currentUserName]);
+  }, [tasks, filter, currentUserName, currentUserEmail]);
 
   const buckets = useMemo(() => bucketFollowUps(filtered), [filtered]);
 
@@ -85,6 +94,17 @@ export function TasksDashboard() {
               ? 'You’re all caught up. New follow-ups appear here automatically when caregivers are matched to clients.'
               : `${overdueCount} overdue · ${todayCount} due today · ${totalOpen} open total`}
           </p>
+        </div>
+        <div>
+          <button
+            type="button"
+            className={btn.primaryBtn}
+            onClick={() => openComposer()}
+            title="New follow-up (⌘K)"
+          >
+            <Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
+            New follow-up
+          </button>
         </div>
       </div>
 
@@ -211,6 +231,17 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
   const clName = client ? `${client.firstName || ''} ${client.lastName || ''}`.trim() || client.id : task.clientId;
 
   const dueLabel = formatDueLabel(task.dueAt);
+  // For source='user'/'ai' the title is the user-entered text; for
+  // template tasks it's the template name. followUpDisplayTitle
+  // handles all three cases including a generic fallback.
+  const displayTitle = followUpDisplayTitle(task);
+  // Template tasks always link both caregiver+client; user/ai tasks
+  // may link at most one. The meta row and expanded panel adapt
+  // accordingly — "↔" only renders when both ends exist.
+  const hasCaregiver = !!task.caregiverId;
+  const hasClient = !!task.clientId;
+  const hasBoth = hasCaregiver && hasClient;
+  const hasAny = hasCaregiver || hasClient;
 
   return (
     <div style={rowWrapStyle(task.urgency)}>
@@ -218,10 +249,18 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={rowTitleStyle}>
             <UrgencyIcon urgency={task.urgency} />
-            <span style={{ fontWeight: 600 }}>{task.template?.name ?? 'Follow-up'}</span>
+            <span style={{ fontWeight: 600 }}>{displayTitle}</span>
           </div>
           <div style={rowMetaStyle}>
-            <span>{cgName} <span style={{ opacity: 0.5 }}>↔</span> {clName}</span>
+            {hasBoth ? (
+              <span>{cgName} <span style={{ opacity: 0.5 }}>↔</span> {clName}</span>
+            ) : hasCaregiver ? (
+              <span><User size={11} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />{cgName}</span>
+            ) : hasClient ? (
+              <span><Home size={11} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />{clName}</span>
+            ) : (
+              <span style={{ opacity: 0.6 }}>No entity link</span>
+            )}
             <span style={{ opacity: 0.5 }}>·</span>
             <span>{dueLabel}</span>
             {task.assignedTo && (
@@ -242,23 +281,34 @@ function TaskRow({ task, expanded, onToggle, caregiver, client, onMarkDone, onSn
           {task.template?.guidance && (
             <div style={guidanceStyle}>{task.template.guidance}</div>
           )}
+          {/* User/AI tasks carry their own description in lieu of
+              template guidance. */}
+          {!task.template?.guidance && task.description && (
+            <div style={guidanceStyle}>{task.description}</div>
+          )}
 
-          <div style={contextLinksStyle}>
-            <button
-              type="button"
-              style={contextLinkBtnStyle}
-              onClick={() => navigate(`/caregiver/${task.caregiverId}`)}
-            >
-              <User size={14} /> Caregiver: {cgName}
-            </button>
-            <button
-              type="button"
-              style={contextLinkBtnStyle}
-              onClick={() => navigate(`/clients/${task.clientId}`)}
-            >
-              <Home size={14} /> Client: {clName}
-            </button>
-          </div>
+          {hasAny && (
+            <div style={contextLinksStyle}>
+              {hasCaregiver && (
+                <button
+                  type="button"
+                  style={contextLinkBtnStyle}
+                  onClick={() => navigate(`/caregiver/${task.caregiverId}`)}
+                >
+                  <User size={14} /> Caregiver: {cgName}
+                </button>
+              )}
+              {hasClient && (
+                <button
+                  type="button"
+                  style={contextLinkBtnStyle}
+                  onClick={() => navigate(`/clients/${task.clientId}`)}
+                >
+                  <Home size={14} /> Client: {clName}
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={noteRowStyle}>
             <input

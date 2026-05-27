@@ -19,9 +19,17 @@ export function dbToFollowUpTask(row) {
   return {
     id: row.id,
     orgId: row.org_id,
-    templateId: row.template_id,
-    caregiverId: row.caregiver_id,
-    clientId: row.client_id,
+    // Source distinguishes template-driven rows from user/ai-created
+    // ones (migration 20260527000000). Defaults to 'template' for
+    // backwards-compat with any caller that hand-built a fake row.
+    source: row.source ?? 'template',
+    title: row.title ?? null,
+    description: row.description ?? null,
+    createdBy: row.created_by ?? null,
+    notifiedAt: row.notified_at ?? null,
+    templateId: row.template_id ?? null,
+    caregiverId: row.caregiver_id ?? null,
+    clientId: row.client_id ?? null,
     anchorShiftId: row.anchor_shift_id ?? null,
     dueAt: row.due_at,
     status: row.status,
@@ -47,6 +55,16 @@ export function dbToFollowUpTask(row) {
         }
       : null,
   };
+}
+
+// Display name for a task across template/user/ai sources. Template
+// rows use the joined template name; user/ai rows use the user-entered
+// title; falls back to a generic label so the UI never renders blank.
+export function followUpDisplayTitle(task) {
+  if (!task) return 'Follow-up';
+  if (task.template?.name) return task.template.name;
+  if (task.title) return task.title;
+  return 'Follow-up';
 }
 
 // ─── Bucket helpers (pure) ───────────────────────────────────
@@ -266,4 +284,190 @@ export async function cancelFollowUp(taskId, reason, client = supabase) {
     .single();
   if (error) return { task: null, error };
   return { task: dbToFollowUpTask(data), error: null };
+}
+
+// ─── User-created tasks (migration 20260527000000) ─────────────
+
+/**
+ * Validate + normalize a user-task input. Returns either
+ *   { row, error: null } where `row` is the snake_case INSERT payload
+ * or
+ *   { row: null, error: Error } with a human-readable message.
+ *
+ * Pure — exported for unit tests. The shape CHECK in the DB is the
+ * source of truth; this helper just gives a clean error before the
+ * round-trip.
+ */
+export function buildUserTaskRow(input) {
+  if (!input || typeof input !== 'object') {
+    return { row: null, error: new Error('Missing task input') };
+  }
+  const title = String(input.title ?? '').trim();
+  if (!title) {
+    return { row: null, error: new Error('Title is required') };
+  }
+  const dueAt = input.dueAt instanceof Date
+    ? input.dueAt.toISOString()
+    : (typeof input.dueAt === 'string' && input.dueAt) ? input.dueAt : null;
+  if (!dueAt) {
+    return { row: null, error: new Error('Due date is required') };
+  }
+  const urgency = (input.urgency || '').toLowerCase();
+  if (!['critical', 'warning', 'info'].includes(urgency)) {
+    return { row: null, error: new Error('Urgency must be critical, warning, or info') };
+  }
+  const source = input.source === 'ai' ? 'ai' : 'user';
+  const caregiverId = input.caregiverId ?? null;
+  const clientId = input.clientId ?? null;
+  if (caregiverId && clientId) {
+    return { row: null, error: new Error('A task can link to a caregiver or a client, not both') };
+  }
+  const createdBy = (input.createdBy || '').trim() || null;
+  // Owner decision 2026-05-27: creator is the assignee. Caller may
+  // override assignedTo explicitly (e.g., a future reassign-on-create
+  // affordance) but otherwise we copy createdBy.
+  const assignedTo = (input.assignedTo ?? createdBy) || null;
+  const description = (input.description || '').trim() || null;
+
+  return {
+    row: {
+      source,
+      title,
+      description,
+      due_at: dueAt,
+      urgency,
+      caregiver_id: caregiverId,
+      client_id: clientId,
+      assigned_to: assignedTo,
+      created_by: createdBy,
+    },
+    error: null,
+  };
+}
+
+/**
+ * Create a user-authored follow-up task. Returns { task, error }
+ * where task is the mapped row on success.
+ *
+ * The shape CHECK in the DB rejects malformed rows (e.g., both
+ * caregiver + client linked, or empty title); we surface errors
+ * verbatim so the modal can show them to the user.
+ *
+ * org_id is filled by the column DEFAULT (public.default_org_id()) so
+ * the caller doesn't need to pass it. RLS enforces the row goes into
+ * the caller's tenant.
+ */
+export async function createUserTask(input, client = supabase) {
+  if (!client) return { task: null, error: new Error('Missing supabase client') };
+  const { row, error: validationError } = buildUserTaskRow(input);
+  if (validationError) return { task: null, error: validationError };
+  const { data, error } = await client
+    .from('follow_up_tasks')
+    .insert(row)
+    .select(FULL_SELECT)
+    .single();
+  if (error) return { task: null, error };
+  return { task: dbToFollowUpTask(data), error: null };
+}
+
+/**
+ * Update a user task's editable fields (title/description/dueAt/
+ * urgency/caregiverId/clientId). Fields not present in `patch` are
+ * left untouched. Resets notified_at to NULL whenever dueAt changes
+ * so the Phase 2 dispatcher re-notifies for the new time.
+ */
+export async function updateUserTask(taskId, patch, client = supabase) {
+  if (!client || !taskId) return { task: null, error: new Error('Missing task id or client') };
+  if (!patch || typeof patch !== 'object') {
+    return { task: null, error: new Error('Missing patch') };
+  }
+  const update = {};
+  if ('title' in patch) {
+    const t = String(patch.title ?? '').trim();
+    if (!t) return { task: null, error: new Error('Title cannot be empty') };
+    update.title = t;
+  }
+  if ('description' in patch) {
+    update.description = (patch.description || '').trim() || null;
+  }
+  if ('dueAt' in patch) {
+    const iso = patch.dueAt instanceof Date ? patch.dueAt.toISOString() : patch.dueAt;
+    if (!iso) return { task: null, error: new Error('Due date cannot be empty') };
+    update.due_at = iso;
+    // Re-arm the dispatcher for the new due time.
+    update.notified_at = null;
+  }
+  if ('urgency' in patch) {
+    const u = (patch.urgency || '').toLowerCase();
+    if (!['critical', 'warning', 'info'].includes(u)) {
+      return { task: null, error: new Error('Invalid urgency') };
+    }
+    update.urgency = u;
+  }
+  if ('caregiverId' in patch || 'clientId' in patch) {
+    const cg = 'caregiverId' in patch ? (patch.caregiverId ?? null) : undefined;
+    const cl = 'clientId' in patch ? (patch.clientId ?? null) : undefined;
+    if (cg !== undefined) update.caregiver_id = cg;
+    if (cl !== undefined) update.client_id = cl;
+    // The DB shape CHECK will reject both-set; surface a cleaner error
+    // upfront so the modal can hint the user.
+    const finalCg = cg !== undefined ? cg : null;
+    const finalCl = cl !== undefined ? cl : null;
+    if (finalCg && finalCl) {
+      return { task: null, error: new Error('A task can link to a caregiver or a client, not both') };
+    }
+  }
+  if ('assignedTo' in patch) {
+    update.assigned_to = (patch.assignedTo || '').trim() || null;
+  }
+  if (Object.keys(update).length === 0) {
+    return { task: null, error: new Error('Nothing to update') };
+  }
+  const { data, error } = await client
+    .from('follow_up_tasks')
+    .update(update)
+    .eq('id', taskId)
+    .select(FULL_SELECT)
+    .single();
+  if (error) return { task: null, error };
+  return { task: dbToFollowUpTask(data), error: null };
+}
+
+// ─── Event logging (fire-and-forget) ──────────────────────────
+// Writes to the unified `events` bus so the AI context assembler
+// picks up task activity in its situational-awareness layer. NEVER
+// blocks the user's action — failures are swallowed with a console
+// warning. Per the existing pattern in supabase/functions/ai-chat
+// (and noted in migration 20260523000000), the events table's
+// entity_id is uuid; caregivers.id / clients.id are text, so for
+// task events we pass entity_id=NULL and stash the text IDs in the
+// payload.
+
+const TASK_EVENT_TYPES = new Set([
+  'task_created', 'task_completed', 'task_snoozed', 'task_overdue', 'task_due',
+]);
+
+export async function logTaskEvent(type, task, actor, client = supabase) {
+  try {
+    if (!client || !task || !TASK_EVENT_TYPES.has(type)) return;
+    const payload = {
+      task_id: task.id,
+      source: task.source ?? 'template',
+      title: followUpDisplayTitle(task),
+      due_at: task.dueAt ?? null,
+      assigned_to: task.assignedTo ?? null,
+      caregiver_id: task.caregiverId ?? null,
+      client_id: task.clientId ?? null,
+    };
+    await client.from('events').insert({
+      event_type: type,
+      entity_type: task.caregiverId ? 'caregiver' : task.clientId ? 'client' : null,
+      entity_id: null,
+      actor: actor || null,
+      payload,
+    });
+  } catch (err) {
+    // Observability only — never let event-logging break the UI path.
+    console.warn('logTaskEvent failed:', err?.message || err);
+  }
 }

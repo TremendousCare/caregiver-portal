@@ -15,6 +15,8 @@ import {
   snoozeFollowUp,
   reassignFollowUp,
   cancelFollowUp,
+  createUserTask,
+  logTaskEvent,
   countNavBadge,
 } from '../../lib/followUpTasks';
 import { useApp } from './AppContext';
@@ -24,7 +26,7 @@ const FollowUpContext = createContext(null);
 const RT_SUPPRESS_WINDOW = 3000;
 
 export function FollowUpProvider({ children }) {
-  const { currentUserName, showToast } = useApp();
+  const { currentUserName, currentUserEmail, showToast } = useApp();
 
   const [tasks, setTasks] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -32,6 +34,21 @@ export function FollowUpProvider({ children }) {
   // pattern as ClientContext to avoid jitter when our own UPDATE round-
   // trips back through the subscription.
   const recentLocalEdits = useRef(new Map());
+
+  // ─── Composer (Quick Capture modal) state ─────────────────
+  // Lives on the context so Cmd+K (AppShell) and the contextual
+  // "+ Follow-up" buttons (entity panels) can open it with optional
+  // prefills (caregiverId | clientId | lockEntity).
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerPrefill, setComposerPrefill] = useState(null);
+  const openComposer = useCallback((prefill = null) => {
+    setComposerPrefill(prefill);
+    setComposerOpen(true);
+  }, []);
+  const closeComposer = useCallback(() => {
+    setComposerOpen(false);
+    setComposerPrefill(null);
+  }, []);
 
   // ─── Initial load ─────────────────────────────────────────
   useEffect(() => {
@@ -153,10 +170,29 @@ export function FollowUpProvider({ children }) {
     }
   }, [tasks, noteLocalEdit, showToast]);
 
+  // createTask: insert a new user-authored task. Returns { task, error }
+  // — the modal awaits this to decide whether to close vs. show an error.
+  // Optimistic update is by realtime INSERT echo (no local prepend) so
+  // we don't double-add when the subscription fires.
+  const createTask = useCallback(async (input) => {
+    const { task, error } = await createUserTask({
+      ...input,
+      createdBy: input.createdBy || currentUserEmail || currentUserName || null,
+    });
+    if (!error && task) {
+      // Fire-and-forget event log so the AI context layer picks it up.
+      logTaskEvent('task_created', task, `user:${currentUserEmail || currentUserName || ''}`);
+    }
+    return { task, error };
+  }, [currentUserEmail, currentUserName]);
+
   const value = useMemo(() => ({
     tasks, loaded, badgeCount,
-    markDone, snooze, reassign, cancel,
-  }), [tasks, loaded, badgeCount, markDone, snooze, reassign, cancel]);
+    markDone, snooze, reassign, cancel, createTask,
+    composerOpen, composerPrefill, openComposer, closeComposer,
+  }), [tasks, loaded, badgeCount,
+       markDone, snooze, reassign, cancel, createTask,
+       composerOpen, composerPrefill, openComposer, closeComposer]);
 
   return (
     <FollowUpContext.Provider value={value}>
@@ -171,9 +207,14 @@ export function useFollowUps() {
     // Fail-safe shape so the Sidebar badge doesn't crash before the
     // provider mounts (e.g., during initial route transitions or in
     // route shells that don't wrap with FollowUpProvider).
-    return { tasks: [], loaded: false, badgeCount: 0,
-             markDone: async () => {}, snooze: async () => {},
-             reassign: async () => {}, cancel: async () => {} };
+    return {
+      tasks: [], loaded: false, badgeCount: 0,
+      markDone: async () => {}, snooze: async () => {},
+      reassign: async () => {}, cancel: async () => {},
+      createTask: async () => ({ task: null, error: new Error('Provider not mounted') }),
+      composerOpen: false, composerPrefill: null,
+      openComposer: () => {}, closeComposer: () => {},
+    };
   }
   return ctx;
 }
