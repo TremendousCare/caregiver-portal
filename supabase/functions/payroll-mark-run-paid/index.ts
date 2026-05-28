@@ -99,7 +99,9 @@ async function assertAdmin(
     .select("role")
     .eq("email", email.toLowerCase())
     .maybeSingle();
-  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+  // Owners are admins hierarchically (mirrors public.is_admin() =
+  // role IN ('admin','owner')); a literal === 'admin' locks owners out.
+  if (!roleRow || !["admin", "owner"].includes((roleRow as { role: string }).role)) {
     return { ok: false, status: 403, error: "Admin access required." } as const;
   }
   return { ok: true } as const;
