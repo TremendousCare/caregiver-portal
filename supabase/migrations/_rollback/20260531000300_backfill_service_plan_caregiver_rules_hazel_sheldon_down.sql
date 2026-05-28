@@ -1,4 +1,4 @@
--- Rollback for 20260531000100_backfill_service_plan_caregiver_rules_hazel_sheldon.sql
+-- Rollback for 20260531000300_backfill_service_plan_caregiver_rules_hazel_sheldon.sql
 --
 -- Removes only the rows this backfill created, identified by the created_by
 -- tag. Rules the office has since added or edited through the UI carry a
