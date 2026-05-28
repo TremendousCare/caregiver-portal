@@ -98,7 +98,11 @@ async function assertAdmin(
     .select("role")
     .eq("email", email.toLowerCase())
     .maybeSingle();
-  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+  // Admin = admin or owner (mirrors public.is_admin() = role IN
+  // ('admin','owner')). Owners must be able to save org settings —
+  // including the Payroll Settings tab — so a literal === 'admin' is
+  // wrong and locks them out.
+  if (!roleRow || !["admin", "owner"].includes((roleRow as { role: string }).role)) {
     return { ok: false, status: 403, error: "Admin access required." } as const;
   }
   return { ok: true } as const;
