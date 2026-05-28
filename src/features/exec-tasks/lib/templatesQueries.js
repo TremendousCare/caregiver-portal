@@ -11,7 +11,8 @@ const TEMPLATE_COLUMNS = `
   id, org_id, slug, name, description, guidance, category,
   anchor_type, offset_days, recurrence_interval_days, next_fire_at,
   structured_questions, default_assignee_email, default_urgency,
-  visibility, active, sort_order, created_at, updated_at
+  visibility, active, sort_order, send_email_on_notify,
+  created_at, updated_at
 `;
 
 export async function fetchTemplates(supabase) {
@@ -48,7 +49,7 @@ const UPDATABLE_COLUMNS = [
   'name', 'description', 'guidance',
   'offset_days', 'recurrence_interval_days', 'next_fire_at',
   'structured_questions', 'default_assignee_email', 'default_urgency',
-  'visibility', 'active', 'sort_order',
+  'visibility', 'active', 'sort_order', 'send_email_on_notify',
 ];
 
 export async function updateTemplate(supabase, { id, template, patch }) {
@@ -179,6 +180,7 @@ export async function createTemplate(supabase, { orgId, draft }) {
     default_urgency: draft.default_urgency ?? 'warning',
     visibility: 'owner',
     active: false,
+    send_email_on_notify: draft.send_email_on_notify === true,
   };
 
   const { data, error } = await supabase

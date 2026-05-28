@@ -235,6 +235,7 @@ function TemplateEditForm({ template, submitting, onCancel, onSave }) {
   });
   const [defaultAssignee, setDefaultAssignee] = useState(template.default_assignee_email ?? '');
   const [urgency, setUrgency]                 = useState(template.default_urgency ?? 'warning');
+  const [sendEmail, setSendEmail]             = useState(template.send_email_on_notify === true);
   const [formError, setFormError]             = useState('');
 
   async function handleSubmit(e) {
@@ -246,6 +247,7 @@ function TemplateEditForm({ template, submitting, onCancel, onSave }) {
       guidance: guidance || null,
       default_assignee_email: defaultAssignee || null,
       default_urgency: urgency,
+      send_email_on_notify: sendEmail,
     };
     if (template.anchor_type === 'hire_date') {
       patch.offset_days = offsetDays === '' ? null : Number(offsetDays);
@@ -342,7 +344,7 @@ function TemplateEditForm({ template, submitting, onCancel, onSave }) {
             type="email"
             value={defaultAssignee}
             onChange={(e) => setDefaultAssignee(e.target.value)}
-            placeholder="owner@yourdomain.com"
+            placeholder="Leave blank to notify all owners"
           />
         </div>
         <div className={s.field}>
@@ -354,6 +356,29 @@ function TemplateEditForm({ template, submitting, onCancel, onSave }) {
           </select>
         </div>
       </div>
+
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 14px', background: '#F7F8FB',
+          border: '1px solid #E0E4EA', borderRadius: 10,
+          marginBottom: 14, cursor: 'pointer', fontSize: 13,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={sendEmail}
+          onChange={(e) => setSendEmail(e.target.checked)}
+          style={{ width: 16, height: 16, cursor: 'pointer' }}
+        />
+        <span>
+          <strong>Also send email when the task is due</strong>
+          <br />
+          <span style={{ color: '#5A6B85', fontSize: 12 }}>
+            The bell notification always fires. Turn this on for tasks where you also want a paper trail in the inbox.
+          </span>
+        </span>
+      </label>
 
       <div className={s.modalActions}>
         <button type="button" className={s.secondaryBtn} onClick={onCancel} disabled={submitting}>
@@ -383,6 +408,7 @@ function TemplateCreateForm({ submitting, onCancel, onSave }) {
   const [nextFireAt, setNextFireAt]           = useState('');
   const [defaultAssignee, setDefaultAssignee] = useState('');
   const [urgency, setUrgency]                 = useState('warning');
+  const [sendEmail, setSendEmail]             = useState(false);
   const [formError, setFormError]             = useState('');
 
   async function handleSubmit(e) {
@@ -395,6 +421,7 @@ function TemplateCreateForm({ submitting, onCancel, onSave }) {
       guidance,
       default_assignee_email: defaultAssignee,
       default_urgency: urgency,
+      send_email_on_notify: sendEmail,
     };
     if (templateType === 'lifecycle') {
       draft.offset_days = offsetDays;
@@ -503,7 +530,7 @@ function TemplateCreateForm({ submitting, onCancel, onSave }) {
             type="email"
             value={defaultAssignee}
             onChange={(e) => setDefaultAssignee(e.target.value)}
-            placeholder="owner@yourdomain.com"
+            placeholder="Leave blank to notify all owners"
           />
         </div>
         <div className={s.field}>
@@ -515,6 +542,29 @@ function TemplateCreateForm({ submitting, onCancel, onSave }) {
           </select>
         </div>
       </div>
+
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 14px', background: '#F7F8FB',
+          border: '1px solid #E0E4EA', borderRadius: 10,
+          marginBottom: 10, cursor: 'pointer', fontSize: 13,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={sendEmail}
+          onChange={(e) => setSendEmail(e.target.checked)}
+          style={{ width: 16, height: 16, cursor: 'pointer' }}
+        />
+        <span>
+          <strong>Also send email when the task is due</strong>
+          <br />
+          <span style={{ color: '#5A6B85', fontSize: 12 }}>
+            Bell + toast always fire. Email is opt-in for tasks where you also want an inbox paper trail.
+          </span>
+        </span>
+      </label>
 
       <p className={s.warnHint} style={{ marginTop: 4 }}>
         <Calendar size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />

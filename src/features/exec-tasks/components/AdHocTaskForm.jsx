@@ -69,7 +69,7 @@ export function AdHocTaskForm({ defaultAssignee, submitting, onCancel, onSave })
             type="email"
             value={assignedTo}
             onChange={(e) => setAssignedTo(e.target.value)}
-            placeholder="me@yourdomain.com"
+            placeholder="Leave blank to notify all owners"
           />
         </div>
         <div className={s.field}>

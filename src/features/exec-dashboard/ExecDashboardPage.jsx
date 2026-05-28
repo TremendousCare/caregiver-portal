@@ -350,7 +350,7 @@ function Watchlist({ atRisk, staleKrs, overdue, tasksAvailable }) {
           <div className={s.listItemMain}>
             <p className={s.listItemTitle}>{t.title}</p>
             <p className={s.listItemMeta}>
-              Overdue · {t.urgency} · {t.assigned_to || 'unassigned'}
+              Overdue · {t.urgency} · {t.assigned_to || 'all owners'}
             </p>
           </div>
           <span className={`${s.dueBadge} ${s.dueOverdue}`}>{dueLabel(t.due_at)}</span>
