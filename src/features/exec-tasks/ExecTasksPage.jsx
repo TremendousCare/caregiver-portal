@@ -61,7 +61,7 @@ const STATUS_CLS  = {
 };
 
 export function ExecTasksPage() {
-  const { currentUserEmail, showToast } = useApp();
+  const { showToast } = useApp();
   const [statusFilter, setStatusFilter] = useState('open');
   const { loading, submitting, tasks, error, refresh,
     createTask, completeTask, snoozeTask, cancelTask, reopenTask,
@@ -214,8 +214,10 @@ export function ExecTasksPage() {
 
       {creating && (
         <Modal title="New ad-hoc task" onClose={() => setCreating(false)}>
+          {/* defaultAssignee intentionally omitted — blank fans out
+              to every owner when the task comes due, matching the
+              recurring/lifecycle default behavior. */}
           <AdHocTaskForm
-            defaultAssignee={currentUserEmail}
             submitting={submitting}
             onCancel={() => setCreating(false)}
             onSave={handleCreateAdHoc}
@@ -242,7 +244,7 @@ function TaskRow({ task, submitting, onComplete, onSnooze, onCancel, onReopen })
         <p className={s.taskMeta}>
           <span className={`${s.dueBadge} ${dueClass(task.due_at, task.status)}`}>{dueLabel(task.due_at, task.status)}</span>
           {' · '}
-          {task.assigned_to || 'unassigned'}
+          {task.assigned_to || 'all owners'}
           {task.anchor_staff_email && <> · For {task.anchor_staff_email}</>}
           {task.recurrence_period && <> · {task.recurrence_period}</>}
         </p>

@@ -319,3 +319,64 @@ describe('createTemplate', () => {
     expect(r.error.message).toMatch(/already exists/i);
   });
 });
+
+// ─── send_email_on_notify flows (notifications feature) ────────────
+
+describe('send_email_on_notify flows', () => {
+  it('updateTemplate forwards send_email_on_notify=true in the patch', async () => {
+    const sb = makeSupabaseMock({
+      responder: (state) => ({ data: state.updateRow, error: null }),
+    });
+    await updateTemplate(sb, {
+      id: 't1',
+      template: { anchor_type: 'hire_date' },
+      patch: { send_email_on_notify: true },
+    });
+    expect(sb._calls[0].updateRow.send_email_on_notify).toBe(true);
+  });
+
+  it('updateTemplate forwards send_email_on_notify=false (so toggling off works)', async () => {
+    const sb = makeSupabaseMock({
+      responder: (state) => ({ data: state.updateRow, error: null }),
+    });
+    await updateTemplate(sb, {
+      id: 't1',
+      template: { anchor_type: 'hire_date' },
+      patch: { send_email_on_notify: false },
+    });
+    expect(sb._calls[0].updateRow.send_email_on_notify).toBe(false);
+  });
+
+  it('createTemplate defaults send_email_on_notify to false', async () => {
+    const sb = makeSupabaseMock({
+      responder: (state) => ({ data: { id: 'new', ...state.insertRow }, error: null }),
+    });
+    await createTemplate(sb, {
+      orgId: 'o1',
+      draft: { name: 'X', templateType: 'ad_hoc' },
+    });
+    expect(sb._calls[0].insertRow.send_email_on_notify).toBe(false);
+  });
+
+  it('createTemplate honors send_email_on_notify=true', async () => {
+    const sb = makeSupabaseMock({
+      responder: (state) => ({ data: state.insertRow, error: null }),
+    });
+    await createTemplate(sb, {
+      orgId: 'o1',
+      draft: { name: 'X', templateType: 'ad_hoc', send_email_on_notify: true },
+    });
+    expect(sb._calls[0].insertRow.send_email_on_notify).toBe(true);
+  });
+
+  it('createTemplate strictly checks === true (truthy non-boolean treated as false)', async () => {
+    const sb = makeSupabaseMock({
+      responder: (state) => ({ data: state.insertRow, error: null }),
+    });
+    await createTemplate(sb, {
+      orgId: 'o1',
+      draft: { name: 'X', templateType: 'ad_hoc', send_email_on_notify: 'yes' },
+    });
+    expect(sb._calls[0].insertRow.send_email_on_notify).toBe(false);
+  });
+});
