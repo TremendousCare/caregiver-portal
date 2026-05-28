@@ -54,7 +54,7 @@
 --   - Sanity DO block aborts the deploy unless all 7 policies are
 --     present and reference is_admin().
 --
--- Rollback: _rollback/20260531000000_payroll_rls_use_is_admin_helper_down.sql
+-- Rollback: _rollback/20260528203410_payroll_rls_use_is_admin_helper_down.sql
 --   (restores the literal `role = 'admin'` predicate from PR #288).
 -- ═══════════════════════════════════════════════════════════════
 
