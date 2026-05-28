@@ -13,11 +13,11 @@ import { dirname, join } from 'node:path';
 
 const MIGRATION_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../supabase/migrations/20260531000100_backfill_service_plan_caregiver_rules_hazel_sheldon.sql',
+  '../../../supabase/migrations/20260531000300_backfill_service_plan_caregiver_rules_hazel_sheldon.sql',
 );
 const ROLLBACK_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../supabase/migrations/_rollback/20260531000100_backfill_service_plan_caregiver_rules_hazel_sheldon_down.sql',
+  '../../../supabase/migrations/_rollback/20260531000300_backfill_service_plan_caregiver_rules_hazel_sheldon_down.sql',
 );
 
 const BACKFILL_TAG = 'system:backfill-20260531';

@@ -14,11 +14,11 @@ import { dirname, join } from 'node:path';
 
 const MIGRATION_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../supabase/migrations/20260531000000_service_plans_org_id.sql',
+  '../../../supabase/migrations/20260531000200_service_plans_org_id.sql',
 );
 const ROLLBACK_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../supabase/migrations/_rollback/20260531000000_service_plans_org_id_down.sql',
+  '../../../supabase/migrations/_rollback/20260531000200_service_plans_org_id_down.sql',
 );
 
 describe('service_plans org_id migration', () => {

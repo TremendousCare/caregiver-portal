@@ -1,4 +1,4 @@
--- Rollback for 20260531000000_service_plans_org_id.sql
+-- Rollback for 20260531000200_service_plans_org_id.sql
 --
 -- Drops the org_id column (and its index) from service_plans. Safe because
 -- the forward migration is purely additive and no RLS policy references the
