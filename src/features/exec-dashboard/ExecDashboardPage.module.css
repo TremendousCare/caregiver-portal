@@ -1,0 +1,294 @@
+.page {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: #1A2332;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.headerLeft { flex: 1; min-width: 280px; }
+.headerRight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+.subtitle { font-size: 13px; color: #5A6B85; margin: 0; }
+.roBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #FFF4DA;
+  color: #8A6A0F;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.quarterPicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quarterPickerLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5A6B85;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.quarterPickerSelect {
+  background: #F7F8FB;
+  border: 1.5px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1A2332;
+  min-width: 200px;
+}
+
+.secondaryBtn {
+  background: #FFFFFF;
+  border: 1.5px solid #E0E4EA;
+  color: #1A2332;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.secondaryBtn:hover { background: #F7F8FB; }
+
+.error {
+  background: #FEEEEE;
+  color: #B83232;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+/* ── KPI cards ── */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+@media (max-width: 880px) { .kpiGrid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .kpiGrid { grid-template-columns: 1fr; } }
+
+.kpiCard {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kpiCardAlert { border-color: #DA5C5C; }
+.kpiCardWarn  { border-color: #E5B23A; }
+.kpiLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5A6B85;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kpiValue {
+  font-size: 30px;
+  font-weight: 700;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.kpiValueAlert { color: #B83232; }
+.kpiValueWarn  { color: #8A6A0F; }
+.kpiHint { font-size: 12px; color: #5A6B85; }
+
+/* ── Two-column layout ── */
+.body {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 980px) { .body { grid-template-columns: 1fr; } }
+
+.section {
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sectionSubtitle { font-size: 12px; color: #5A6B85; margin: -8px 0 12px; }
+.sectionEmpty { font-size: 13px; color: #5A6B85; padding: 12px 0; }
+.sectionLink {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2E4E8D;
+  text-decoration: none;
+}
+.sectionLink:hover { text-decoration: underline; }
+
+/* ── Goal card (compact) ── */
+.goalCard {
+  background: #F7F8FB;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.goalCard:last-child { margin-bottom: 0; }
+
+.goalHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.goalTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.goalMeta { font-size: 11px; color: #5A6B85; margin: 0; }
+
+.goalStats {
+  text-align: right;
+  font-size: 11px;
+  color: #5A6B85;
+}
+.goalPct {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: #1A2332;
+}
+
+.confidenceDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  display: inline-block;
+  margin-right: 4px;
+}
+.dotGreen  { background: #4CAF7A; }
+.dotYellow { background: #E5B23A; }
+.dotRed    { background: #DA5C5C; }
+
+.progressBar {
+  height: 4px;
+  background: #E0E4EA;
+  border-radius: 99px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 200ms ease;
+}
+.fillGreen  { background: #4CAF7A; }
+.fillYellow { background: #E5B23A; }
+.fillRed    { background: #DA5C5C; }
+
+.statusBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.statusDraft     { background: #F0F2F6; color: #5A6B85; }
+.statusActive    { background: #DCF7E3; color: #1F723E; }
+.statusAchieved  { background: #D6EFFF; color: #1F4F7A; }
+.statusMissed    { background: #FEEEEE; color: #B83232; }
+.statusCancelled { background: #F0F2F6; color: #5A6B85; }
+
+/* ── List rows (tasks, watchlist) ── */
+.listItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid #F0F2F6;
+}
+.listItem:last-child { border-bottom: none; }
+
+.listItemMain {
+  min-width: 0;
+  flex: 1;
+}
+.listItemTitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 2px;
+  color: #1A2332;
+}
+.listItemMeta {
+  font-size: 11px;
+  color: #5A6B85;
+  margin: 0;
+}
+
+.dueBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #F0F2F6;
+  color: #5A6B85;
+  flex-shrink: 0;
+}
+.dueOverdue { background: #FEEEEE; color: #B83232; }
+.dueToday   { background: #FFF4DA; color: #8A6A0F; }
+.dueSoon    { background: #EEF2FA; color: #2E4E8D; }

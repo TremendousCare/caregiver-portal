@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
-import { BarChart3, ListChecks, FileText } from 'lucide-react';
+import { LayoutDashboard, BarChart3, ListChecks, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useCaregivers } from '../context/CaregiverContext';
 import { useClients } from '../context/ClientContext';
@@ -160,6 +160,12 @@ export function AppShell() {
         id: 'executive',
         label: 'Executive',
         items: [
+          {
+            id: 'exec-dashboard',
+            path: '/exec',
+            icon: <LayoutDashboard size={18} />,
+            label: 'Dashboard',
+          },
           {
             id: 'exec-goals',
             path: '/exec/goals',

@@ -30,6 +30,7 @@ import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
 import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
+import { ExecDashboardPage } from './features/exec-dashboard/ExecDashboardPage';
 import { ExecGoalsPage } from './features/exec-goals/ExecGoalsPage';
 import { ExecTasksPage } from './features/exec-tasks/ExecTasksPage';
 import { ExecTemplatesPage } from './features/exec-tasks/ExecTemplatesPage';
@@ -704,6 +705,7 @@ export default function AdminApp() {
                 <Route path="accounting" element={<AdminOnly><AccountingPage /></AdminOnly>} />
                 <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
                 <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
+                <Route path="exec" element={<OwnerOrAdminOnly><ExecDashboardPage /></OwnerOrAdminOnly>} />
                 <Route path="exec/goals" element={<OwnerOrAdminOnly><ExecGoalsPage /></OwnerOrAdminOnly>} />
                 <Route path="exec/tasks" element={<OwnerOnly><ExecTasksPage /></OwnerOnly>} />
                 <Route path="exec/templates" element={<OwnerOnly><ExecTemplatesPage /></OwnerOnly>} />
