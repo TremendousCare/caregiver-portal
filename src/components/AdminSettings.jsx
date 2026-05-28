@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { PHASES } from '../lib/constants';
 import { getPhaseTasks } from '../lib/storage';
+import { isAdminRole } from '../lib/auth/roles';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
@@ -335,7 +336,9 @@ function UserManagement({ showToast, currentUserEmail }) {
     );
   }
 
-  const admins = users.filter((u) => u.role === 'admin');
+  // Owners are grouped with admins for display (they're admins + more);
+  // member is its own bucket.
+  const admins = users.filter((u) => isAdminRole(u.role));
   const members = users.filter((u) => u.role === 'member');
 
   return (
@@ -365,7 +368,7 @@ function UserManagement({ showToast, currentUserEmail }) {
         {/* Admins first, then members */}
         {[...admins, ...members].map((user, i) => {
           const isCurrentUser = user.email === currentUserEmail?.toLowerCase();
-          const isAdminRole = user.role === 'admin';
+          const isAdminTier = isAdminRole(user.role);
           return (
             <div key={user.email} style={{
               display: 'grid', gridTemplateColumns: '1fr 100px 120px',
@@ -390,17 +393,19 @@ function UserManagement({ showToast, currentUserEmail }) {
                   borderRadius: 6,
                   fontSize: 11,
                   fontWeight: 700,
-                  background: isAdminRole ? '#F0FDF4' : '#F0F4FA',
-                  color: isAdminRole ? '#15803D' : '#2E4E8D',
-                  border: `1px solid ${isAdminRole ? '#BBF7D0' : '#D5DCE6'}`,
+                  background: isAdminTier ? '#F0FDF4' : '#F0F4FA',
+                  color: isAdminTier ? '#15803D' : '#2E4E8D',
+                  border: `1px solid ${isAdminTier ? '#BBF7D0' : '#D5DCE6'}`,
                 }}>
-                  {isAdminRole ? 'Admin' : 'Member'}
+                  {user.role === 'owner' ? 'Owner' : isAdminTier ? 'Admin' : 'Member'}
                 </span>
               </div>
 
               {/* Action button */}
               <div style={{ textAlign: 'right' }}>
-                {isCurrentUser ? (
+                {isCurrentUser || user.role === 'owner' ? (
+                  // Owner rows are read-only here — owner promotion / demotion
+                  // is rare and intentional, handled out-of-band via a migration.
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>—</span>
                 ) : (
                   <button
@@ -409,15 +414,15 @@ function UserManagement({ showToast, currentUserEmail }) {
                       padding: '5px 12px',
                       fontSize: 11,
                       opacity: changing === user.email ? 0.5 : 1,
-                      color: isAdminRole ? '#DC4A3A' : '#15803D',
-                      borderColor: isAdminRole ? '#FECACA' : '#BBF7D0',
+                      color: isAdminTier ? '#DC4A3A' : '#15803D',
+                      borderColor: isAdminTier ? '#FECACA' : '#BBF7D0',
                     }}
-                    onClick={() => changeRole(user.email, isAdminRole ? 'member' : 'admin')}
+                    onClick={() => changeRole(user.email, isAdminTier ? 'member' : 'admin')}
                     disabled={!!changing}
-                    onMouseEnter={(e) => { e.target.style.background = isAdminRole ? '#FEF2F2' : '#F0FDF4'; }}
+                    onMouseEnter={(e) => { e.target.style.background = isAdminTier ? '#FEF2F2' : '#F0FDF4'; }}
                     onMouseLeave={(e) => { e.target.style.background = '#fff'; }}
                   >
-                    {changing === user.email ? '...' : isAdminRole ? 'Make Member' : 'Make Admin'}
+                    {changing === user.email ? '...' : isAdminTier ? 'Make Member' : 'Make Admin'}
                   </button>
                 )}
               </div>

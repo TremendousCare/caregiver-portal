@@ -6,6 +6,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { isAdminRole } from '../../lib/auth/roles';
 import s from './BdPortal.module.css';
 
 // Navigates the rep from the BD portal into the rest of the admin app.
@@ -29,7 +30,7 @@ function useAdminRole() {
           .eq('email', email.toLowerCase())
           .maybeSingle();
         if (cancelled) return;
-        setIsAdmin(data?.role === 'admin');
+        setIsAdmin(isAdminRole(data?.role));
       } catch {
         /* non-fatal — admin items just stay hidden */
       }

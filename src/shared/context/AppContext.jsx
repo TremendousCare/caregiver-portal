@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured, getOrgClaims } from '../../lib/supabase';
 import { loadActionItemRules } from '../../lib/actionItemEngine';
+import { isAdminRole } from '../../lib/auth/roles';
 
 const AppContext = createContext();
 
@@ -99,7 +100,10 @@ export function AppProvider({ children }) {
           .eq('email', userInfo.email.toLowerCase())
           .maybeSingle();
         if (data) {
-          userIsAdmin = data.role === 'admin';
+          // Owners are admins+more (hierarchical role tier introduced by
+          // the Executive module). Without isAdminRole the literal
+          // === 'admin' check would lock owners out of every admin page.
+          userIsAdmin = isAdminRole(data.role);
           mailboxEmail = data.mailbox_email || userInfo.email;
         } else {
           noRole = true;
