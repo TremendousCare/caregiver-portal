@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createShift, getShifts, updateServicePlan } from './storage';
+import { createShifts, getShifts, updateServicePlan } from './storage';
+import { getRulesForServicePlan } from './caregiverRulesStorage';
+import { resolveAssignmentForInstance } from '../../lib/scheduling/caregiverRules';
 import { expandRecurrence } from '../../lib/scheduling/recurrence';
 import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import {
@@ -37,13 +39,18 @@ import s from './GenerateShiftsDialog.module.css';
 //     `last_generated_through` so the cron picks the plan up next
 //     run.
 //
-// Generated shifts start as 'open' — the scheduler still handles
-// assignment (manual or via the broadcast flow).
+// Days that have a "regular caregiver" rule (set in the grid on the
+// service plan card) are pre-assigned to that caregiver and created
+// already 'confirmed', so the scheduler doesn't have to assign + confirm
+// each one by hand. Days with no rule fall back to 'open' (unassigned)
+// for the broadcast / manual pick flow. The bulk insert deliberately
+// skips per-shift assignment automations — see createShifts.
 // ═══════════════════════════════════════════════════════════════
 
 export function GenerateShiftsDialog({
   plan,
   client,
+  caregivers,
   currentUserName,
   onClose,
   onGenerated,
@@ -55,6 +62,8 @@ export function GenerateShiftsDialog({
   const [existingShifts, setExistingShifts] = useState([]);
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [rules, setRules] = useState([]);
+  const [loadingRules, setLoadingRules] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
@@ -97,6 +106,45 @@ export function GenerateShiftsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan.id, window.start.getTime(), window.end.getTime()]);
 
+  // Load the plan's regular-caregiver rules once so each generated
+  // shift can be pre-assigned to the right caregiver. Returns [] when
+  // the rules table doesn't exist yet (pre-migration) or none are set,
+  // in which case every shift falls back to 'open'.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingRules(true);
+      try {
+        const rows = await getRulesForServicePlan(plan.id);
+        if (!cancelled) setRules(rows);
+      } catch (e) {
+        // Non-fatal: without rules we just generate 'open' shifts, the
+        // pre-feature behavior. Surface nothing blocking to the user.
+        console.warn('Failed to load caregiver rules for generation:', e);
+        if (!cancelled) setRules([]);
+      } finally {
+        if (!cancelled) setLoadingRules(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.id]);
+
+  // Rules from storage are camelCase; the pure resolver expects the
+  // snake_case DB shape. Map once.
+  const rulesPlain = useMemo(
+    () =>
+      rules.map((r) => ({
+        id: r.id,
+        day_of_week: r.dayOfWeek,
+        caregiver_id: r.caregiverId,
+        effective_from: r.effectiveFrom,
+        effective_to: r.effectiveTo,
+      })),
+    [rules],
+  );
+
   // Expand the recurrence pattern into candidate instances
   const allInstances = useMemo(() => {
     if (!hasRecurrencePattern(plan.recurrencePattern)) return [];
@@ -111,6 +159,31 @@ export function GenerateShiftsDialog({
     [allInstances, existingShifts],
   );
   const skippedCount = allInstances.length - newInstances.length;
+
+  // Caregiver name lookup for the preview chips.
+  const caregiverNameById = useMemo(() => {
+    const map = new Map();
+    for (const cg of caregivers || []) {
+      const name = `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id;
+      map.set(cg.id, name);
+    }
+    return map;
+  }, [caregivers]);
+
+  // Resolve each new instance to its regular caregiver + initial status,
+  // keyed by start_time so the preview and the insert stay in lockstep.
+  const assignmentByStart = useMemo(() => {
+    const map = new Map();
+    for (const inst of newInstances) {
+      map.set(inst.start_time, resolveAssignmentForInstance(inst, rulesPlain));
+    }
+    return map;
+  }, [newInstances, rulesPlain]);
+
+  const preAssignedCount = useMemo(
+    () => Array.from(assignmentByStart.values()).filter((a) => a.caregiverId).length,
+    [assignmentByStart],
+  );
 
   // Build location string from the client's address for auto-fill
   const locationAddress = useMemo(() => {
@@ -134,21 +207,29 @@ export function GenerateShiftsDialog({
     setSaving(true);
     setSaveError(null);
     try {
-      let created = 0;
-      for (const instance of newInstances) {
-        await createShift({
+      // Build every row up front, then bulk-insert in one request.
+      // Days with a regular-caregiver rule are pre-assigned and created
+      // 'confirmed'; the rest stay 'open'. createShifts skips per-shift
+      // assignment automations so generating a long series doesn't text
+      // the caregiver once per shift.
+      const shiftRows = newInstances.map((instance) => {
+        const { caregiverId, status } =
+          assignmentByStart.get(instance.start_time) || { caregiverId: null, status: 'open' };
+        return {
           servicePlanId: plan.id,
           clientId: plan.clientId,
+          assignedCaregiverId: caregiverId,
           startTime: instance.start_time,
           endTime: instance.end_time,
-          status: 'open',
+          status,
           locationAddress,
           recurrenceGroupId: plan.id, // Use plan.id as the stable group id
           recurrenceRule: plan.recurrencePattern,
           createdBy: currentUserName || null,
-        });
-        created++;
-      }
+        };
+      });
+      await createShifts(shiftRows);
+      const created = shiftRows.length;
 
       // Persist ongoing-related state on the plan row only when it
       // changed or is currently set. Pure finite-mode generation on a
@@ -282,7 +363,7 @@ export function GenerateShiftsDialog({
           {loadError && <div className={s.error}>{loadError}</div>}
 
           <div className={s.previewBox}>
-            {loadingExisting ? (
+            {loadingExisting || loadingRules ? (
               <div className={s.loading}>Computing preview…</div>
             ) : (
               <>
@@ -300,17 +381,30 @@ export function GenerateShiftsDialog({
                 </div>
                 {newInstances.length > 0 && (
                   <ul className={s.previewList}>
-                    {newInstances.slice(0, 20).map((inst) => (
-                      <li key={inst.start_time} className={s.previewItem}>
-                        <span className={s.previewDate}>
-                          {formatPreviewDate(inst.start_time)}
-                        </span>
-                        <span className={s.previewTime}>
-                          {formatLocalTimeShort(new Date(inst.start_time), DEFAULT_APP_TIMEZONE)} –{' '}
-                          {formatLocalTimeShort(new Date(inst.end_time), DEFAULT_APP_TIMEZONE)}
-                        </span>
-                      </li>
-                    ))}
+                    {newInstances.slice(0, 20).map((inst) => {
+                      const assignment = assignmentByStart.get(inst.start_time);
+                      const cgName = assignment?.caregiverId
+                        ? caregiverNameById.get(assignment.caregiverId) || assignment.caregiverId
+                        : null;
+                      return (
+                        <li key={inst.start_time} className={s.previewItem}>
+                          <span className={s.previewLeft}>
+                            <span className={s.previewDate}>
+                              {formatPreviewDate(inst.start_time)}
+                            </span>
+                            <span className={s.previewTime}>
+                              {formatLocalTimeShort(new Date(inst.start_time), DEFAULT_APP_TIMEZONE)} –{' '}
+                              {formatLocalTimeShort(new Date(inst.end_time), DEFAULT_APP_TIMEZONE)}
+                            </span>
+                          </span>
+                          {cgName ? (
+                            <span className={s.previewCaregiver}>{cgName} · Confirmed</span>
+                          ) : (
+                            <span className={s.previewOpen}>Open</span>
+                          )}
+                        </li>
+                      );
+                    })}
                     {newInstances.length > 20 && (
                       <li className={s.previewMore}>
                         … and {newInstances.length - 20} more
@@ -323,8 +417,22 @@ export function GenerateShiftsDialog({
           </div>
 
           <div className={s.note}>
-            All generated shifts start as <strong>Open</strong> (unassigned). Use the
-            broadcast or pick workflow to assign caregivers.
+            {preAssignedCount > 0 ? (
+              <>
+                {preAssignedCount} of {newInstances.length} shift
+                {newInstances.length === 1 ? '' : 's'} will be pre-assigned to the day's
+                regular caregiver and created <strong>Confirmed</strong>. The rest start
+                as <strong>Open</strong> — use the broadcast or pick workflow to assign
+                them. (Caregivers are not texted for generated shifts.)
+              </>
+            ) : (
+              <>
+                All generated shifts start as <strong>Open</strong> (unassigned). Set
+                regular caregivers on the plan above to have matching days pre-assigned
+                and confirmed automatically. Otherwise use the broadcast or pick workflow
+                to assign caregivers.
+              </>
+            )}
           </div>
 
           {saveError && <div className={s.error}>{saveError}</div>}
@@ -340,6 +448,7 @@ export function GenerateShiftsDialog({
             disabled={
               saving ||
               loadingExisting ||
+              loadingRules ||
               (newInstances.length === 0 && !ongoingChanged)
             }
           >

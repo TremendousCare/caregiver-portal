@@ -76,6 +76,50 @@ export function resolveCaregiverForDate(rules, dayOfWeek, dateOnly) {
 }
 
 /**
+ * Day-of-week (0=Sun..6=Sat) for a 'YYYY-MM-DD' date string, or -1 for
+ * a malformed input. The date string already encodes the org-local
+ * calendar day (the recurrence expander resolved it that way), so a
+ * UTC-midnight Date built from the parts gives the correct weekday
+ * without re-introducing a timezone offset.
+ *
+ * Single source of truth shared by the Generate Shifts dialog and the
+ * service-plan-extend-ongoing cron so both classify a shift's day the
+ * same way.
+ *
+ * @param {string} dateOnly 'YYYY-MM-DD'
+ * @returns {number} 0..6, or -1 when the input isn't a valid date string.
+ */
+export function dayOfWeekFromDateString(dateOnly) {
+  if (typeof dateOnly !== 'string') return -1;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!m) return -1;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(ms).getUTCDay();
+}
+
+/**
+ * Decide the assignment + initial status for a single generated
+ * recurrence instance. Pure — shared by the dialog and the cron so the
+ * "matched caregiver ⇒ confirmed, otherwise open" rule lives in exactly
+ * one place.
+ *
+ * A regular-caregiver rule is a standing assignment the office has
+ * already committed to, so a matched shift is created already
+ * `confirmed` rather than `open` — saving the scheduler the
+ * assign-then-confirm clicks. Instances with no matching rule fall back
+ * to `open` (unassigned), identical to the pre-rules behavior.
+ *
+ * @param {{date: string}} instance  A recurrence instance ({ date, start_time, end_time }).
+ * @param {Array<object>}  rules     Plan rules in snake_case shape.
+ * @returns {{ caregiverId: string|null, status: 'confirmed'|'open' }}
+ */
+export function resolveAssignmentForInstance(instance, rules) {
+  const dow = dayOfWeekFromDateString(instance?.date);
+  const caregiverId = dow >= 0 ? resolveCaregiverForDate(rules, dow, instance.date) : null;
+  return { caregiverId, status: caregiverId ? 'confirmed' : 'open' };
+}
+
+/**
  * For a single recurrence instance — emitted by `expandRecurrence` as
  * `{ date: 'YYYY-MM-DD', start_time: iso, end_time: iso }` — resolve
  * the caregiver via the rule set and the plan's timezone.
