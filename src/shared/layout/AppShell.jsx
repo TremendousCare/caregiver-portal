@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
+import { BarChart3 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useCaregivers } from '../context/CaregiverContext';
 import { useClients } from '../context/ClientContext';
@@ -149,6 +150,24 @@ export function AppShell() {
           ] : []),
         ],
       },
+      // Executive section — visible to both owners (full R/W) and
+      // admins (read-only goals). The page itself checks
+      // currentOrgRole to render edit affordances. Only "Goals" lands
+      // in this PR; Tasks + Templates + Dashboard arrive in later
+      // phases. Future-only items can spread on currentOrgRole ===
+      // 'owner' to hide them from admins entirely.
+      ...(isAdmin ? [{
+        id: 'executive',
+        label: 'Executive',
+        items: [
+          {
+            id: 'exec-goals',
+            path: '/exec/goals',
+            icon: <BarChart3 size={18} />,
+            label: 'Goals',
+          },
+        ],
+      }] : []),
       // Phase 1.4 — admin-only per-agent metrics dashboard. Phase 1.5
       // — retrospective grading UI. Both live under the AI Agents
       // section; future agent-related pages (marketplace, manifest

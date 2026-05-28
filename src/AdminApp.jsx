@@ -30,6 +30,7 @@ import { SchedulePage } from './features/scheduling/SchedulePage';
 import { AccountingPage } from './features/accounting/AccountingPage';
 import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
+import { ExecGoalsPage } from './features/exec-goals/ExecGoalsPage';
 import { TasksDashboard } from './features/tasks/TasksDashboard';
 import { AdminSettings } from './components/AdminSettings';
 import { AgentMetricsPage } from './components/agentMetrics/AgentMetricsPage';
@@ -615,6 +616,28 @@ function AdminOnly({ children }) {
   return children;
 }
 
+// Executive-tier gate. Owners get full R/W; admins see the same route
+// but the page itself renders in read-only mode (checks currentOrgRole
+// internally). is_admin() in the DB now returns true for owners too,
+// so this guard is satisfied for both — finer-grained behavior is the
+// page's responsibility.
+function OwnerOrAdminOnly({ children }) {
+  const navigate = useNavigate();
+  const { isAdmin } = useApp();
+  if (!isAdmin) {
+    return (
+      <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
+        <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
+        <p>You need executive or admin privileges to view this page.</p>
+        <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+  return children;
+}
+
 function SettingsPage() {
   const { showToast, currentUserEmail } = useApp();
   return <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />;
@@ -658,6 +681,7 @@ export default function AdminApp() {
                 <Route path="accounting" element={<AdminOnly><AccountingPage /></AdminOnly>} />
                 <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
                 <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
+                <Route path="exec/goals" element={<OwnerOrAdminOnly><ExecGoalsPage /></OwnerOrAdminOnly>} />
                 <Route path="settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
                 <Route path="agent-metrics" element={<AdminOnly><AgentMetricsPage /></AdminOnly>} />
                 <Route path="agent-grading" element={<AdminOnly><AgentGradingPage /></AdminOnly>} />
