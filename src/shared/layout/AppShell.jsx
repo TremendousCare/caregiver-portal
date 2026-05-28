@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, ListChecks, FileText } from 'lucide-react';
+import { LayoutDashboard, BarChart3, Users, ListChecks, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useCaregivers } from '../context/CaregiverContext';
 import { useClients } from '../context/ClientContext';
@@ -171,6 +171,15 @@ export function AppShell() {
             path: '/exec/goals',
             icon: <BarChart3 size={18} />,
             label: 'Goals',
+          },
+          {
+            // Visible to admins (read-only) and owners (full edit).
+            // Lives in the Executive section because hire-date data
+            // anchors the lifecycle templates that owners run.
+            id: 'exec-staff',
+            path: '/exec/staff',
+            icon: <Users size={18} />,
+            label: 'Staff',
           },
           ...(currentOrgRole === 'owner' ? [
             {

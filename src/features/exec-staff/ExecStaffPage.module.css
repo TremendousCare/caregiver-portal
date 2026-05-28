@@ -1,0 +1,281 @@
+.page {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: #1A2332;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.headerLeft { flex: 1; min-width: 280px; }
+.headerRight { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+.subtitle { font-size: 13px; color: #5A6B85; margin: 0; }
+.roBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #FFF4DA;
+  color: #8A6A0F;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.primaryBtn {
+  background: linear-gradient(135deg, #2E4E8D, #2E4E8D);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.primaryBtn:disabled { opacity: 0.5; cursor: default; }
+
+.secondaryBtn {
+  background: #FFFFFF;
+  border: 1.5px solid #E0E4EA;
+  color: #1A2332;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.secondaryBtn:hover { background: #F7F8FB; }
+.secondaryBtn:disabled { opacity: 0.5; cursor: default; }
+
+.iconBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #5A6B85;
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iconBtn:hover { background: #F0F2F6; color: #1A2332; }
+.iconBtn.danger:hover { background: #FEEEEE; color: #B83232; }
+
+.filters {
+  display: flex;
+  gap: 8px;
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.filterBtn {
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #5A6B85;
+  cursor: pointer;
+}
+.filterBtn.active { background: #EEF2FA; color: #2E4E8D; }
+.filterBtn:hover:not(.active) { background: #F7F8FB; color: #1A2332; }
+
+.error {
+  background: #FEEEEE;
+  color: #B83232;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.empty {
+  text-align: center;
+  color: #5A6B85;
+  padding: 64px 24px;
+  font-size: 14px;
+  background: #FFFFFF;
+  border: 1px dashed #E0E4EA;
+  border-radius: 14px;
+}
+.emptyTitle { font-size: 17px; font-weight: 700; color: #1A2332; margin-bottom: 4px; }
+
+/* ─── Staff list ─── */
+.staffList {
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border: 1px solid #E0E4EA;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.staffRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid #F0F2F6;
+}
+.staffRow:last-child { border-bottom: none; }
+@media (max-width: 720px) {
+  .staffRow { grid-template-columns: 1fr; }
+}
+
+.staffName {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.staffEmail {
+  font-size: 12px;
+  color: #5A6B85;
+  margin: 0;
+}
+.staffDetails {
+  font-size: 12px;
+  color: #5A6B85;
+}
+.staffDetailsRow {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.staffDetailsLabel {
+  font-weight: 600;
+  color: #1A2332;
+}
+
+.activeBadge, .inactiveBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.activeBadge   { background: #DCF7E3; color: #1F723E; }
+.inactiveBadge { background: #F0F2F6; color: #5A6B85; }
+
+.staffActions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+/* ─── Modal shell ─── */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 36, 0.55);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal {
+  background: #FFFFFF;
+  border-radius: 14px;
+  max-width: 640px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(15, 23, 36, 0.3);
+  padding: 22px;
+}
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.modalTitle {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+.modalCloseBtn {
+  background: transparent;
+  border: none;
+  color: #5A6B85;
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5A6B85;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.input, .textarea, .select {
+  background: #F7F8FB;
+  border: 1.5px solid #E0E4EA;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1A2332;
+  width: 100%;
+  box-sizing: border-box;
+}
+.input:focus, .textarea:focus, .select:focus {
+  outline: none;
+  border-color: #2E4E8D;
+  background: #FFFFFF;
+}
+.textarea { resize: vertical; min-height: 60px; }
+.twoCol { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.checkboxField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #1A2332;
+  cursor: pointer;
+}
+.checkboxField input { width: 16px; height: 16px; cursor: pointer; }

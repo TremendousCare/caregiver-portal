@@ -32,6 +32,7 @@ import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
 import { ExecDashboardPage } from './features/exec-dashboard/ExecDashboardPage';
 import { ExecGoalsPage } from './features/exec-goals/ExecGoalsPage';
+import { ExecStaffPage } from './features/exec-staff/ExecStaffPage';
 import { ExecTasksPage } from './features/exec-tasks/ExecTasksPage';
 import { ExecTemplatesPage } from './features/exec-tasks/ExecTemplatesPage';
 import { TasksDashboard } from './features/tasks/TasksDashboard';
@@ -709,6 +710,7 @@ export default function AdminApp() {
                 <Route path="exec/goals" element={<OwnerOrAdminOnly><ExecGoalsPage /></OwnerOrAdminOnly>} />
                 <Route path="exec/tasks" element={<OwnerOnly><ExecTasksPage /></OwnerOnly>} />
                 <Route path="exec/templates" element={<OwnerOnly><ExecTemplatesPage /></OwnerOnly>} />
+                <Route path="exec/staff" element={<OwnerOrAdminOnly><ExecStaffPage /></OwnerOrAdminOnly>} />
                 <Route path="settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
                 <Route path="agent-metrics" element={<AdminOnly><AgentMetricsPage /></AdminOnly>} />
                 <Route path="agent-grading" element={<AdminOnly><AgentGradingPage /></AdminOnly>} />
