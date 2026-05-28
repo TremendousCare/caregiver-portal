@@ -91,3 +91,105 @@ export function needsNextFireDate(template) {
   if (template.anchor_type !== 'fixed_date') return false;
   return !template.next_fire_at;
 }
+
+// ─── Create ──────────────────────────────────────────────────
+//
+// The create form exposes one "template type" selector rather than
+// two separate category / anchor_type dropdowns, because the two are
+// coupled by the DB CHECK constraint (hire_date needs offset_days,
+// fixed_date needs recurrence_interval_days). This map is the single
+// source of truth for that coupling on the write path.
+const CREATE_TYPE_MAP = {
+  lifecycle: { category: 'lifecycle', anchor_type: 'hire_date' },
+  recurring: { category: 'recurring', anchor_type: 'fixed_date' },
+  ad_hoc:    { category: 'ad_hoc',    anchor_type: 'manual' },
+};
+
+// Slug is an internal stable key (never shown in the UI) that must be
+// UNIQUE per org. We derive it from the name and append a short random
+// suffix so the non-technical owner never hits a "slug already taken"
+// wall for re-using a name. Exported for testing the name→base path.
+export function slugify(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
+function randomSlugSuffix() {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+// Pure validation for the create form. Mirrors the DB CHECK constraint:
+// a hire_date template must carry offset_days, a fixed_date template
+// must carry recurrence_interval_days. next_fire_at is NOT required at
+// create time — new templates land inactive, and activation (which
+// does require it) is gated separately by validateActivation.
+export function validateNewTemplateDraft(draft) {
+  if (!draft || typeof draft !== 'object') return { ok: false, error: 'Missing template data.' };
+  if (!draft.name || !draft.name.trim()) return { ok: false, error: 'Name is required.' };
+  const map = CREATE_TYPE_MAP[draft.templateType];
+  if (!map) return { ok: false, error: 'Choose a template type.' };
+  if (map.anchor_type === 'hire_date') {
+    const n = Number(draft.offset_days);
+    if (draft.offset_days === '' || draft.offset_days == null || Number.isNaN(n) || n < 0) {
+      return { ok: false, error: 'Lifecycle templates need a "days after hire date" value (0 or more).' };
+    }
+  }
+  if (map.anchor_type === 'fixed_date') {
+    const n = Number(draft.recurrence_interval_days);
+    if (draft.recurrence_interval_days === '' || draft.recurrence_interval_days == null || Number.isNaN(n) || n < 1) {
+      return { ok: false, error: 'Recurring templates need a recurrence interval of at least 1 day.' };
+    }
+  }
+  return { ok: true };
+}
+
+export async function createTemplate(supabase, { orgId, draft }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  if (!orgId) return { data: null, error: new Error('Missing org_id — sign out and back in.') };
+  const v = validateNewTemplateDraft(draft);
+  if (!v.ok) return { data: null, error: new Error(v.error) };
+
+  const { category, anchor_type } = CREATE_TYPE_MAP[draft.templateType];
+  const sq = draft.structured_questions ?? [];
+  if (!Array.isArray(sq)) {
+    return { data: null, error: new Error('structured_questions must be an array.') };
+  }
+
+  const base = slugify(draft.name) || 'template';
+  // New templates are always created inactive: the owner reviews the
+  // wording and timing, then flips the toggle. This matches the seed
+  // safety convention (all 25 seeded templates ship active=false) and
+  // means we don't have to gate next_fire_at on the create path.
+  const row = {
+    org_id: orgId,
+    slug: `${base}_${randomSlugSuffix()}`,
+    name: draft.name.trim(),
+    description: draft.description?.trim() || null,
+    guidance: draft.guidance?.trim() || null,
+    category,
+    anchor_type,
+    offset_days: anchor_type === 'hire_date' ? Number(draft.offset_days) : null,
+    recurrence_interval_days: anchor_type === 'fixed_date' ? Number(draft.recurrence_interval_days) : null,
+    next_fire_at: anchor_type === 'fixed_date' && draft.next_fire_at ? draft.next_fire_at : null,
+    structured_questions: sq,
+    default_assignee_email: draft.default_assignee_email?.trim().toLowerCase() || null,
+    default_urgency: draft.default_urgency ?? 'warning',
+    visibility: 'owner',
+    active: false,
+  };
+
+  const { data, error } = await supabase
+    .from('exec_task_templates')
+    .insert(row)
+    .select()
+    .single();
+  // 23505 = unique_violation. The random suffix makes this near-impossible,
+  // but surface a friendly message rather than a Postgres error if it hits.
+  if (error && error.code === '23505') {
+    return { data: null, error: new Error('A template with that name already exists — try a slightly different name.') };
+  }
+  return { data, error };
+}
