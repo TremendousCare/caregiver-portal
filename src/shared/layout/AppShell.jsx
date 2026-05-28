@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, ListChecks, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useCaregivers } from '../context/CaregiverContext';
 import { useClients } from '../context/ClientContext';
@@ -16,7 +16,7 @@ import { QuickCaptureModal } from '../../features/tasks/QuickCaptureModal';
 import layout from '../../styles/layout.module.css';
 
 export function AppShell() {
-  const { toast, isAdmin, currentOrgSettings } = useApp();
+  const { toast, isAdmin, currentOrgRole, currentOrgSettings } = useApp();
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
   const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
@@ -150,12 +150,12 @@ export function AppShell() {
           ] : []),
         ],
       },
-      // Executive section — visible to both owners (full R/W) and
-      // admins (read-only goals). The page itself checks
-      // currentOrgRole to render edit affordances. Only "Goals" lands
-      // in this PR; Tasks + Templates + Dashboard arrive in later
-      // phases. Future-only items can spread on currentOrgRole ===
-      // 'owner' to hide them from admins entirely.
+      // Executive section. Goals are visible to both owners (full R/W)
+      // and admins (read-only via the page's currentOrgRole check).
+      // Tasks + Templates are owner-only and hidden from admins. The
+      // section header still appears for admins because Goals is in
+      // the list — only the privileged links spread under the role
+      // gate.
       ...(isAdmin ? [{
         id: 'executive',
         label: 'Executive',
@@ -166,6 +166,20 @@ export function AppShell() {
             icon: <BarChart3 size={18} />,
             label: 'Goals',
           },
+          ...(currentOrgRole === 'owner' ? [
+            {
+              id: 'exec-tasks',
+              path: '/exec/tasks',
+              icon: <ListChecks size={18} />,
+              label: 'Tasks',
+            },
+            {
+              id: 'exec-templates',
+              path: '/exec/templates',
+              icon: <FileText size={18} />,
+              label: 'Templates',
+            },
+          ] : []),
         ],
       }] : []),
       // Phase 1.4 — admin-only per-agent metrics dashboard. Phase 1.5

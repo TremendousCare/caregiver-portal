@@ -31,6 +31,8 @@ import { AccountingPage } from './features/accounting/AccountingPage';
 import { FunnelReport } from './features/bd-funnel/FunnelReport';
 import { GoalsEditor } from './features/bd-goals/GoalsEditor';
 import { ExecGoalsPage } from './features/exec-goals/ExecGoalsPage';
+import { ExecTasksPage } from './features/exec-tasks/ExecTasksPage';
+import { ExecTemplatesPage } from './features/exec-tasks/ExecTemplatesPage';
 import { TasksDashboard } from './features/tasks/TasksDashboard';
 import { AdminSettings } from './components/AdminSettings';
 import { AgentMetricsPage } from './components/agentMetrics/AgentMetricsPage';
@@ -638,6 +640,27 @@ function OwnerOrAdminOnly({ children }) {
   return children;
 }
 
+// Strict owner gate — for Tasks + Templates which contain
+// owner-only data (visible to owners alone per the locked matrix).
+// admins can land here via direct URL and see the access-denied
+// panel instead of the route content.
+function OwnerOnly({ children }) {
+  const navigate = useNavigate();
+  const { currentOrgRole } = useApp();
+  if (currentOrgRole !== 'owner') {
+    return (
+      <div style={{ textAlign: 'center', padding: '80px 24px', color: '#7A8BA0' }}>
+        <h2 style={{ color: '#0F1724', marginBottom: 8 }}>Access Denied</h2>
+        <p>This page is restricted to executive owners.</p>
+        <button className={btn.secondaryBtn} style={{ marginTop: 16 }} onClick={() => navigate('/')}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+  return children;
+}
+
 function SettingsPage() {
   const { showToast, currentUserEmail } = useApp();
   return <AdminSettings showToast={showToast} currentUserEmail={currentUserEmail} />;
@@ -682,6 +705,8 @@ export default function AdminApp() {
                 <Route path="bd-funnel" element={<AdminOnly><FunnelReport /></AdminOnly>} />
                 <Route path="bd-goals"  element={<AdminOnly><GoalsEditor /></AdminOnly>} />
                 <Route path="exec/goals" element={<OwnerOrAdminOnly><ExecGoalsPage /></OwnerOrAdminOnly>} />
+                <Route path="exec/tasks" element={<OwnerOnly><ExecTasksPage /></OwnerOnly>} />
+                <Route path="exec/templates" element={<OwnerOnly><ExecTemplatesPage /></OwnerOnly>} />
                 <Route path="settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
                 <Route path="agent-metrics" element={<AdminOnly><AgentMetricsPage /></AdminOnly>} />
                 <Route path="agent-grading" element={<AdminOnly><AgentGradingPage /></AdminOnly>} />
