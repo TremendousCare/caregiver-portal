@@ -1,4 +1,4 @@
--- Rollback for 20260531000000_payroll_rls_use_is_admin_helper.sql
+-- Rollback for 20260528203410_payroll_rls_use_is_admin_helper.sql
 --
 -- Restores the original PR #288 predicate: the 7 payroll/invoicing
 -- RESTRICTIVE policies revert to the inline literal `role = 'admin'`
