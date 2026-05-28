@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../../shared/context/AppContext';
+import { isAdminRole } from '../../lib/auth/roles';
 import { PayrollTab } from './payroll/PayrollTab';
 import { InvoicingTab } from './invoicing/InvoicingTab';
 import s from './AccountingPage.module.css';
@@ -23,7 +24,7 @@ export function AccountingPage() {
   // admins only at the RLS layer. Match that here so members get a
   // polite empty state rather than RLS-blocked SELECTs producing an
   // unexplained empty UI.
-  const isStaff = isAdmin || currentOrgRole === 'admin';
+  const isStaff = isAdmin || isAdminRole(currentOrgRole);
   const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
   const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
 
