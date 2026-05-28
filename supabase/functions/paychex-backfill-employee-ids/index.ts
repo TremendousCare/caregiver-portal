@@ -134,7 +134,10 @@ async function assertStaff(
     .select("role")
     .eq("email", email.toLowerCase())
     .maybeSingle();
-  if (!roleRow || !["admin", "member"].includes((roleRow as { role: string }).role)) {
+  // Staff = admin, member, owner (mirrors public.is_staff() =
+  // role IN ('admin','member','owner')). Omitting 'owner' locks out
+  // owners, who are the top tier and hierarchically staff.
+  if (!roleRow || !["admin", "member", "owner"].includes((roleRow as { role: string }).role)) {
     return { ok: false, status: 403, error: "Staff access required." };
   }
   return { ok: true };
