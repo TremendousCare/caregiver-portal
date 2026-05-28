@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   fetchTemplates,
   updateTemplate,
+  createTemplate,
   validateActivation,
+  validateNewTemplateDraft,
   needsNextFireDate,
+  slugify,
 } from '../lib/templatesQueries';
 
 function makeSupabaseMock(opts = {}) {
@@ -15,11 +18,13 @@ function makeSupabaseMock(opts = {}) {
       orderArgs: [],
       selectCols: null,
       updateRow: null,
+      insertRow: null,
       single: false,
     };
     const chain = {
       select(cols) { state.selectCols = cols; return chain; },
       update(row) { state.updateRow = row; return chain; },
+      insert(row) { state.insertRow = row; return chain; },
       eq(col, val) { state.filters.push(['eq', col, val]); return chain; },
       order(col, o) { state.orderArgs.push([col, o]); return chain; },
       single() { state.single = true; return chain; },
@@ -182,5 +187,135 @@ describe('updateTemplate', () => {
       patch: { structured_questions: [] },
     });
     expect(r.error).toBe(null);
+  });
+});
+
+describe('slugify', () => {
+  it('lowercases and underscores non-alphanumerics', () => {
+    expect(slugify('Monthly P&L review')).toBe('monthly_p_l_review');
+  });
+  it('trims leading/trailing separators', () => {
+    expect(slugify('  Hello!! ')).toBe('hello');
+  });
+  it('returns empty string for empty/nullish input', () => {
+    expect(slugify('')).toBe('');
+    expect(slugify(null)).toBe('');
+    expect(slugify(undefined)).toBe('');
+  });
+});
+
+describe('validateNewTemplateDraft', () => {
+  it('rejects a missing name', () => {
+    const r = validateNewTemplateDraft({ name: '  ', templateType: 'ad_hoc' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/name is required/i);
+  });
+  it('rejects an unknown template type', () => {
+    const r = validateNewTemplateDraft({ name: 'X', templateType: 'bogus' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/template type/i);
+  });
+  it('rejects a lifecycle template without offset_days', () => {
+    const r = validateNewTemplateDraft({ name: 'X', templateType: 'lifecycle', offset_days: '' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/days after hire/i);
+  });
+  it('accepts offset_days of 0 for lifecycle', () => {
+    expect(validateNewTemplateDraft({ name: 'X', templateType: 'lifecycle', offset_days: 0 }).ok).toBe(true);
+  });
+  it('rejects a recurring template without a valid interval', () => {
+    const r = validateNewTemplateDraft({ name: 'X', templateType: 'recurring', recurrence_interval_days: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/recurrence interval/i);
+  });
+  it('accepts a valid recurring draft', () => {
+    expect(validateNewTemplateDraft({ name: 'X', templateType: 'recurring', recurrence_interval_days: 30 }).ok).toBe(true);
+  });
+  it('accepts an ad_hoc draft with no timing fields', () => {
+    expect(validateNewTemplateDraft({ name: 'X', templateType: 'ad_hoc' }).ok).toBe(true);
+  });
+});
+
+describe('createTemplate', () => {
+  it('rejects when supabase is missing', async () => {
+    const r = await createTemplate(null, { orgId: 'o1', draft: { name: 'X', templateType: 'ad_hoc' } });
+    expect(r.error.message).toMatch(/not configured/i);
+  });
+
+  it('rejects a missing org_id', async () => {
+    const sb = makeSupabaseMock();
+    const r = await createTemplate(sb, { orgId: '', draft: { name: 'X', templateType: 'ad_hoc' } });
+    expect(r.error.message).toMatch(/org_id/i);
+    expect(sb._calls.length).toBe(0);
+  });
+
+  it('rejects an invalid draft before touching the DB', async () => {
+    const sb = makeSupabaseMock();
+    const r = await createTemplate(sb, { orgId: 'o1', draft: { name: '', templateType: 'ad_hoc' } });
+    expect(r.error.message).toMatch(/name is required/i);
+    expect(sb._calls.length).toBe(0);
+  });
+
+  it('inserts a recurring template with derived slug, org_id, and inactive default', async () => {
+    const sb = makeSupabaseMock({ responder: (state) => ({ data: { id: 'new', ...state.insertRow }, error: null }) });
+    const r = await createTemplate(sb, {
+      orgId: 'org-1',
+      draft: {
+        name: 'Monthly board update',
+        templateType: 'recurring',
+        recurrence_interval_days: '30',
+        next_fire_at: '2026-06-01T09:00:00.000Z',
+        default_assignee_email: '  KEVIN@TC.COM ',
+        default_urgency: 'info',
+        description: '  do it  ',
+      },
+    });
+    expect(r.error).toBe(null);
+    const row = sb._calls[0].insertRow;
+    expect(row.org_id).toBe('org-1');
+    expect(row.category).toBe('recurring');
+    expect(row.anchor_type).toBe('fixed_date');
+    expect(row.recurrence_interval_days).toBe(30);
+    expect(row.offset_days).toBe(null);
+    expect(row.next_fire_at).toBe('2026-06-01T09:00:00.000Z');
+    expect(row.active).toBe(false);
+    expect(row.visibility).toBe('owner');
+    expect(row.default_assignee_email).toBe('kevin@tc.com');
+    expect(row.description).toBe('do it');
+    expect(row.structured_questions).toEqual([]);
+    expect(row.slug.startsWith('monthly_board_update_')).toBe(true);
+  });
+
+  it('maps lifecycle type to hire_date with offset_days', async () => {
+    const sb = makeSupabaseMock({ responder: (state) => ({ data: state.insertRow, error: null }) });
+    await createTemplate(sb, {
+      orgId: 'org-1',
+      draft: { name: '30-day check-in', templateType: 'lifecycle', offset_days: '30' },
+    });
+    const row = sb._calls[0].insertRow;
+    expect(row.category).toBe('lifecycle');
+    expect(row.anchor_type).toBe('hire_date');
+    expect(row.offset_days).toBe(30);
+    expect(row.recurrence_interval_days).toBe(null);
+    expect(row.next_fire_at).toBe(null);
+  });
+
+  it('rejects a non-array structured_questions before hitting the DB', async () => {
+    const sb = makeSupabaseMock();
+    const r = await createTemplate(sb, {
+      orgId: 'org-1',
+      draft: { name: 'X', templateType: 'ad_hoc', structured_questions: { not: 'array' } },
+    });
+    expect(r.error.message).toMatch(/must be an array/i);
+    expect(sb._calls.length).toBe(0);
+  });
+
+  it('translates a unique-violation into a friendly message', async () => {
+    const sb = makeSupabaseMock({ responder: () => ({ data: null, error: { code: '23505', message: 'dup' } }) });
+    const r = await createTemplate(sb, {
+      orgId: 'org-1',
+      draft: { name: 'X', templateType: 'ad_hoc' },
+    });
+    expect(r.error.message).toMatch(/already exists/i);
   });
 });

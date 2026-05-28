@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { RefreshCw, FileText, AlertCircle, Calendar } from 'lucide-react';
+import { RefreshCw, FileText, AlertCircle, Calendar, Plus } from 'lucide-react';
 import { useApp } from '../../shared/context/AppContext';
 import { useExecTemplates } from './hooks/useExecTemplates';
 import { needsNextFireDate } from './lib/templatesQueries';
@@ -42,8 +42,9 @@ function formatNextFire(t) {
 
 export function ExecTemplatesPage() {
   const { showToast } = useApp();
-  const { loading, submitting, templates, error, refresh, updateTemplate } = useExecTemplates();
+  const { loading, submitting, templates, error, refresh, updateTemplate, createTemplate } = useExecTemplates();
   const [editing, setEditing] = useState(null); // template
+  const [creating, setCreating] = useState(false);
 
   const grouped = useMemo(() => {
     const buckets = { lifecycle: [], recurring: [], ad_hoc: [] };
@@ -73,6 +74,14 @@ export function ExecTemplatesPage() {
     }
   }
 
+  // Errors propagate to the form so it can show them inline; success
+  // closes the modal. New templates land inactive, so call that out.
+  async function handleCreate(draft) {
+    await createTemplate(draft);
+    showToast?.(`Created "${draft.name.trim()}" — inactive until you toggle it on`);
+    setCreating(false);
+  }
+
   return (
     <div className={s.page}>
       <div className={s.header}>
@@ -90,6 +99,10 @@ export function ExecTemplatesPage() {
           <button type="button" className={s.secondaryBtn} onClick={refresh}>
             <RefreshCw size={14} />
             Refresh
+          </button>
+          <button type="button" className={s.primaryBtn} onClick={() => setCreating(true)}>
+            <Plus size={14} />
+            New template
           </button>
         </div>
       </div>
@@ -146,6 +159,16 @@ export function ExecTemplatesPage() {
             submitting={submitting}
             onCancel={() => setEditing(null)}
             onSave={handleSaveEdit}
+          />
+        </Modal>
+      )}
+
+      {creating && (
+        <Modal title="New template" onClose={() => setCreating(false)}>
+          <TemplateCreateForm
+            submitting={submitting}
+            onCancel={() => setCreating(false)}
+            onSave={handleCreate}
           />
         </Modal>
       )}
@@ -338,6 +361,172 @@ function TemplateEditForm({ template, submitting, onCancel, onSave }) {
         </button>
         <button type="submit" className={s.primaryBtn} disabled={submitting}>
           {submitting ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+const TEMPLATE_TYPE_OPTIONS = [
+  { value: 'recurring', label: 'Recurring (date-cadenced)' },
+  { value: 'lifecycle', label: 'Lifecycle (hire-date anchored)' },
+  { value: 'ad_hoc',    label: 'Ad-hoc (you create instances by hand)' },
+];
+
+function TemplateCreateForm({ submitting, onCancel, onSave }) {
+  const [name, setName]                       = useState('');
+  const [templateType, setTemplateType]       = useState('recurring');
+  const [description, setDescription]         = useState('');
+  const [guidance, setGuidance]               = useState('');
+  const [offsetDays, setOffsetDays]           = useState('');
+  const [intervalDays, setIntervalDays]       = useState('');
+  const [nextFireAt, setNextFireAt]           = useState('');
+  const [defaultAssignee, setDefaultAssignee] = useState('');
+  const [urgency, setUrgency]                 = useState('warning');
+  const [formError, setFormError]             = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setFormError('');
+    const draft = {
+      name,
+      templateType,
+      description,
+      guidance,
+      default_assignee_email: defaultAssignee,
+      default_urgency: urgency,
+    };
+    if (templateType === 'lifecycle') {
+      draft.offset_days = offsetDays;
+    }
+    if (templateType === 'recurring') {
+      draft.recurrence_interval_days = intervalDays;
+      // datetime-local (no TZ) → UTC ISO, matching the edit form / DB timestamptz.
+      draft.next_fire_at = nextFireAt ? new Date(nextFireAt).toISOString() : null;
+    }
+    try {
+      await onSave(draft);
+    } catch (err) {
+      setFormError(err?.message ?? 'Could not create template.');
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {formError && <div className={s.error}>{formError}</div>}
+
+      <div className={s.field}>
+        <label className={s.fieldLabel}>Name</label>
+        <input
+          className={s.input}
+          type="text"
+          required
+          autoFocus
+          maxLength={200}
+          placeholder='e.g. "Monthly board update"'
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+
+      <div className={s.field}>
+        <label className={s.fieldLabel}>Template type</label>
+        <select className={s.select} value={templateType} onChange={(e) => setTemplateType(e.target.value)}>
+          {TEMPLATE_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className={s.field}>
+        <label className={s.fieldLabel}>Description</label>
+        <textarea
+          className={s.textarea}
+          rows={2}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+
+      <div className={s.field}>
+        <label className={s.fieldLabel}>Guidance (shown when completing the task)</label>
+        <textarea
+          className={s.textarea}
+          rows={3}
+          value={guidance}
+          onChange={(e) => setGuidance(e.target.value)}
+        />
+      </div>
+
+      {templateType === 'lifecycle' && (
+        <div className={s.field}>
+          <label className={s.fieldLabel}>Days after hire date</label>
+          <input
+            className={s.input}
+            type="number"
+            min="0"
+            value={offsetDays}
+            onChange={(e) => setOffsetDays(e.target.value)}
+          />
+        </div>
+      )}
+
+      {templateType === 'recurring' && (
+        <div className={s.twoCol}>
+          <div className={s.field}>
+            <label className={s.fieldLabel}>Recurrence interval (days)</label>
+            <input
+              className={s.input}
+              type="number"
+              min="1"
+              value={intervalDays}
+              onChange={(e) => setIntervalDays(e.target.value)}
+            />
+          </div>
+          <div className={s.field}>
+            <label className={s.fieldLabel}>Next fire (optional — required to activate)</label>
+            <input
+              className={s.input}
+              type="datetime-local"
+              value={nextFireAt}
+              onChange={(e) => setNextFireAt(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className={s.twoCol}>
+        <div className={s.field}>
+          <label className={s.fieldLabel}>Default assignee email</label>
+          <input
+            className={s.input}
+            type="email"
+            value={defaultAssignee}
+            onChange={(e) => setDefaultAssignee(e.target.value)}
+            placeholder="owner@yourdomain.com"
+          />
+        </div>
+        <div className={s.field}>
+          <label className={s.fieldLabel}>Default urgency</label>
+          <select className={s.select} value={urgency} onChange={(e) => setUrgency(e.target.value)}>
+            <option value="critical">Critical</option>
+            <option value="warning">Warning</option>
+            <option value="info">Info</option>
+          </select>
+        </div>
+      </div>
+
+      <p className={s.warnHint} style={{ marginTop: 4 }}>
+        <Calendar size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+        New templates are created inactive — toggle it on once the wording and timing look right.
+      </p>
+
+      <div className={s.modalActions}>
+        <button type="button" className={s.secondaryBtn} onClick={onCancel} disabled={submitting}>
+          Cancel
+        </button>
+        <button type="submit" className={s.primaryBtn} disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create template'}
         </button>
       </div>
     </form>

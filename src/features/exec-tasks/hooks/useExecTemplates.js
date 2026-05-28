@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '../../../lib/supabase';
-import { fetchTemplates, updateTemplate as updateTemplateQuery } from '../lib/templatesQueries';
+import { supabase, getOrgClaims } from '../../../lib/supabase';
+import {
+  fetchTemplates,
+  updateTemplate as updateTemplateQuery,
+  createTemplate as createTemplateQuery,
+} from '../lib/templatesQueries';
 
 export function useExecTemplates() {
   const [loading, setLoading] = useState(true);
@@ -40,5 +44,23 @@ export function useExecTemplates() {
     }
   }, [templates, load]);
 
-  return { loading, submitting, templates, error, refresh: load, updateTemplate };
+  const createTemplate = useCallback(async (draft) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { orgId } = getOrgClaims(session);
+      const r = await createTemplateQuery(supabase, { orgId, draft });
+      if (r.error) throw r.error;
+      await load();
+      return r.data;
+    } catch (e) {
+      setError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [load]);
+
+  return { loading, submitting, templates, error, refresh: load, updateTemplate, createTemplate };
 }
