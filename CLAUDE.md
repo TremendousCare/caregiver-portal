@@ -34,6 +34,13 @@ This app is **live in production** and used by a real team. The owner is non-tec
 - **Before merging any RLS migration on a table with multiple policies, manually reproduce the exact frontend query in the Supabase SQL editor under `SET LOCAL ROLE authenticated` with fake JWT claims.** Structural grep-style migration tests cannot catch RLS runtime semantics. If the reproduction returns `infinite recursion detected in policy for relation`, fix before merging.
 - Full incident postmortem, mechanism, and reproduction recipe: **`docs/RLS_GOTCHAS.md`**.
 
+### Role-Check Safety (MANDATORY — read before adding or changing a role tier)
+
+- **NEVER write `role === '<literal>'` in frontend code.** Use the helpers in **`src/lib/auth/roles.js`** — `isStaffRole(role)`, `isAdminRole(role)`, `isOwnerRole(role)` — which mirror the DB-side `public.is_staff()`, `public.is_admin()`, `public.is_owner()` exactly. Literal comparisons silently revoke access when the role enum grows (e.g. Kevin + Blerta lost admin access for an afternoon after Phase 1 of the Executive module promoted them to `'owner'`).
+- **Owners ARE admins, hierarchically.** `isAdminRole` returns true for both `'admin'` and `'owner'`. Any new role added above admin must extend `isAdminRole`'s allowlist; any new role below admin (e.g. a future `'viewer'`) needs only `isStaffRole`.
+- **Whenever you add or rename a role tier, run `grep -rn "role === '" src/` and audit every hit.** Update the helpers' arrays AND any policy / migration / sidebar gate that references the role enum. The structural test in `src/lib/auth/__tests__/noLiteralRoleChecks.test.js` fails CI if a literal slips in, but the grep is your second pair of eyes.
+- **Frontend role helpers must stay in sync with the DB `is_admin()` / `is_staff()` / `is_owner()` SECURITY DEFINER functions.** When a migration changes either side, change the other in the same PR. Tests in `src/lib/auth/__tests__/roles.test.js` document the cross-system contract; if the DB and frontend ever drift, that test still passes but production breaks.
+
 ### Deployment Rules
 
 - `main` branch auto-deploys to production via Vercel — treat it as sacred
