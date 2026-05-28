@@ -54,7 +54,9 @@ async function assertStaff(authHeader: string | null): Promise<{ ok: true } | { 
     .eq("email", userData.user.email.toLowerCase())
     .maybeSingle();
 
-  if (!roleRow || !["admin", "member"].includes(roleRow.role)) {
+  // Staff = admin, member, owner (mirrors public.is_staff()). Omitting
+  // 'owner' locks out owners, who are the top tier and are staff.
+  if (!roleRow || !["admin", "member", "owner"].includes(roleRow.role)) {
     return { ok: false, error: "Staff access required.", status: 403 };
   }
   return { ok: true };

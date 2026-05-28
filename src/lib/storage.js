@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { DEFAULT_PHASE_TASKS, DEFAULT_BOARD_COLUMNS, DEFAULT_BOARD_LABELS } from './constants';
+import { normalizePaychexEmployeeId } from './payroll/caregiverPayrollSetup';
 
 // ═══════════════════════════════════════════════════════════════
 // Storage Abstraction Layer
@@ -732,6 +733,10 @@ export const dbToCaregiver = (row) => ({
   availabilityCheckPausedAt: row.availability_check_paused_at || null,
   availabilityCheckPausedReason: row.availability_check_paused_reason || null,
   avatarPath: row.avatar_path || null,
+  // Short per-company Paychex employee ID (e.g. "54"). Required for
+  // payroll export; paychex_worker_id / paychex_sync_status are managed
+  // by the sync worker and intentionally not round-tripped here.
+  paychexEmployeeId: row.paychex_employee_id || null,
   createdAt: row.created_at,
 });
 
@@ -801,6 +806,10 @@ export const caregiverToDb = (cg) => ({
   availability_type: cg.availabilityType || '',
   current_assignment: cg.currentAssignment || '',
   cpr_expiry_date: cg.cprExpiryDate || null,
+  // Short Paychex employee ID, normalized to a trimmed string or null so
+  // a blank input never persists as ''. paychex_worker_id /
+  // paychex_sync_status are NOT written here — the sync worker owns them.
+  paychex_employee_id: normalizePaychexEmployeeId(cg.paychexEmployeeId),
   // user_id, sms_opted_out*, availability_check_paused*, tasks,
   // phase_override, and avatar_path are set via targeted .update() /
   // RPC calls (setCaregiverSmsOptOut, setCaregiverAvailabilityCheckPaused,

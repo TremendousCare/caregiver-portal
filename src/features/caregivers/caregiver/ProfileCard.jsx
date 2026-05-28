@@ -11,6 +11,8 @@ import cards from '../../../styles/cards.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
 import { EditField } from './constants';
+import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { getPaychexSetupStatus } from '../../../lib/payroll/caregiverPayrollSetup';
 
 export function ProfileCard({ caregiver, onUpdateCaregiver }) {
   const [editing, setEditing] = useState(false);
@@ -184,12 +186,15 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
       cprExpiryDate: caregiver.cprExpiryDate || '',
       defaultPayRate: caregiver.defaultPayRate ?? '',
       defaultPayOtRate: caregiver.defaultPayOtRate ?? '',
+      paychexEmployeeId: caregiver.paychexEmployeeId || '',
     });
     setEditing(true);
   };
 
   const saveEdits = () => { onUpdateCaregiver(caregiver.id, editForm); setEditing(false); };
   const editField = (field, value) => { setEditForm((f) => ({ ...f, [field]: value })); };
+
+  const paychexStatus = getPaychexSetupStatus(caregiver);
 
   const profileFields = [
     { label: 'Full Name', value: `${caregiver.firstName} ${caregiver.lastName}` },
@@ -215,6 +220,15 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
     // shifts' hourly_rate when the office assigns this caregiver.
     { label: 'Default Pay Rate', value: caregiver.defaultPayRate != null ? `$${Number(caregiver.defaultPayRate).toFixed(2)}/hr` : null },
     { label: 'Default OT Pay Rate', value: caregiver.defaultPayOtRate != null ? `$${Number(caregiver.defaultPayOtRate).toFixed(2)}/hr` : null },
+    // Paychex payroll-setup readiness. The short employee ID is required
+    // to export this caregiver's timesheet; without it the payroll engine
+    // blocks the timesheet (caregiver_missing_paychex_employee_id).
+    { label: 'Paychex Employee ID', value: (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: paychexStatus.ready ? '#15803D' : '#B45309' }}>
+        {paychexStatus.ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+        {paychexStatus.ready ? paychexStatus.employeeId : 'Not set — blocks payroll export'}
+      </span>
+    ) },
     { label: 'Years of Experience', value: caregiver.yearsExperience ? ({ '0-1': 'Less than 1 year', '1-3': '1–3 years', '3-5': '3–5 years', '5-10': '5–10 years', '10+': '10+ years' }[caregiver.yearsExperience] || caregiver.yearsExperience) : null },
     { label: 'Preferred Shift', value: caregiver.preferredShift ? caregiver.preferredShift.charAt(0).toUpperCase() + caregiver.preferredShift.slice(1) : null },
     { label: 'Languages', value: caregiver.languages },
@@ -524,6 +538,7 @@ export function ProfileCard({ caregiver, onUpdateCaregiver }) {
             <EditField label="CPR Expiry Date" value={editForm.cprExpiryDate} onChange={(v) => editField('cprExpiryDate', v)} type="date" />
             <EditField label="Default Pay Rate ($/hr)" value={editForm.defaultPayRate} onChange={(v) => editField('defaultPayRate', v)} type="number" />
             <EditField label="Default OT Pay Rate ($/hr)" value={editForm.defaultPayOtRate} onChange={(v) => editField('defaultPayOtRate', v)} type="number" />
+            <EditField label="Paychex Employee ID" value={editForm.paychexEmployeeId} onChange={(v) => editField('paychexEmployeeId', v)} />
             <div className={forms.field}>
               <label className={forms.fieldLabel}>Years of Experience</label>
               <select className={forms.fieldInput} value={editForm.yearsExperience} onChange={(e) => editField('yearsExperience', e.target.value)}>

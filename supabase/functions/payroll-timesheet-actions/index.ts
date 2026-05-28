@@ -141,8 +141,10 @@ async function assertStaff(
     .maybeSingle();
   // PR #288 (RBAC 3 of 3) tightened payroll/invoicing tables to admins
   // only via RESTRICTIVE RLS. Edge functions use service-role and
-  // bypass RLS, so we enforce the same admin-only check here.
-  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+  // bypass RLS, so we enforce the same check here. Owners are admins
+  // hierarchically (mirrors public.is_admin() = role IN ('admin','owner'));
+  // a literal === 'admin' locks owners out.
+  if (!roleRow || !["admin", "owner"].includes((roleRow as { role: string }).role)) {
     return { ok: false, status: 403, error: "Admin access required." };
   }
   return { ok: true };

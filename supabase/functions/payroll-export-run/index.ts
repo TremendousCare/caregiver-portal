@@ -137,8 +137,10 @@ async function assertStaff(
     .eq("email", email.toLowerCase())
     .maybeSingle();
   // PR #288 tightened payroll tables to admins only at the RLS layer.
-  // Edge functions use service-role; enforce the same admin check here.
-  if (!roleRow || (roleRow as { role: string }).role !== "admin") {
+  // Edge functions use service-role; enforce the same check here.
+  // Owners are admins hierarchically (mirrors public.is_admin() =
+  // role IN ('admin','owner')); a literal === 'admin' locks owners out.
+  if (!roleRow || !["admin", "owner"].includes((roleRow as { role: string }).role)) {
     return { ok: false, status: 403, error: "Admin access required." } as const;
   }
   return { ok: true } as const;
