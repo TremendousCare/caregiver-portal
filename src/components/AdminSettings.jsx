@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { PHASES } from '../lib/constants';
 import { getPhaseTasks } from '../lib/storage';
-import { isAdminRole } from '../lib/auth/roles';
+import { isAdminRole, isOwnerRole } from '../lib/auth/roles';
 import btn from '../styles/buttons.module.css';
 import forms from '../styles/forms.module.css';
 import cards from '../styles/cards.module.css';
@@ -337,9 +337,9 @@ function UserManagement({ showToast, currentUserEmail }) {
   }
 
   // Owners are grouped with admins for display (they're admins + more);
-  // member is its own bucket.
+  // member is the residual non-admin bucket.
   const admins = users.filter((u) => isAdminRole(u.role));
-  const members = users.filter((u) => u.role === 'member');
+  const members = users.filter((u) => !isAdminRole(u.role));
 
   return (
     <SettingsCard title="User Access & Roles" description={`${users.length} user${users.length !== 1 ? 's' : ''}`}>
@@ -397,13 +397,13 @@ function UserManagement({ showToast, currentUserEmail }) {
                   color: isAdminTier ? '#15803D' : '#2E4E8D',
                   border: `1px solid ${isAdminTier ? '#BBF7D0' : '#D5DCE6'}`,
                 }}>
-                  {user.role === 'owner' ? 'Owner' : isAdminTier ? 'Admin' : 'Member'}
+                  {isOwnerRole(user.role) ? 'Owner' : isAdminTier ? 'Admin' : 'Member'}
                 </span>
               </div>
 
               {/* Action button */}
               <div style={{ textAlign: 'right' }}>
-                {isCurrentUser || user.role === 'owner' ? (
+                {isCurrentUser || isOwnerRole(user.role) ? (
                   // Owner rows are read-only here — owner promotion / demotion
                   // is rare and intentional, handled out-of-band via a migration.
                   <span style={{ fontSize: 11, color: '#94A3B8' }}>—</span>
