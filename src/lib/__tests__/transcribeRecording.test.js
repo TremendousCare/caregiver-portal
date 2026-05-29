@@ -336,7 +336,7 @@ describe('transcribeRecording — provider dispatch', () => {
 });
 
 describe('resolveTranscriptionProvider', () => {
-  it('returns ringcentral_native when org has no voice config row', async () => {
+  it('falls back to whisper when org has no voice config row', async () => {
     const { resolveTranscriptionProvider } = await loadModule();
     const supabase = {
       from() {
@@ -348,13 +348,13 @@ describe('resolveTranscriptionProvider', () => {
       },
     };
     const provider = await resolveTranscriptionProvider(supabase, 'some-org');
-    expect(provider).toBe('ringcentral_native');
+    expect(provider).toBe('whisper');
   });
 
-  it('returns ringcentral_native when no orgId is passed', async () => {
+  it('falls back to whisper when no orgId is passed', async () => {
     const { resolveTranscriptionProvider } = await loadModule();
     const provider = await resolveTranscriptionProvider({}, null);
-    expect(provider).toBe('ringcentral_native');
+    expect(provider).toBe('whisper');
   });
 
   it('returns the configured provider when set to whisper', async () => {
@@ -374,7 +374,7 @@ describe('resolveTranscriptionProvider', () => {
     expect(provider).toBe('whisper');
   });
 
-  it('defaults to ringcentral_native when the column holds an unknown value', async () => {
+  it('falls back to whisper when the column holds an unknown value', async () => {
     const { resolveTranscriptionProvider } = await loadModule();
     const supabase = {
       from() {
@@ -388,7 +388,7 @@ describe('resolveTranscriptionProvider', () => {
       },
     };
     const provider = await resolveTranscriptionProvider(supabase, 'org-x');
-    expect(provider).toBe('ringcentral_native');
+    expect(provider).toBe('whisper');
   });
 });
 
