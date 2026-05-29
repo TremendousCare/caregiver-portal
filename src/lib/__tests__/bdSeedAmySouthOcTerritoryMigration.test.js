@@ -45,6 +45,7 @@ const STRATEGIC_UUIDS = [
 
 const EXPECTED_CITIES = [
   'Aliso Viejo',
+  'Costa Mesa',
   'Dana Point',
   'El Toro',
   'Foothill Ranch',

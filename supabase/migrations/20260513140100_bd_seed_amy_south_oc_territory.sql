@@ -35,6 +35,7 @@ DECLARE
   v_user_id       uuid := '9228e867-30ca-4294-985b-871a994cc5fc';
   v_cities        text[] := ARRAY[
     'Aliso Viejo',
+    'Costa Mesa',
     'Dana Point',
     'El Toro',
     'Foothill Ranch',
