@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { fetchCurrentUserStarredAccountIds } from '../lib/bdQueries';
+import { fetchStarredAccountIdsForUser } from '../lib/bdQueries';
 import { setAccountStarred } from '../lib/bdMutations';
+import { useBdViewAs } from '../context/BdViewAsContext';
 
 // Loads the current user's starred account ids and exposes a toggle.
 //
@@ -22,23 +23,32 @@ import { setAccountStarred } from '../lib/bdMutations';
 //     component can show a transient failure banner. The optimistic
 //     update is reverted before `error` flips.
 export function useBdAccountStars() {
+  const { effectiveUserId, isReadOnly } = useBdViewAs();
   const [starredIds, setStarredIds] = useState(() => new Set());
   const [error, setError] = useState(null);
 
+  // Stars are scoped to the effective user (self, or the rep an owner is
+  // auditing). The explicit user_id filter is required: with the owner
+  // read-override policy in place an unfiltered query would merge every
+  // rep's stars. Until the effective user resolves we hold an empty set.
   const refresh = useCallback(async () => {
     setError(null);
-    const res = await fetchCurrentUserStarredAccountIds(supabase);
+    const res = await fetchStarredAccountIdsForUser(supabase, effectiveUserId);
     if (res.error) {
       setError(res.error);
       return;
     }
     setStarredIds(res.data ?? new Set());
-  }, []);
+  }, [effectiveUserId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const toggle = useCallback(async (accountId) => {
     if (!accountId) return;
+    // Read-only while auditing another rep — starring is a personal,
+    // per-user write that would land under the owner's own id, never the
+    // audited rep's, so we simply no-op.
+    if (isReadOnly) return;
     // Optimistic local update so the star icon flips immediately on
     // tap. We snapshot the prior set in case we need to roll back.
     const prior = starredIds;
@@ -53,7 +63,7 @@ export function useBdAccountStars() {
       setStarredIds(prior);
       setError(res.error);
     }
-  }, [starredIds]);
+  }, [starredIds, isReadOnly]);
 
   const isStarred = useCallback((id) => starredIds.has(id), [starredIds]);
 

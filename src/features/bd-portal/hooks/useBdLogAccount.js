@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
 import { createAccountWithContacts, findAccountDuplicates } from '../lib/bdMutations';
+import { useBdViewAs } from '../context/BdViewAsContext';
+import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
 // Wraps createAccountWithContacts. Pulls org_id and createdBy from the
 // authenticated session so the form doesn't have to. Returns the full
@@ -8,10 +10,12 @@ import { createAccountWithContacts, findAccountDuplicates } from '../lib/bdMutat
 // — so the caller can branch on duplicate detection without losing the
 // contact-error detail.
 export function useBdLogAccount() {
+  const { isReadOnly } = useBdViewAs();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState(null);
 
   const submit = useCallback(async ({ draft, contactDrafts = [], force = false }) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -32,7 +36,7 @@ export function useBdLogAccount() {
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [isReadOnly]);
 
   // Standalone duplicate lookup so the form can warn live as the rep
   // types the name (debounced), not only on submit.

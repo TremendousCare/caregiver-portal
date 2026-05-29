@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Star, Plus } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
+import { useBdViewAs } from './context/BdViewAsContext';
 import { rankAccounts, searchAccounts, daysSince, filterToTerritory } from './lib/bdQueries';
 import s from './BdPortal.module.css';
 
@@ -25,6 +26,7 @@ export function AccountList() {
   const navigate = useNavigate();
   const { loading, accounts, territoryCities, error, refresh } = useBdAccounts();
   const { starredIds, isStarred, toggle: toggleStar, error: starsError } = useBdAccountStars();
+  const { isReadOnly } = useBdViewAs();
   const [term, setTerm] = useState('');
   // Default to "your territory" view; rep can opt into "my accounts"
   // for their personal shortlist or "all accounts" to find an
@@ -79,14 +81,17 @@ export function AccountList() {
           <h1 className={s.pageTitle}>Accounts</h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            className={s.signOutBtn}
-            onClick={() => navigate('/bd/accounts/new')}
-            aria-label="Add a new account"
-          >
-            <Plus size={14} aria-hidden style={{ verticalAlign: '-2px' }} /> Add
-          </button>
+          {/* Adding an account is a write — hidden while auditing a rep. */}
+          {!isReadOnly && (
+            <button
+              type="button"
+              className={s.signOutBtn}
+              onClick={() => navigate('/bd/accounts/new')}
+              aria-label="Add a new account"
+            >
+              <Plus size={14} aria-hidden style={{ verticalAlign: '-2px' }} /> Add
+            </button>
+          )}
           <button type="button" className={s.signOutBtn} onClick={refresh}>Refresh</button>
         </div>
       </div>
@@ -160,6 +165,7 @@ export function AccountList() {
                   type="button"
                   className={`${s.starBtn} ${starred ? s.starBtnActive : ''}`}
                   onClick={() => toggleStar(a.id)}
+                  disabled={isReadOnly}
                   aria-label={starred ? 'Remove from My accounts' : 'Add to My accounts'}
                   aria-pressed={starred}
                 >

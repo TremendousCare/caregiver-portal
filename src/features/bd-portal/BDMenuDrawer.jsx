@@ -3,10 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Menu, X, LayoutDashboard, Users, KanbanSquare, UserPlus, ClipboardList,
   Home, Calendar, Activity, BarChart3, Target, Bot, Settings, Smartphone,
-  LogOut,
+  LogOut, Eye, UserCheck,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { isAdminRole } from '../../lib/auth/roles';
+import { useBdViewAs } from './context/BdViewAsContext';
+import { repDisplayName } from './lib/bdViewAs';
 import s from './BdPortal.module.css';
 
 // Navigates the rep from the BD portal into the rest of the admin app.
@@ -136,9 +138,19 @@ export function BDMenuDrawer({ onSignOut }) {
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = useAdminRole();
+  const { canViewAs, reps, viewAsUserId, setViewAsRep, clearViewAs } = useBdViewAs();
   const [open, setOpen] = useState(false);
   const sections = buildSections(isAdmin);
   const showMenu = shouldShowMenu(location.pathname);
+
+  // Selecting a rep mirrors their portal; the route is reset to Today so
+  // the owner lands on a coherent starting screen for the audited rep.
+  function handleViewAs(userId) {
+    setOpen(false);
+    if (userId) setViewAsRep(userId);
+    else clearViewAs();
+    navigate('/bd');
+  }
 
   // Close drawer whenever route changes (defensive — handleGo also closes).
   useEffect(() => { setOpen(false); }, [location.pathname]);
@@ -203,6 +215,43 @@ export function BDMenuDrawer({ onSignOut }) {
         </div>
 
         <div className={s.menuDrawerBody}>
+          {/* Owner-only: mirror another rep's portal (read-only). The
+              rep list comes from the is_owner()-gated RPC, so this whole
+              section is invisible to admins/members. */}
+          {canViewAs && (
+            <div className={s.menuSection}>
+              <div className={s.menuSectionLabel}>View as rep</div>
+              <button
+                type="button"
+                className={`${s.menuItem} ${!viewAsUserId ? s.menuItemActive : ''}`}
+                onClick={() => handleViewAs(null)}
+              >
+                <span className={s.menuItemIcon} aria-hidden>
+                  <UserCheck size={18} strokeWidth={1.75} />
+                </span>
+                <span className={s.menuItemLabel}>My own view</span>
+              </button>
+              {reps.map((rep) => {
+                const active = viewAsUserId === rep.user_id;
+                return (
+                  <button
+                    key={rep.user_id}
+                    type="button"
+                    className={`${s.menuItem} ${active ? s.menuItemActive : ''}`}
+                    onClick={() => handleViewAs(rep.user_id)}
+                  >
+                    <span className={s.menuItemIcon} aria-hidden>
+                      <Eye size={18} strokeWidth={1.75} />
+                    </span>
+                    <span className={s.menuItemLabel}>
+                      {repDisplayName(rep)}
+                      {rep.email && <span className={s.menuItemSub}>{rep.email}</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {sections.map((section) => (
             <div key={section.id} className={s.menuSection}>
               <div className={s.menuSectionLabel}>{section.label}</div>

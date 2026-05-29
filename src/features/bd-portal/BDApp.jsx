@@ -14,6 +14,8 @@ import { MileageList } from './MileageList';
 import { MileageEntryForm } from './MileageEntryForm';
 import { BottomNav } from './BottomNav';
 import { BDMenuDrawer } from './BDMenuDrawer';
+import { BdViewAsBanner } from './BdViewAsBanner';
+import { BdViewAsProvider } from './context/BdViewAsContext';
 import { supabase } from '../../lib/supabase';
 import s from './BdPortal.module.css';
 
@@ -43,7 +45,8 @@ export function BDApp() {
   }
 
   return (
-    <>
+    <BdViewAsProvider>
+      <BdViewAsBanner />
       <Routes>
         <Route path="/bd"                              element={<Today displayName={displayName} />} />
         <Route path="/bd/log"                          element={<QuickCapture />} />
@@ -79,6 +82,6 @@ export function BDApp() {
       >
         Sign out
       </button>
-    </>
+    </BdViewAsProvider>
   );
 }
