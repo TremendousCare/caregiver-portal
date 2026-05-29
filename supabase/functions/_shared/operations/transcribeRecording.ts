@@ -224,22 +224,33 @@ async function transcribeViaWhisper(
   return { transcript, duration_seconds, language };
 }
 
-// Look up the org's transcription_provider preference. Falls back to the
-// schema default ('ringcentral_native') if no row exists for that org —
-// keeps the function safe in edge cases like a brand-new org where the
-// admin hasn't visited the voice settings page yet.
+// Look up the org's transcription_provider preference. Falls back to
+// 'whisper' — the proven, works-everywhere path — when no valid config
+// exists for the org.
+//
+// Why whisper and not ringcentral_native is the fallback: RingSense
+// (ringcentral_native) only produces transcripts when the org's RC plan
+// includes a RingSense license AND the JWT carries the RingSense scope +
+// "RingSense for Sales - Access Insights" permission. When those aren't
+// present the insights endpoint returns 404 ("not ready"), which is
+// indistinguishable from "RingSense isn't enabled here" — so an org that
+// silently lacks the license gets zero transcripts and no error. That is
+// exactly the regression that took transcription down for Tremendous Care
+// (config said ringcentral_native, license was absent). Whisper has no
+// such precondition, so it is the safe default; RingSense must be an
+// explicit, verified opt-in per org.
 export async function resolveTranscriptionProvider(
   supabase: any,
   orgId: string | null | undefined,
 ): Promise<TranscriptionProvider> {
-  if (!orgId) return "ringcentral_native";
+  if (!orgId) return "whisper";
   const { data, error } = await supabase
     .from("communication_voice_config")
     .select("transcription_provider")
     .eq("org_id", orgId)
     .maybeSingle();
-  if (error || !data?.transcription_provider) return "ringcentral_native";
+  if (error || !data?.transcription_provider) return "whisper";
   const v = data.transcription_provider;
   if (v === "ringcentral_native" || v === "whisper" || v === "both") return v;
-  return "ringcentral_native";
+  return "whisper";
 }
