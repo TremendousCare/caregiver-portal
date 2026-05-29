@@ -8,12 +8,26 @@ const TC_ORG_SETTINGS = {
   },
   payroll: {
     mileage_rate: 0.725,
+    // TC's Paychex Overtime/Doubletime Earnings apply the premium factor
+    // (1.5 / 2.0) themselves on import, so the exporter sends the base rate.
+    // Confirmed 2026-05-29 against the live Jun 3 import.
+    paychex_applies_premium_factor: true,
     pay_components: {
       regular: 'Hourly',
       overtime: 'Overtime',
       double_time: null,
       mileage: 'Mileage',
     },
+  },
+};
+
+// Legacy convention: Paychex does NOT apply the factor, so the exporter
+// pre-multiplies OT (1.5x) / DT (2x) into the Rate column itself.
+const LEGACY_PREMULTIPLY_SETTINGS = {
+  ...TC_ORG_SETTINGS,
+  payroll: {
+    ...TC_ORG_SETTINGS.payroll,
+    paychex_applies_premium_factor: false,
   },
 };
 
@@ -90,7 +104,7 @@ describe('generatePaychexCsv — single caregiver, regular hours only', () => {
 // ─── Multi-row caregiver (reg + OT + mileage) ──────────────────────
 
 describe('generatePaychexCsv — caregiver with regular + OT + mileage', () => {
-  it('emits 3 rows: Hourly @ base, Overtime @ 1.5x, Mileage @ rate', () => {
+  it('emits 3 rows: Hourly @ base, Overtime @ base (Paychex applies factor), Mileage @ rate', () => {
     const ts = {
       ...CLEAN_TIMESHEET,
       regular_hours: 40,
@@ -101,7 +115,8 @@ describe('generatePaychexCsv — caregiver with regular + OT + mileage', () => {
     const lines = csv.trim().split('\r\n');
     expect(lines.length).toBe(4); // header + 3 data rows
     expect(lines[1]).toBe('70125496,54,Hourly,40.00,20,');
-    expect(lines[2]).toBe('70125496,54,Overtime,4.00,30,');
+    // OT row carries the base rate; Paychex's OT Factor applies the 1.5x.
+    expect(lines[2]).toBe('70125496,54,Overtime,4.00,20,');
     expect(lines[3]).toBe('70125496,54,Mileage,25.00,0.725,');
   });
 
@@ -133,7 +148,7 @@ describe('generatePaychexCsv — double-time handling', () => {
     expect(csv).not.toContain('double_time');
   });
 
-  it('emits DT row at 2x rate when pay_components.double_time is set', () => {
+  it('emits DT row at base rate when pay_components.double_time is set (Paychex applies factor)', () => {
     const settings = {
       ...TC_ORG_SETTINGS,
       payroll: {
@@ -153,7 +168,58 @@ describe('generatePaychexCsv — double-time handling', () => {
     const csv = generatePaychexCsv([ts], settings);
     const lines = csv.trim().split('\r\n');
     expect(lines.length).toBe(4);
-    expect(lines[3]).toBe('70125496,54,Doubletime,6.01,40,');
+    // DT row carries the base rate; Paychex's DT Factor applies the 2x.
+    expect(lines[3]).toBe('70125496,54,Doubletime,6.01,20,');
+  });
+});
+
+// ─── Premium factor convention (Paychex-applies vs pre-multiply) ───
+
+describe('generatePaychexCsv — premium factor convention', () => {
+  it('TC (factor applied by Paychex): OT row carries base rate', () => {
+    const ts = { ...CLEAN_TIMESHEET, regular_hours: 40, overtime_hours: 5 };
+    const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
+    expect(csv).toContain('Overtime,5.00,20,');
+    expect(csv).not.toContain('Overtime,5.00,30,');
+  });
+
+  it('legacy (no factor): OT row is pre-multiplied to base x 1.5', () => {
+    const ts = { ...CLEAN_TIMESHEET, regular_hours: 40, overtime_hours: 5 };
+    const csv = generatePaychexCsv([ts], LEGACY_PREMULTIPLY_SETTINGS);
+    expect(csv).toContain('Overtime,5.00,30,');
+  });
+
+  it('legacy (no factor): DT row is pre-multiplied to base x 2', () => {
+    const settings = {
+      ...LEGACY_PREMULTIPLY_SETTINGS,
+      payroll: {
+        ...LEGACY_PREMULTIPLY_SETTINGS.payroll,
+        pay_components: {
+          ...LEGACY_PREMULTIPLY_SETTINGS.payroll.pay_components,
+          double_time: 'Doubletime',
+        },
+      },
+    };
+    const ts = {
+      ...CLEAN_TIMESHEET,
+      regular_hours: 8,
+      double_time_hours: 4,
+    };
+    const csv = generatePaychexCsv([ts], settings);
+    expect(csv).toContain('Doubletime,4.00,40,');
+  });
+
+  it('flag absent entirely defaults to legacy pre-multiply (back-compat)', () => {
+    const settings = {
+      paychex: { display_id: '70125496' },
+      payroll: {
+        mileage_rate: 0.725,
+        pay_components: { regular: 'Hourly', overtime: 'Overtime', double_time: null, mileage: 'Mileage' },
+      },
+    };
+    const ts = { ...CLEAN_TIMESHEET, regular_hours: 40, overtime_hours: 5 };
+    const csv = generatePaychexCsv([ts], settings);
+    expect(csv).toContain('Overtime,5.00,30,');
   });
 });
 
@@ -287,10 +353,10 @@ describe('generatePaychexCsv — per-shift rates: regular_by_rate path', () => {
     expect(lines[2]).toBe('70125496,54,Hourly,16.00,22,');
   });
 
-  it('uses regular_rate_of_pay × 1.5 for the Overtime row', () => {
+  it('uses the weighted-average ROP as the Overtime base rate (Paychex applies 1.5x)', () => {
     // 30h @ $20 + 20h @ $25 with 10h reclassified weekly to OT.
     // ROP = (30*20 + 20*25) / 50 = 1100 / 50 = 22.
-    // OT row rate = 22 × 1.5 = 33.
+    // OT row carries the base ROP (22); Paychex's OT Factor applies the 1.5x.
     const ts = {
       caregiver_id: 'cg_mix',
       paychex_employee_id: '54',
@@ -306,10 +372,10 @@ describe('generatePaychexCsv — per-shift rates: regular_by_rate path', () => {
     const csv = generatePaychexCsv([ts], TC_ORG_SETTINGS);
     expect(csv).toContain('Hourly,30.00,20,');
     expect(csv).toContain('Hourly,10.00,25,');
-    expect(csv).toContain('Overtime,10.00,33,');
+    expect(csv).toContain('Overtime,10.00,22,');
   });
 
-  it('uses regular_rate_of_pay × 2 for the Doubletime row', () => {
+  it('uses the weighted-average ROP as the Doubletime base rate (Paychex applies 2x)', () => {
     const settings = {
       ...TC_ORG_SETTINGS,
       payroll: {
@@ -335,10 +401,9 @@ describe('generatePaychexCsv — per-shift rates: regular_by_rate path', () => {
       mileage_total: 0,
     };
     const csv = generatePaychexCsv([ts], settings);
-    // Overtime rate = 23.3333 × 1.5 ≈ 35
-    expect(csv).toContain('Overtime,4.00,35,');
-    // Doubletime rate = 23.3333 × 2 ≈ 46.6666
-    expect(csv).toContain('Doubletime,2.00,46.6666,');
+    // OT and DT rows both carry the base ROP; Paychex applies the factors.
+    expect(csv).toContain('Overtime,4.00,23.3333,');
+    expect(csv).toContain('Doubletime,2.00,23.3333,');
   });
 
   it('produces a single Hourly row (single-rate degenerate case via per-rate)', () => {
