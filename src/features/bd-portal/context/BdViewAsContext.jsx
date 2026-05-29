@@ -55,23 +55,34 @@ export function BdViewAsProvider({ children }) {
   const [viewAsUserId, setViewAsUserIdState] = useState(readStoredViewAs);
   const [ready, setReady] = useState(false);
 
-  // Resolve the session user id and (for owners) the auditable reps. Both
-  // are fetched once on mount; the rep list is small and stable for a
-  // session. Failures are non-fatal — we fall back to "own view only."
+  // Resolve identity, then (separately) the auditable reps.
+  //
+  // Ordering matters for performance: the data hooks (accounts, stars,
+  // mileage) gate their fetches on `effectiveUserId`, which derives from
+  // `selfUserId`. We therefore set `selfUserId` from the *local* session
+  // first so those fetches fire immediately, and load the auditable-rep
+  // list — which is only needed for the owner picker — in a second,
+  // non-blocking step. Putting the reps RPC in front of selfUserId added
+  // a full network round-trip to every BD page load (members get an
+  // empty list from the is_owner()-gated RPC, so it's pure latency).
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      let uid = null;
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const uid = session?.user?.id ?? null;
+        uid = session?.user?.id ?? null;
+      } catch { /* leave uid null — hooks fall back to their own session */ }
+      if (cancelled) return;
+      setSelfUserId(uid);
+
+      // Auditable reps load off the critical path. Failures are
+      // non-fatal — the picker just stays hidden.
+      try {
         const { data: repList } = await fetchAuditableReps(supabase);
-        if (cancelled) return;
-        setSelfUserId(uid);
-        setReps(repList ?? []);
+        if (!cancelled) setReps(repList ?? []);
       } catch {
-        if (!cancelled) {
-          setReps([]);
-        }
+        if (!cancelled) setReps([]);
       } finally {
         if (!cancelled) setReady(true);
       }
