@@ -50,6 +50,23 @@ Shared, unit-tested helpers: `_shared/helpers/deepgram.ts` (protocol) and
 Tests: `src/lib/__tests__/deepgram.test.js`,
 `src/lib/__tests__/assessmentReconcile.test.js`.
 
+## Frontend (PR 3)
+
+`AssessmentsPanel` (`src/features/clients/client/AssessmentsPanel.jsx`) lives in
+the client record's Overview tab. Staff can **record** an assessment in-browser
+(reuses the BD portal's `VoiceRecorder`) or **upload** an existing audio file.
+On capture it: uploads the audio to `assessment-audio/<org_id>/<id>.<ext>`,
+inserts the `assessments` row (`status: 'uploaded'`), and calls
+`assessment-transcribe`. The panel lists prior assessments with a status badge,
+a diarized transcript viewer (speaker-tagged turns), audio playback via an
+on-demand signed URL, and a Retry action on failed rows.
+
+Because `assessments` is not in the realtime publication, the panel **polls**
+every 8s while any row is in-flight (`uploaded`/`transcribing`) and stops once
+all have settled. Pure display/format logic is extracted to
+`src/lib/assessmentTranscript.js` and unit-tested in
+`src/lib/__tests__/assessmentTranscript.test.js`.
+
 ## Required environment variables (Supabase project secrets)
 
 Both are read by `assessment-transcribe`, `deepgram-callback`, and the

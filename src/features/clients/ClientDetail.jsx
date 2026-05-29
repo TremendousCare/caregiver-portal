@@ -10,6 +10,7 @@ import { ClientPipelineStepper } from './client/ClientPipelineStepper';
 import { ClientContextRail } from './client/ClientContextRail';
 import { ClientSequences } from './client/ClientSequences';
 import { ClientActivityLog } from './client/ClientActivityLog';
+import { AssessmentsPanel } from './client/AssessmentsPanel';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
@@ -225,6 +226,12 @@ export function ClientDetail({
               )}
 
               <ClientSequences
+                client={client}
+                currentUser={currentUser}
+                showToast={showToast}
+              />
+
+              <AssessmentsPanel
                 client={client}
                 currentUser={currentUser}
                 showToast={showToast}
