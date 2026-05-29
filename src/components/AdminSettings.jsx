@@ -22,6 +22,7 @@ import { MessageTemplateSettings } from './MessageTemplateSettings';
 import { EmailAttachmentsSettings } from './EmailAttachmentsSettings';
 import { CollapsibleCard } from '../shared/components/CollapsibleCard';
 import { VoiceSettings } from '../features/voice/VoiceSettings';
+import { QuickBooksConnection } from '../features/integrations/QuickBooksConnection';
 
 // ─── Settings Section Card ───
 function SettingsCard({ title, description, children }) {
@@ -2642,6 +2643,11 @@ export function AdminSettings({ showToast, currentUserEmail }) {
       {/* Action Item Rules */}
       <div style={{ marginBottom: 20 }}>
         <ActionItemRuleSettings showToast={showToast} currentUserEmail={currentUserEmail} />
+      </div>
+
+      {/* QuickBooks Online (owner-only — component renders nothing for non-owners) */}
+      <div style={{ marginBottom: 20 }}>
+        <QuickBooksConnection showToast={showToast} />
       </div>
 
       {/* Outlook Email Integration */}
