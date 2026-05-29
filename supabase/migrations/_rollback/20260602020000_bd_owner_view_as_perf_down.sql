@@ -1,4 +1,4 @@
--- Rollback for 20260602010000_bd_owner_view_as_perf.
+-- Rollback for 20260602020000_bd_owner_view_as_perf.
 --
 -- Reverts the two SELECT policies to the bare is_owner() form from
 -- 20260602000000. Functionally identical; only the (SELECT ...) wrapper

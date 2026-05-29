@@ -17,7 +17,7 @@
 --
 -- Production safety: DROP POLICY IF EXISTS + CREATE, re-runnable, no
 -- table/column/data changes.
--- Rollback: _rollback/20260602010000_bd_owner_view_as_perf_down.sql
+-- Rollback: _rollback/20260602020000_bd_owner_view_as_perf_down.sql
 --   (reverts to the bare is_owner() form from 20260602000000).
 
 DROP POLICY IF EXISTS "tenant_isolation_bd_account_stars_select" ON bd_account_stars;
