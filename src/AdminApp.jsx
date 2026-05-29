@@ -383,7 +383,7 @@ function AddCaregiverPage() {
 function CaregiverDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { showToast, currentUserName, currentUserEmail, currentUserMailbox } = useApp();
+  const { showToast, currentUserName, currentUserEmail, currentUserMailbox, isAdmin } = useApp();
   const {
     caregivers, activeCaregivers,
     updateTask, updateTasksBulk, addNote,
@@ -410,7 +410,7 @@ function CaregiverDetailPage() {
     <CaregiverDetail
       caregiver={caregiver}
       allCaregivers={activeCaregivers}
-      currentUser={{ displayName: currentUserName, email: currentUserEmail, mailboxEmail: currentUserMailbox }}
+      currentUser={{ displayName: currentUserName, email: currentUserEmail, mailboxEmail: currentUserMailbox, isAdmin }}
       onBack={() => navigate('/')}
       onUpdateTask={updateTask}
       onUpdateTasksBulk={updateTasksBulk}

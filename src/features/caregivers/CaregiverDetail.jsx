@@ -165,12 +165,20 @@ export function CaregiverDetail({
             onRefreshTasks={onRefreshTasks}
           />
 
-          <DocumentsSection
-            caregiver={caregiver}
-            currentUser={currentUser}
-            showToast={showToast}
-            onUpdateCaregiver={onUpdateCaregiver}
-          />
+          {/* Caregiver documents (incl. eSignatures) contain payroll/tax
+              PII (I-9, W-4, direct deposit). Restricted to admin/owner —
+              members do not see the section at all. currentUser.isAdmin is
+              true for both 'admin' and 'owner' (derived via isAdminRole in
+              AppContext). Backed by RLS on caregiver_documents; this gate
+              is the UI layer. */}
+          {currentUser?.isAdmin && (
+            <DocumentsSection
+              caregiver={caregiver}
+              currentUser={currentUser}
+              showToast={showToast}
+              onUpdateCaregiver={onUpdateCaregiver}
+            />
+          )}
         </>
       )}
 
