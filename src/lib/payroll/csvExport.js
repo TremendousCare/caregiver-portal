@@ -19,14 +19,33 @@
 // week becomes 3 rows: same Worker ID, different Pay Component per row.
 // Paychex groups rows into a single check by Worker ID + Pay Component.
 //
-// Rate convention (verified against an actual TC paystub 2026-04-27):
-// Paychex does NOT auto-apply OT/DT premium multipliers. The Rate
-// column is the literal $/hr to multiply by Hours. So:
-//   Regular row  : Rate = base_hourly_rate
-//   Overtime row : Rate = base_hourly_rate × 1.5
-//   Doubletime   : Rate = base_hourly_rate × 2
+// Rate convention — depends on how the org's Paychex Earnings are set up.
+// Controlled by `organizations.settings.payroll.paychex_applies_premium_factor`:
+//
+//   false / absent (legacy "pre-multiply" convention):
+//     Paychex does NOT auto-apply OT/DT premium multipliers, so the Rate
+//     column carries the literal premium $/hr:
+//       Regular row  : Rate = base_hourly_rate
+//       Overtime row : Rate = base_hourly_rate × 1.5
+//       Doubletime   : Rate = base_hourly_rate × 2
+//
+//   true (Paychex applies the factor itself):
+//     The org's Overtime / Doubletime Earnings carry an OT Factor (1.5 /
+//     2.0) that Paychex multiplies the imported rate by. So we send the
+//     BASE rate and let Paychex apply the premium — otherwise the premium
+//     gets applied twice (e.g. base × 1.5 × 1.5 = 2.25× wage overpayment):
+//       Regular row  : Rate = base_hourly_rate
+//       Overtime row : Rate = base_hourly_rate         (Paychex × 1.5)
+//       Doubletime   : Rate = base_hourly_rate         (Paychex × 2)
+//
+//   TC is `true`: confirmed 2026-05-29 against the live Jun 3 import — the
+//   Overtime Earning shows "Calc. Rate = base × 1.5, x 1.50 fac", and a
+//   pre-multiplied import paid OT at base × 2.25. (The earlier 2026-04-27
+//   paystub read that suggested `false` was a misinterpretation of a
+//   hand-keyed check where the back office had typed the base rate.)
+//
 //   Mileage row  : Rate = $0.725 (organizations.settings.payroll.mileage_rate)
-//                  Hours = miles_driven
+//                  Hours = miles_driven  (never premium-adjusted)
 //
 // Per-shift rates (Phase 4 PR #2):
 //   When a workweek's shifts carry distinct hourly rates, the exporter
@@ -148,6 +167,11 @@ function resolveOrgConfig(orgSettings) {
     ? Number(payroll.mileage_rate)
     : null;
 
+  // When true, the org's Paychex Overtime / Doubletime Earnings apply the
+  // premium factor (1.5 / 2.0) on import, so we send the base rate and let
+  // Paychex multiply. When false/absent, we pre-multiply the rate ourselves.
+  const appliesPremiumFactor = payroll.paychex_applies_premium_factor === true;
+
   return {
     companyId: companyId.trim(),
     payComponents: {
@@ -158,6 +182,7 @@ function resolveOrgConfig(orgSettings) {
       mileage: typeof payComponents.mileage === 'string' ? payComponents.mileage : null,
     },
     mileageRate,
+    appliesPremiumFactor,
   };
 }
 
@@ -291,12 +316,17 @@ function buildRowsForTimesheet(timesheet, orgConfig) {
           + 'before exporting.',
       );
     }
+    // When Paychex applies the OT factor itself, send the base rate and
+    // let it multiply. Otherwise pre-multiply here. See resolveOrgConfig.
+    const otRate = orgConfig.appliesPremiumFactor
+      ? premiumBaseRate
+      : premiumBaseRate * OT_MULTIPLIER;
     rows.push([
       orgConfig.companyId,
       employeeId,
       orgConfig.payComponents.overtime,
       formatHours(ot),
-      formatRate(premiumBaseRate * OT_MULTIPLIER),
+      formatRate(otRate),
       '',
     ]);
   }
@@ -307,12 +337,17 @@ function buildRowsForTimesheet(timesheet, orgConfig) {
     // have blocked this timesheet upstream. Skip silently rather than
     // emit a row with a null Pay Component.
     if (orgConfig.payComponents.double_time && premiumBaseRate != null) {
+      // Same factor logic as overtime: send base rate when Paychex applies
+      // the DT factor (2.0) itself, otherwise pre-multiply here.
+      const dtRate = orgConfig.appliesPremiumFactor
+        ? premiumBaseRate
+        : premiumBaseRate * DT_MULTIPLIER;
       rows.push([
         orgConfig.companyId,
         employeeId,
         orgConfig.payComponents.double_time,
         formatHours(dt),
-        formatRate(premiumBaseRate * DT_MULTIPLIER),
+        formatRate(dtRate),
         '',
       ]);
     }
