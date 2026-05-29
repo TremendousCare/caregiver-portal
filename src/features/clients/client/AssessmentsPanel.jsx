@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Mic, Square, Upload, Loader2, RotateCcw, Play, AlertTriangle, CheckCircle2,
+  Mic, Square, Upload, Loader2, RotateCcw, Play, AlertTriangle, CheckCircle2, FilePlus2,
 } from 'lucide-react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
 import {
@@ -10,6 +10,8 @@ import {
   statusMeta, canRetry, buildSpeakerTurns, assessmentAudioPath,
   isLikelyAudio, formatAssessmentTimestamp, MAX_UPLOAD_BYTES,
 } from '../../../lib/assessmentTranscript';
+import { describeDraftSummary } from '../../../lib/assessmentCarePlan';
+import { draftCarePlanFromAssessment } from '../../care-plans/voice/assessmentDraftClient';
 import cards from '../../../styles/cards.module.css';
 import btn from '../../../styles/buttons.module.css';
 import s from './assessments.module.css';
@@ -31,7 +33,7 @@ async function getSessionContext() {
   };
 }
 
-export function AssessmentsPanel({ client, currentUser, showToast }) {
+export function AssessmentsPanel({ client, currentUser, showToast, canDraftCarePlan = false, onCarePlanDrafted }) {
   const [assessments, setAssessments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -42,6 +44,7 @@ export function AssessmentsPanel({ client, currentUser, showToast }) {
 
   const [expandedId, setExpandedId] = useState(null);
   const [retryingId, setRetryingId] = useState(null);
+  const [draftingId, setDraftingId] = useState(null);
   const [audioUrls, setAudioUrls] = useState({});
 
   const recorderRef = useRef(null);
@@ -249,6 +252,23 @@ export function AssessmentsPanel({ client, currentUser, showToast }) {
     setAudioUrls((prev) => ({ ...prev, [a.id]: data.signedUrl }));
   }
 
+  async function handleDraftCarePlan(a) {
+    setDraftingId(a.id);
+    try {
+      const { summary } = await draftCarePlanFromAssessment({
+        assessmentId: a.id,
+        clientId: client.id,
+        userId: currentUser?.email || currentUser?.displayName || 'unknown',
+      });
+      showToast?.(describeDraftSummary(summary));
+      onCarePlanDrafted?.();
+    } catch (err) {
+      showToast?.(err.message || 'Could not draft care plan.');
+    } finally {
+      setDraftingId(null);
+    }
+  }
+
   const recording = captureState === 'recording';
   const processing = captureState === 'processing';
 
@@ -350,6 +370,19 @@ export function AssessmentsPanel({ client, currentUser, showToast }) {
                               {a.audio_path && !audioUrls[a.id] && (
                                 <button type="button" className={s.linkBtn} onClick={() => handlePlay(a)}>
                                   <Play size={13} aria-hidden style={{ verticalAlign: '-2px' }} /> Play
+                                </button>
+                              )}
+                              {canDraftCarePlan && (
+                                <button
+                                  type="button"
+                                  className={btn.secondaryBtn}
+                                  disabled={draftingId === a.id}
+                                  onClick={() => handleDraftCarePlan(a)}
+                                  title="Use this transcript to draft care plan fields and tasks for review"
+                                >
+                                  {draftingId === a.id
+                                    ? <><Loader2 size={13} className={s.spinner} aria-hidden /> Drafting…</>
+                                    : <><FilePlus2 size={13} aria-hidden /> Draft care plan</>}
                                 </button>
                               )}
                             </>
