@@ -23,6 +23,11 @@ export function useBdAccounts() {
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
+    // Wait for the effective user to resolve before fetching. It comes
+    // from the local session (fast), so this is a sub-tick wait — and it
+    // avoids fetching the full accounts + activities list twice (once
+    // with a null id, then again when the id resolves) on every mount.
+    if (!effectiveUserId) return;
     setLoading(true);
     setError(null);
     const [accountsRes, citiesRes] = await Promise.all([
