@@ -3,6 +3,8 @@ import {
   pickActiveRule,
   resolveCaregiverForDate,
   resolveCaregiverForInstance,
+  resolveAssignmentForInstance,
+  dayOfWeekFromDateString,
   activeRulesByDayOfWeek,
   planRuleUpsert,
   planRuleClear,
@@ -267,5 +269,66 @@ describe('previousDayString', () => {
   it('throws on malformed input', () => {
     expect(() => previousDayString('not-a-date')).toThrow();
     expect(() => previousDayString('2026/05/14')).toThrow();
+  });
+});
+
+describe('dayOfWeekFromDateString', () => {
+  it('returns the correct weekday (0=Sun..6=Sat)', () => {
+    // 2026-05-28 is a Thursday.
+    expect(dayOfWeekFromDateString('2026-05-28')).toBe(4);
+    // 2026-05-31 is a Sunday.
+    expect(dayOfWeekFromDateString('2026-05-31')).toBe(0);
+    // 2026-06-06 is a Saturday.
+    expect(dayOfWeekFromDateString('2026-06-06')).toBe(6);
+  });
+
+  it('is timezone-stable — does not shift across UTC midnight', () => {
+    // A naive `new Date('2026-05-28')` is UTC midnight; in a negative
+    // offset zone .getDay() could read as the prior day. The helper
+    // builds from parts so it always reports the literal calendar day.
+    expect(dayOfWeekFromDateString('2026-01-01')).toBe(4); // Thursday
+  });
+
+  it('returns -1 for malformed or non-string input', () => {
+    expect(dayOfWeekFromDateString('2026/05/28')).toBe(-1);
+    expect(dayOfWeekFromDateString('not-a-date')).toBe(-1);
+    expect(dayOfWeekFromDateString(null)).toBe(-1);
+    expect(dayOfWeekFromDateString(undefined)).toBe(-1);
+    expect(dayOfWeekFromDateString(20260528)).toBe(-1);
+  });
+});
+
+describe('resolveAssignmentForInstance', () => {
+  // 2026-05-28 is a Thursday (dow=4), matching the default rule builder.
+  const thursdayInstance = { date: '2026-05-28', start_time: '2026-05-28T08:00:00.000Z' };
+
+  it('confirms a matched caregiver', () => {
+    const got = resolveAssignmentForInstance(thursdayInstance, [rule()]);
+    expect(got).toEqual({ caregiverId: 'cg-ciara', status: 'confirmed' });
+  });
+
+  it('falls back to open + null when no rule matches the day', () => {
+    // Rule is for Wednesday (dow=3), instance is Thursday.
+    const got = resolveAssignmentForInstance(thursdayInstance, [rule({ day_of_week: 3 })]);
+    expect(got).toEqual({ caregiverId: null, status: 'open' });
+  });
+
+  it('falls back to open with an empty rule set (pre-migration / no rules)', () => {
+    expect(resolveAssignmentForInstance(thursdayInstance, [])).toEqual({
+      caregiverId: null,
+      status: 'open',
+    });
+  });
+
+  it('falls back to open when the instance date is malformed', () => {
+    const got = resolveAssignmentForInstance({ date: 'nope' }, [rule()]);
+    expect(got).toEqual({ caregiverId: null, status: 'open' });
+  });
+
+  it('respects effective ranges — an expired rule does not confirm', () => {
+    const got = resolveAssignmentForInstance(thursdayInstance, [
+      rule({ effective_to: '2026-04-30' }),
+    ]);
+    expect(got).toEqual({ caregiverId: null, status: 'open' });
   });
 });

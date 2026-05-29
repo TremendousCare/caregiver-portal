@@ -59,7 +59,7 @@ import {
   ONGOING_TARGET_DAYS,
   ONGOING_BUFFER_DAYS,
 } from "../../../src/features/scheduling/recurrenceHelpers.js";
-import { resolveCaregiverForDate } from "../../../src/lib/scheduling/caregiverRules.js";
+import { resolveAssignmentForInstance } from "../../../src/lib/scheduling/caregiverRules.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -113,19 +113,6 @@ interface PlanResult {
   shifts_pre_assigned: number;
   last_generated_through: string | null;
   error?: string;
-}
-
-/**
- * Compute the day-of-week (0=Sun..6=Sat) for a 'YYYY-MM-DD' date
- * string. The date already encodes the org-local calendar day (the
- * recurrence expander resolved it that way), so a UTC midnight Date
- * built from the parts gives the correct weekday.
- */
-function dowFromDateString(dateOnly: string): number {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
-  if (!m) return -1;
-  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return new Date(ms).getUTCDay();
 }
 
 /**
@@ -300,10 +287,7 @@ async function extendPlan(
   // convention (plan.id) so future series-level edits can find every
   // shift this plan has produced.
   const rows = newInstances.map((inst) => {
-    const dow = dowFromDateString(inst.date);
-    const caregiverId = dow >= 0
-      ? resolveCaregiverForDate(rules, dow, inst.date)
-      : null;
+    const { caregiverId, status } = resolveAssignmentForInstance(inst, rules);
     return {
       org_id: plan.org_id,
       service_plan_id: plan.id,
@@ -311,7 +295,7 @@ async function extendPlan(
       start_time: inst.start_time,
       end_time: inst.end_time,
       assigned_caregiver_id: caregiverId,
-      status: caregiverId ? "assigned" : "open",
+      status,
       recurrence_group_id: plan.id,
       recurrence_rule: plan.recurrence_pattern,
       created_by: "system:service-plan-extend-ongoing",
