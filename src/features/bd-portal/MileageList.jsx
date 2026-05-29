@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Gauge, Plus, CheckCircle2, Pencil } from 'lucide-react';
 import { useBdMileageEntries } from './hooks/useBdMileageEntries';
+import { useBdViewAs } from './context/BdViewAsContext';
 import {
   formatCents,
   formatMiles,
@@ -17,6 +18,7 @@ import s from './BdPortal.module.css';
 export function MileageList() {
   const navigate = useNavigate();
   const { loading, entries, userId, error, refresh } = useBdMileageEntries();
+  const { isReadOnly } = useBdViewAs();
 
   const months = useMemo(() => {
     const grouped = groupEntriesByMonth(entries);
@@ -55,14 +57,17 @@ export function MileageList() {
             {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
           </span>
         </div>
-        <button
-          type="button"
-          className={s.button}
-          onClick={() => navigate('/bd/mileage/new')}
-          style={{ marginTop: 12 }}
-        >
-          <Plus size={16} strokeWidth={2} aria-hidden /> Log a trip
-        </button>
+        {/* Logging a trip is a write — hidden while auditing a rep. */}
+        {!isReadOnly && (
+          <button
+            type="button"
+            className={s.button}
+            onClick={() => navigate('/bd/mileage/new')}
+            style={{ marginTop: 12 }}
+          >
+            <Plus size={16} strokeWidth={2} aria-hidden /> Log a trip
+          </button>
+        )}
       </div>
 
       {loading && <p className={s.muted}>Loading…</p>}
@@ -94,7 +99,7 @@ export function MileageList() {
                 <MileageRow
                   key={entry.id}
                   entry={entry}
-                  isEditable={entry.user_id === userId && entry.status === 'draft'}
+                  isEditable={!isReadOnly && entry.user_id === userId && entry.status === 'draft'}
                   onClick={() =>
                     navigate(
                       entry.status === 'draft'

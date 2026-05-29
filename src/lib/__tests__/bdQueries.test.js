@@ -23,6 +23,9 @@ import {
   normalizeCityForMatch,
   filterToTerritory,
   fetchCurrentUserTerritoryCities,
+  fetchTerritoryCitiesForUser,
+  fetchStarredAccountIdsForUser,
+  fetchAuditableReps,
 } from '../../features/bd-portal/lib/bdQueries';
 import { ACTIVITY_TYPE_ICON_TYPES } from '../../features/bd-portal/lib/activityTypeIcon';
 
@@ -768,5 +771,113 @@ describe('fetchCurrentUserTerritoryCities', () => {
     const supabase = { rpc: async (name) => { calledWith = name; return { data: [], error: null }; } };
     await fetchCurrentUserTerritoryCities(supabase);
     expect(calledWith).toBe('bd_current_user_territory_cities');
+  });
+});
+
+describe('fetchTerritoryCitiesForUser', () => {
+  it('calls the parameterized RPC with p_user_id when a user id is given', async () => {
+    let calledWith = null;
+    let calledArgs = null;
+    const supabase = {
+      rpc: async (name, args) => {
+        calledWith = name;
+        calledArgs = args;
+        return { data: ['Irvine'], error: null };
+      },
+    };
+    const res = await fetchTerritoryCitiesForUser(supabase, 'rep-123');
+    expect(calledWith).toBe('bd_territory_cities_for_user');
+    expect(calledArgs).toEqual({ p_user_id: 'rep-123' });
+    expect(res.data).toEqual(['Irvine']);
+  });
+
+  it('falls back to the self-scoped RPC when no user id is given', async () => {
+    let calledWith = null;
+    const supabase = { rpc: async (name) => { calledWith = name; return { data: [], error: null }; } };
+    await fetchTerritoryCitiesForUser(supabase, null);
+    expect(calledWith).toBe('bd_current_user_territory_cities');
+  });
+
+  it('returns [] (not throw) when supabase is missing', async () => {
+    const res = await fetchTerritoryCitiesForUser(null, 'rep-123');
+    expect(res.data).toEqual([]);
+    expect(res.error).toBe(null);
+  });
+
+  it('surfaces an RPC error and degrades to []', async () => {
+    const supabase = { rpc: async () => ({ data: null, error: { message: 'denied' } }) };
+    const res = await fetchTerritoryCitiesForUser(supabase, 'rep-123');
+    expect(res.error).toEqual({ message: 'denied' });
+    expect(res.data).toEqual([]);
+  });
+});
+
+describe('fetchStarredAccountIdsForUser', () => {
+  // Minimal chainable stub: from().select().eq() resolves to { data, error }.
+  function makeStarsClient(result) {
+    let eqArgs = null;
+    const client = {
+      _table: null,
+      from(table) { client._table = table; return client; },
+      select() { return client; },
+      eq(col, val) { eqArgs = { col, val }; return Promise.resolve(result); },
+      get eqArgs() { return eqArgs; },
+    };
+    return client;
+  }
+
+  it('filters by the explicit user_id and returns a Set of account ids', async () => {
+    const client = makeStarsClient({ data: [{ account_id: 'a1' }, { account_id: 'a2' }], error: null });
+    const res = await fetchStarredAccountIdsForUser(client, 'rep-123');
+    expect(res.error).toBe(null);
+    expect(res.data).toBeInstanceOf(Set);
+    expect([...res.data].sort()).toEqual(['a1', 'a2']);
+    expect(client.eqArgs).toEqual({ col: 'user_id', val: 'rep-123' });
+    expect(client._table).toBe('bd_account_stars');
+  });
+
+  it('returns an empty Set without querying when no user id is given', async () => {
+    let queried = false;
+    const client = { from() { queried = true; return client; } };
+    const res = await fetchStarredAccountIdsForUser(client, null);
+    expect(res.data).toBeInstanceOf(Set);
+    expect(res.data.size).toBe(0);
+    expect(queried).toBe(false);
+  });
+
+  it('returns an empty Set (not throw) when supabase is missing', async () => {
+    const res = await fetchStarredAccountIdsForUser(null, 'rep-123');
+    expect(res.data.size).toBe(0);
+    expect(res.error).toBe(null);
+  });
+
+  it('degrades to an empty Set on query error', async () => {
+    const client = makeStarsClient({ data: null, error: { message: 'rls' } });
+    const res = await fetchStarredAccountIdsForUser(client, 'rep-123');
+    expect(res.error).toEqual({ message: 'rls' });
+    expect(res.data.size).toBe(0);
+  });
+});
+
+describe('fetchAuditableReps', () => {
+  it('calls the owner-gated RPC and returns the rep rows', async () => {
+    let calledWith = null;
+    const rows = [{ user_id: 'amy', email: 'amy@x.com', full_name: 'Amy Dutton' }];
+    const supabase = { rpc: async (name) => { calledWith = name; return { data: rows, error: null }; } };
+    const res = await fetchAuditableReps(supabase);
+    expect(calledWith).toBe('bd_list_auditable_reps');
+    expect(res.data).toEqual(rows);
+  });
+
+  it('returns [] for a non-owner (RPC yields no rows)', async () => {
+    const supabase = { rpc: async () => ({ data: [], error: null }) };
+    const res = await fetchAuditableReps(supabase);
+    expect(res.data).toEqual([]);
+  });
+
+  it('degrades to [] on error or missing client', async () => {
+    const errClient = { rpc: async () => ({ data: null, error: { message: 'boom' } }) };
+    expect((await fetchAuditableReps(errClient)).data).toEqual([]);
+    expect((await fetchAuditableReps(null)).data).toEqual([]);
   });
 });

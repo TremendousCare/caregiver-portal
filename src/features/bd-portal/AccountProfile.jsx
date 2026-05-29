@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Camera, Star, Phone, Globe, Map, Mail } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
+import { useBdViewAs } from './context/BdViewAsContext';
 import {
   formatActivityDate,
   formatAccountSubtitle,
@@ -34,6 +35,7 @@ export function AccountProfile() {
   const navigate = useNavigate();
   const { loading, account, contacts, activities, error, refresh } = useBdAccountDetail(accountId);
   const { isStarred, toggle: toggleStar } = useBdAccountStars();
+  const { isReadOnly } = useBdViewAs();
 
   const [editingAddress, setEditingAddress] = useState(false);
   const [addrDraft, setAddrDraft]           = useState({ address: '', city: '', state: '', zip: '' });
@@ -52,6 +54,7 @@ export function AccountProfile() {
   }
 
   async function saveAddress() {
+    if (isReadOnly) return;
     setAddrError('');
     setAddrSaving(true);
     try {
@@ -124,6 +127,7 @@ export function AccountProfile() {
           type="button"
           className={`${s.starBtn} ${isStarred(account.id) ? s.starBtnActive : ''}`}
           onClick={() => toggleStar(account.id)}
+          disabled={isReadOnly}
           aria-label={isStarred(account.id) ? 'Remove from My accounts' : 'Add to My accounts'}
           aria-pressed={isStarred(account.id)}
           style={{ marginLeft: 'auto' }}
@@ -135,29 +139,35 @@ export function AccountProfile() {
             aria-hidden
           />
         </button>
-        <button
-          type="button"
-          className={s.logCta}
-          onClick={() => navigate(`/bd/accounts/${account.id}/log`)}
-        >
-          + Activity
-        </button>
-        <button
-          type="button"
-          className={s.contactCta}
-          onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
-        >
-          <Camera size={16} strokeWidth={2} aria-hidden />
-          <span>Contact</span>
-        </button>
-        <button
-          type="button"
-          className={s.referCta}
-          onClick={() => navigate(`/bd/accounts/${account.id}/refer`)}
-        >
-          <Star size={16} strokeWidth={2} aria-hidden />
-          <span>Refer</span>
-        </button>
+        {/* Activity / Contact / Refer are writes — hidden while an owner
+            is auditing a rep (read-only mirror). */}
+        {!isReadOnly && (
+          <>
+            <button
+              type="button"
+              className={s.logCta}
+              onClick={() => navigate(`/bd/accounts/${account.id}/log`)}
+            >
+              + Activity
+            </button>
+            <button
+              type="button"
+              className={s.contactCta}
+              onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
+            >
+              <Camera size={16} strokeWidth={2} aria-hidden />
+              <span>Contact</span>
+            </button>
+            <button
+              type="button"
+              className={s.referCta}
+              onClick={() => navigate(`/bd/accounts/${account.id}/refer`)}
+            >
+              <Star size={16} strokeWidth={2} aria-hidden />
+              <span>Refer</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Header */}
@@ -200,7 +210,7 @@ export function AccountProfile() {
           </div>
         )}
 
-        {!account.address && !editingAddress && (
+        {!account.address && !editingAddress && !isReadOnly && (
           <button
             type="button"
             className={s.addressCta}
@@ -325,23 +335,25 @@ export function AccountProfile() {
             ))}
           </div>
         )}
-        <div className={s.contactAddRow}>
-          <button
-            type="button"
-            className={s.addContactLink}
-            onClick={() => navigate(`/bd/accounts/${account.id}/contact/new`)}
-          >
-            + Add contact manually
-          </button>
-          <button
-            type="button"
-            className={s.addContactLink}
-            onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
-          >
-            <Camera size={14} aria-hidden />
-            <span>Snap a card</span>
-          </button>
-        </div>
+        {!isReadOnly && (
+          <div className={s.contactAddRow}>
+            <button
+              type="button"
+              className={s.addContactLink}
+              onClick={() => navigate(`/bd/accounts/${account.id}/contact/new`)}
+            >
+              + Add contact manually
+            </button>
+            <button
+              type="button"
+              className={s.addContactLink}
+              onClick={() => navigate(`/bd/accounts/${account.id}/contact`)}
+            >
+              <Camera size={14} aria-hidden />
+              <span>Snap a card</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Timeline */}

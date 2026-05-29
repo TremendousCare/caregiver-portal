@@ -154,6 +154,55 @@ export async function fetchCurrentUserStarredAccountIds(supabase) {
   return { data: new Set(ids), error: null };
 }
 
+// Pulls the starred account ids for an *explicit* user. Used by the
+// view-as flow: a normal rep passes their own id (identical result to
+// fetchCurrentUserStarredAccountIds under RLS), and an owner auditing a
+// rep passes that rep's id. The explicit `.eq('user_id', …)` filter is
+// load-bearing — once the owner read-override SELECT policy is in place
+// (migration 20260602000000), an unfiltered query would return *every*
+// rep's stars merged together for an owner. Returns an empty Set when no
+// userId is known yet (session still resolving) so we never fetch the
+// whole org's stars by accident.
+export async function fetchStarredAccountIdsForUser(supabase, userId) {
+  if (!supabase || !userId) return { data: new Set(), error: null };
+  const res = await supabase
+    .from('bd_account_stars')
+    .select('account_id')
+    .eq('user_id', userId);
+  if (res.error) return { data: new Set(), error: res.error };
+  const ids = (res.data ?? []).map((r) => r.account_id);
+  return { data: new Set(ids), error: null };
+}
+
+// Pulls the territory cities for an explicit user via the parameterized
+// SECURITY DEFINER RPC (migration 20260602000000). The RPC returns the
+// target's cities only when the caller is the target or an owner; anyone
+// else gets []. When no userId is supplied we fall back to the legacy
+// self-scoped RPC so callers outside the view-as flow keep working
+// unchanged. Returns [] on failure so the UI degrades to "show
+// everything" rather than hiding accounts mid-session.
+export async function fetchTerritoryCitiesForUser(supabase, userId) {
+  if (!supabase) return { data: [], error: null };
+  const res = userId
+    ? await supabase.rpc('bd_territory_cities_for_user', { p_user_id: userId })
+    : await supabase.rpc('bd_current_user_territory_cities');
+  if (res.error) return { data: [], error: res.error };
+  return { data: Array.isArray(res.data) ? res.data : [], error: null };
+}
+
+// Lists the BD reps an owner may audit (territory members in the org,
+// minus the caller). Returns [] for non-owners — the RPC itself gates on
+// is_owner(), so a non-owner gets zero rows and the picker stays hidden.
+// Rows are { user_id, email, full_name }. Returns [] on error so a
+// transient failure just hides the picker rather than breaking the
+// portal.
+export async function fetchAuditableReps(supabase) {
+  if (!supabase) return { data: [], error: null };
+  const res = await supabase.rpc('bd_list_auditable_reps');
+  if (res.error) return { data: [], error: res.error };
+  return { data: Array.isArray(res.data) ? res.data : [], error: null };
+}
+
 // Builds a Today-screen counter object from the in-memory account
 // + activity slice. Stays a pure function so the Today component can
 // stay dumb and the rendering is trivially testable.

@@ -1516,3 +1516,70 @@
   font-family: inherit;
 }
 .recapBackfillBtn:active { background: #EEF1F6; }
+
+/* ─── Owner "view-as" (read-only rep audit) ─────────────────────────
+   Persistent banner shown while an owner is mirroring a rep's portal.
+   Sticky so it stays visible as the page scrolls; high z-index so it
+   sits above the bottom nav's stacking context but below modals. */
+.viewAsBanner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #2E4E8D, #29BEE4);
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.18);
+}
+
+.viewAsBannerIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.viewAsBannerBody {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.viewAsBannerTitle {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.viewAsBannerSub {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.viewAsExitBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #FFFFFF;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.viewAsExitBtn:active { background: rgba(255, 255, 255, 0.30); }
+
+/* Secondary line under a menu item (rep email in the View-as picker). */
+.menuItemSub {
+  display: block;
+  font-size: 11px;
+  color: #8A95A8;
+  margin-top: 1px;
+}
+.menuItemActive .menuItemSub { color: #2E4E8D; }

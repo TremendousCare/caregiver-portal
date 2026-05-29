@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { useBdViewAs } from '../context/BdViewAsContext';
 
-// Loads the current rep's mileage entries (RLS scopes to user_id =
-// auth.uid()). Returns the same { loading, entries, error, refresh,
-// userId } shape used by the other BD list hooks so the components
-// stay consistent.
+// Loads the effective rep's mileage entries. Normally that's the
+// signed-in user (RLS scopes to user_id = auth.uid()); when an owner is
+// auditing a rep it's that rep's id, surfaced via the owner read-override
+// SELECT policy. Returns the same { loading, entries, error, refresh,
+// userId } shape used by the other BD list hooks so the components stay
+// consistent. `userId` is the effective user so callers' editability
+// checks line up with the rows shown.
+//
+// The explicit user_id filter is load-bearing: with the owner override
+// policy an unfiltered query would return every rep's mileage merged.
 //
 // `limit` caps how many rows we pull; the form is mobile and the
 // list is meant for "this month and recent history," not paginated
 // archive.
 export function useBdMileageEntries({ limit = 200 } = {}) {
+  const { effectiveUserId } = useBdViewAs();
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [error,   setError]   = useState(null);
@@ -19,9 +27,14 @@ export function useBdMileageEntries({ limit = 200 } = {}) {
     setLoading(true);
     setError(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const uid = session?.user?.id ?? null;
-      setUserId(uid);
+      setUserId(effectiveUserId);
+      // No effective user yet (session still resolving) — don't fetch, or
+      // an owner would briefly see the whole org's mileage merged.
+      if (!effectiveUserId) {
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
 
       const { data, error: queryErr } = await supabase
         .from('bd_mileage_entries')
@@ -36,6 +49,7 @@ export function useBdMileageEntries({ limit = 200 } = {}) {
           notes, created_by, created_at, updated_at,
           account:bd_accounts ( id, name, city )
         `)
+        .eq('user_id', effectiveUserId)
         .order('trip_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(limit);
@@ -48,7 +62,7 @@ export function useBdMileageEntries({ limit = 200 } = {}) {
     } finally {
       setLoading(false);
     }
-  }, [limit]);
+  }, [limit, effectiveUserId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

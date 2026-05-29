@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
 import { createContact, updateContact } from '../lib/bdMutations';
+import { useBdViewAs } from '../context/BdViewAsContext';
+import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 
@@ -49,10 +51,12 @@ export function useBdExtractCard() {
 
 // Wraps createContact, pulling org_id and createdBy from session.
 export function useBdLogContact() {
+  const { isReadOnly } = useBdViewAs();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState(null);
 
   const submit = useCallback(async (draft) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -71,7 +75,7 @@ export function useBdLogContact() {
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [isReadOnly]);
 
   return { submitting, error, submit };
 }
@@ -110,10 +114,12 @@ export function useBdContact(contactId) {
 // Wraps updateContact, exposes { submitting, error, submit(draft) }
 // where submit returns the updated row.
 export function useBdUpdateContact(contactId) {
+  const { isReadOnly } = useBdViewAs();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState(null);
 
   const submit = useCallback(async (draft) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -126,7 +132,7 @@ export function useBdUpdateContact(contactId) {
     } finally {
       setSubmitting(false);
     }
-  }, [contactId]);
+  }, [contactId, isReadOnly]);
 
   return { submitting, error, submit };
 }

@@ -1,9 +1,11 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Sun, Building2 } from 'lucide-react';
+import { useBdViewAs } from './context/BdViewAsContext';
 import s from './BdPortal.module.css';
 
 export function BottomNav() {
   const location = useLocation();
+  const { isReadOnly } = useBdViewAs();
   // The capture, referral, contact-edit, mileage-form, and route-
   // builder screens are "modal" — we don't show the bottom nav there
   // so the form gets the full screen. The mileage *list* still shows
@@ -34,7 +36,12 @@ export function BottomNav() {
       </NavLink>
 
       <div className={s.fabContainer}>
-        <NavLink to="/bd/log" className={s.fab} aria-label="Log activity">+</NavLink>
+        {/* Logging is a write — hidden while an owner is auditing a rep
+            (read-only). The container stays to preserve the 3-column
+            grid spacing. */}
+        {!isReadOnly && (
+          <NavLink to="/bd/log" className={s.fab} aria-label="Log activity">+</NavLink>
+        )}
       </div>
 
       <NavLink

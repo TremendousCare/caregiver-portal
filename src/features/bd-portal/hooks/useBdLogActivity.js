@@ -1,15 +1,19 @@
 import { useCallback, useState } from 'react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
 import { insertActivity } from '../lib/bdMutations';
+import { useBdViewAs } from '../context/BdViewAsContext';
+import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
 // Wraps insertActivity, pulling org_id and the user display name from
 // the live supabase session. Returns { submitting, error, submit }
 // where submit(draft) returns the inserted row or throws.
 export function useBdLogActivity() {
+  const { isReadOnly } = useBdViewAs();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState(null);
 
   const submit = useCallback(async (draft) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -32,7 +36,7 @@ export function useBdLogActivity() {
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [isReadOnly]);
 
   return { submitting, error, submit };
 }

@@ -5,6 +5,8 @@ import {
   validateMileageDraft,
   DEFAULT_MILEAGE_RATE_CENTS,
 } from '../lib/bdMileage';
+import { useBdViewAs } from '../context/BdViewAsContext';
+import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
 // Wraps the bd_mileage_entries insert + update paths, pulling
 // org_id, user_id, and the display name from the live Supabase
@@ -14,10 +16,12 @@ import {
 // throws. `remove(entryId)` deletes a draft and returns true (RLS
 // blocks deleting a non-draft).
 export function useBdLogMileage() {
+  const { isReadOnly } = useBdViewAs();
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState(null);
 
   const save = useCallback(async (draft, entryId = null) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -63,10 +67,11 @@ export function useBdLogMileage() {
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [isReadOnly]);
 
   const remove = useCallback(async (entryId) => {
     if (!entryId) return false;
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     setSubmitting(true);
     setError(null);
     try {
@@ -82,7 +87,7 @@ export function useBdLogMileage() {
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [isReadOnly]);
 
   return { submitting, error, save, remove };
 }
