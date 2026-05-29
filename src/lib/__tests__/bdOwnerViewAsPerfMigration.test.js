@@ -12,11 +12,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const MIGRATION_PATH = join(
   __dirname,
-  '../../../supabase/migrations/20260602010000_bd_owner_view_as_perf.sql',
+  '../../../supabase/migrations/20260602020000_bd_owner_view_as_perf.sql',
 );
 const ROLLBACK_PATH = join(
   __dirname,
-  '../../../supabase/migrations/_rollback/20260602010000_bd_owner_view_as_perf_down.sql',
+  '../../../supabase/migrations/_rollback/20260602020000_bd_owner_view_as_perf_down.sql',
 );
 
 const sql = readFileSync(MIGRATION_PATH, 'utf-8');
