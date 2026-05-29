@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapPin, Map, ListOrdered, Gauge } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
+import { useBdViewAs } from './context/BdViewAsContext';
 import { useBdBriefing } from './hooks/useBdBriefing';
 import { useBdNearbyAccount } from './hooks/useBdNearbyAccount';
 import { useBdTodayPlan } from './hooks/useBdTodayPlan';
@@ -37,6 +38,7 @@ function formatDays(d) {
 
 export function Today({ displayName }) {
   const navigate = useNavigate();
+  const { isReadOnly } = useBdViewAs();
   const { loading: accountsLoading, accounts, activities, territoryCities, error: accountsError, refresh: refreshAccounts } = useBdAccounts();
   const { starredIds } = useBdAccountStars();
   const { loading: briefingLoading, briefing, refresh: refreshBriefing } = useBdBriefing(displayName);
@@ -278,14 +280,19 @@ export function Today({ displayName }) {
           <div />
           {mode === 'plan' ? (
             <div className={s.planActionGroup}>
-              <button
-                type="button"
-                className={s.routeBtn}
-                onClick={() => navigate('/bd/plan')}
-              >
-                <ListOrdered size={14} aria-hidden />
-                <span>{planStops.length > 0 ? 'Edit' : 'Build'}</span>
-              </button>
+              {/* Building/editing a plan is a write — hidden while an
+                  owner is auditing a rep. The saved plan still renders
+                  read-only below; "Open in Maps" stays available. */}
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  className={s.routeBtn}
+                  onClick={() => navigate('/bd/plan')}
+                >
+                  <ListOrdered size={14} aria-hidden />
+                  <span>{planStops.length > 0 ? 'Edit' : 'Build'}</span>
+                </button>
+              )}
               {planRouteUrl && (
                 <a
                   className={s.routeBtn}
@@ -318,7 +325,9 @@ export function Today({ displayName }) {
         ) : mode === 'plan' ? (
           planStops.length === 0 ? (
             <div className={s.planCardEmpty}>
-              No plan yet — tap <strong>Build</strong> to pick your stops for today.
+              {isReadOnly
+                ? 'No plan for today.'
+                : <>No plan yet — tap <strong>Build</strong> to pick your stops for today.</>}
             </div>
           ) : (
             <div className={s.accountList}>
