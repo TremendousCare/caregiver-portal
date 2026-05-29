@@ -39,6 +39,9 @@ DROP TRIGGER IF EXISTS quickbooks_connections_touch_updated_at
 DROP FUNCTION IF EXISTS public.set_qb_connection_tokens(
   uuid, text, text, text, text, timestamptz, timestamptz, text[]
 );
+DROP FUNCTION IF EXISTS public.refresh_qb_connection_tokens(
+  uuid, text, text, text, timestamptz, timestamptz
+);
 DROP FUNCTION IF EXISTS public.get_qb_connection(uuid, text);
 DROP FUNCTION IF EXISTS public.clear_qb_connection(uuid, text);
 

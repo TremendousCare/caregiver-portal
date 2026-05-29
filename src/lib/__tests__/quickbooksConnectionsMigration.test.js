@@ -200,13 +200,95 @@ describe('QuickBooks integration PR #1 — quickbooks_connections migration', ()
       expect(sql).toMatch(/ON CONFLICT \(org_id, environment\) DO UPDATE/);
     });
 
-    it('grants EXECUTE to authenticated AND service_role (cron needs it)', () => {
+    it('grants EXECUTE to authenticated but NOT to service_role', () => {
+      // The refresh cron uses refresh_qb_connection_tokens (a
+      // dedicated service-role-only function) instead, because the
+      // body of set_qb_connection_tokens gates on a user JWT and
+      // would raise 'Authentication required' on a service-role
+      // call. Codex caught this in review of d0efe1e — see PR #428.
+      //
+      // Regexes are anchored on the exact 8-arg signature so they
+      // cannot accidentally span across to refresh_'s GRANT block.
+      const setSig =
+        String.raw`public\.set_qb_connection_tokens\(\s*uuid, text, text, text, text, timestamptz, timestamptz, text\[\]\s*\)`;
+      expect(sql).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION ${setSig} TO authenticated`));
+      expect(sql).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION ${setSig} TO service_role`));
+    });
+  });
+
+  describe('refresh_qb_connection_tokens RPC (cron rotation path)', () => {
+    it('exists with the expected (narrower) signature', () => {
+      // No realm_id and no scopes — neither can change during a
+      // refresh, so the cron isn't allowed to supply them.
       expect(sql).toMatch(
-        /GRANT EXECUTE ON FUNCTION public\.set_qb_connection_tokens\([\s\S]*?\) TO authenticated/
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens\(\s*p_org_id\s+uuid,\s*p_environment\s+text,\s*p_refresh_token\s+text,\s*p_access_token\s+text,\s*p_access_token_expires_at\s+timestamptz,\s*p_refresh_token_expires_at\s+timestamptz\s*\)/
       );
+    });
+
+    it('is SECURITY DEFINER with a pinned search_path', () => {
       expect(sql).toMatch(
-        /GRANT EXECUTE ON FUNCTION public\.set_qb_connection_tokens\([\s\S]*?\) TO service_role/
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?SECURITY DEFINER\s+SET search_path = public, vault/
       );
+    });
+
+    it('does NOT call any user-auth gate (no jwt email, org match, or is_owner)', () => {
+      // Pluck just the refresh function body so we don't pick up
+      // gate strings from neighbouring functions.
+      const fnMatch = sql.match(
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?\$\$\s*LANGUAGE plpgsql/
+      ) ?? sql.match(
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?END;\s*\$\$/
+      );
+      expect(fnMatch, 'refresh_qb_connection_tokens body not found').not.toBeNull();
+      const fn = fnMatch[0];
+      expect(fn).not.toMatch(/auth\.jwt\(\)/);
+      expect(fn).not.toMatch(/Authentication required/);
+      expect(fn).not.toMatch(/public\.is_owner\(\)/);
+      expect(fn).not.toMatch(/Cannot set QuickBooks tokens/);
+    });
+
+    it('does NOT touch the connected_by / connected_at audit columns', () => {
+      // The UPDATE in this function is the authoritative audit-safety
+      // boundary: those two columns record the human authorization
+      // and must outlive cron rotations.
+      const fnMatch = sql.match(
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?END;\s*\$\$/
+      );
+      expect(fnMatch).not.toBeNull();
+      const fn = fnMatch[0];
+      expect(fn).not.toMatch(/connected_by\s*=/);
+      expect(fn).not.toMatch(/connected_at\s*=/);
+    });
+
+    it('returns false when no matching connection exists (cron self-heals)', () => {
+      expect(sql).toMatch(
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?IF NOT FOUND THEN\s+RETURN false;/
+      );
+    });
+
+    it('rotates BOTH Vault secrets', () => {
+      const fnMatch = sql.match(
+        /CREATE OR REPLACE FUNCTION public\.refresh_qb_connection_tokens[\s\S]*?END;\s*\$\$/
+      );
+      expect(fnMatch).not.toBeNull();
+      const fn = fnMatch[0];
+      expect(fn).toMatch(/vault\.update_secret\(v_existing_refresh_id, p_refresh_token\)/);
+      expect(fn).toMatch(/vault\.update_secret\(v_existing_access_id, p_access_token\)/);
+    });
+
+    it('is service-role only — REVOKEs broad grants, GRANTs only service_role', () => {
+      // Mirrors the get_qb_connection security posture: this RPC
+      // can rotate Vault entries and update token expiries, so a
+      // future PR must not accidentally hand it to authenticated.
+      // Regex is anchored on the exact 6-arg signature so it cannot
+      // span across to set_qb_connection_tokens's GRANT line.
+      const refreshSig =
+        String.raw`public\.refresh_qb_connection_tokens\(\s*uuid, text, text, text, timestamptz, timestamptz\s*\)`;
+      expect(sql).toMatch(new RegExp(`REVOKE EXECUTE ON FUNCTION ${refreshSig} FROM PUBLIC`));
+      expect(sql).toMatch(new RegExp(`REVOKE EXECUTE ON FUNCTION ${refreshSig} FROM authenticated`));
+      expect(sql).toMatch(new RegExp(`REVOKE EXECUTE ON FUNCTION ${refreshSig} FROM anon`));
+      expect(sql).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION ${refreshSig} TO service_role`));
+      expect(sql).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION ${refreshSig} TO authenticated`));
     });
   });
 
@@ -284,8 +366,9 @@ describe('QuickBooks integration PR #1 — quickbooks_connections migration', ()
       expect(sql).toMatch(/quickbooks_connections: expected 5 policies, found %/);
     });
 
-    it('verifies all 3 RPCs exist', () => {
+    it('verifies all 4 RPCs exist', () => {
       expect(sql).toMatch(/set_qb_connection_tokens: function missing after migration/);
+      expect(sql).toMatch(/refresh_qb_connection_tokens: function missing after migration/);
       expect(sql).toMatch(/get_qb_connection: function missing after migration/);
       expect(sql).toMatch(/clear_qb_connection: function missing after migration/);
     });
@@ -299,9 +382,12 @@ describe('QuickBooks integration PR #1 — quickbooks_connections migration', ()
       expect(rollback).toMatch(/quickbooks_connections_admin_select/);
     });
 
-    it('drops all three RPCs by exact signature', () => {
+    it('drops all four RPCs by exact signature', () => {
       expect(rollback).toMatch(
         /DROP FUNCTION IF EXISTS public\.set_qb_connection_tokens\(\s*uuid, text, text, text, text, timestamptz, timestamptz, text\[\]\s*\)/
+      );
+      expect(rollback).toMatch(
+        /DROP FUNCTION IF EXISTS public\.refresh_qb_connection_tokens\(\s*uuid, text, text, text, timestamptz, timestamptz\s*\)/
       );
       expect(rollback).toMatch(
         /DROP FUNCTION IF EXISTS public\.get_qb_connection\(uuid, text\)/

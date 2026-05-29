@@ -38,9 +38,13 @@
 --   3. set_qb_connection_tokens() — owner-gated writer that upserts
 --      a row AND writes both tokens to Vault in one transaction.
 --      Called from the OAuth callback edge function in PR #2.
---   4. get_qb_connection() — service_role-only reader that returns
+--   4. refresh_qb_connection_tokens() — service-role-only rotator
+--      that updates token columns and Vault secrets in place
+--      without touching the connected_by / connected_at audit
+--      fields. Called by the token-refresh cron (PR #3).
+--   5. get_qb_connection() — service_role-only reader that returns
 --      the connection row plus decrypted tokens. Edge functions only.
---   5. clear_qb_connection() — owner-gated disconnect. Deletes Vault
+--   6. clear_qb_connection() — owner-gated disconnect. Deletes Vault
 --      secrets and the row.
 --
 -- All operations are idempotent. Pure additive. Safe to re-run.
@@ -171,18 +175,25 @@ CREATE POLICY quickbooks_connections_admin_select ON public.quickbooks_connectio
   USING (public.is_admin() AND org_id = nullif((auth.jwt() ->> 'org_id'), '')::uuid);
 
 -- ────────────────────────────────────────────────────────────────────
--- 3. set_qb_connection_tokens — owner-gated writer
+-- 3. set_qb_connection_tokens — owner-gated writer (OAuth callback)
 -- ────────────────────────────────────────────────────────────────────
--- Called from the OAuth callback edge function (PR #2) and from the
--- token-refresh cron (PR #3). Atomically:
+-- Called from the OAuth callback edge function (PR #2) when the
+-- owner clicks "Connect QuickBooks" and completes Intuit's consent
+-- flow. NOT called by the refresh cron — that path uses
+-- refresh_qb_connection_tokens (section 3b below).
+--
+-- Atomically:
 --   (a) upserts the quickbooks_connections row keyed by
 --       (org_id, environment),
 --   (b) creates or updates the two Vault secrets,
 --   (c) records who initiated and when.
 --
--- ON CONFLICT — reconnecting replaces vault entries in-place via
--- vault.update_secret rather than creating a second secret with the
--- same name (Vault names are unique).
+-- ON CONFLICT — reconnecting (e.g. owner re-grants after revoking
+-- in Intuit's console, or adds a new scope) replaces vault entries
+-- in-place via vault.update_secret rather than creating a second
+-- secret with the same name (Vault names are unique). connected_by
+-- and connected_at are overwritten because a reconnect IS a fresh
+-- authorization by a (possibly different) owner.
 --
 -- Returns the connection id.
 
@@ -318,10 +329,136 @@ REVOKE EXECUTE ON FUNCTION public.set_qb_connection_tokens(
 GRANT EXECUTE ON FUNCTION public.set_qb_connection_tokens(
   uuid, text, text, text, text, timestamptz, timestamptz, text[]
 ) TO authenticated;
--- service_role also gets EXECUTE so the refresh cron (PR #3) can
--- rotate tokens without impersonating the owner.
-GRANT EXECUTE ON FUNCTION public.set_qb_connection_tokens(
-  uuid, text, text, text, text, timestamptz, timestamptz, text[]
+-- NOT granted to service_role. The token-refresh cron uses
+-- refresh_qb_connection_tokens (below), which is a separate
+-- service-role-only function that updates token fields in place
+-- without touching the connected_by / connected_at audit columns
+-- and without requiring a user JWT context. Granting this function
+-- to service_role would be misleading: its body still gates on
+-- auth.jwt()->>'email' and public.is_owner(), so a service-role
+-- call would raise 'Authentication required' before doing any work.
+
+-- ────────────────────────────────────────────────────────────────────
+-- 3b. refresh_qb_connection_tokens — service-role-only rotator
+-- ────────────────────────────────────────────────────────────────────
+-- Called by the token-refresh cron (PR #3) when an access token
+-- nears expiry. The cron pulls the list of connections needing
+-- refresh, calls Intuit's /oauth2/v1/tokens endpoint with the stored
+-- refresh_token, and receives back a NEW access_token AND a NEW
+-- refresh_token — Intuit rotates the refresh token on every refresh
+-- per its OAuth 2.0 spec. Failing to store the new refresh_token
+-- bricks the connection at the 100-day mark.
+--
+-- Why a separate function and not a service_role branch inside
+-- set_qb_connection_tokens:
+--   • This path must NEVER overwrite connected_by / connected_at —
+--     those record the human who first authorized; the cron is not
+--     a re-authorization.
+--   • The signature is narrower: no realm_id, no scopes — neither
+--     can change at refresh time.
+--   • One function, one responsibility. The set_/refresh_/clear_
+--     split mirrors the natural state transitions of an OAuth
+--     connection.
+--
+-- Operates only on an EXISTING connection. Returns true if updated,
+-- false if no matching row was found (cron can then mark the
+-- connection 'reauth_required' via a separate UPDATE).
+
+CREATE OR REPLACE FUNCTION public.refresh_qb_connection_tokens(
+  p_org_id                      uuid,
+  p_environment                 text,
+  p_refresh_token               text,
+  p_access_token                text,
+  p_access_token_expires_at     timestamptz,
+  p_refresh_token_expires_at    timestamptz
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, vault
+AS $$
+DECLARE
+  v_refresh_name        text;
+  v_access_name         text;
+  v_existing_refresh_id uuid;
+  v_existing_access_id  uuid;
+BEGIN
+  -- Input validation (no user-auth gate — service_role only via
+  -- GRANT below).
+  IF p_environment NOT IN ('sandbox', 'production') THEN
+    RAISE EXCEPTION 'Invalid environment: %', p_environment;
+  END IF;
+  IF p_refresh_token IS NULL OR length(trim(p_refresh_token)) = 0 THEN
+    RAISE EXCEPTION 'refresh_token is required';
+  END IF;
+  IF p_access_token IS NULL OR length(trim(p_access_token)) = 0 THEN
+    RAISE EXCEPTION 'access_token is required';
+  END IF;
+
+  SELECT refresh_token_vault_secret_name, access_token_vault_secret_name
+    INTO v_refresh_name, v_access_name
+  FROM public.quickbooks_connections
+  WHERE org_id = p_org_id AND environment = p_environment;
+
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  -- Rotate Vault secrets in place. The rows must exist — they were
+  -- created by set_qb_connection_tokens at initial connect. If a
+  -- prior run partially failed and one is missing, fall back to
+  -- create_secret so we self-heal rather than crash the cron.
+  SELECT id INTO v_existing_refresh_id
+  FROM vault.secrets WHERE name = v_refresh_name;
+  IF v_existing_refresh_id IS NOT NULL THEN
+    PERFORM vault.update_secret(v_existing_refresh_id, p_refresh_token);
+  ELSE
+    PERFORM vault.create_secret(
+      p_refresh_token,
+      v_refresh_name,
+      'QuickBooks refresh token (' || p_environment || ') for org ' || p_org_id::text
+    );
+  END IF;
+
+  SELECT id INTO v_existing_access_id
+  FROM vault.secrets WHERE name = v_access_name;
+  IF v_existing_access_id IS NOT NULL THEN
+    PERFORM vault.update_secret(v_existing_access_id, p_access_token);
+  ELSE
+    PERFORM vault.create_secret(
+      p_access_token,
+      v_access_name,
+      'QuickBooks access token (' || p_environment || ') for org ' || p_org_id::text
+    );
+  END IF;
+
+  -- Update only the rotation-relevant columns. connected_by and
+  -- connected_at are intentionally untouched — they record the
+  -- human authorization, not the cron rotation.
+  UPDATE public.quickbooks_connections
+  SET access_token_expires_at  = p_access_token_expires_at,
+      refresh_token_expires_at = p_refresh_token_expires_at,
+      last_refreshed_at        = now(),
+      status                   = 'active',
+      status_message           = NULL,
+      updated_at               = now()
+  WHERE org_id = p_org_id AND environment = p_environment;
+
+  RETURN true;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.refresh_qb_connection_tokens(
+  uuid, text, text, text, timestamptz, timestamptz
+) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.refresh_qb_connection_tokens(
+  uuid, text, text, text, timestamptz, timestamptz
+) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.refresh_qb_connection_tokens(
+  uuid, text, text, text, timestamptz, timestamptz
+) FROM anon;
+GRANT EXECUTE ON FUNCTION public.refresh_qb_connection_tokens(
+  uuid, text, text, text, timestamptz, timestamptz
 ) TO service_role;
 
 -- ────────────────────────────────────────────────────────────────────
@@ -492,6 +629,14 @@ BEGIN
     WHERE n.nspname = 'public' AND p.proname = 'set_qb_connection_tokens'
   ) THEN
     RAISE EXCEPTION 'set_qb_connection_tokens: function missing after migration';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'refresh_qb_connection_tokens'
+  ) THEN
+    RAISE EXCEPTION 'refresh_qb_connection_tokens: function missing after migration';
   END IF;
 
   IF NOT EXISTS (
