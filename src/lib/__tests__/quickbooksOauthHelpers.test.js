@@ -3,6 +3,8 @@ import {
   buildAuthorizeUrl,
   parseTokenResponse,
   expiriesFromTokenResponse,
+  decideRefreshAction,
+  REFRESH_WINDOW_MS,
   QB_AUTH_BASE_URL,
   QB_TOKEN_URL,
   QB_DEFAULT_SCOPES,
@@ -113,6 +115,108 @@ describe('QuickBooks OAuth helpers (shared between init/callback/refresh-cron)',
       ],
     ])('throws when %s is missing or invalid', (_label, raw, pattern) => {
       expect(() => parseTokenResponse(raw)).toThrow(pattern);
+    });
+  });
+
+  describe('decideRefreshAction (PR #3 cron policy)', () => {
+    const NOW = new Date('2026-06-03T12:00:00Z').getTime();
+    const inFuture = (minutes) =>
+      new Date(NOW + minutes * 60_000).toISOString();
+    const inPast = (minutes) =>
+      new Date(NOW - minutes * 60_000).toISOString();
+
+    it('exposes a 15-minute refresh window', () => {
+      // If this constant moves, the cron cadence guidance in the
+      // migration's header comment ("every 30 min beats a 15-min
+      // window twice") also has to move. Lock it.
+      expect(REFRESH_WINDOW_MS).toBe(15 * 60 * 1000);
+    });
+
+    it('skips connections already flagged reauth_required', () => {
+      const result = decideRefreshAction({
+        status: 'reauth_required',
+        access_token_expires_at: inPast(120),
+        refresh_token_expires_at: inFuture(60 * 24 * 30), // 30 days
+      }, NOW);
+      expect(result).toEqual({
+        action: 'skip',
+        reason: 'Connection already flagged reauth_required',
+      });
+    });
+
+    it('skips connections whose access token is still well outside the window', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: inFuture(45),
+        refresh_token_expires_at: inFuture(60 * 24 * 90), // 90 days
+      }, NOW);
+      expect(result.action).toBe('skip');
+    });
+
+    it('refreshes when access token is inside the 15-minute window', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: inFuture(10),
+        refresh_token_expires_at: inFuture(60 * 24 * 90),
+      }, NOW);
+      expect(result).toEqual({ action: 'refresh' });
+    });
+
+    it('still attempts refresh when access token is already expired (let Intuit decide)', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: inPast(5),
+        refresh_token_expires_at: inFuture(60 * 24 * 90),
+      }, NOW);
+      expect(result).toEqual({ action: 'refresh' });
+    });
+
+    it('still attempts refresh on status=error so transient failures self-heal', () => {
+      const result = decideRefreshAction({
+        status: 'error',
+        access_token_expires_at: inFuture(5),
+        refresh_token_expires_at: inFuture(60 * 24 * 90),
+      }, NOW);
+      expect(result).toEqual({ action: 'refresh' });
+    });
+
+    it('marks reauth_required when the refresh token itself has expired', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: inPast(60),
+        refresh_token_expires_at: inPast(1),
+      }, NOW);
+      expect(result.action).toBe('mark_reauth_required');
+      expect(result.reason).toMatch(/Refresh token expired/);
+    });
+
+    it('marks reauth_required when refresh_token_expires_at is unparseable', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: inFuture(5),
+        refresh_token_expires_at: 'not-a-date',
+      }, NOW);
+      expect(result.action).toBe('mark_reauth_required');
+      expect(result.reason).toMatch(/unparseable/);
+    });
+
+    it('refreshes when access_token_expires_at is unparseable (fail-safe)', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: 'not-a-date',
+        refresh_token_expires_at: inFuture(60 * 24 * 90),
+      }, NOW);
+      expect(result).toEqual({ action: 'refresh' });
+    });
+
+    it('defaults nowMs to Date.now when omitted', () => {
+      const result = decideRefreshAction({
+        status: 'active',
+        access_token_expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        refresh_token_expires_at: new Date(Date.now() + 90 * 24 * 60 * 60_000).toISOString(),
+      });
+      // 60 min in the future > 15 min window → skip.
+      expect(result.action).toBe('skip');
     });
   });
 
