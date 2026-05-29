@@ -43,6 +43,7 @@ import {
   callNoteTimestamp,
   hasCallTranscriptNote,
 } from '../_shared/operations/callTranscriptNote.ts';
+import { filterUncached } from '../_shared/operations/transcriptBackfillSelect.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -59,6 +60,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const DEFAULT_DAYS_BACK = 14;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
+// How many candidate rows to scan per invocation before subtracting the ones
+// already transcribed. The real pending pool is ~100-250, so this comfortably
+// covers it; the subtraction + slice then yields the next `limit` to process.
+const CANDIDATE_CAP = 500;
 
 interface BackfillRow {
   id: string;
@@ -87,24 +92,9 @@ interface RowResult {
   error?: string;
 }
 
-async function countRemaining(daysBack: number): Promise<number> {
-  const cutoff = new Date(Date.now() - daysBack * 86400_000).toISOString();
-  // Rows that are matched, ended with a recording, already gave up, and have
-  // no cached transcript yet. We count the candidate pool; the per-row note
-  // check is done at processing time.
-  const { count, error } = await supabase
-    .from('call_sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'ended')
-    .not('recording_id', 'is', null)
-    .not('matched_entity_id', 'is', null)
-    .not('transcript_fetched_at', 'is', null)
-    .gte('ended_at', cutoff);
-  if (error) throw new Error(`count failed: ${error.message}`);
-  return count ?? 0;
-}
-
-async function fetchBatch(daysBack: number, limit: number): Promise<BackfillRow[]> {
+// All matched, gave-up, recorded calls in the window — the candidate pool
+// before we subtract the ones already transcribed.
+async function fetchCandidates(daysBack: number): Promise<BackfillRow[]> {
   const cutoff = new Date(Date.now() - daysBack * 86400_000).toISOString();
   const { data, error } = await supabase
     .from('call_sessions')
@@ -117,9 +107,28 @@ async function fetchBatch(daysBack: number, limit: number): Promise<BackfillRow[
     .not('transcript_fetched_at', 'is', null)
     .gte('ended_at', cutoff)
     .order('ended_at', { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(`fetch failed: ${error.message}`);
+    .limit(CANDIDATE_CAP);
+  if (error) throw new Error(`candidate fetch failed: ${error.message}`);
   return (data || []) as BackfillRow[];
+}
+
+// Which of these recording_ids already have a cached transcript.
+async function fetchCachedRecordingIds(recordingIds: string[]): Promise<string[]> {
+  if (recordingIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('call_transcriptions')
+    .select('recording_id')
+    .in('recording_id', recordingIds);
+  if (error) throw new Error(`cached-id fetch failed: ${error.message}`);
+  return (data || []).map((r: { recording_id: string }) => r.recording_id);
+}
+
+// The genuinely-pending rows: candidates minus those already transcribed.
+// Recomputed each invocation, so processed rows drop out and batches advance.
+async function loadPending(daysBack: number): Promise<BackfillRow[]> {
+  const candidates = await fetchCandidates(daysBack);
+  const cached = await fetchCachedRecordingIds(candidates.map((c) => c.recording_id));
+  return filterUncached(candidates, cached);
 }
 
 async function appendNote(row: BackfillRow, transcript: string): Promise<Outcome> {
@@ -178,9 +187,16 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  // Service-role only — this is a manual operational tool, not a public API.
-  const auth = req.headers.get('Authorization') || '';
-  if (auth !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+  // Access control is the Supabase gateway's JWT verification, the same model
+  // every other background job here uses — the cron invokers pass the
+  // publishable key, which is what reaches this function. We deliberately do
+  // NOT gate on the service-role key: it isn't stored anywhere a cron/SQL
+  // caller can read (only project_url + publishable_key are in vault), so a
+  // service-role gate would make this function impossible to trigger. This
+  // matches post-call-processor, which is likewise gateway-gated and also
+  // appends call-transcript notes. Require *an* Authorization header so an
+  // unauthenticated direct hit is rejected even if verify_jwt is ever off.
+  if (!req.headers.get('Authorization')) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -193,28 +209,27 @@ Deno.serve(async (req) => {
     const limit = Math.min(MAX_LIMIT, Math.max(1, Number(body.limit) || DEFAULT_LIMIT));
     const dryRun = body.dry_run === true;
 
-    const remaining = await countRemaining(daysBack);
+    const pending = await loadPending(daysBack);
 
     if (dryRun) {
-      const sample = await fetchBatch(daysBack, limit);
       return new Response(
         JSON.stringify({
           dry_run: true,
-          candidate_pool: remaining,
-          would_process_next: sample.length,
-          sample: sample.map((r) => ({
+          pending_pool: pending.length,
+          would_process_next: Math.min(limit, pending.length),
+          sample: pending.slice(0, limit).map((r) => ({
             call_session_id: r.id,
             recording_id: r.recording_id,
             matched_entity_type: r.matched_entity_type,
             ended_at: r.ended_at,
           })),
-          note: 'Candidate pool counts matched/gave-up rows; some may already have a note or a cached transcript and will resolve to already_had_note on a real run.',
+          note: 'pending_pool excludes calls already transcribed; a real run processes `limit` of these per invocation.',
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    const batch = await fetchBatch(daysBack, limit);
+    const batch = pending.slice(0, limit);
     const results: RowResult[] = [];
     if (batch.length > 0) {
       // One RC token per invocation, shared across the batch — same
@@ -232,11 +247,13 @@ Deno.serve(async (req) => {
     }
 
     const tally = (o: Outcome) => results.filter((r) => r.outcome === o).length;
+    const pendingAfter = pending.length - tally('note_appended') - tally('already_had_note');
     return new Response(
       JSON.stringify({
         dry_run: false,
-        candidate_pool_before: remaining,
+        pending_pool_before: pending.length,
         processed: results.length,
+        approx_pending_after: Math.max(0, pendingAfter),
         summary: {
           note_appended: tally('note_appended'),
           already_had_note: tally('already_had_note'),
@@ -245,9 +262,9 @@ Deno.serve(async (req) => {
           failed: tally('failed'),
         },
         results,
-        hint: results.length === limit
-          ? 'Batch was full — re-invoke to continue.'
-          : 'Fewer rows than the limit — pool may be drained (re-run a dry_run to confirm).',
+        hint: pending.length > limit
+          ? 'More rows remain — re-invoke to continue.'
+          : 'Processed the last of the pending pool (re-run a dry_run to confirm 0 remain).',
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
