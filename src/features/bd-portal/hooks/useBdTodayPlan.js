@@ -7,6 +7,8 @@ import {
   updateRoutePlanStops,
   normalizeStops,
 } from '../lib/bdRoutePlans';
+import { useBdViewAs } from '../context/BdViewAsContext';
+import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
 // Loads the current rep's active route plan for today (rep's local
 // timezone). If none exists, the hook does NOT auto-create one — the
@@ -22,21 +24,29 @@ import {
 //     the "Build today's plan" CTA so the builder screen always has
 //     a plan id to write against.
 export function useBdTodayPlan() {
+  const { effectiveUserId, isReadOnly } = useBdViewAs();
   const [loading,  setLoading]  = useState(true);
   const [plan,     setPlan]     = useState(null);
   const [error,    setError]    = useState(null);
   const [planDate] = useState(todayLocalIsoDate());
 
+  // The plan we render belongs to the *effective* rep — self normally,
+  // or the rep an owner is auditing. Owners read a rep's plan via
+  // owner-as-admin RLS; writes stay disabled while viewing-as (below).
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) {
+    let uid = effectiveUserId;
+    if (!uid) {
+      const { data: { user } } = await supabase.auth.getUser();
+      uid = user?.id ?? null;
+    }
+    if (!uid) {
       setPlan(null);
       setLoading(false);
       return;
     }
-    const { data, error: fetchErr } = await fetchActiveRoutePlan(supabase, user.id, planDate);
+    const { data, error: fetchErr } = await fetchActiveRoutePlan(supabase, uid, planDate);
     if (fetchErr) {
       setError(fetchErr);
       setPlan(null);
@@ -44,11 +54,15 @@ export function useBdTodayPlan() {
       setPlan(data);
     }
     setLoading(false);
-  }, [planDate]);
+  }, [planDate, effectiveUserId]);
 
   useEffect(() => { load(); }, [load]);
 
   const ensurePlan = useCallback(async () => {
+    // Never create/modify a plan while auditing another rep. An owner is
+    // an admin, so RLS would otherwise let them write a plan under the
+    // rep's owner_user_id — the read-only mirror must not.
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     if (plan) return plan;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.id) return null;
@@ -67,9 +81,10 @@ export function useBdTodayPlan() {
     }
     setPlan(data);
     return data;
-  }, [plan, planDate]);
+  }, [plan, planDate, isReadOnly]);
 
   const save = useCallback(async (rawStops) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
     const stops = normalizeStops(rawStops);
     const target = await ensurePlan();
     if (!target) return { data: null, error: error ?? new Error('No plan to save against') };
@@ -83,7 +98,7 @@ export function useBdTodayPlan() {
     // immediately without a second fetch.
     setPlan((prev) => prev ? { ...prev, stops: data.stops, updated_at: data.updated_at } : { ...target, stops: data.stops, updated_at: data.updated_at });
     return { data, error: null };
-  }, [ensurePlan, error]);
+  }, [ensurePlan, error, isReadOnly]);
 
   return { loading, plan, planDate, error, save, ensurePlan, refresh: load };
 }

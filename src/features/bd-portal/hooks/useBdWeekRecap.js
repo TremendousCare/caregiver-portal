@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { getWeekRange, addDaysIso } from '../lib/bdWeekRecap';
+import { useBdViewAs } from '../context/BdViewAsContext';
 
 // Loads the BD rep's route plans and logged activities for the Mon–Sun
 // week containing `weekDate` (a Date object, defaults to today).
 //
-// Activities are scoped to the current user via `created_by`, matching
-// how useBdLogActivity writes them (display name OR email, whichever
-// the session exposes). One rep today, but the filter is in place so
-// the recap stays "my week" once additional reps join.
-//
-// Route plans are scoped via `owner_user_id` (already enforced by RLS,
-// re-asserted in the query for clarity).
+// Identity is the *effective* rep from BdViewAsContext: the signed-in
+// user normally, or the rep an owner is auditing while viewing-as. Route
+// plans are scoped by `owner_user_id`; activities by `created_by`
+// (display name OR email — matching how useBdLogActivity writes them).
+// When an owner is viewing-as, owner-as-admin RLS lets them read the
+// rep's plans, and bd_activities is org-readable, so the recap mirrors
+// the audited rep faithfully.
 export function useBdWeekRecap(weekDate) {
+  const { effectiveUserId, isViewingAs, effectiveRep } = useBdViewAs();
   const [loading,    setLoading]    = useState(true);
   const [plans,      setPlans]      = useState([]);
   const [activities, setActivities] = useState([]);
@@ -24,21 +26,25 @@ export function useBdWeekRecap(weekDate) {
     setLoading(true);
     setError(null);
     const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user?.id) {
+    const sessionUser = session?.user;
+
+    // Effective identity: the audited rep when viewing-as, else self.
+    const ownerUserId = isViewingAs ? effectiveUserId : sessionUser?.id;
+    if (!ownerUserId) {
       setPlans([]);
       setActivities([]);
       setLoading(false);
       return;
     }
-    // We filter activities by `created_by` matching either the user's
+    // We filter activities by `created_by` matching either the rep's
     // display name or email. useBdLogActivity prefers full_name and
     // falls back to email, so accepting both covers any historical
-    // rows logged before/after a metadata change.
-    const createdByCandidates = [
-      user.user_metadata?.full_name,
-      user.email,
-    ].filter(Boolean);
+    // rows logged before/after a metadata change. When viewing-as we
+    // use the audited rep's name/email (from the auditable-reps RPC).
+    const createdByCandidates = (isViewingAs
+      ? [effectiveRep?.full_name, effectiveRep?.email]
+      : [sessionUser?.user_metadata?.full_name, sessionUser?.email]
+    ).filter(Boolean);
 
     // Week activities span the full last day, so the upper bound is
     // exclusive at the start of the next day.
@@ -48,7 +54,7 @@ export function useBdWeekRecap(weekDate) {
       supabase
         .from('bd_route_plans')
         .select('id, plan_date, name, stops, status, updated_at')
-        .eq('owner_user_id', user.id)
+        .eq('owner_user_id', ownerUserId)
         .eq('status', 'active')
         .gte('plan_date', range.start)
         .lte('plan_date', range.end),
@@ -78,7 +84,7 @@ export function useBdWeekRecap(weekDate) {
     // computed ISO range rather than the Date object reference, so a
     // re-render with the same week doesn't trigger a refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.start, range.end]);
+  }, [range.start, range.end, isViewingAs, effectiveUserId, effectiveRep]);
 
   useEffect(() => { load(); }, [load]);
 

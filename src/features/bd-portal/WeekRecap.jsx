@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Check, X, Plus, CircleDot } from 'lucide-react';
 import { useBdAccounts } from './hooks/useBdAccounts';
 import { useBdWeekRecap } from './hooks/useBdWeekRecap';
+import { useBdViewAs } from './context/BdViewAsContext';
 import {
   getWeekRange,
   groupActivitiesByDay,
@@ -64,6 +65,7 @@ function DayTile({ iso, summary, active, onClick, isToday }) {
 
 export function WeekRecap() {
   const navigate = useNavigate();
+  const { isReadOnly } = useBdViewAs();
   const { accounts } = useBdAccounts();
   // Build an account lookup once. Used by both the planned-stop list
   // and unplanned-activity list to hydrate account names without an
@@ -210,7 +212,7 @@ export function WeekRecap() {
       <div className={s.card}>
         <div className={s.dayDetailHeader}>
           <h2 className={s.dayDetailTitle}>{formatDayHeader(selectedDay)}</h2>
-          {isPastOrToday(selectedDay) && (
+          {isPastOrToday(selectedDay) && !isReadOnly && (
             <button
               type="button"
               className={s.routeBtn}
@@ -271,7 +273,7 @@ export function WeekRecap() {
                             </div>
                           )}
                         </button>
-                        {!stop.completed && isPastOrToday(selectedDay) && (
+                        {!stop.completed && isPastOrToday(selectedDay) && !isReadOnly && (
                           <button
                             type="button"
                             className={s.recapBackfillBtn}
