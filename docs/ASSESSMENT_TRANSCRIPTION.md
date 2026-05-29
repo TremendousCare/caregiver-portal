@@ -67,6 +67,34 @@ all have settled. Pure display/format logic is extracted to
 `src/lib/assessmentTranscript.js` and unit-tested in
 `src/lib/__tests__/assessmentTranscript.test.js`.
 
+## AI care-plan extraction (PR 4)
+
+A transcribed assessment can seed a **draft care plan**. On a transcribed row
+(when the client is at a phase where the Care Plan panel is shown —
+`proposal`/`won`), a **Draft care plan** button runs the transcript through
+Claude and populates a draft `care_plan_version` for staff to review/edit/publish
+in the existing Care Plan editor.
+
+- **Edge function** `assessment-extract-care-plan` **reuses** the hardened
+  extraction machinery from `care-plan-voice-extract` (`prompt.ts`: the forced
+  `record_care_plan_facts` tool, system/user prompts, and `validateClaims` /
+  `validateTaskClaims`). The only differences: the transcript comes from
+  `assessment_transcriptions` (not Whisper), and it extracts across **multiple**
+  sections in one request (bounded concurrency). It is staff-only and
+  org-scoped (verifies the assessment belongs to the caller's org). It returns
+  validated per-section claims — it never writes.
+- **The frontend writes**: `assessmentDraftClient.js` builds the per-section
+  schemas (same `buildVoiceFieldSchema` / `buildVoiceTaskSchema` as voice
+  capture), calls the edge function, then applies the results through the
+  existing audited `storage.js` path (`createCarePlan` / `createNewDraftVersion`
+  / `saveDraft` / `createTask`). One care-plan write path, fully event-logged.
+- Pure shaping logic (`eligibleAssessmentSections`, `claimsToFieldPatch`,
+  `taskClaimToCreateInput`, summary) lives in `src/lib/assessmentCarePlan.js`
+  and is unit-tested.
+
+No new env vars beyond `ANTHROPIC_API_KEY` (already used by the AI chat and
+voice-extract functions).
+
 ## Required environment variables (Supabase project secrets)
 
 Both are read by `assessment-transcribe`, `deepgram-callback`, and the

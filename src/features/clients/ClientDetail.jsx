@@ -131,6 +131,9 @@ export function ClientDetail({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [detailTab, setDetailTab] = useState('overview');
+  // Bumped after an assessment drafts a care plan, to remount (reload)
+  // the CarePlanPanel so the new draft shows without a page refresh.
+  const [carePlanRefreshKey, setCarePlanRefreshKey] = useState(0);
   const profileCardRef = useRef(null);
 
   // Scroll the canonical edit surface (ClientProfileCard) into view
@@ -235,11 +238,14 @@ export function ClientDetail({
                 client={client}
                 currentUser={currentUser}
                 showToast={showToast}
+                canDraftCarePlan={shouldShowClientPlanPanels(client)}
+                onCarePlanDrafted={() => setCarePlanRefreshKey((k) => k + 1)}
               />
 
               {shouldShowClientPlanPanels(client) && (
                 <>
                   <CarePlanPanel
+                    key={carePlanRefreshKey}
                     client={client}
                     currentUser={currentUser}
                     showToast={showToast}
