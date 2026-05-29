@@ -60,6 +60,11 @@ import {
   transcribeRecording,
   type TranscriptionProvider,
 } from '../_shared/operations/transcribeRecording.ts';
+import {
+  buildCallTranscriptNote,
+  callNoteTimestamp,
+  hasCallTranscriptNote,
+} from '../_shared/operations/callTranscriptNote.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -199,16 +204,14 @@ async function appendCallNote(
   if (readErr || !entity) return false;
 
   const currentNotes = Array.isArray(entity.notes) ? entity.notes : [];
-  const remotePhone = row.direction === 'inbound' ? row.from_e164 : row.to_e164;
-  const note = {
-    text: transcript,
-    type: 'call',
-    direction: row.direction,
-    source: 'ringcentral',
-    timestamp: row.ended_at ? Date.parse(row.ended_at) : Date.now(),
-    author: 'Call Transcript',
-    outcome: `${row.direction === 'inbound' ? 'Inbound' : 'Outbound'} call${remotePhone ? ' ' + remotePhone : ''}${row.duration_seconds ? ` (${row.duration_seconds}s)` : ''}`,
-  };
+  // Idempotency: if a transcript note for this exact call is already on the
+  // entity, treat it as success without re-appending. Guards against double
+  // notes if a row is ever reprocessed (e.g. the backfill and the cron both
+  // touch it).
+  if (hasCallTranscriptNote(currentNotes, callNoteTimestamp(row.ended_at))) {
+    return true;
+  }
+  const note = buildCallTranscriptNote(row, transcript);
   const { error: writeErr } = await supabase
     .from(tableName)
     .update({ notes: [...currentNotes, note] })
