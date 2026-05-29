@@ -8,7 +8,7 @@ import {
 } from '../../bd-portal/lib/voiceRecorder';
 import {
   statusMeta, canRetry, buildSpeakerTurns, assessmentAudioPath,
-  isLikelyAudio, formatAssessmentTimestamp, MAX_UPLOAD_BYTES,
+  isLikelyAudio, formatAssessmentTimestamp, pickEmbeddedTranscription, MAX_UPLOAD_BYTES,
 } from '../../../lib/assessmentTranscript';
 import { describeDraftSummary } from '../../../lib/assessmentCarePlan';
 import { draftCarePlanFromAssessment } from '../../care-plans/voice/assessmentDraftClient';
@@ -341,7 +341,7 @@ export function AssessmentsPanel({ client, currentUser, showToast, canDraftCareP
               <div className={s.list}>
                 {assessments.map((a) => {
                   const meta = statusMeta(a.status);
-                  const tx = a.assessment_transcriptions?.[0] || null;
+                  const tx = pickEmbeddedTranscription(a.assessment_transcriptions);
                   const isOpen = expandedId === a.id;
                   const turns = isOpen ? buildSpeakerTurns(tx?.transcript_json, tx?.transcript) : [];
                   return (

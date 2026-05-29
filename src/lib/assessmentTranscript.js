@@ -99,3 +99,15 @@ export function formatAssessmentTimestamp(iso) {
     hour: 'numeric', minute: '2-digit',
   });
 }
+
+// Normalize the embedded `assessment_transcriptions` relation to a single
+// row (or null). PostgREST returns a to-one embed as an OBJECT, but a
+// to-many embed as an ARRAY — and because assessment_transcriptions has a
+// UNIQUE(assessment_id) constraint it's treated as to-one (an object).
+// Accept both shapes so the transcript renders regardless of how PostgREST
+// resolves the relationship.
+export function pickEmbeddedTranscription(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw[0] || null;
+  return raw;
+}

@@ -8,6 +8,7 @@ import {
   assessmentAudioPath,
   isLikelyAudio,
   formatAssessmentTimestamp,
+  pickEmbeddedTranscription,
 } from '../assessmentTranscript';
 
 describe('statusMeta', () => {
@@ -112,6 +113,21 @@ describe('isLikelyAudio', () => {
   it('rejects non-audio', () => {
     expect(isLikelyAudio({ type: 'application/pdf', name: 'doc.pdf' })).toBe(false);
     expect(isLikelyAudio(null)).toBe(false);
+  });
+});
+
+describe('pickEmbeddedTranscription', () => {
+  const row = { transcript: 'hi', transcript_json: { utterances: [] }, confidence: 0.9 };
+  it('returns the object when PostgREST embeds a to-one relation as an object', () => {
+    expect(pickEmbeddedTranscription(row)).toBe(row);
+  });
+  it('returns the first element when embedded as an array', () => {
+    expect(pickEmbeddedTranscription([row])).toBe(row);
+  });
+  it('returns null for empty array / null / undefined', () => {
+    expect(pickEmbeddedTranscription([])).toBeNull();
+    expect(pickEmbeddedTranscription(null)).toBeNull();
+    expect(pickEmbeddedTranscription(undefined)).toBeNull();
   });
 });
 
