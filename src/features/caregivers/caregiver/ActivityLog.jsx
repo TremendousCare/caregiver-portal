@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Mic } from 'lucide-react';
+import { Mic, AlertTriangle } from 'lucide-react';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
 import { useSpeechRecognition } from '../../../shared/hooks/useSpeechRecognition';
@@ -13,7 +13,7 @@ const FILTER_OPTIONS = [
   ...NOTE_TYPES,
 ];
 
-export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, accessToken }) {
+export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, rcError, accessToken }) {
   const [noteText, setNoteText] = useState('');
   const { supported: speechSupported, listening: isListening, toggle: toggleListening, stop: stopListening } =
     useSpeechRecognition({ onTranscript: setNoteText });
@@ -149,6 +149,11 @@ export function ActivityLog({ caregiver, onAddNote, mergedTimeline, rcLoading, a
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', color: '#6B7B8F', fontSize: 13 }}>
           <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #D1D5DB', borderTopColor: '#2E4E8D', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           Loading communication history...
+        </div>
+      )}
+      {rcError && !rcLoading && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', color: '#D97706', fontSize: 13, fontWeight: 500 }}>
+          <AlertTriangle size={13} strokeWidth={2} aria-hidden /> {rcError}
         </div>
       )}
       <div className={cg.notesList}>

@@ -20,6 +20,7 @@ import {
 import { supabase } from '../../../lib/supabase';
 import { buildRecordingUrl, buildTranscriptionUrl } from '../../../lib/recording';
 import { closePendingSuggestionForAction } from '../../../lib/agentLoopClosure';
+import { commsErrorMessage } from '../../../lib/messaging/commsRateLimit';
 import cl from './client.module.css';
 import forms from '../../../styles/forms.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -109,20 +110,10 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
         if (error || !data) {
           console.warn('RC fetch failed for client:', error);
           setRcData({ sms: [], calls: [] });
-          if (error) {
-            // A 429 from get-communications means RingCentral's per-extension
-            // rate-limit bucket is in penalty — the history is temporarily
-            // unreachable, NOT empty. Say so, rather than letting the empty
-            // state read as "no texts exist."
-            const isRateLimited =
-              error?.context?.status === 429 ||
-              /rate.?limit|429|CMN-301/i.test(error?.message || '');
-            setRcError(
-              isRateLimited
-                ? 'Communication history temporarily unavailable (rate limited). Try again shortly.'
-                : 'Could not load external communication data.'
-            );
-          }
+          // A 429 from get-communications means RingCentral's per-extension
+          // rate-limit bucket is in penalty — history is temporarily
+          // unreachable, NOT empty. commsErrorMessage picks the right banner.
+          if (error) setRcError(commsErrorMessage(error));
         } else {
           setRcData({ sms: data.sms || [], calls: data.calls || [] });
         }
@@ -131,7 +122,7 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
         if (!cancelled) {
           console.warn('RC fetch error:', err);
           setRcData({ sms: [], calls: [] });
-          setRcError('Could not load external communication data.');
+          setRcError(commsErrorMessage(err));
         }
       })
       .finally(() => {
