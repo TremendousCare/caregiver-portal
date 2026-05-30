@@ -217,6 +217,10 @@ export function CaregiverShifts({ caregiver }) {
           })}
         </ul>
       )}
+
+      <nav className={s.footerLinks}>
+        <Link className={s.linkBtn} to="/care/password">Change password</Link>
+      </nav>
     </div>
   );
 }
