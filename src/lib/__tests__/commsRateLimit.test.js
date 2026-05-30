@@ -35,6 +35,11 @@ describe('isCommsRateLimitError', () => {
     expect(isCommsRateLimitError(new Error('Too Many Requests'))).toBe(true);
   });
 
+  it('detects RingCentral\'s human-readable "Request rate exceeded" without a 429/CMN-301 token', () => {
+    // Parity with the edge-side isRateLimitError, which matches this phrase.
+    expect(isCommsRateLimitError(new Error('Request rate exceeded'))).toBe(true);
+  });
+
   it('accepts a plain string', () => {
     expect(isCommsRateLimitError('429 Too Many Requests')).toBe(true);
   });

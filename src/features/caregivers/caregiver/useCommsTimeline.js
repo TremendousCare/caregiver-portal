@@ -62,6 +62,11 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
     const lookupBody = buildCommsLookupBody(entity, entityType);
     if (!lookupBody) {
       setRcData({ sms: [], calls: [] });
+      // Clear any banner carried over from a previously-viewed entity —
+      // these detail pages are rendered without a React key, so the hook
+      // state persists across navigation (e.g. rate-limited client → a
+      // client with no phone). Without this the stale banner lingers.
+      setRcError(null);
       return;
     }
     let cancelled = false;

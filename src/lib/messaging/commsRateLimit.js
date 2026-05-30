@@ -13,7 +13,8 @@
 // import from the frontend tree, so the two are kept in sync by hand — the
 // patterns here intentionally match that module's).
 
-const RATE_LIMIT_MESSAGE = /rate.?limit|\b429\b|CMN-301|too many requests/i;
+const RATE_LIMIT_MESSAGE =
+  /rate.?limit|\b429\b|CMN-301|request rate exceeded|too many requests/i;
 
 /**
  * True when a get-communications invoke error represents RingCentral
