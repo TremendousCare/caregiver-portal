@@ -70,11 +70,15 @@ export async function callCaregiverClock({
   } catch (err) {
     clearTimeout(abortTimer);
     if (err?.name === 'AbortError') {
-      throw new Error(
+      const e = new Error(
         `Clock-in request timed out after ${Math.round(requestTimeoutMs / 1000)} seconds. Check your connection and try again.`,
       );
+      e.isNetworkError = true;
+      throw e;
     }
-    throw new Error(err?.message || 'Network error. Check your connection and try again.');
+    const e = new Error(err?.message || 'Network error. Check your connection and try again.');
+    e.isNetworkError = true;
+    throw e;
   }
   clearTimeout(abortTimer);
 
@@ -86,7 +90,10 @@ export async function callCaregiverClock({
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || `Clock-in failed with status ${response.status}.`);
+    const e = new Error(data?.error || `Clock-in failed with status ${response.status}.`);
+    e.httpStatus = response.status;
+    if (data?.code) e.code = data.code;
+    throw e;
   }
   return data;
 }

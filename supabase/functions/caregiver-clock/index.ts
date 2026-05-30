@@ -140,6 +140,35 @@ Deno.serve(async (req: Request) => {
       }, 400);
     }
 
+    // ── Offline-sync support ──
+    // The PWA queues clock events while offline and flushes them later
+    // with `occurred_at` (the caregiver's real tap time) and
+    // `from_outbox: true`. When present we record the event AT that time
+    // and run the shift-window check against it — otherwise a visit that
+    // synced two hours later would be stamped (and rejected) as "now".
+    // The online path sends no occurred_at and keeps using server time.
+    const { occurred_at, from_outbox } = body ?? {};
+    let occurredAtIso: string | null = null;
+    let occurredAtMs: number | null = null;
+    if (typeof occurred_at === "string" && occurred_at.length > 0) {
+      const t = Date.parse(occurred_at);
+      if (!Number.isFinite(t)) {
+        return jsonResponse({ error: "Invalid occurred_at timestamp.", code: "bad_occurred_at" }, 400);
+      }
+      const nowMs = Date.now();
+      // Guard against a wildly wrong device clock. Queued events sync
+      // well within 48h; nothing should be in the future.
+      if (t > nowMs + 5 * 60_000) {
+        return jsonResponse({ error: "occurred_at is in the future.", code: "bad_occurred_at" }, 400);
+      }
+      if (t < nowMs - 48 * 60 * 60_000) {
+        return jsonResponse({ error: "occurred_at is too old to sync (over 48h).", code: "bad_occurred_at" }, 400);
+      }
+      occurredAtMs = t;
+      occurredAtIso = new Date(t).toISOString();
+    }
+    const fromOutbox = from_outbox === true;
+
     // Use service role for everything else — we've already verified
     // auth and we need to read across caregiver + shift + clients.
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -178,11 +207,13 @@ Deno.serve(async (req: Request) => {
     if (event_type === "in" && !["assigned", "confirmed"].includes(shift.status)) {
       return jsonResponse({
         error: `Can't clock in — shift is already ${shift.status}.`,
+        code: "bad_status",
       }, 409);
     }
     if (event_type === "out" && shift.status !== "in_progress") {
       return jsonResponse({
         error: `Can't clock out — shift is ${shift.status}, not in_progress.`,
+        code: "bad_status",
       }, 409);
     }
 
@@ -200,7 +231,10 @@ Deno.serve(async (req: Request) => {
     const startMs = Date.parse(shift.start_time);
     const endMs = Date.parse(shift.end_time);
     if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
-      const windowResult = evaluateShiftWindow(Date.now(), startMs, endMs, event_type);
+      // Check the window against the caregiver's real tap time when the
+      // event was queued offline; otherwise against server time.
+      const checkNowMs = occurredAtMs ?? Date.now();
+      const windowResult = evaluateShiftWindow(checkNowMs, startMs, endMs, event_type);
       if (!windowResult.passed && !overrideReasonTrim) {
         const verb = event_type === "in" ? "clock in" : "clock out";
         const msg = windowResult.reason === "too_early"
@@ -250,20 +284,27 @@ Deno.serve(async (req: Request) => {
       }, 403);
     }
 
-    // Insert clock_events row.
+    // Insert clock_events row. `occurred_at` is only set explicitly for
+    // offline-synced events (otherwise the column default `now()` applies).
+    // `source` distinguishes a live tap from a late offline sync so office
+    // staff reviewing the audit log can see which is which.
+    const insertRow: Record<string, unknown> = {
+      shift_id: shift.id,
+      caregiver_id: caregiverId,
+      event_type,
+      latitude: lat,
+      longitude: lng,
+      accuracy_m: accuracy,
+      distance_from_client_m: distanceM,
+      geofence_passed: geofencePassed,
+      override_reason: overrideReasonTrim || null,
+      source: fromOutbox ? "offline_sync" : "caregiver_app",
+    };
+    if (occurredAtIso) insertRow.occurred_at = occurredAtIso;
+
     const { data: clockRow, error: insErr } = await admin
       .from("clock_events")
-      .insert({
-        shift_id: shift.id,
-        caregiver_id: caregiverId,
-        event_type,
-        latitude: lat,
-        longitude: lng,
-        accuracy_m: accuracy,
-        distance_from_client_m: distanceM,
-        geofence_passed: geofencePassed,
-        override_reason: overrideReasonTrim || null,
-      })
+      .insert(insertRow)
       .select("id, occurred_at")
       .single();
     if (insErr || !clockRow) {
@@ -276,6 +317,9 @@ Deno.serve(async (req: Request) => {
           error: event_type === "in"
             ? "You've already clocked in for this shift."
             : "You've already clocked out for this shift.",
+          // Signals the PWA outbox that this queued event is already
+          // recorded server-side and can be safely dropped from the queue.
+          code: "duplicate_event",
         }, 409);
       }
       return jsonResponse({ error: "Failed to record clock event." }, 500);
