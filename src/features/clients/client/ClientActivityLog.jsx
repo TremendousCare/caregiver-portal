@@ -109,7 +109,20 @@ export function ClientActivityLog({ client, currentUser, onAddNote }) {
         if (error || !data) {
           console.warn('RC fetch failed for client:', error);
           setRcData({ sms: [], calls: [] });
-          if (error) setRcError('Could not load external communication data.');
+          if (error) {
+            // A 429 from get-communications means RingCentral's per-extension
+            // rate-limit bucket is in penalty — the history is temporarily
+            // unreachable, NOT empty. Say so, rather than letting the empty
+            // state read as "no texts exist."
+            const isRateLimited =
+              error?.context?.status === 429 ||
+              /rate.?limit|429|CMN-301/i.test(error?.message || '');
+            setRcError(
+              isRateLimited
+                ? 'Communication history temporarily unavailable (rate limited). Try again shortly.'
+                : 'Could not load external communication data.'
+            );
+          }
         } else {
           setRcData({ sms: data.sms || [], calls: data.calls || [] });
         }
