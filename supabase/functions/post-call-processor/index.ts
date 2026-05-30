@@ -55,6 +55,7 @@ import {
 } from '../_shared/operations/agentRuntime/callContext.ts';
 import { persistCallAnalysis } from '../_shared/operations/agentRuntime/persistCallAnalysis.ts';
 import { getRingCentralAccessToken } from '../_shared/helpers/ringcentral.ts';
+import { isRateLimitError } from '../_shared/operations/rateLimit.ts';
 import {
   resolveTranscriptionProvider,
   transcribeRecording,
@@ -78,7 +79,18 @@ const corsHeaders = {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const BATCH_SIZE = 25;          // per cron tick
+// Per-tick batch size. Each transcript-pending row costs at least one
+// RingCentral "Heavy" API call (recording download for Whisper, or a
+// RingSense insights GET for native). RC caps the Heavy group at 10
+// requests / 60s per extension with a 60s penalty, and that same extension
+// also serves interactive get-communications reads. A batch of 25 on a
+// per-minute cron guaranteed we blew the ceiling every tick and parked the
+// bucket in perpetual penalty — which is exactly what blanked the lead
+// Messages tab. Keep the batch well under the Heavy ceiling so background
+// transcription leaves headroom for interactive reads. Paired with the
+// 5-minute cron cadence (migration 20260603100000), worst case is 5 Heavy
+// calls per 5 minutes from this worker.
+const BATCH_SIZE = 5;           // per cron tick — stay under RC Heavy 10/60s
 const MIN_AGE_SECONDS = 30;     // RC recording surface lag
 const RETRY_GIVEUP_HOURS = 24;  // stop trying after a day
 
@@ -106,7 +118,7 @@ interface PendingCallRow {
 
 interface ProcessResult {
   call_session_id: string;
-  outcome: 'transcribed' | 'note_attached' | 'no_match' | 'gave_up' | 'failed';
+  outcome: 'transcribed' | 'note_attached' | 'no_match' | 'gave_up' | 'failed' | 'rate_limited';
   error?: string;
 }
 
@@ -273,10 +285,20 @@ async function processOne(
     // NOT NULL`, which is the idempotency anchor advertised in the
     // 1.6.2 spec.
   } catch (err) {
+    const message = (err as Error).message || String(err);
+    // A 429 / CMN-301 means RC's shared per-extension bucket is in its
+    // penalty interval. The transcript is NOT lost — the row stays pending
+    // (transcript_fetched_at untouched) and a later tick retries. We surface
+    // this as its own outcome so the batch loop can STOP immediately rather
+    // than firing the rest of the batch into a bucket that will reject every
+    // one of them and extend the penalty.
+    if (isRateLimitError(err)) {
+      return { call_session_id: row.id, outcome: 'rate_limited', error: message };
+    }
     return {
       call_session_id: row.id,
       outcome: 'failed',
-      error: (err as Error).message || String(err),
+      error: message,
     };
   }
 }
@@ -503,7 +525,19 @@ Deno.serve(async (req) => {
       }
       if (transcriptionCtx) {
         for (const row of pending) {
-          results.push(await processOne(row, transcriptionCtx));
+          const result = await processOne(row, transcriptionCtx);
+          results.push(result);
+          // Circuit-breaker: the moment RC's per-extension bucket signals a
+          // rate-limit penalty, stop the batch. Every remaining row would
+          // hit the same in-penalty bucket and 429 too, which only prolongs
+          // the penalty and starves interactive reads. The unprocessed rows
+          // stay pending and the next (5-min-spaced) tick picks them up.
+          if (result.outcome === 'rate_limited') {
+            console.warn(
+              `[post-call-processor] RC rate limit hit; halting transcript batch after ${results.length}/${pending.length} rows. Remaining rows stay pending for the next tick.`,
+            );
+            break;
+          }
         }
       } else {
         for (const row of pending) {
@@ -538,6 +572,7 @@ Deno.serve(async (req) => {
           no_match: results.filter((r) => r.outcome === 'no_match').length,
           gave_up: results.filter((r) => r.outcome === 'gave_up').length,
           failed: results.filter((r) => r.outcome === 'failed').length,
+          rate_limited: results.filter((r) => r.outcome === 'rate_limited').length,
           analysed: analysisResults.filter((r) => r.analyst === 'analysed').length,
           shadow: analysisResults.filter((r) => r.analyst === 'shadow').length,
           analyst_killed: analysisResults.filter((r) => r.analyst === 'killed').length,
