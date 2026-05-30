@@ -72,11 +72,29 @@ export function useCaregiverSession() {
     }
     let cancelled = false;
 
+    // Safety net: getSession() reads through supabase-js's GoTrue lock. If
+    // that lock is ever wedged (a known hazard in standalone PWAs — see
+    // callCaregiverClock.js), the promise can hang forever and the app
+    // would sit on the loading spinner indefinitely. Bound the boot read
+    // so `loading` ALWAYS resolves: on timeout we proceed as signed-out,
+    // which shows the login screen instead of an infinite spinner.
+    const bootTimer = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 8_000);
+
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (cancelled) return;
       setSession(s);
       if (s?.user?.id) await loadLinked(s.user.id);
-      if (!cancelled) setLoading(false);
+      if (!cancelled) {
+        clearTimeout(bootTimer);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        clearTimeout(bootTimer);
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
@@ -101,6 +119,7 @@ export function useCaregiverSession() {
 
     return () => {
       cancelled = true;
+      clearTimeout(bootTimer);
       subscription?.unsubscribe?.();
     };
   }, [loadLinked]);
