@@ -79,11 +79,20 @@ export function useCaregiverSession() {
       if (!cancelled) setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       if (cancelled) return;
+      // IMPORTANT: do NOT await Supabase calls synchronously inside this
+      // callback. supabase-js holds an internal GoTrue lock while the
+      // callback runs; calling supabase.from()/functions.invoke()/etc.
+      // from here deadlocks that lock, which would hang updateUser()
+      // (change password) and signOut(). Defer the linked-record load to
+      // a microtask so the lock is released first.
       setSession(s);
       if (s?.user?.id) {
-        await loadLinked(s.user.id);
+        const uid = s.user.id;
+        setTimeout(() => {
+          if (!cancelled) loadLinked(uid);
+        }, 0);
       } else {
         setCaregiver(null);
         setLinkError(null);

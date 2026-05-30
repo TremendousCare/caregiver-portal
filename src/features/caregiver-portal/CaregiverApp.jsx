@@ -10,6 +10,7 @@ import { CaregiverChangePassword } from './CaregiverChangePassword';
 import { PwaPrompts } from './components/PwaPrompts';
 import { useClockSync } from './hooks/useClockSync';
 import { supabase } from '../../lib/supabase';
+import { signOutAndReload } from '../../lib/signOut';
 import s from './CaregiverPortal.module.css';
 
 export function CaregiverApp() {
@@ -77,14 +78,7 @@ export function CaregiverApp() {
               <button
                 type="button"
                 className={s.secondaryBtn}
-                onClick={async () => {
-                  try {
-                    await supabase.auth.signOut();
-                  } catch (e) {
-                    console.error('Sign out failed:', e);
-                  }
-                  window.location.reload();
-                }}
+                onClick={() => signOutAndReload()}
               >
                 Sign out
               </button>
