@@ -67,7 +67,7 @@ describe('taskClaimToCreateInput', () => {
       taskName: 'Assist with shower',
       description: 'Uses a shower chair',
       shifts: ['morning'],
-      daysOfWeek: ['Mon', 'Wed', 'Fri'],
+      daysOfWeek: [1, 3, 5], // Mon/Wed/Fri → integer day-of-week (int[] column)
       priority: 'critical',
       safetyNotes: 'Non-slip mat',
     });

@@ -96,3 +96,22 @@ export function buildVoiceTaskSchema(section) {
     priorities: [...TASK_PRIORITIES],
   };
 }
+
+
+/**
+ * Convert validated day NAMES (Sun..Sat) into the integer day-of-week
+ * indices the `care_plan_tasks.days_of_week` column stores (int[],
+ * 0=Sun..6=Sat). Unknown names are dropped; a non-array yields [].
+ *
+ * Both the AI extractor and the manual voice flow speak day NAMES, but
+ * the column is integer[] — inserting a name throws
+ * `invalid input syntax for type integer: "Mon"`. This is the single
+ * place the per-section voice apply path and the assessment-draft path
+ * convert before writing tasks.
+ */
+export function dayNamesToIndices(names) {
+  if (!Array.isArray(names)) return [];
+  return names
+    .map((n) => TASK_DAYS_OF_WEEK.indexOf(n))
+    .filter((i) => i >= 0);
+}

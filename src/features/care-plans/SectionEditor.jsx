@@ -13,6 +13,7 @@ import { TaskEditor } from './TaskEditor';
 import { createTask } from './storage';
 import { VoiceCaptureModal } from './voice/VoiceCaptureModal';
 import { sectionSupportsVoiceCapture } from './voice/voiceFieldSchema';
+import { dayNamesToIndices } from './voice/voiceTaskSchema';
 import btn from '../../styles/buttons.module.css';
 import s from './SectionEditor.module.css';
 
@@ -109,7 +110,7 @@ export function SectionEditor({
               shifts:      Array.isArray(draft.shifts) && draft.shifts.length > 0
                 ? draft.shifts
                 : ['all'],
-              daysOfWeek:  Array.isArray(draft.days_of_week) ? draft.days_of_week : [],
+              daysOfWeek:  dayNamesToIndices(draft.days_of_week),
               priority:    draft.priority || 'standard',
               safetyNotes: draft.safety_notes ?? null,
             },
