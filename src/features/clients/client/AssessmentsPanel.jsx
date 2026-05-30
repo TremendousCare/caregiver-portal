@@ -11,7 +11,7 @@ import {
   isLikelyAudio, formatAssessmentTimestamp, pickEmbeddedTranscription, formatElapsed,
   ASSESSMENT_MAX_RECORDING_SECONDS, MAX_UPLOAD_BYTES,
 } from '../../../lib/assessmentTranscript';
-import { describeDraftSummary } from '../../../lib/assessmentCarePlan';
+import { describeDraftOutcome } from '../../../lib/assessmentCarePlan';
 import { draftCarePlanFromAssessment } from '../../care-plans/voice/assessmentDraftClient';
 import cards from '../../../styles/cards.module.css';
 import btn from '../../../styles/buttons.module.css';
@@ -256,12 +256,12 @@ export function AssessmentsPanel({ client, currentUser, showToast, canDraftCareP
   async function handleDraftCarePlan(a) {
     setDraftingId(a.id);
     try {
-      const { summary } = await draftCarePlanFromAssessment({
+      const { applied, skipped } = await draftCarePlanFromAssessment({
         assessmentId: a.id,
         clientId: client.id,
         userId: currentUser?.email || currentUser?.displayName || 'unknown',
       });
-      showToast?.(describeDraftSummary(summary));
+      showToast?.(describeDraftOutcome({ applied, skipped }));
       onCarePlanDrafted?.();
     } catch (err) {
       showToast?.(err.message || 'Could not draft care plan.');

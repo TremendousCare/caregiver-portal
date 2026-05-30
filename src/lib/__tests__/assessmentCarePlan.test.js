@@ -6,6 +6,7 @@ import {
   taskClaimToCreateInput,
   summarizeDraftResult,
   describeDraftSummary,
+  describeDraftOutcome,
 } from '../assessmentCarePlan';
 
 describe('eligibleAssessmentSections', () => {
@@ -102,5 +103,60 @@ describe('summarizeDraftResult / describeDraftSummary', () => {
   it('describes an empty result', () => {
     expect(describeDraftSummary({ sectionsWithContent: 0, fields: 0, tasks: 0 }))
       .toBe('No new care-plan details were found in this assessment.');
+  });
+});
+
+describe('describeDraftOutcome', () => {
+  it('reports a clean apply with no skips (no failure clause)', () => {
+    const msg = describeDraftOutcome({
+      applied: { sections: 2, fields: 3, tasks: 1 },
+      skipped: [],
+    });
+    expect(msg).toBe('Draft updated with 3 fields and 1 task across 2 sections.');
+    expect(msg).not.toMatch(/couldn't/);
+  });
+
+  it('names skipped items specifically and loudly', () => {
+    const msg = describeDraftOutcome({
+      applied: { sections: 5, fields: 34, tasks: 9 },
+      skipped: [
+        { label: 'Assist with shower (dailyLiving)', reason: 'x' },
+        { label: 'Drive to appointment (homeAndLife)', reason: 'y' },
+      ],
+    });
+    expect(msg).toContain('Draft updated with 34 fields and 9 tasks across 5 sections.');
+    expect(msg).toContain("2 items couldn't be applied automatically");
+    expect(msg).toContain('Assist with shower (dailyLiving)');
+    expect(msg).toContain('add them manually');
+  });
+
+  it('truncates a long skip list to 3 names + "and N more"', () => {
+    const skipped = ['a', 'b', 'c', 'd', 'e'].map((label) => ({ label, reason: 'r' }));
+    const msg = describeDraftOutcome({ applied: { sections: 1, fields: 1, tasks: 0 }, skipped });
+    expect(msg).toContain('(a, b, c and 2 more)');
+  });
+
+  it('uses singular phrasing for a single skipped item', () => {
+    const msg = describeDraftOutcome({
+      applied: { sections: 1, fields: 2, tasks: 0 },
+      skipped: [{ label: 'Tidy kitchen (homeAndLife)', reason: 'r' }],
+    });
+    expect(msg).toContain("1 item couldn't be applied automatically");
+  });
+
+  it('handles nothing-applied-but-some-skipped distinctly from nothing-found', () => {
+    expect(describeDraftOutcome({ applied: { sections: 0, fields: 0, tasks: 0 }, skipped: [] }))
+      .toBe('No new care-plan details were found in this assessment.');
+    const allFailed = describeDraftOutcome({
+      applied: { sections: 0, fields: 0, tasks: 0 },
+      skipped: [{ label: 'Task A', reason: 'r' }],
+    });
+    expect(allFailed).toContain('No care-plan details could be applied');
+    expect(allFailed).toContain("1 item couldn't be applied");
+  });
+
+  it('tolerates missing/empty input', () => {
+    expect(describeDraftOutcome()).toBe('No new care-plan details were found in this assessment.');
+    expect(describeDraftOutcome({})).toBe('No new care-plan details were found in this assessment.');
   });
 });

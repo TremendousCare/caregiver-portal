@@ -118,20 +118,52 @@ export async function draftCarePlanFromAssessment({ assessmentId, clientId, user
 
   const { carePlanId, versionId } = await ensureDraftVersion(clientId, existing, userId);
 
+  // Item-isolated apply: every section write and every task insert runs in
+  // its own try/catch so one bad item (e.g. data Postgres rejects) can
+  // never abort the rest of the draft. Failures are collected and reported,
+  // not swallowed — a silently dropped clinical task would be worse than a
+  // visible error, so the toast names what didn't apply.
+  const applied = { sections: 0, fields: 0, tasks: 0 };
+  const skipped = []; // [{ label, reason }]
+
   for (const section of result.sections || []) {
     if (!section.ok) continue;
+
     const patch = claimsToFieldPatch(section.extracted);
-    if (Object.keys(patch).length > 0) {
-      await saveDraft(versionId, section.sectionId, patch, { userId });
+    const fieldCount = Object.keys(patch).length;
+    if (fieldCount > 0) {
+      try {
+        await saveDraft(versionId, section.sectionId, patch, { userId });
+        applied.sections += 1;
+        applied.fields += fieldCount;
+      } catch (e) {
+        skipped.push({
+          label: `${section.sectionId} section (${fieldCount} field${fieldCount === 1 ? '' : 's'})`,
+          reason: e?.message || 'save failed',
+        });
+      }
     }
+
     for (const taskClaim of section.proposedTasks || []) {
-      await createTask(versionId, taskClaimToCreateInput(taskClaim), { userId });
+      const taskName = taskClaim?.task_name || 'task';
+      try {
+        await createTask(versionId, taskClaimToCreateInput(taskClaim), { userId });
+        applied.tasks += 1;
+      } catch (e) {
+        skipped.push({
+          label: `${taskName} (${section.sectionId})`,
+          reason: e?.message || 'create failed',
+        });
+      }
     }
   }
 
   return {
     carePlanId,
     versionId,
+    applied,
+    skipped,
+    // Kept for back-compat with existing callers/tests.
     summary: summarizeDraftResult(result.sections),
     costUsd: result.costUsd ?? null,
   };
