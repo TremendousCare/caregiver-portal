@@ -9,6 +9,8 @@ import {
   isLikelyAudio,
   formatAssessmentTimestamp,
   pickEmbeddedTranscription,
+  formatElapsed,
+  ASSESSMENT_MAX_RECORDING_SECONDS,
 } from '../assessmentTranscript';
 
 describe('statusMeta', () => {
@@ -113,6 +115,32 @@ describe('isLikelyAudio', () => {
   it('rejects non-audio', () => {
     expect(isLikelyAudio({ type: 'application/pdf', name: 'doc.pdf' })).toBe(false);
     expect(isLikelyAudio(null)).toBe(false);
+  });
+});
+
+describe('formatElapsed', () => {
+  it('uses m:ss under an hour', () => {
+    expect(formatElapsed(0)).toBe('0:00');
+    expect(formatElapsed(7)).toBe('0:07');
+    expect(formatElapsed(83)).toBe('1:23');
+    expect(formatElapsed(3599)).toBe('59:59');
+  });
+  it('uses h:mm:ss at/over an hour', () => {
+    expect(formatElapsed(3600)).toBe('1:00:00');
+    expect(formatElapsed(3800)).toBe('1:03:20'); // the "63:20" case, fixed
+    expect(formatElapsed(3 * 3600 + 5 * 60 + 9)).toBe('3:05:09');
+  });
+  it('tolerates bad input', () => {
+    expect(formatElapsed(-5)).toBe('0:00');
+    expect(formatElapsed(NaN)).toBe('0:00');
+    expect(formatElapsed(undefined)).toBe('0:00');
+  });
+});
+
+describe('ASSESSMENT_MAX_RECORDING_SECONDS', () => {
+  it('is a 3-hour safety cap, far above a typical hour-long visit', () => {
+    expect(ASSESSMENT_MAX_RECORDING_SECONDS).toBe(10800);
+    expect(ASSESSMENT_MAX_RECORDING_SECONDS).toBeGreaterThan(60 * 60);
   });
 });
 
