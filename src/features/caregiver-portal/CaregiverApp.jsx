@@ -5,6 +5,7 @@ import { CaregiverLogin } from './CaregiverLogin';
 import { CaregiverSetPassword } from './CaregiverSetPassword';
 import { CaregiverShifts } from './CaregiverShifts';
 import { CaregiverShiftDetail } from './CaregiverShiftDetail';
+import { PwaPrompts } from './components/PwaPrompts';
 import { supabase } from '../../lib/supabase';
 import s from './CaregiverPortal.module.css';
 
@@ -23,71 +24,83 @@ export function CaregiverApp() {
     return () => subscription?.unsubscribe?.();
   }, []);
 
-  if (loading) {
-    return (
-      <div className={s.centered}>
-        <div className={s.spinner} aria-label="Loading" />
-      </div>
-    );
-  }
+  // The PWA prompts (offline strip, update + install toasts) render across
+  // every state — including the login screen — so the service worker
+  // registers and the shell caches before the caregiver even signs in.
+  function renderBody() {
+    if (loading) {
+      return (
+        <div className={s.centered}>
+          <div className={s.spinner} aria-label="Loading" />
+        </div>
+      );
+    }
 
-  if (!session) {
-    return <CaregiverLogin />;
-  }
+    if (!session) {
+      return <CaregiverLogin />;
+    }
 
-  if (recoveringPassword) {
-    return <CaregiverSetPassword onDone={() => setRecoveringPassword(false)} />;
-  }
+    if (recoveringPassword) {
+      return <CaregiverSetPassword onDone={() => setRecoveringPassword(false)} />;
+    }
 
-  // Authed but not linked to a caregiver record (rare — usually only
-  // if an admin hasn't added the caregiver yet, or the email doesn't
-  // match). Show a clear message so the caregiver knows to call in.
-  if (!caregiver) {
-    return (
-      <div className={s.centered}>
-        <div className={s.card}>
-          <h1 className={s.title}>Welcome</h1>
-          <p className={s.muted}>
-            You&rsquo;re signed in, but we couldn&rsquo;t find a caregiver record linked to{' '}
-            <strong>{session.user?.email}</strong>.
-          </p>
-          {linkError && <p className={s.error}>{linkError}</p>}
-          <p className={s.muted}>
-            Please contact your coordinator so they can link your account.
-          </p>
-          <div className={s.row}>
-            <button
-              type="button"
-              className={s.secondaryBtn}
-              onClick={refresh}
-            >
-              Try again
-            </button>
-            <button
-              type="button"
-              className={s.secondaryBtn}
-              onClick={async () => {
-                try {
-                  await supabase.auth.signOut();
-                } catch (e) {
-                  console.error('Sign out failed:', e);
-                }
-                window.location.reload();
-              }}
-            >
-              Sign out
-            </button>
+    // Authed but not linked to a caregiver record (rare — usually only
+    // if an admin hasn't added the caregiver yet, or the email doesn't
+    // match). Show a clear message so the caregiver knows to call in.
+    if (!caregiver) {
+      return (
+        <div className={s.centered}>
+          <div className={s.card}>
+            <h1 className={s.title}>Welcome</h1>
+            <p className={s.muted}>
+              You&rsquo;re signed in, but we couldn&rsquo;t find a caregiver record linked to{' '}
+              <strong>{session.user?.email}</strong>.
+            </p>
+            {linkError && <p className={s.error}>{linkError}</p>}
+            <p className={s.muted}>
+              Please contact your coordinator so they can link your account.
+            </p>
+            <div className={s.row}>
+              <button
+                type="button"
+                className={s.secondaryBtn}
+                onClick={refresh}
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                className={s.secondaryBtn}
+                onClick={async () => {
+                  try {
+                    await supabase.auth.signOut();
+                  } catch (e) {
+                    console.error('Sign out failed:', e);
+                  }
+                  window.location.reload();
+                }}
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      );
+    }
+
+    return (
+      <Routes>
+        <Route path="/care" element={<CaregiverShifts caregiver={caregiver} />} />
+        <Route path="/care/shifts/:shiftId" element={<CaregiverShiftDetail caregiver={caregiver} />} />
+        <Route path="/care/*" element={<Navigate to="/care" replace />} />
+      </Routes>
     );
   }
 
   return (
-    <Routes>
-      <Route path="/care" element={<CaregiverShifts caregiver={caregiver} />} />
-      <Route path="/care/shifts/:shiftId" element={<CaregiverShiftDetail caregiver={caregiver} />} />
-      <Route path="/care/*" element={<Navigate to="/care" replace />} />
-    </Routes>
+    <>
+      <PwaPrompts />
+      {renderBody()}
+    </>
   );
 }
