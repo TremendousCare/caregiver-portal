@@ -13,11 +13,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const MIGRATION_PATH = join(
   __dirname,
-  '../../../supabase/migrations/20260603000000_quickbooks_token_refresh_cron.sql',
+  '../../../supabase/migrations/20260603010000_quickbooks_token_refresh_cron.sql',
 );
 const ROLLBACK_PATH = join(
   __dirname,
-  '../../../supabase/migrations/_rollback/20260603000000_quickbooks_token_refresh_cron_down.sql',
+  '../../../supabase/migrations/_rollback/20260603010000_quickbooks_token_refresh_cron_down.sql',
 );
 
 const sql = readFileSync(MIGRATION_PATH, 'utf-8');
