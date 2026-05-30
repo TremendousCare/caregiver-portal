@@ -446,3 +446,38 @@
   border-radius: 8px;
   margin-bottom: 12px;
 }
+
+/* ─── Shift-reminder opt-in card ─── */
+.reminderCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #FFFFFF;
+  border: 1px solid #D7DCE4;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.06);
+}
+.reminderIcon {
+  flex: none;
+  color: #2E4E8D;
+  margin-top: 2px;
+}
+.reminderBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.reminderTitle {
+  font-size: 15px;
+  font-weight: 700;
+}
+.reminderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}

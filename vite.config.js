@@ -24,6 +24,9 @@ export default defineConfig({
       injectRegister: false,
       filename: 'sw.js',
       workbox: {
+        // Pull in the push / notificationclick handlers (Web Push for
+        // shift reminders). Plain script imported into the generated SW.
+        importScripts: ['push-sw.js'],
         // Precache only the navigation shell. We deliberately do NOT
         // precache the whole bundle — caregivers shouldn't download the
         // heavy admin chunks. JS/CSS chunks are runtime-cached on first
