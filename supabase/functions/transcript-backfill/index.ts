@@ -33,7 +33,7 @@
 // ─────────────────────────────────────────────────────────────────
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { getRingCentralAccessToken } from '../_shared/helpers/ringcentral.ts';
+import { getRingCentralAccessToken, isRateLimitError } from '../_shared/helpers/ringcentral.ts';
 import {
   resolveTranscriptionProvider,
   transcribeRecording,
@@ -190,7 +190,12 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const daysBack = Math.max(1, Number(body.days_back) || DEFAULT_DAYS_BACK);
-    const limit = Math.min(MAX_LIMIT, Math.max(1, Number(body.limit) || DEFAULT_LIMIT));
+    // recording/content is in RingCentral's "Heavy" rate-limit group
+    // (10 req / 60s, 60s penalty). Cap each invocation to a single safe
+    // sub-limit batch (8) so a large body.limit can't burst past the limit
+    // and re-ignite the 429 storm; invoke repeatedly to drain a big backlog
+    // (the per-minute cron also drains it safely on its own).
+    const limit = Math.min(8, MAX_LIMIT, Math.max(1, Number(body.limit) || DEFAULT_LIMIT));
     const dryRun = body.dry_run === true;
 
     const remaining = await countRemaining(daysBack);
@@ -227,7 +232,15 @@ Deno.serve(async (req) => {
           row.org_id === batch[0].org_id
             ? provider
             : await resolveTranscriptionProvider(supabase, row.org_id);
-        results.push(await processRow(row, rcAccessToken, p));
+        const result = await processRow(row, rcAccessToken, p);
+        results.push(result);
+        // Stop immediately if RingCentral throttles us (Heavy group). Every
+        // further request just re-arms the 60s penalty; already-processed
+        // rows are saved, the rest stay pending for a later run or the cron.
+        if (result.outcome === 'failed' && isRateLimitError(result.error)) {
+          console.warn('[transcript-backfill] RingCentral rate limit hit; aborting run');
+          break;
+        }
       }
     }
 

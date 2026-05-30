@@ -234,6 +234,23 @@ export async function getRingCentralAccessTokenWithJwt(
   return work;
 }
 
+// Detect whether an error (or error message) is a RingCentral rate-limit
+// rejection — HTTP 429, error code CMN-301 ("Request rate exceeded"), or a
+// "rate limit/exceeded" phrase. Callers driving batched RC API calls (the
+// post-call-processor cron, the transcript-backfill tool) use this to STOP
+// hammering the moment they're throttled: every further request inside the
+// penalty window just re-arms RingCentral's 60s penalty, which is exactly
+// the loop that kept recording/content pinned at a ~88% error rate and
+// blocked transcription from draining.
+export function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return (
+    /\b429\b/.test(msg) ||
+    /CMN-301/i.test(msg) ||
+    /rate.{0,3}(limit|exceed)/i.test(msg)
+  );
+}
+
 /**
  * Resolve the sending phone number + JWT pair for an SMS send based on an
  * optional `category`. This mirrors the logic in bulk-sms/index.ts so all

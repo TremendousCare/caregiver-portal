@@ -54,7 +54,7 @@ import {
   fetchCallEntityIdentity,
 } from '../_shared/operations/agentRuntime/callContext.ts';
 import { persistCallAnalysis } from '../_shared/operations/agentRuntime/persistCallAnalysis.ts';
-import { getRingCentralAccessToken } from '../_shared/helpers/ringcentral.ts';
+import { getRingCentralAccessToken, isRateLimitError } from '../_shared/helpers/ringcentral.ts';
 import {
   resolveTranscriptionProvider,
   transcribeRecording,
@@ -78,7 +78,17 @@ const corsHeaders = {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const BATCH_SIZE = 25;          // per cron tick
+const BATCH_SIZE = 25;          // per cron tick (analysis pool)
+// Transcript pool batch is smaller than the analysis pool because each row
+// triggers a RingCentral recording/content download — the "Heavy" rate-limit
+// group (10 requests / 60s, 60s penalty). The cron fires every 60s, so a
+// batch at/above 10 trips the penalty and, because the next tick re-fires
+// inside the penalty window, pins the endpoint in a permanent 429 loop (the
+// 2026-05-29 incident: ~8,400 recording/content calls/day, almost all 429,
+// nothing draining). 8 keeps us safely under the limit so downloads succeed
+// and the backlog drains. At 8/tick the cron clears ~480 recordings/hour,
+// far more than real call volume needs.
+const TRANSCRIPT_BATCH_SIZE = 8;
 const MIN_AGE_SECONDS = 30;     // RC recording surface lag
 const RETRY_GIVEUP_HOURS = 24;  // stop trying after a day
 
@@ -132,7 +142,7 @@ async function fetchPending(): Promise<PendingCallRow[]> {
     .is('transcript_fetched_at', null)
     .lte('ended_at', cutoff)
     .order('ended_at', { ascending: true })
-    .limit(BATCH_SIZE);
+    .limit(TRANSCRIPT_BATCH_SIZE);
   if (error) {
     throw new Error(`Failed to load pending call_sessions: ${error.message}`);
   }
@@ -503,7 +513,20 @@ Deno.serve(async (req) => {
       }
       if (transcriptionCtx) {
         for (const row of pending) {
-          results.push(await processOne(row, transcriptionCtx));
+          const result = await processOne(row, transcriptionCtx);
+          results.push(result);
+          // RingCentral is throttling us (recording/content is in the Heavy
+          // group, 10/60s). Stop the tick the moment we're throttled: every
+          // further request inside the 60s penalty window just re-arms the
+          // penalty and keeps the backlog from draining. Un-attempted rows
+          // stay pending (transcript_fetched_at untouched) and retry on the
+          // next tick, by which point the penalty has cleared.
+          if (isRateLimitError(result.error)) {
+            console.warn(
+              '[post-call-processor] RingCentral rate limit hit; backing off for this tick',
+            );
+            break;
+          }
         }
       } else {
         for (const row of pending) {
