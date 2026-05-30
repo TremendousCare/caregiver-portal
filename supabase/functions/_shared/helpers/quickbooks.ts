@@ -183,3 +183,76 @@ export async function refreshAccessToken(opts: {
   }
   return parseTokenResponse(await resp.json());
 }
+
+// ─── Refresh-cron decision helper ──────────────────────────────────
+//
+// Pure function used by the quickbooks-token-refresh edge function
+// (PR #3) to decide what to do with a single connection per tick.
+// Separated from the edge function so the policy is unit-testable
+// without spinning up a fake Intuit + service-role-client harness.
+//
+// Policy:
+//   • status='reauth_required' → skip (until owner reconnects, no
+//     amount of cron work will fix it).
+//   • refresh_token_expires_at already passed → mark_reauth_required
+//     (refresh fails with 401 anyway; we save the call and surface
+//     the state in the UI).
+//   • access_token_expires_at within REFRESH_WINDOW_MS of now →
+//     refresh. The window is wider than one cron tick so a single
+//     failed tick can be retried before the access token actually
+//     expires.
+//   • otherwise → skip (token is still fresh).
+//
+// Note: we deliberately DO try to refresh when status='error' —
+// transient Intuit / network failures should self-heal on the next
+// tick. Only 'reauth_required' is sticky.
+
+/** How early before access-token expiry the cron will refresh. */
+export const REFRESH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+export type RefreshableConnection = {
+  status: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string;
+};
+
+export type RefreshDecision =
+  | { action: "skip"; reason: string }
+  | { action: "refresh" }
+  | { action: "mark_reauth_required"; reason: string };
+
+export function decideRefreshAction(
+  connection: RefreshableConnection,
+  nowMs: number = Date.now(),
+): RefreshDecision {
+  if (connection.status === "reauth_required") {
+    return { action: "skip", reason: "Connection already flagged reauth_required" };
+  }
+
+  const refreshExpMs = Date.parse(connection.refresh_token_expires_at);
+  if (Number.isNaN(refreshExpMs)) {
+    return {
+      action: "mark_reauth_required",
+      reason: "refresh_token_expires_at is unparseable",
+    };
+  }
+  if (refreshExpMs <= nowMs) {
+    return {
+      action: "mark_reauth_required",
+      reason: `Refresh token expired at ${connection.refresh_token_expires_at}`,
+    };
+  }
+
+  const accessExpMs = Date.parse(connection.access_token_expires_at);
+  if (Number.isNaN(accessExpMs)) {
+    // Treat an unparseable access expiry as "refresh now" — safer
+    // than skipping forever.
+    return { action: "refresh" };
+  }
+  if (accessExpMs - nowMs <= REFRESH_WINDOW_MS) {
+    return { action: "refresh" };
+  }
+
+  return { action: "skip", reason: "Access token still fresh" };
+}
+
