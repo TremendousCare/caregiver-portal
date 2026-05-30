@@ -26,7 +26,7 @@ export function PwaPrompts() {
       {!online && (
         <div className={s.offlineStrip} role="status">
           <WifiOff size={15} aria-hidden="true" />
-          <span>You&rsquo;re offline — some actions may not work until you reconnect.</span>
+          <span>You&rsquo;re offline — clock in/out is saved on your device and syncs when you reconnect.</span>
         </div>
       )}
 

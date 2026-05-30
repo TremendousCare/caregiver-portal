@@ -388,3 +388,61 @@
   padding: 2px;
   line-height: 0;
 }
+
+/* ─── Offline / queued-sync indicators (shift detail + list) ─── */
+
+.cacheNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFF7EC;
+  color: #8A4B00;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.queuedBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #EAF4FB;
+  color: #2E4E8D;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+.pendingTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8A4B00;
+  background: #FFF7EC;
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+
+/* Small pending-sync pill for the shifts list header. */
+.syncBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2E4E8D;
+  background: #EAF4FB;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
