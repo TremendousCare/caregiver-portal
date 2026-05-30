@@ -6,12 +6,16 @@ import { CaregiverSetPassword } from './CaregiverSetPassword';
 import { CaregiverShifts } from './CaregiverShifts';
 import { CaregiverShiftDetail } from './CaregiverShiftDetail';
 import { PwaPrompts } from './components/PwaPrompts';
+import { useClockSync } from './hooks/useClockSync';
 import { supabase } from '../../lib/supabase';
 import s from './CaregiverPortal.module.css';
 
 export function CaregiverApp() {
   const { loading, session, caregiver, linkError, refresh } = useCaregiverSession();
   const [recoveringPassword, setRecoveringPassword] = useState(false);
+
+  // Drain any clock events queued offline whenever we have connectivity.
+  useClockSync();
 
   // Supabase fires PASSWORD_RECOVERY when the caregiver clicks a
   // reset link from their email. We gate the app on a "set new
