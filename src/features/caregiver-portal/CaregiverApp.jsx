@@ -5,6 +5,8 @@ import { CaregiverLogin } from './CaregiverLogin';
 import { CaregiverSetPassword } from './CaregiverSetPassword';
 import { CaregiverShifts } from './CaregiverShifts';
 import { CaregiverShiftDetail } from './CaregiverShiftDetail';
+import { CaregiverHistory } from './CaregiverHistory';
+import { CaregiverChangePassword } from './CaregiverChangePassword';
 import { PwaPrompts } from './components/PwaPrompts';
 import { useClockSync } from './hooks/useClockSync';
 import { supabase } from '../../lib/supabase';
@@ -95,6 +97,8 @@ export function CaregiverApp() {
     return (
       <Routes>
         <Route path="/care" element={<CaregiverShifts caregiver={caregiver} />} />
+        <Route path="/care/history" element={<CaregiverHistory caregiver={caregiver} />} />
+        <Route path="/care/password" element={<CaregiverChangePassword />} />
         <Route path="/care/shifts/:shiftId" element={<CaregiverShiftDetail caregiver={caregiver} />} />
         <Route path="/care/*" element={<Navigate to="/care" replace />} />
       </Routes>

@@ -446,3 +446,71 @@
   border-radius: 8px;
   margin-bottom: 12px;
 }
+
+/* ─── Shift-reminder opt-in card ─── */
+.reminderCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #FFFFFF;
+  border: 1px solid #D7DCE4;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(46, 78, 141, 0.06);
+}
+.reminderIcon {
+  flex: none;
+  color: #2E4E8D;
+  margin-top: 2px;
+}
+.reminderBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.reminderTitle {
+  font-size: 15px;
+  font-weight: 700;
+}
+.reminderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ─── Shift history ─── */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.historyGroup {
+  margin-bottom: 16px;
+}
+.historyDay {
+  font-size: 14px;
+  font-weight: 700;
+  color: #6B7B8F;
+  margin: 0 0 8px;
+  text-transform: none;
+}
+
+/* Vertical form layout (set-password / change-password screens). */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Low-priority account links pinned below the shift list. */
+.footerLinks {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #E6EAF0;
+  display: flex;
+  justify-content: center;
+}

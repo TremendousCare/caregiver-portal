@@ -10,6 +10,7 @@ import {
 } from '../../lib/offline/clockSyncClient';
 import { effectiveShiftStatus } from '../../lib/offline/pendingStatus';
 import { usePendingClockCount } from './hooks/useClockSync';
+import { PushReminderCard } from './components/PushReminderCard';
 import s from './CaregiverPortal.module.css';
 
 // Formatters are defined at module scope so we don't re-create them
@@ -139,20 +140,23 @@ export function CaregiverShifts({ caregiver }) {
           <div className={s.muted}>Hi, {caregiver.first_name || 'there'}</div>
           <h1 className={s.pageTitle}>Your shifts</h1>
         </div>
-        <button
-          type="button"
-          className={s.linkBtn}
-          onClick={async () => {
-            try {
-              await supabase.auth.signOut();
-            } catch (e) {
-              console.error('Sign out failed:', e);
-            }
-            window.location.reload();
-          }}
-        >
-          Sign out
-        </button>
+        <div className={s.headerActions}>
+          <Link className={s.linkBtn} to="/care/history">History</Link>
+          <button
+            type="button"
+            className={s.linkBtn}
+            onClick={async () => {
+              try {
+                await supabase.auth.signOut();
+              } catch (e) {
+                console.error('Sign out failed:', e);
+              }
+              window.location.reload();
+            }}
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       {pendingCount > 0 && (
@@ -164,6 +168,8 @@ export function CaregiverShifts({ caregiver }) {
           </span>
         </div>
       )}
+
+      <PushReminderCard caregiver={caregiver} />
 
       {usingCache && (
         <div className={s.cacheNotice} role="status">
@@ -211,6 +217,10 @@ export function CaregiverShifts({ caregiver }) {
           })}
         </ul>
       )}
+
+      <nav className={s.footerLinks}>
+        <Link className={s.linkBtn} to="/care/password">Change password</Link>
+      </nav>
     </div>
   );
 }

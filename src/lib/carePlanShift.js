@@ -17,6 +17,12 @@ import {
   getTasksForVersion,
 } from '../features/care-plans/storage';
 import { loadActiveSystemDefaults, isSystemDefaultTask } from './systemDefaultTasks';
+import {
+  submitObservation,
+  carePlanCache,
+  listPendingObservations,
+  isOnline,
+} from './offline/observationSync';
 
 // ─── Observation mapper ───────────────────────────────────────
 // camelCase for the app, snake_case for the DB. The mapper is forgiving
@@ -26,6 +32,9 @@ export function dbToObservation(row) {
   if (!row) return null;
   return {
     id: row.id,
+    // Client-generated idempotency key (offline logging). Null on older
+    // rows and any non-PWA writer.
+    clientObsId: row.client_obs_id ?? null,
     carePlanId: row.care_plan_id,
     versionId: row.version_id,
     taskId: row.task_id ?? null,
@@ -66,34 +75,76 @@ export async function loadCarePlanForShift(shift) {
     return { plan: null, version: null, tasks: [], observations: [] };
   }
 
-  // 1. Plan + current version.
-  const planRes = await getCarePlanForClient(clientId);
-  if (!planRes || !planRes.plan) {
-    return { plan: null, version: null, tasks: [], observations: [] };
+  // Offline: serve the cached care plan (written on a prior online load)
+  // so the checklist still renders, and surface anything queued locally.
+  if (!isOnline()) {
+    const cached = await carePlanCache.get(shiftId);
+    return mergePendingObservations(fromCache(cached), shiftId);
   }
-  const { plan, currentVersion } = planRes;
 
-  // 2. Tasks for the current version (empty array if no published
-  //    version). Then union the org-wide system defaults (caregiver
-  //    break, lunch, hand hygiene — migration 20260524000000) so they
-  //    appear on every shift's checklist regardless of the client's
-  //    plan. System defaults are skipped when there is no published
-  //    version: an observation requires a non-null version_id, so
-  //    we can't accept completions without one.
-  const planTasks = currentVersion
-    ? await getTasksForVersion(currentVersion.id)
-    : [];
-  const systemDefaults = currentVersion
-    ? await loadActiveSystemDefaults()
-    : [];
-  const tasks = [...planTasks, ...systemDefaults];
+  try {
+    // 1. Plan + current version.
+    const planRes = await getCarePlanForClient(clientId);
+    if (!planRes || !planRes.plan) {
+      const empty = { plan: null, version: null, tasks: [], observations: [] };
+      await carePlanCache.put(shiftId, empty);
+      return mergePendingObservations(empty, shiftId);
+    }
+    const { plan, currentVersion } = planRes;
 
-  // 3. This caregiver's observations on this shift. The PWA only ever
-  // sees its own caregiver_id thanks to RLS, but we filter here too
-  // for clarity and to keep the result tight.
-  const observations = await loadObservationsForShift(shiftId);
+    // 2. Tasks for the current version (empty array if no published
+    //    version). Then union the org-wide system defaults (caregiver
+    //    break, lunch, hand hygiene — migration 20260524000000) so they
+    //    appear on every shift's checklist regardless of the client's
+    //    plan. System defaults are skipped when there is no published
+    //    version: an observation requires a non-null version_id, so
+    //    we can't accept completions without one.
+    const planTasks = currentVersion
+      ? await getTasksForVersion(currentVersion.id)
+      : [];
+    const systemDefaults = currentVersion
+      ? await loadActiveSystemDefaults()
+      : [];
+    const tasks = [...planTasks, ...systemDefaults];
 
-  return { plan, version: currentVersion, tasks, observations };
+    // 3. This caregiver's observations on this shift. The PWA only ever
+    // sees its own caregiver_id thanks to RLS, but we filter here too
+    // for clarity and to keep the result tight.
+    const observations = await loadObservationsForShift(shiftId);
+
+    const result = { plan, version: currentVersion, tasks, observations };
+    // Write through to the offline cache for the next no-signal visit.
+    await carePlanCache.put(shiftId, result);
+    return mergePendingObservations(result, shiftId);
+  } catch (err) {
+    // A query failed mid-load (flaky connectivity): fall back to cache.
+    const cached = await carePlanCache.get(shiftId);
+    if (cached) return mergePendingObservations(fromCache(cached), shiftId);
+    throw err;
+  }
+}
+
+// Normalize a cached record (or null) into the loadCarePlanForShift shape.
+function fromCache(cached) {
+  return {
+    plan: cached?.plan ?? null,
+    version: cached?.version ?? null,
+    tasks: cached?.tasks ?? [],
+    observations: cached?.observations ?? [],
+  };
+}
+
+// Append observations still queued in the offline outbox so the checklist
+// reflects them immediately, de-duped against any already loaded.
+async function mergePendingObservations(result, shiftId) {
+  if (!shiftId) return result;
+  const pending = await listPendingObservations(shiftId);
+  if (pending.length === 0) return result;
+  const seen = new Set(
+    (result.observations || []).map((o) => o.clientObsId).filter(Boolean),
+  );
+  const extra = pending.filter((p) => p.clientObsId && !seen.has(p.clientObsId));
+  return { ...result, observations: [...(result.observations || []), ...extra] };
 }
 
 async function loadObservationsForShift(shiftId) {
@@ -120,13 +171,13 @@ async function loadObservationsForShift(shiftId) {
 
 async function insertObservation(row) {
   if (!isSupabaseConfigured()) return null;
-  const { data, error } = await supabase
-    .from('care_plan_observations')
-    .insert(row)
-    .select()
-    .single();
-  if (error) throw error;
-  return dbToObservation(data);
+  // Stamp an idempotency key, then submit online-or-queue. submitObservation
+  // inserts when connected and otherwise enqueues for sync on reconnect.
+  const withId = { client_obs_id: row.client_obs_id || crypto.randomUUID(), ...row };
+  const { row: saved, queued } = await submitObservation(withId);
+  const obs = dbToObservation(saved);
+  if (obs && queued) obs.pending = true;
+  return obs;
 }
 
 /**

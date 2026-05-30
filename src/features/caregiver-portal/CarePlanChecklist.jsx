@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { UploadCloud } from 'lucide-react';
 import {
   loadCarePlanForShift,
   logTaskObservation,
@@ -8,6 +9,7 @@ import {
   pickLatestShiftNote,
   listRefusals,
 } from '../../lib/carePlanShift';
+import { onObservationsChanged } from '../../lib/offline/observationSync';
 import { isSystemDefaultTask } from '../../lib/systemDefaultTasks';
 import {
   filterTasksForShift,
@@ -80,6 +82,16 @@ export function CarePlanChecklist({ shift, caregiver }) {
   }, [shift]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Reload when queued observations sync so pending placeholders are
+  // replaced by the saved rows.
+  useEffect(() => onObservationsChanged(refresh), [refresh]);
+
+  // Count of observations still queued offline (for the sync indicator).
+  const pendingCount = useMemo(
+    () => (data.observations || []).filter((o) => o.pending).length,
+    [data.observations],
+  );
 
   // Derived: tasks for this shift, grouped by category.
   const groupedTasks = useMemo(() => {
@@ -292,6 +304,12 @@ export function CarePlanChecklist({ shift, caregiver }) {
           </div>
         )}
         {errorMsg && <div className={s.errorBanner}>{errorMsg}</div>}
+        {pendingCount > 0 && (
+          <div className={s.helperBanner} role="status">
+            <UploadCloud size={14} aria-hidden="true" style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            {pendingCount} {pendingCount === 1 ? 'entry' : 'entries'} saved on your device — syncing when you reconnect.
+          </div>
+        )}
 
         {groupedTasks.map(({ category, tasks }) => (
           <div key={category} className={s.categoryGroup}>

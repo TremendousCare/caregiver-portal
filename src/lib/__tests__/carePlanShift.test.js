@@ -563,7 +563,7 @@ describe('dbToObservation', () => {
       created_at: 'c1', updated_at: 'c2',
     });
     expect(out).toEqual({
-      id: 'x', carePlanId: 'p', versionId: 'v', taskId: 't',
+      id: 'x', clientObsId: null, carePlanId: 'p', versionId: 'v', taskId: 't',
       systemDefaultTaskId: null,
       shiftId: 's', caregiverId: 'c', observationType: 'task_completion',
       rating: 'done', note: 'ok', loggedAt: 'now',
