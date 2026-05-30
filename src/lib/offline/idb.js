@@ -9,7 +9,10 @@
 // without needing a real IndexedDB in jsdom.
 
 const DB_NAME = 'tc-caregiver';
-const DB_VERSION = 1;
+// v2 adds the observation outbox + care-plan cache (offline care-plan
+// logging). The upgrade handler creates any missing store, so bumping the
+// version is enough — existing stores and data are preserved.
+const DB_VERSION = 2;
 
 // Object stores. All use keyPath 'id'.
 export const STORES = {
@@ -17,6 +20,8 @@ export const STORES = {
   clientCache: 'clientCache',
   clockEventsCache: 'clockEventsCache',
   clockOutbox: 'clockOutbox',
+  observationOutbox: 'observationOutbox',
+  carePlanCache: 'carePlanCache',
 };
 
 export function idbAvailable() {
