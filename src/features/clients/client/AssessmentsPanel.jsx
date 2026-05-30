@@ -4,11 +4,12 @@ import {
 } from 'lucide-react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
 import {
-  VoiceRecorder, formatDuration, isRecordingSupported, MAX_RECORDING_SECONDS,
+  VoiceRecorder, isRecordingSupported,
 } from '../../bd-portal/lib/voiceRecorder';
 import {
   statusMeta, canRetry, buildSpeakerTurns, assessmentAudioPath,
-  isLikelyAudio, formatAssessmentTimestamp, pickEmbeddedTranscription, MAX_UPLOAD_BYTES,
+  isLikelyAudio, formatAssessmentTimestamp, pickEmbeddedTranscription, formatElapsed,
+  ASSESSMENT_MAX_RECORDING_SECONDS, MAX_UPLOAD_BYTES,
 } from '../../../lib/assessmentTranscript';
 import { describeDraftSummary } from '../../../lib/assessmentCarePlan';
 import { draftCarePlanFromAssessment } from '../../care-plans/voice/assessmentDraftClient';
@@ -109,7 +110,7 @@ export function AssessmentsPanel({ client, currentUser, showToast, canDraftCareP
       tickRef.current = setInterval(() => {
         const e = recorder.elapsedSeconds();
         setElapsed(e);
-        if (e >= MAX_RECORDING_SECONDS) handleStopRecording();
+        if (e >= ASSESSMENT_MAX_RECORDING_SECONDS) handleStopRecording();
       }, 250);
     } catch (err) {
       setCaptureError(err.message || 'Could not start recording.');
@@ -292,7 +293,7 @@ export function AssessmentsPanel({ client, currentUser, showToast, canDraftCareP
             {recording ? (
               <div className={s.recordingRow}>
                 <span className={s.pulseDot} aria-hidden />
-                <span className={s.elapsed}>{formatDuration(elapsed)}</span>
+                <span className={s.elapsed}>{formatElapsed(elapsed)}</span>
                 <button type="button" className={btn.primaryBtn} onClick={handleStopRecording}>
                   <Square size={14} fill="currentColor" aria-hidden /> Stop &amp; transcribe
                 </button>
@@ -349,7 +350,7 @@ export function AssessmentsPanel({ client, currentUser, showToast, canDraftCareP
                       <div className={s.itemHeader}>
                         <div className={s.itemMeta}>
                           <span>{formatAssessmentTimestamp(a.recorded_at || a.created_at)}</span>
-                          {a.duration_seconds != null && <span>· {formatDuration(a.duration_seconds)}</span>}
+                          {a.duration_seconds != null && <span>· {formatElapsed(a.duration_seconds)}</span>}
                           <span className={`${s.badge} ${s[`tone_${meta.tone}`]}`}>
                             {meta.tone === 'success' && <CheckCircle2 size={12} aria-hidden />}
                             {meta.tone === 'active' && <Loader2 size={12} className={s.spinner} aria-hidden />}

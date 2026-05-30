@@ -100,6 +100,29 @@ export function formatAssessmentTimestamp(iso) {
   });
 }
 
+// Generous safety cap for an assessment recording. A full intake +
+// care-plan visit routinely runs 45–60+ minutes (sometimes well over an
+// hour), so this is NOT a typical-length limit — it's only a runaway
+// guard against a recording left running (e.g. forgotten after the visit).
+// Deliberately separate from the BD portal's 5-minute memo cap
+// (voiceRecorder.MAX_RECORDING_SECONDS), which is unrelated.
+export const ASSESSMENT_MAX_RECORDING_SECONDS = 3 * 60 * 60; // 3 hours
+
+// "1:03:20" for ≥1h, "3:20" otherwise. Used for the live recording timer
+// and the saved-assessment duration so hour-long visits read correctly
+// (voiceRecorder.formatDuration only does m:ss and would show "63:20").
+export function formatElapsed(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 // Normalize the embedded `assessment_transcriptions` relation to a single
 // row (or null). PostgREST returns a to-one embed as an OBJECT, but a
 // to-many embed as an ARRAY — and because assessment_transcriptions has a
