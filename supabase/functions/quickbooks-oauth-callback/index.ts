@@ -35,7 +35,12 @@ import {
 } from "../_shared/helpers/quickbooks.ts";
 
 const DEFAULT_PORTAL_BASE_URL = "https://caregiver-portal.vercel.app";
-const SETTINGS_PATH = "/admin/settings";
+// Route is mounted as `path="settings"` at the SPA root in AdminApp.jsx,
+// NOT under `/admin/`. Sending the user to `/admin/settings` causes the
+// catch-all redirect (`<Route path="*" element={<Navigate to="/" />} />`)
+// to bounce them to the dashboard, stripping our `?qb=...` query param
+// and silently swallowing every connect/error result.
+const SETTINGS_PATH = "/settings";
 
 function buildRedirect(portalBase: string, key: string, value: string): Response {
   let dest: URL;
@@ -93,8 +98,19 @@ Deno.serve(async (req) => {
       clientSecret: QB_CLIENT_SECRET,
     });
   } catch (e) {
-    console.error("[qb-callback] token exchange failed:", e);
-    return buildRedirect(portalBase, "qb_error", "token_exchange_failed");
+    const msg = String((e as Error).message ?? e);
+    console.error("[qb-callback] token exchange failed:", msg);
+    // The helper wraps Intuit's response body in the error message
+    // as `… — <body>`. Intuit returns JSON like
+    //   {"error":"invalid_client","error_description":"..."}
+    // Surface that `error` code in the redirect so the Settings UI
+    // can show a useful message instead of the generic
+    // "token_exchange_failed". This is how we figured out the
+    // 2026-05-30 sandbox handshake was failing on a redirect_uri
+    // byte-mismatch — without this, the failure mode is invisible.
+    const intuitErr = msg.match(/"error"\s*:\s*"([a-z_]+)"/i);
+    const errorCode = intuitErr ? `intuit_${intuitErr[1]}` : "token_exchange_failed";
+    return buildRedirect(portalBase, "qb_error", errorCode);
   }
 
   const { accessExpiresAt, refreshExpiresAt } = expiriesFromTokenResponse(tokens);
