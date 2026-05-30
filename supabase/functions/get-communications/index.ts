@@ -222,26 +222,36 @@ Deno.serve(async (req: Request) => {
     let fetchPromise = commsInFlight.get(cacheKey);
     if (!fetchPromise) {
       fetchPromise = (async (): Promise<CommsPayload> => {
-        const accessToken = await getRingCentralAccessToken();
-        // `false` skips the exhaustive 250-record call-log sweep — the
-        // phoneNumber filter is RC's correct behavior and the sweep is a
-        // second Heavy call per zero-history contact (see fetchRCCallLog).
-        const [smsRecords, callRecords] = await Promise.all([
-          fetchRCMessages(accessToken, contact.phone!, daysBack),
-          fetchRCCallLog(accessToken, contact.phone!, daysBack, false),
-        ]);
-        const payload: CommsPayload = {
-          sms: transformSMS(smsRecords),
-          calls: transformCalls(callRecords),
-        };
-        commsCache.set(cacheKey, {
-          payload,
-          expiresAt: Date.now() + COMMS_CACHE_TTL_MS,
-        });
-        return payload;
+        // Clean up the in-flight entry inside this async fn's own
+        // try/finally rather than chaining `.finally()` on the returned
+        // promise. A chained `.finally()` produces a SECOND promise that
+        // rejects in lock-step on the upstream-failure path (e.g. the 429
+        // we now surface); nothing observes it, so it fires an
+        // unhandled-rejection. Cleaning up here keeps exactly one promise
+        // (the one the handler awaits) and never leaks a floating reject.
+        try {
+          const accessToken = await getRingCentralAccessToken();
+          // `false` skips the exhaustive 250-record call-log sweep — the
+          // phoneNumber filter is RC's correct behavior and the sweep is a
+          // second Heavy call per zero-history contact (see fetchRCCallLog).
+          const [smsRecords, callRecords] = await Promise.all([
+            fetchRCMessages(accessToken, contact.phone!, daysBack),
+            fetchRCCallLog(accessToken, contact.phone!, daysBack, false),
+          ]);
+          const payload: CommsPayload = {
+            sms: transformSMS(smsRecords),
+            calls: transformCalls(callRecords),
+          };
+          commsCache.set(cacheKey, {
+            payload,
+            expiresAt: Date.now() + COMMS_CACHE_TTL_MS,
+          });
+          return payload;
+        } finally {
+          commsInFlight.delete(cacheKey);
+        }
       })();
       commsInFlight.set(cacheKey, fetchPromise);
-      fetchPromise.finally(() => commsInFlight.delete(cacheKey));
     }
 
     const payload = await fetchPromise;
