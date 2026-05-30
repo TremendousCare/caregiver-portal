@@ -481,3 +481,20 @@
   margin-top: 8px;
   flex-wrap: wrap;
 }
+
+/* ─── Shift history ─── */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.historyGroup {
+  margin-bottom: 16px;
+}
+.historyDay {
+  font-size: 14px;
+  font-weight: 700;
+  color: #6B7B8F;
+  margin: 0 0 8px;
+  text-transform: none;
+}
