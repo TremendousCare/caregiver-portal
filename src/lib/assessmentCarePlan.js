@@ -75,3 +75,33 @@ export function describeDraftSummary({ sectionsWithContent, fields, tasks }) {
   if (tasks > 0) parts.push(`${tasks} task${tasks === 1 ? '' : 's'}`);
   return `Draft updated with ${parts.join(' and ')} across ${sectionsWithContent} section${sectionsWithContent === 1 ? '' : 's'}.`;
 }
+
+// Toast describing what was actually APPLIED plus an honest, specific
+// account of anything that couldn't be applied (item-isolated draft).
+//   applied: { sections, fields, tasks }  — counts that persisted
+//   skipped: [{ label, reason }]          — items that did not
+// The skipped portion is deliberately loud and specific — isolation is
+// only safe if a dropped item is surfaced, not silently swallowed.
+export function describeDraftOutcome({ applied, skipped } = {}) {
+  const a = applied || { sections: 0, fields: 0, tasks: 0 };
+  const skips = Array.isArray(skipped) ? skipped : [];
+
+  let base;
+  if (a.fields === 0 && a.tasks === 0) {
+    base = skips.length > 0
+      ? "No care-plan details could be applied from this assessment."
+      : 'No new care-plan details were found in this assessment.';
+  } else {
+    const parts = [`${a.fields} field${a.fields === 1 ? '' : 's'}`];
+    if (a.tasks > 0) parts.push(`${a.tasks} task${a.tasks === 1 ? '' : 's'}`);
+    base = `Draft updated with ${parts.join(' and ')} across ${a.sections} section${a.sections === 1 ? '' : 's'}.`;
+  }
+
+  if (skips.length === 0) return base;
+
+  const names = skips.map((s) => s && s.label).filter(Boolean);
+  const preview = names.slice(0, 3).join(', ');
+  const more = names.length > 3 ? ` and ${names.length - 3} more` : '';
+  const detail = preview ? ` (${preview}${more})` : '';
+  return `${base} ${skips.length} item${skips.length === 1 ? '' : 's'} couldn't be applied automatically${detail} — review the assessment and add them manually.`;
+}
