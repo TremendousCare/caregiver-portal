@@ -4,6 +4,7 @@ import {
   fetchRCMessages,
   getRingCentralAccessToken,
 } from "../_shared/helpers/ringcentral.ts";
+import { isRateLimitError } from "../_shared/operations/rateLimit.ts";
 
 // ─── Configuration ─────────────────────────────────
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -14,6 +15,39 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+// ─── Result cache + in-flight dedup ────────────────
+// This function reads from RingCentral's "Heavy" API group (message-store +
+// call-log), capped at 10 requests / 60s per extension with a 60s penalty,
+// shared with every other consumer on the same extension. It is called on
+// EVERY client/caregiver/lead page open — and React re-renders, multiple
+// staff viewing the same record, and rapid tab switches multiply that into
+// bursts of identical reads against a tiny ceiling. That is what helped park
+// the bucket in penalty and blank the Messages tab.
+//
+// Two guards, both keyed by normalized phone + days_back:
+//   1. A short-TTL response cache. A contact's recent comm history doesn't
+//      change second-to-second; serving repeat opens from cache for 60s
+//      removes the vast majority of redundant Heavy calls. Inbound SMS still
+//      lands live via the webhook (which writes to entity notes), so the
+//      cache TTL only delays when *externally-originated* history surfaces in
+//      this live pane, never whether it arrives.
+//   2. In-flight dedup: concurrent requests for the same key share one
+//      upstream fetch instead of each firing their own pair of Heavy calls.
+//
+// Module-level maps persist for the lifetime of the warm isolate — the same
+// pattern the shared RC token cache uses.
+const COMMS_CACHE_TTL_MS = 60_000;
+type CommsPayload = { sms: any[]; calls: any[] };
+type CommsCacheEntry = { payload: CommsPayload; expiresAt: number };
+const commsCache = new Map<string, CommsCacheEntry>();
+const commsInFlight = new Map<string, Promise<CommsPayload>>();
+
+// Test-only: reset module caches between cases. Not part of the public API.
+export function _resetCommsCacheForTests() {
+  commsCache.clear();
+  commsInFlight.clear();
+}
 
 // ─── Phone helpers ─────────────────────────────────
 function normalizePhoneNumber(phone: string): string | null {
@@ -175,29 +209,71 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const accessToken = await getRingCentralAccessToken();
-    const [smsRecords, callRecords] = await Promise.all([
-      fetchRCMessages(accessToken, contact.phone, Math.min(days_back, 90)),
-      fetchRCCallLog(accessToken, contact.phone, Math.min(days_back, 90)),
-    ]);
+    const daysBack = Math.min(days_back, 90);
+    const cacheKey = `${contact.phone}:${daysBack}`;
 
-    return new Response(
-      JSON.stringify({
-        sms: transformSMS(smsRecords),
-        calls: transformCalls(callRecords),
-        caregiver_name: contact.name, // backward compat
-        contact_name: contact.name,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    // 1. Serve from the short-TTL cache when warm.
+    const cached = commsCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return jsonResponse({ ...cached.payload, ...nameFields(contact.name) });
+    }
+
+    // 2. Coalesce concurrent identical requests onto one upstream fetch.
+    let fetchPromise = commsInFlight.get(cacheKey);
+    if (!fetchPromise) {
+      fetchPromise = (async (): Promise<CommsPayload> => {
+        const accessToken = await getRingCentralAccessToken();
+        // `false` skips the exhaustive 250-record call-log sweep — the
+        // phoneNumber filter is RC's correct behavior and the sweep is a
+        // second Heavy call per zero-history contact (see fetchRCCallLog).
+        const [smsRecords, callRecords] = await Promise.all([
+          fetchRCMessages(accessToken, contact.phone!, daysBack),
+          fetchRCCallLog(accessToken, contact.phone!, daysBack, false),
+        ]);
+        const payload: CommsPayload = {
+          sms: transformSMS(smsRecords),
+          calls: transformCalls(callRecords),
+        };
+        commsCache.set(cacheKey, {
+          payload,
+          expiresAt: Date.now() + COMMS_CACHE_TTL_MS,
+        });
+        return payload;
+      })();
+      commsInFlight.set(cacheKey, fetchPromise);
+      fetchPromise.finally(() => commsInFlight.delete(cacheKey));
+    }
+
+    const payload = await fetchPromise;
+    return jsonResponse({ ...payload, ...nameFields(contact.name) });
   } catch (err) {
     console.error("get-communications error:", err);
+    // Distinguish RingCentral rate-limiting (CMN-301 / 429) from a true
+    // server fault. The frontend renders the 429 path as "communication
+    // history temporarily unavailable (rate limited)" instead of the
+    // misleading "No text entries found", and can choose to back off rather
+    // than retry into a bucket that's already in penalty.
+    const rateLimited = isRateLimitError(err);
     return new Response(
-      JSON.stringify({ error: (err as Error).message || "Internal error" }),
+      JSON.stringify({
+        error: (err as Error).message || "Internal error",
+        rate_limited: rateLimited,
+      }),
       {
-        status: 500,
+        status: rateLimited ? 429 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
   }
 });
+
+// ─── Response helpers ──────────────────────────────
+function jsonResponse(body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function nameFields(name: string): Record<string, string> {
+  return { caregiver_name: name /* backward compat */, contact_name: name };
+}

@@ -424,10 +424,22 @@ export async function fetchRingSenseInsights(
   return { transcript, duration_seconds, language };
 }
 
+// `exhaustiveFallback` controls the second, unfiltered call-log sweep that
+// runs when the phoneNumber-filtered query returns nothing. That sweep pulls
+// up to 250 records and filters client-side — a second RC "Heavy" API call
+// (10 req/60s per extension, 60s penalty) on EVERY contact with no prior
+// calls. For zero-history BD leads (the common case) it doubled Heavy usage
+// per page open and was a top contributor to the rate-limit exhaustion that
+// blanked the Messages tab. Interactive callers (get-communications) pass
+// `false` to skip it; the phoneNumber filter is RingCentral's documented,
+// correct behavior. The AI chat tool keeps the default `true` because an
+// agent explicitly asked-for call log is low-frequency and benefits from the
+// belt-and-suspenders match.
 export async function fetchRCCallLog(
   accessToken: string,
   phoneNumber: string,
   daysBack: number,
+  exhaustiveFallback = true,
 ): Promise<any[]> {
   const dateFrom = new Date(Date.now() - daysBack * 86400000).toISOString();
   const url = `${RC_API_URL}/restapi/v1.0/account/~/extension/~/call-log?phoneNumber=${encodeURIComponent(phoneNumber)}&dateFrom=${dateFrom}&type=Voice&perPage=100&view=Detailed`;
@@ -450,7 +462,7 @@ export async function fetchRCCallLog(
     `[get_call_log] Found ${data.records?.length || 0} records with phoneNumber filter`,
   );
 
-  if (!data.records || data.records.length === 0) {
+  if (exhaustiveFallback && (!data.records || data.records.length === 0)) {
     console.log(
       `[get_call_log] No results with filter, trying client-side filtering...`,
     );
