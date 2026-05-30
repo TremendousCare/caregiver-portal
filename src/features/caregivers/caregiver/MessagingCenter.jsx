@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { SMSConversationView } from './SMSConversationView';
 import { SMSComposeBar } from './SMSComposeBar';
 import { EmailThreadView } from './EmailThreadView';
@@ -29,6 +30,7 @@ export function MessagingCenter({
   emailMessages,
   callEntries,
   rcLoading,
+  rcError,
   emailLoading,
   accessToken,
   currentUser,
@@ -37,6 +39,19 @@ export function MessagingCenter({
 }) {
   const recipient = entity || caregiver;
   const [activeChannel, setActiveChannel] = useState('texts');
+
+  // RingCentral-sourced channels (texts, calls) share the rate-limit banner
+  // so an empty list during a 429 reads as "throttled" not "no messages".
+  const rcBanner = rcError ? (
+    <div
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '10px 16px', color: '#D97706', fontSize: 13, fontWeight: 500,
+      }}
+    >
+      <AlertTriangle size={13} strokeWidth={2} aria-hidden /> {rcError}
+    </div>
+  ) : null;
 
   const counts = {
     texts: smsMessages.length,
@@ -59,6 +74,7 @@ export function MessagingCenter({
       case 'texts':
         return (
           <>
+            {rcBanner}
             <SMSConversationView messages={smsMessages} />
             <SMSComposeBar
               entity={recipient}
@@ -90,13 +106,19 @@ export function MessagingCenter({
         );
 
       case 'calls':
-        return <CallLogView calls={callEntries} accessToken={accessToken} />;
+        return (
+          <>
+            {rcBanner}
+            <CallLogView calls={callEntries} accessToken={accessToken} />
+          </>
+        );
 
       case 'all':
       default:
         // For "All", show SMS conversation as the primary view
         return (
           <>
+            {rcBanner}
             <SMSConversationView messages={smsMessages} />
             <SMSComposeBar
               entity={recipient}

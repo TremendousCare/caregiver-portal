@@ -31,7 +31,7 @@ export function CaregiverDetail({
   const [detailTab, setDetailTab] = useState('tasks');
   const [surveyStatus, setSurveyStatus] = useState(null);
 
-  const { mergedTimeline, smsMessages, emailMessages, callEntries, rcLoading, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
+  const { mergedTimeline, smsMessages, emailMessages, callEntries, rcLoading, rcError, emailLoading, accessToken, needsResponse } = useCommsTimeline(caregiver);
 
   const greenLight = isGreenLight(caregiver);
   const currentPhase = getCurrentPhase(caregiver);
@@ -128,6 +128,7 @@ export function CaregiverDetail({
         onAddNote={onAddNote}
         mergedTimeline={mergedTimeline}
         rcLoading={rcLoading}
+        rcError={rcError}
         accessToken={accessToken}
       />
 
@@ -189,6 +190,7 @@ export function CaregiverDetail({
           emailMessages={emailMessages}
           callEntries={callEntries}
           rcLoading={rcLoading}
+          rcError={rcError}
           emailLoading={emailLoading}
           accessToken={accessToken}
           currentUser={currentUser}

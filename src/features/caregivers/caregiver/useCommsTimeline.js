@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { useApp } from '../../../shared/context/AppContext';
+import { commsErrorMessage } from '../../../lib/messaging/commsRateLimit';
 
 /**
  * Normalize a phone number for the get-communications client lookup.
@@ -42,6 +43,7 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
   const { currentUserMailbox } = useApp();
   const [rcData, setRcData] = useState({ sms: [], calls: [] });
   const [rcLoading, setRcLoading] = useState(false);
+  const [rcError, setRcError] = useState(null);
   const [outlookEmails, setOutlookEmails] = useState([]);
   const [emailLoading, setEmailLoading] = useState(false);
   const accessTokenRef = useRef('');
@@ -64,6 +66,7 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
     }
     let cancelled = false;
     setRcLoading(true);
+    setRcError(null);
     supabase.functions.invoke('get-communications', {
       body: lookupBody,
     }).then(({ data, error }) => {
@@ -71,6 +74,10 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
       if (error || !data) {
         console.warn('RC fetch failed:', error);
         setRcData({ sms: [], calls: [] });
+        // Surface a rate-limit vs generic banner instead of silently
+        // blanking — an empty pane otherwise reads as "no messages exist"
+        // when the truth is "RingCentral is temporarily throttled."
+        if (error) setRcError(commsErrorMessage(error));
       } else {
         setRcData({ sms: data.sms || [], calls: data.calls || [] });
       }
@@ -78,6 +85,7 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
       if (!cancelled) {
         console.warn('RC fetch error:', err);
         setRcData({ sms: [], calls: [] });
+        setRcError(commsErrorMessage(err));
       }
     }).finally(() => {
       if (!cancelled) setRcLoading(false);
@@ -215,16 +223,19 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
     const lookupBody = buildCommsLookupBody(entity, entityType);
     if (!lookupBody) return;
     setRcLoading(true);
+    setRcError(null);
     supabase.functions.invoke('get-communications', {
       body: lookupBody,
     }).then(({ data, error }) => {
       if (error || !data) {
         setRcData({ sms: [], calls: [] });
+        if (error) setRcError(commsErrorMessage(error));
       } else {
         setRcData({ sms: data.sms || [], calls: data.calls || [] });
       }
-    }).catch(() => {
+    }).catch((err) => {
       setRcData({ sms: [], calls: [] });
+      setRcError(commsErrorMessage(err));
     }).finally(() => {
       setRcLoading(false);
     });
@@ -236,6 +247,7 @@ export function useCommsTimeline(entityArg, entityType = 'caregiver') {
     emailMessages,
     callEntries,
     rcLoading,
+    rcError,
     emailLoading,
     accessToken: accessTokenRef,
     needsResponse,

@@ -147,7 +147,7 @@ export function ClientDetail({
   // "needs response" badge on the tab itself.
   const {
     smsMessages, emailMessages, callEntries,
-    rcLoading, emailLoading, accessToken, needsResponse,
+    rcLoading, rcError, emailLoading, accessToken, needsResponse,
   } = useCommsTimeline(client, 'client');
 
   const tabs = useMemo(() => ([
@@ -280,6 +280,7 @@ export function ClientDetail({
           emailMessages={emailMessages}
           callEntries={callEntries}
           rcLoading={rcLoading}
+          rcError={rcError}
           emailLoading={emailLoading}
           accessToken={accessToken}
           currentUser={currentUser}
