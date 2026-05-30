@@ -27,10 +27,111 @@ const rcTokenCache = new Map<string, RcTokenCacheEntry>();
 const rcTokenInFlight = new Map<string, Promise<string>>();
 const RC_TOKEN_SAFETY_MS = 60_000;
 
-// Test-only: reset the cache between cases. Not part of the public API.
+// ── Cross-isolate token store ─────────────────────────────────────────
+// The in-memory Map above only survives within a single Edge Function
+// isolate. Under concurrent load each cold-start isolate would mint its
+// own token and trip RingCentral's CMN-301 auth throttle (~5 mints/60s per
+// app). This store persists minted tokens in Postgres so every isolate
+// reuses one token for its full ~1h lifetime. Keyed by a SHA-256 hash of
+// the JWT so the raw secret is never written. See migration
+// 20260601020000_ringcentral_token_cache.sql.
+export type RcTokenStore = {
+  read: (jwtHash: string) => Promise<RcTokenCacheEntry | null>;
+  write: (jwtHash: string, entry: RcTokenCacheEntry) => Promise<void>;
+};
+
+// Tests inject a fake store via _setRcTokenStoreForTests; production builds
+// the Supabase-backed store lazily. The dynamic import + Deno.env reads live
+// inside the store methods so the jsr: specifier and the Deno global stay
+// out of Node/Vitest's static module graph.
+let injectedTokenStore: RcTokenStore | null = null;
+export function _setRcTokenStoreForTests(store: RcTokenStore | null) {
+  injectedTokenStore = store;
+}
+
+// Test-only: reset the caches between cases. Not part of the public API.
 export function _resetRcTokenCacheForTests() {
   rcTokenCache.clear();
   rcTokenInFlight.clear();
+  injectedTokenStore = null;
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Lazily-built, isolate-scoped service-role client. Only constructed when a
+// real DB read/write is needed (i.e. on an in-memory cache miss), and never
+// in tests because they inject a store instead.
+let lazyServiceClient: Promise<unknown | null> | null = null;
+function getServiceClient(): Promise<unknown | null> {
+  if (lazyServiceClient) return lazyServiceClient;
+  lazyServiceClient = (async () => {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) return null;
+    // Specifier is held in a variable + @vite-ignore so the bundler used by
+    // the Node/Vitest test runner doesn't try to resolve this Deno-only
+    // module. This path only executes under Deno (where the jsr: import is
+    // native); in tests a fake store is injected and this is never reached.
+    const specifier = "jsr:@supabase/supabase-js@2";
+    const { createClient } = await import(/* @vite-ignore */ specifier);
+    return createClient(url, key);
+  })();
+  return lazyServiceClient;
+}
+
+function supabaseTokenStore(): RcTokenStore {
+  return {
+    // Best-effort: any failure (no env, table missing, network) returns null
+    // so the caller falls back to minting. The cache must never be the reason
+    // a token can't be obtained.
+    async read(jwtHash) {
+      try {
+        // deno-lint-ignore no-explicit-any
+        const supabase = (await getServiceClient()) as any;
+        if (!supabase) return null;
+        const { data, error } = await supabase
+          .from("ringcentral_token_cache")
+          .select("access_token, expires_at")
+          .eq("jwt_hash", jwtHash)
+          .maybeSingle();
+        if (error || !data) return null;
+        return {
+          token: data.access_token,
+          expiresAt: new Date(data.expires_at).getTime(),
+        };
+      } catch {
+        return null;
+      }
+    },
+    async write(jwtHash, entry) {
+      try {
+        // deno-lint-ignore no-explicit-any
+        const supabase = (await getServiceClient()) as any;
+        if (!supabase) return;
+        await supabase.from("ringcentral_token_cache").upsert(
+          {
+            jwt_hash: jwtHash,
+            access_token: entry.token,
+            expires_at: new Date(entry.expiresAt).toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "jwt_hash" },
+        );
+      } catch {
+        // A failed write just means the next cold isolate mints once more.
+      }
+    },
+  };
+}
+
+function getTokenStore(): RcTokenStore {
+  return injectedTokenStore ?? supabaseTokenStore();
 }
 
 // Category-aware helper: takes a JWT as a parameter so the caller can
@@ -50,16 +151,35 @@ export async function getRingCentralAccessTokenWithJwt(
     throw new Error("RingCentral JWT not provided");
   }
 
+  // ── 1. In-memory cache (fastest; lives only within this isolate) ──
   const cached = rcTokenCache.get(jwt);
   if (cached && Date.now() < cached.expiresAt - RC_TOKEN_SAFETY_MS) {
     return cached.token;
   }
 
+  // ── 2. In-flight de-dupe ──
+  // Wrap the whole "check shared store, then maybe mint" sequence in one
+  // promise so concurrent callers in this isolate share a single mint
+  // rather than racing past the cache checks and each hitting RC.
   const inFlight = rcTokenInFlight.get(jwt);
   if (inFlight) return inFlight;
 
-  const fetchPromise = (async (): Promise<string> => {
+  const work = (async (): Promise<string> => {
     try {
+      const store = getTokenStore();
+      const jwtHash = await sha256Hex(jwt);
+
+      // ── 3. Cross-isolate cache (Postgres) ──
+      // A cold isolate has an empty in-memory map but a sibling isolate may
+      // have already minted a still-valid token. Reusing it here is what
+      // keeps us under RingCentral's CMN-301 auth throttle.
+      const persisted = await store.read(jwtHash);
+      if (persisted && Date.now() < persisted.expiresAt - RC_TOKEN_SAFETY_MS) {
+        rcTokenCache.set(jwt, persisted);
+        return persisted.token;
+      }
+
+      // ── 4. Mint a fresh token ──
       const response = await fetch(`${RC_API_URL}/restapi/oauth/token`, {
         method: "POST",
         headers: {
@@ -74,6 +194,21 @@ export async function getRingCentralAccessTokenWithJwt(
 
       if (!response.ok) {
         const error = await response.text();
+        // 429 / CMN-301: the auth bucket is exhausted. A sibling isolate may
+        // have minted a token in the meantime — re-check the shared store
+        // before giving up so a thundering herd at token expiry doesn't turn
+        // into a wall of failures (the exact lockout that took transcription
+        // and get-communications down together on 2026-05-29).
+        if (response.status === 429) {
+          const recovered = await store.read(jwtHash);
+          if (
+            recovered &&
+            Date.now() < recovered.expiresAt - RC_TOKEN_SAFETY_MS
+          ) {
+            rcTokenCache.set(jwt, recovered);
+            return recovered.token;
+          }
+        }
         throw new Error(`RingCentral auth failed (${response.status}): ${error}`);
       }
 
@@ -82,18 +217,21 @@ export async function getRingCentralAccessTokenWithJwt(
         typeof data.expires_in === "number" && data.expires_in > 0
           ? data.expires_in
           : 3600;
-      rcTokenCache.set(jwt, {
+      const entry: RcTokenCacheEntry = {
         token: data.access_token,
         expiresAt: Date.now() + expiresInSec * 1000,
-      });
+      };
+      rcTokenCache.set(jwt, entry);
+      // Publish to the shared store so sibling isolates skip minting.
+      await store.write(jwtHash, entry);
       return data.access_token;
     } finally {
       rcTokenInFlight.delete(jwt);
     }
   })();
 
-  rcTokenInFlight.set(jwt, fetchPromise);
-  return fetchPromise;
+  rcTokenInFlight.set(jwt, work);
+  return work;
 }
 
 /**
