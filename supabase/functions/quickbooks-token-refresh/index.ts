@@ -1,6 +1,6 @@
 // ─── QuickBooks token refresh cron ──────────────────────────────────────
 // POSTed by pg_cron every 30 minutes (see
-// supabase/migrations/20260603000000_quickbooks_token_refresh_cron.sql).
+// supabase/migrations/20260603010000_quickbooks_token_refresh_cron.sql).
 //
 // For each row in quickbooks_connections, applies
 // decideRefreshAction() and acts on the result:

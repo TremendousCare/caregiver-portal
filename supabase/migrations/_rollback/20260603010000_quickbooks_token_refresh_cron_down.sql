@@ -7,7 +7,7 @@
 -- manually via psql only if PR #3 must be reverted:
 --
 --   psql "$SUPABASE_DB_URL" -f \
---     supabase/migrations/_rollback/20260603000000_quickbooks_token_refresh_cron_down.sql
+--     supabase/migrations/_rollback/20260603010000_quickbooks_token_refresh_cron_down.sql
 
 BEGIN;
 
