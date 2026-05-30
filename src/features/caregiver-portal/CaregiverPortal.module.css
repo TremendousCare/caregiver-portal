@@ -282,3 +282,109 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ─── PWA banners (offline indicator, update + install prompts) ─── */
+
+/* Persistent offline strip pinned to the top so caregivers always know
+   when they're working without a connection. */
+.offlineStrip {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #8A4B00;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  /* respect notches when installed */
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+}
+
+/* Bottom-anchored toast for update / install prompts. */
+.pwaToast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  width: calc(100% - 24px);
+  max-width: 480px;
+  background: #FFFFFF;
+  border: 1px solid #D7DCE4;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(26, 35, 50, 0.18);
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.pwaToastIcon {
+  flex: none;
+  color: #2E4E8D;
+  margin-top: 2px;
+}
+
+.pwaToastBody {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pwaToastTitle {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pwaToastText {
+  font-size: 13px;
+  color: #6B7B8F;
+  line-height: 1.4;
+}
+
+.pwaToastActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.pwaToastBtn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 9px;
+  padding: 9px 14px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2E4E8D 0%, #29BEE4 100%);
+  color: #FFFFFF;
+}
+
+.pwaToastDismiss {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: #6B7B8F;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.pwaToastClose {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: #6B7B8F;
+  cursor: pointer;
+  padding: 2px;
+  line-height: 0;
+}
