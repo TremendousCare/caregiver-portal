@@ -10,6 +10,7 @@ import {
 } from '../../lib/offline/clockSyncClient';
 import { effectiveShiftStatus } from '../../lib/offline/pendingStatus';
 import { usePendingClockCount } from './hooks/useClockSync';
+import { PushReminderCard } from './components/PushReminderCard';
 import s from './CaregiverPortal.module.css';
 
 // Formatters are defined at module scope so we don't re-create them
@@ -164,6 +165,8 @@ export function CaregiverShifts({ caregiver }) {
           </span>
         </div>
       )}
+
+      <PushReminderCard caregiver={caregiver} />
 
       {usingCache && (
         <div className={s.cacheNotice} role="status">
