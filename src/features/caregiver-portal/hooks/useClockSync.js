@@ -13,6 +13,7 @@ import {
   flushClockNow,
   isOnline,
 } from '../../../lib/offline/clockSyncClient';
+import { flushObservationsNow } from '../../../lib/offline/observationSync';
 
 const RETRY_MS = 30_000;
 
@@ -20,7 +21,10 @@ export function useClockSync() {
   useEffect(() => {
     let active = true;
     const tryFlush = () => {
-      if (active && isOnline()) flushClockNow();
+      if (active && isOnline()) {
+        flushClockNow();
+        flushObservationsNow();
+      }
     };
     tryFlush();
     window.addEventListener('online', tryFlush);
