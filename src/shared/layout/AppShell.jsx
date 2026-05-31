@@ -206,6 +206,7 @@ export function AppShell() {
         items: [
           { id: 'agent-metrics', path: '/agent-metrics', icon: '🤖', label: 'Agent Metrics' },
           { id: 'agent-grading', path: '/agent-grading', icon: '✏️', label: 'Suggestion Grading' },
+          { id: 'care-impact', path: '/care-impact', icon: '🩺', label: 'Care Impact' },
         ],
       }] : []),
       // Future:
