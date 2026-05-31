@@ -1,5 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
+import { isOfficeRoute } from './pwa/routeScope';
 
 // Everything is lazy-loaded behind the route split so the caregiver PWA
 // and public /apply, /upload, /sign, /survey pages don't ship the admin
@@ -35,6 +36,24 @@ function RouteFallback() {
 
 export default function App() {
   const location = useLocation();
+
+  // Keep the PWA install identity in sync with the current surface across
+  // client-side navigation. index.html's head script sets this at the initial
+  // page load, but react-router moves between surfaces without a reload (e.g.
+  // the BD drawer navigates into admin routes), so re-select the manifest +
+  // iOS app title on every route change. Real static files only — iOS ignores
+  // blob/late-injected manifests at Add-to-Home-Screen time.
+  useEffect(() => {
+    const link = document.querySelector('link[rel="manifest"]');
+    const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    const office = isOfficeRoute(location.pathname);
+    if (link) {
+      link.setAttribute('href', office ? '/office-manifest.webmanifest' : '/care-manifest.webmanifest');
+    }
+    if (title) {
+      title.setAttribute('content', office ? 'TC Office' : 'Tremendous Care');
+    }
+  }, [location.pathname]);
 
   // Public routes — no auth required, rendered without admin shell.
   if (location.pathname === '/apply') {

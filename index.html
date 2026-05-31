@@ -19,8 +19,10 @@
          so on office routes we point the <link rel="manifest"> at a REAL static
          file (office-manifest.webmanifest, start_url "/") before iOS reads it.
          Caregiver and public-token routes keep the default care manifest above,
-         untouched. Reserved prefixes mirror App.jsx and src/pwa/routeScope.js —
-         keep all three in sync. */
+         untouched. This handles the initial (parse-time) load; client-side SPA
+         navigation between surfaces is re-synced by the route effect in
+         src/App.jsx. Reserved prefixes mirror App.jsx and src/pwa/routeScope.js
+         — keep all three in sync. */
       (function () {
         var reserved = /^\/(care|bd|apply|upload|sign|survey)(\/|$)/;
         if (reserved.test(window.location.pathname)) return;
