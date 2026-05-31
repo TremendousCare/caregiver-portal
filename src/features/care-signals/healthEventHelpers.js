@@ -19,6 +19,14 @@ export const EVENT_TYPE_META = {
 
 export const EVENT_TYPES = Object.keys(EVENT_TYPE_META);
 
+// Resolve an actor string from the app's currentUser object
+// ({ displayName, email }), matching CarePlanPanel's convention. Lives
+// here so this module is self-contained (the care-signals helpers file
+// ships in a separate PR).
+export function actorFromUser(currentUser) {
+  return currentUser?.displayName || currentUser?.email || null;
+}
+
 export function eventTypeMeta(type) {
   return EVENT_TYPE_META[type] || EVENT_TYPE_META.other;
 }

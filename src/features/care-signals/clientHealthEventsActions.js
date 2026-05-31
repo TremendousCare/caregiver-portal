@@ -5,8 +5,7 @@
 // fills preceding_signal_id / related_discharge_id.
 
 import { supabase } from '../../lib/supabase';
-import { actorFromUser } from './careSignalHelpers';
-import { buildHealthEventRow, mapHealthEventRow } from './healthEventHelpers';
+import { buildHealthEventRow, mapHealthEventRow, actorFromUser } from './healthEventHelpers';
 
 const EVENT_COLUMNS =
   'id, client_id, event_type, occurred_at, related_discharge_id, avoidable, ' +
