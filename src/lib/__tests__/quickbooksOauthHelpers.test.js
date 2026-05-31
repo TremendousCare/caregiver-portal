@@ -16,8 +16,18 @@ describe('QuickBooks OAuth helpers (shared between init/callback/refresh-cron)',
       expect(QB_AUTH_BASE_URL).toBe('https://appcenter.intuit.com/connect/oauth2');
     });
 
-    it('points at the platform token endpoint for code exchange', () => {
-      expect(QB_TOKEN_URL).toBe('https://oauth.platform.intuit.com/oauth2/v1/tokens');
+    it('points at the platform token endpoint (with the mandatory /bearer suffix) for code exchange', () => {
+      // Intuit's discovery doc (issuer
+      // https://oauth.platform.intuit.com/op/v1) lists
+      // `token_endpoint` as the /bearer-suffixed URL. Omitting
+      // /bearer returns a 404 with an empty body — the
+      // single hardest failure mode in this integration to
+      // diagnose without the qb_detail surfacing we shipped on
+      // 2026-05-31. Lock the trailing /bearer here so a
+      // refactor can't quietly drop it.
+      expect(QB_TOKEN_URL).toBe(
+        'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+      );
     });
 
     it('requests accounting + identity scopes by default — and intentionally not payments', () => {
