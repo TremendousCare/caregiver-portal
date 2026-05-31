@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { validatePasswordChange } from '../../lib/passwordChange';
+import { verifyCurrentPassword } from '../../lib/verifyPassword';
 import s from './CaregiverPortal.module.css';
 
 // Change-password screen for a signed-in caregiver. Re-authenticates with
@@ -33,12 +34,13 @@ export function CaregiverChangePassword() {
       const email = sess?.session?.user?.email;
       if (!email) throw new Error('You’re signed out. Please sign back in and try again.');
 
-      // Verify the current password by re-authenticating.
-      const { error: reauthErr } = await supabase.auth.signInWithPassword({
-        email,
-        password: current,
-      });
-      if (reauthErr) throw new Error('Your current password is incorrect.');
+      // Verify the current password before allowing the change, so a
+      // borrowed/unlocked phone can't silently reset it. We use a
+      // throwaway client for the check so it doesn't emit an auth-state
+      // change on the live session (which can disrupt the PWA session and
+      // is unnecessary just to confirm the password).
+      const verified = await verifyCurrentPassword(email, current);
+      if (!verified) throw new Error('Your current password is incorrect.');
 
       const { error: upErr } = await supabase.auth.updateUser({ password });
       if (upErr) throw upErr;

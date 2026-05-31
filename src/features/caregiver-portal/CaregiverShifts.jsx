@@ -11,6 +11,7 @@ import {
 import { effectiveShiftStatus } from '../../lib/offline/pendingStatus';
 import { usePendingClockCount } from './hooks/useClockSync';
 import { PushReminderCard } from './components/PushReminderCard';
+import { signOutAndReload } from '../../lib/signOut';
 import s from './CaregiverPortal.module.css';
 
 // Formatters are defined at module scope so we don't re-create them
@@ -145,14 +146,7 @@ export function CaregiverShifts({ caregiver }) {
           <button
             type="button"
             className={s.linkBtn}
-            onClick={async () => {
-              try {
-                await supabase.auth.signOut();
-              } catch (e) {
-                console.error('Sign out failed:', e);
-              }
-              window.location.reload();
-            }}
+            onClick={() => signOutAndReload()}
           >
             Sign out
           </button>

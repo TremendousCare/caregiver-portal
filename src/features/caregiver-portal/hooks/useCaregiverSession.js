@@ -72,18 +72,45 @@ export function useCaregiverSession() {
     }
     let cancelled = false;
 
+    // Safety net: getSession() reads through supabase-js's GoTrue lock. If
+    // that lock is ever wedged (a known hazard in standalone PWAs — see
+    // callCaregiverClock.js), the promise can hang forever and the app
+    // would sit on the loading spinner indefinitely. Bound the boot read
+    // so `loading` ALWAYS resolves: on timeout we proceed as signed-out,
+    // which shows the login screen instead of an infinite spinner.
+    const bootTimer = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 8_000);
+
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (cancelled) return;
       setSession(s);
       if (s?.user?.id) await loadLinked(s.user.id);
-      if (!cancelled) setLoading(false);
+      if (!cancelled) {
+        clearTimeout(bootTimer);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        clearTimeout(bootTimer);
+        setLoading(false);
+      }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       if (cancelled) return;
+      // IMPORTANT: do NOT await Supabase calls synchronously inside this
+      // callback. supabase-js holds an internal GoTrue lock while the
+      // callback runs; calling supabase.from()/functions.invoke()/etc.
+      // from here deadlocks that lock, which would hang updateUser()
+      // (change password) and signOut(). Defer the linked-record load to
+      // a microtask so the lock is released first.
       setSession(s);
       if (s?.user?.id) {
-        await loadLinked(s.user.id);
+        const uid = s.user.id;
+        setTimeout(() => {
+          if (!cancelled) loadLinked(uid);
+        }, 0);
       } else {
         setCaregiver(null);
         setLinkError(null);
@@ -92,6 +119,7 @@ export function useCaregiverSession() {
 
     return () => {
       cancelled = true;
+      clearTimeout(bootTimer);
       subscription?.unsubscribe?.();
     };
   }, [loadLinked]);
