@@ -30,7 +30,7 @@ import s from './ResourceLaneView.module.css';
 // the rest of the calendar exactly.
 // ═══════════════════════════════════════════════════════════════
 
-const BAR_HEIGHT = 26; // px — height of a single shift bar
+const BAR_HEIGHT = 34; // px — height of a single shift bar (fits two text lines: time + name)
 const BAR_GAP = 4; // px — vertical gap between stacked (overlapping) bars
 const ROW_PADDING = 6; // px — top+bottom breathing room inside a lane
 

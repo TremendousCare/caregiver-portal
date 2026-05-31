@@ -75,7 +75,9 @@ export function SchedulePage() {
   // Board mode: the FullCalendar grid ('calendar') or the resource-lane
   // board ('lanes'). The lane board manages its own single-day window and
   // row entity, but shares the data load, filters, and drawer with the grid.
-  const [boardMode, setBoardMode] = useState('calendar');
+  // Defaults to 'lanes' — the resource-lane board is the preferred landing
+  // view when any user enters the calendar.
+  const [boardMode, setBoardMode] = useState('lanes');
   const [laneDate, setLaneDate] = useState(() => new Date());
   const [laneRowMode, setLaneRowMode] = useState('caregiver'); // 'caregiver' | 'client'
 
