@@ -6,6 +6,7 @@ import {
   severityRank,
   severityToTaskUrgency,
   actorFromUser,
+  assigneeFromUser,
   mapSignalRow,
   sortSignals,
   sbarToText,
@@ -64,10 +65,19 @@ describe('severity helpers', () => {
 });
 
 describe('actorFromUser', () => {
-  it('prefers displayName, falls back to email, then null', () => {
+  it('prefers displayName, falls back to email, then null (display label)', () => {
     expect(actorFromUser({ displayName: 'Jessica', email: 'j@x.com' })).toBe('Jessica');
     expect(actorFromUser({ email: 'j@x.com' })).toBe('j@x.com');
     expect(actorFromUser(null)).toBeNull();
+  });
+});
+
+describe('assigneeFromUser', () => {
+  it('prefers EMAIL (so email-keyed task flows pick it up), then name, then null', () => {
+    // The crux of the Codex finding: assignment must be email-first.
+    expect(assigneeFromUser({ displayName: 'Jessica', email: 'j@x.com' })).toBe('j@x.com');
+    expect(assigneeFromUser({ displayName: 'Jessica' })).toBe('Jessica');
+    expect(assigneeFromUser(null)).toBeNull();
   });
 });
 

@@ -52,10 +52,23 @@ export function severityToTaskUrgency(severity) {
   return 'info';
 }
 
-// Resolve a display name + an actor string from the app's currentUser
+// Resolve a human-readable actor label from the app's currentUser
 // object ({ displayName, email }), matching CarePlanPanel's convention.
+// Use this for DISPLAY fields (disposition_by, event actor) — not for
+// task assignment.
 export function actorFromUser(currentUser) {
   return currentUser?.displayName || currentUser?.email || null;
+}
+
+// Resolve the assignee for a follow-up task created from a signal.
+// MUST be email-first: follow_up_tasks.assigned_to is consumed by the
+// notification dispatcher (notifications_user.user_email = assigned_to),
+// the AI briefing, and the "My Day" filter — all of which match on
+// email. Assigning a display name like "Jessica" would silently drop
+// the task from every per-user, email-keyed flow. Mirrors the
+// FollowUpContext composer (email || name).
+export function assigneeFromUser(currentUser) {
+  return currentUser?.email || currentUser?.displayName || null;
 }
 
 // Map a raw care_signals DB row (snake_case) to a camelCase view model.

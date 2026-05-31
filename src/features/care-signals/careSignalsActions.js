@@ -7,7 +7,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { createUserTask } from '../../lib/followUpTasks';
-import { mapSignalRow, buildTaskInputFromSignal, actorFromUser } from './careSignalHelpers';
+import { mapSignalRow, buildTaskInputFromSignal, actorFromUser, assigneeFromUser } from './careSignalHelpers';
 
 const SIGNAL_COLUMNS =
   'id, client_id, care_plan_id, severity, categories, summary, sbar, evidence, ' +
@@ -64,7 +64,10 @@ export async function dispositionSignal(signal, { status, note, currentUser }, c
 // the two. Human-initiated only.
 export async function createFollowUpFromSignal(signal, { clientName, currentUser }, client = supabase) {
   const actor = actorFromUser(currentUser);
-  const input = buildTaskInputFromSignal(signal, { clientName, createdBy: actor });
+  // Task assignment must be email-first so the notification dispatcher,
+  // AI briefing, and "My Day" filter (all email-keyed) pick it up.
+  const assignee = assigneeFromUser(currentUser);
+  const input = buildTaskInputFromSignal(signal, { clientName, createdBy: assignee });
   const { task, error: taskError } = await createUserTask(input, client);
   if (taskError) throw taskError;
 
