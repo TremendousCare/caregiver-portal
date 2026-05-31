@@ -25,6 +25,12 @@ const CaregiverApp = lazy(() =>
 const BDApp = lazy(() =>
   import('./features/bd-portal/BDApp').then((m) => ({ default: m.BDApp })),
 );
+const PrivacyPolicy = lazy(() =>
+  import('./features/legal/PrivacyPolicy').then((m) => ({ default: m.PrivacyPolicy })),
+);
+const TermsOfService = lazy(() =>
+  import('./features/legal/TermsOfService').then((m) => ({ default: m.TermsOfService })),
+);
 
 function RouteFallback() {
   return (
@@ -56,6 +62,22 @@ export default function App() {
   }, [location.pathname]);
 
   // Public routes — no auth required, rendered without admin shell.
+  // Legal pages are public so Intuit (and other partners) can review
+  // them without an account; they back the QuickBooks production listing.
+  if (location.pathname === '/privacy') {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <PrivacyPolicy />
+      </Suspense>
+    );
+  }
+  if (location.pathname === '/terms') {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <TermsOfService />
+      </Suspense>
+    );
+  }
   if (location.pathname === '/apply') {
     return (
       <Suspense fallback={<RouteFallback />}>
