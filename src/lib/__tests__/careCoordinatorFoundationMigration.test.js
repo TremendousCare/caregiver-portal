@@ -71,17 +71,34 @@ describe('care coordinator foundation migration', () => {
 });
 
 describe('care coordinator agent seed migration', () => {
-  it('seeds the care-coordinator agent idempotently', () => {
-    expect(seedSql).toContain("'care-coordinator'");
-    expect(seedSql).toContain('ON CONFLICT (slug) DO NOTHING');
+  it('uses a CHECK-valid slug (underscore, not hyphen) and is idempotent on (org_id, slug)', () => {
+    expect(seedSql).toContain("'care_coordinator'");
+    expect(seedSql).not.toContain("'care-coordinator'"); // hyphen violates agents_slug_format
+    expect(seedSql).toContain('ON CONFLICT (org_id, slug) DO NOTHING');
   });
 
-  it('ships disabled by default (feature flag off)', () => {
-    expect(seedSql).toContain("'enabled', false");
+  it('matches the real agents schema (required NOT NULL columns)', () => {
+    // These columns are NOT NULL in the agents table; the seed must set them.
+    expect(seedSql).toMatch(/INSERT INTO public\.agents/);
+    expect(seedSql).toContain('system_prompt');
+    expect(seedSql).toContain('default_org_id()');
+    // No references to the columns that don't exist on agents.
+    expect(seedSql).not.toContain('display_name');
+    expect(seedSql).not.toContain("'enabled'");
   });
 
-  it('encodes the two-window analysis config', () => {
+  it('ships gated OFF via kill_switch (the real on/off control)', () => {
+    // kill_switch true = agent is off until an operator flips it.
+    expect(seedSql).toMatch(/kill_switch must be true on initial seed/);
+  });
+
+  it('encodes the two-window analysis config in context_recipe', () => {
     expect(seedSql).toContain("'acute_window_days', 7");
     expect(seedSql).toContain("'baseline_window_days', 30");
+  });
+
+  it('writes a version snapshot row', () => {
+    expect(seedSql).toContain('INSERT INTO public.agent_versions');
+    expect(seedSql).toContain('ON CONFLICT (agent_id, version) DO NOTHING');
   });
 });
