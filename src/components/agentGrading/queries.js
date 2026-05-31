@@ -108,6 +108,40 @@ export async function loadGrades(supabase, { suggestionIds }) {
   return data || [];
 }
 
+/** Cap on how many ids we fan out per entity-name lookup. The grading
+ *  page loads at most a few hundred suggestions, so this is generous. */
+const ENTITY_NAME_LOOKUP_CAP = 1000;
+
+/**
+ * Load caregiver / client name records for the given id lists. Used to
+ * resolve `ai_suggestions.entity_name` when the writer left it NULL
+ * (call_analyst always does). Read-only; both tables expose the name
+ * columns to authenticated under existing RLS.
+ *
+ * Returns `{ caregivers: [...], clients: [...] }` raw rows — the caller
+ * builds the lookup map via `buildEntityNameMap` (kept pure for tests).
+ */
+export async function loadEntityRecords(supabase, { caregiverIds = [], clientIds = [] } = {}) {
+  const result = { caregivers: [], clients: [] };
+  if (caregiverIds.length > 0) {
+    const { data, error } = await supabase
+      .from('caregivers')
+      .select('id, first_name, last_name')
+      .in('id', caregiverIds.slice(0, ENTITY_NAME_LOOKUP_CAP));
+    if (error) throw error;
+    result.caregivers = data || [];
+  }
+  if (clientIds.length > 0) {
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, first_name, last_name, contact_name, care_recipient_name')
+      .in('id', clientIds.slice(0, ENTITY_NAME_LOOKUP_CAP));
+    if (error) throw error;
+    result.clients = data || [];
+  }
+  return result;
+}
+
 /**
  * Append a grade row via the SECURITY DEFINER RPC. Admin-only at the
  * RPC layer; returns the new grade's id.

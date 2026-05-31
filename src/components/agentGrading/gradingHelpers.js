@@ -86,3 +86,83 @@ export function verdictClass(verdict) {
   if (verdict === 'harmful') return 'harmful';
   return 'ungraded';
 }
+
+// ─── Entity-name resolution ───
+//
+// Several writers leave `ai_suggestions.entity_name` NULL (call_analyst
+// always does; some message-router paths do too — see
+// `persistCallAnalysis.ts`). The grading page only ever had `entity_id`
+// + `entity_type` to show, which rendered as a bare "—". These helpers
+// resolve a display name from the caregivers / clients tables so the
+// operator can see WHO a suggestion is about. Mirrors the lead-name
+// fallback in `_shared/helpers/leadNotifications.ts::leadDisplayName`.
+
+/**
+ * Best-effort display name for a caregiver or client record. Returns
+ * null (not a placeholder) when nothing usable is present so callers
+ * can fall back to the existing "—" rendering.
+ */
+export function entityDisplayName(entityType, record) {
+  if (!record) return null;
+  const first = (record.first_name || '').trim();
+  const last = (record.last_name || '').trim();
+  if (first || last) return `${first} ${last}`.trim();
+  if (entityType === 'client') {
+    const contact = (record.contact_name || '').trim();
+    if (contact) return contact;
+    const recipient = (record.care_recipient_name || '').trim();
+    if (recipient) return recipient;
+  }
+  return null;
+}
+
+/**
+ * Collect the distinct caregiver / client ids that still need a name
+ * resolved (entity_id present, entity_name missing). Returns arrays so
+ * the caller can pass them straight to an `.in(...)` query.
+ */
+export function collectEntityIds(suggestions) {
+  const caregiverIds = new Set();
+  const clientIds = new Set();
+  for (const s of suggestions || []) {
+    if (!s || !s.entity_id || s.entity_name) continue;
+    if (s.entity_type === 'caregiver') caregiverIds.add(s.entity_id);
+    else if (s.entity_type === 'client') clientIds.add(s.entity_id);
+  }
+  return { caregiverIds: Array.from(caregiverIds), clientIds: Array.from(clientIds) };
+}
+
+/**
+ * Build a `${entity_type}:${entity_id}` → display-name Map from raw
+ * caregiver / client record arrays. Skips records that resolve to no
+ * usable name.
+ */
+export function buildEntityNameMap({ caregivers, clients } = {}) {
+  const map = new Map();
+  for (const c of caregivers || []) {
+    if (!c || !c.id) continue;
+    const name = entityDisplayName('caregiver', c);
+    if (name) map.set(`caregiver:${c.id}`, name);
+  }
+  for (const c of clients || []) {
+    if (!c || !c.id) continue;
+    const name = entityDisplayName('client', c);
+    if (name) map.set(`client:${c.id}`, name);
+  }
+  return map;
+}
+
+/**
+ * Return a copy of `suggestions` with `entity_name` filled in from
+ * `nameMap` where it was missing. Rows that already have a name, or
+ * have no resolvable name, are returned unchanged.
+ */
+export function attachEntityNames(suggestions, nameMap) {
+  if (!Array.isArray(suggestions)) return [];
+  if (!nameMap || nameMap.size === 0) return suggestions;
+  return suggestions.map((s) => {
+    if (!s || s.entity_name || !s.entity_id || !s.entity_type) return s;
+    const resolved = nameMap.get(`${s.entity_type}:${s.entity_id}`);
+    return resolved ? { ...s, entity_name: resolved } : s;
+  });
+}

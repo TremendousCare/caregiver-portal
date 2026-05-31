@@ -162,6 +162,43 @@ describe('persistCallAnalysis — happy path', () => {
   });
 });
 
+describe('persistCallAnalysis — _cost capture', () => {
+  it('prorates the analysis-call cost across audit rows and stamps payload._cost', async () => {
+    const insertedRows = [
+      { id: 'sug-1', action_type: 'task_create',  entity_type: 'caregiver', entity_id: 'cg-1' },
+      { id: 'sug-2', action_type: 'task_create',  entity_type: 'caregiver', entity_id: 'cg-1' },
+      { id: 'sug-3', action_type: 'update_phase', entity_type: 'caregiver', entity_id: 'cg-1' },
+    ];
+    const sb = makeSupabaseMock({ insertResult: { data: insertedRows, error: null } });
+    recordAgentActionMock.mockResolvedValue({ success: true });
+
+    await persistCallAnalysis(sb, {
+      ...BASE_INPUT,
+      cost: { input_tokens: 900, output_tokens: 300, duration_ms: 4200, model: 'claude-sonnet-4-6' },
+    });
+
+    // Three suggestions → cost divided by 3, duration + model shared.
+    for (const call of recordAgentActionMock.mock.calls) {
+      expect(call[1].payload._cost).toEqual({
+        input_tokens: 300,
+        output_tokens: 100,
+        duration_ms: 4200,
+        model: 'claude-sonnet-4-6',
+      });
+    }
+  });
+
+  it('omits _cost entirely when no cost is supplied', async () => {
+    const sb = makeSupabaseMock({
+      insertResult: { data: [{ id: 'sug-1', action_type: 'task_create', entity_type: 'caregiver', entity_id: 'cg-1' }], error: null },
+    });
+    recordAgentActionMock.mockResolvedValue({ success: true });
+
+    await persistCallAnalysis(sb, BASE_INPUT);
+    expect(recordAgentActionMock.mock.calls[0][1].payload).not.toHaveProperty('_cost');
+  });
+});
+
 describe('persistCallAnalysis — shadow mode', () => {
   it('stamps each agent_actions audit row with phase=shadow', async () => {
     const sb = makeSupabaseMock({
