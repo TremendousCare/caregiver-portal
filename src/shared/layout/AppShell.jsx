@@ -19,7 +19,7 @@ import layout from '../../styles/layout.module.css';
 export function AppShell() {
   const { toast, isAdmin, currentOrgRole, currentOrgSettings } = useApp();
   const { loaded: caregiversLoaded, setFilterPhase } = useCaregivers();
-  const { loaded: clientsLoaded, setFilterPhase: setClientFilterPhase } = useClients();
+  const { loaded: clientsLoaded } = useClients();
   const { boards, loaded: boardsLoaded } = useBoards();
   const { badgeCount: followUpsBadgeCount, openComposer, composerOpen } = useFollowUps();
 
@@ -87,8 +87,6 @@ export function AppShell() {
         label: 'Clients',
         items: [
           { id: 'active-clients', path: '/clients/active', icon: '✅', label: 'Active Clients' },
-          { id: 'clients-dashboard', path: '/clients', icon: '🏠', label: 'Clients', onNavigate: () => setClientFilterPhase('all') },
-          { id: 'add-client', path: '/clients/add', icon: '＋', label: 'New Client' },
           { id: 'sequences', path: '/clients/sequences', icon: '⚡', label: 'Sequences' },
         ],
         extra: <ClientSidebarExtra />,
@@ -213,7 +211,7 @@ export function AppShell() {
       // Future:
       // { id: 'billing', label: 'Billing', items: [...] },
     ];
-  }, [setFilterPhase, setClientFilterPhase, boards, accountingVisible, isAdmin, payrollEnabled, invoicingEnabled, followUpsBadgeCount]);
+  }, [setFilterPhase, boards, accountingVisible, isAdmin, payrollEnabled, invoicingEnabled, followUpsBadgeCount]);
 
   return (
     <div className={layout.app}>
