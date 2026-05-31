@@ -36,12 +36,13 @@ function makeSupabase({
   let readCount = 0;
   let rpcCount = 0;
   const rpcCalls = [];
+  const orderCalls = [];
 
   const baseChain = (terminator) => {
     const chain = {
       select: vi.fn(() => chain),
       eq:     vi.fn(() => chain),
-      order:  vi.fn(() => chain),
+      order:  vi.fn((col, opts) => { orderCalls.push({ col, opts }); return chain; }),
       limit:  vi.fn(() => chain),
       maybeSingle: vi.fn(async () => terminator()),
     };
@@ -76,6 +77,7 @@ function makeSupabase({
     }),
     __readCount: () => readCount,
     __rpcCalls: () => rpcCalls,
+    __orderCalls: () => orderCalls,
   };
 }
 
@@ -167,6 +169,26 @@ describe('recordAgentAction — happy path', () => {
     const a = sb1.__rpcCalls()[0].args.p_row_hash;
     const b = sb2.__rpcCalls()[0].args.p_row_hash;
     expect(a).not.toBe(b);
+  });
+});
+
+describe('recordAgentAction — chain tip ordering (regression: 2026-05-12 chain freeze)', () => {
+  // The app's prev_hash read MUST use the same ORDER BY as
+  // record_agent_action_v1 (chain_seq DESC). The RPC reads the tip by
+  // chain_seq; if the app reads it by created_at, a same-millisecond
+  // concurrent insert whose created_at is ordered opposite to chain_seq
+  // makes the app claim the wrong prev_hash → permanent P0001
+  // chain_conflict. That inversion froze the production chain on
+  // 2026-05-12 (no writes for ~3 weeks, silently).
+  it('reads the tip ordered by chain_seq DESC, never by created_at', async () => {
+    const sb = makeSupabase({ prevHash: 'aa'.repeat(32) });
+    await recordAgentAction(sb, baseInput, {
+      signingKeyOverride: injectedSigningKey,
+      nowIso: '2026-05-09T21:00:00Z',
+    });
+    const orders = sb.__orderCalls();
+    expect(orders).toEqual([{ col: 'chain_seq', opts: { ascending: false } }]);
+    expect(orders.some((o) => o.col === 'created_at')).toBe(false);
   });
 });
 

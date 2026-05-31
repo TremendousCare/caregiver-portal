@@ -131,12 +131,24 @@ export async function recordAgentAction(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     // 1. Read the latest row's hash for this org.
+    //    MUST order by chain_seq DESC to match record_agent_action_v1's
+    //    own tip read. chain_seq is the strictly-monotonic IDENTITY
+    //    column that defines chain order; created_at is NOT a safe proxy
+    //    because two concurrent inserts can land with created_at ordered
+    //    opposite to chain_seq (same-millisecond ties). When that
+    //    happens, reading by created_at returns a different "tip" than
+    //    the RPC validates against, so claimed_prev_hash never matches
+    //    actual → every write fails P0001 chain_conflict, permanently,
+    //    until a row with a later created_at is appended (which can't
+    //    happen because every append is blocked). This exact inversion
+    //    froze the chain on 2026-05-12 and went unnoticed for weeks
+    //    because the failure is swallowed by callers. Keep this ORDER BY
+    //    byte-identical to the RPC's.
     const { data: latestRow, error: readErr } = await supabase
       .from('agent_actions')
       .select('row_hash')
       .eq('org_id', input.orgId)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
+      .order('chain_seq', { ascending: false })
       .limit(1)
       .maybeSingle();
 
