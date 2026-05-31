@@ -48,6 +48,18 @@ describe('verifyCurrentPassword', () => {
     ).rejects.toThrow(/timed out/i);
   });
 
+  it('returns without waiting on a hanging cleanup signOut', async () => {
+    // The throwaway client's signOut() acquires the GoTrue lock and can
+    // stall; verifyCurrentPassword must NOT await it (regression guard for
+    // the "stuck on Saving…" bug).
+    const signOut = vi.fn(() => new Promise(() => {})); // never resolves
+    const signInWithPassword = vi.fn().mockResolvedValue({ error: null });
+    const createClientImpl = vi.fn(() => ({ auth: { signInWithPassword, signOut } }));
+    const ok = await verifyCurrentPassword('a@b.com', 'pw', opts({ createClientImpl }));
+    expect(ok).toBe(true);
+    expect(signOut).toHaveBeenCalled();
+  });
+
   it('throws a clear error when not configured', async () => {
     await expect(
       verifyCurrentPassword('a@b.com', 'pw', { url: '', anonKey: '' }),

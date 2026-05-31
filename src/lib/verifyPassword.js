@@ -41,7 +41,15 @@ export async function verifyCurrentPassword(
     if (error) return false;
     return true;
   } finally {
-    // Best-effort cleanup of the throwaway session.
-    try { await probe.auth.signOut(); } catch (_) { /* ignore */ }
+    // Best-effort cleanup of the throwaway server session. Fire-and-forget
+    // — NEVER await it: probe.auth.signOut() acquires the GoTrue lock and
+    // calls /logout, which can stall on a flaky connection. Awaiting it
+    // here would block verifyCurrentPassword from returning even after the
+    // sign-in race resolved, hanging handleSubmit on "Saving…" before it
+    // ever reaches updateUser(). The probe uses persistSession:false, so
+    // there's no local session to clean up anyway.
+    try {
+      probe.auth.signOut().catch(() => {});
+    } catch (_) { /* ignore */ }
   }
 }
