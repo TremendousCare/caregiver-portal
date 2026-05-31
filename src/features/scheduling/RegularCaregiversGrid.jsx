@@ -208,6 +208,21 @@ export function RegularCaregiversGrid({
     }
   };
 
+  // Caregiver options for the per-day pickers, sorted alphabetically by
+  // display name. Built once and shared across all seven day cells. Kept
+  // above the early returns below so hook order stays stable across the
+  // loading → loaded transition.
+  const caregiverOptions = useMemo(
+    () =>
+      (caregivers || [])
+        .map((cg) => ({
+          value: cg.id,
+          label: `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [caregivers],
+  );
+
   if (!patternEnabled) {
     // No recurrence pattern yet — the grid would be all greyed out.
     // Show a brief hint instead so the section is intentional and
@@ -230,19 +245,6 @@ export function RegularCaregiversGrid({
       </div>
     );
   }
-
-  // Caregiver options for the per-day pickers, sorted alphabetically by
-  // display name. Built once and shared across all seven day cells.
-  const caregiverOptions = useMemo(
-    () =>
-      (caregivers || [])
-        .map((cg) => ({
-          value: cg.id,
-          label: `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [caregivers],
-  );
 
   return (
     <div className={s.section}>
