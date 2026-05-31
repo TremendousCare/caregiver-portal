@@ -31,13 +31,17 @@ export default defineConfig({
         // Pull in the push / notificationclick handlers (Web Push for
         // shift reminders). Plain script imported into the generated SW.
         importScripts: ['push-sw.js'],
-        // Precache only the navigation shell. We deliberately do NOT
-        // precache the whole bundle — caregivers shouldn't download the
-        // heavy admin chunks. JS/CSS chunks are runtime-cached on first
-        // visit (StaleWhileRevalidate) so the app works offline after the
-        // caregiver opens it once online (e.g. at the start of their day).
-        globPatterns: ['**/index.html'],
-        navigateFallback: '/index.html',
+        // Precache only the CAREGIVER navigation shell (care.html), NOT the
+        // office index.html. index.html hard-links the OFFICE manifest, so if
+        // this SW fell back to it, a SW-controlled /care page would advertise
+        // the office install identity and a re-add could launch the office app
+        // (the bug this avoids). care.html hard-links the caregiver manifest.
+        // We deliberately do NOT precache the whole bundle — caregivers
+        // shouldn't download the heavy admin chunks. JS/CSS chunks are
+        // runtime-cached on first visit (StaleWhileRevalidate) so the app
+        // works offline after the caregiver opens it once online.
+        globPatterns: ['**/care.html'],
+        navigateFallback: '/care.html',
         navigateFallbackAllowlist: [/^\/care/],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
