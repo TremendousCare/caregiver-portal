@@ -5,6 +5,7 @@ import {
   formatObservation,
   groupObservationsByShift,
 } from '../../lib/carePlanObservationFormatting';
+import { CollapseChevron, useCollapsed } from '../../shared/components/CollapseChevron';
 import s from './CarePlanActivity.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -30,6 +31,22 @@ export function CarePlanActivity({ carePlanId }) {
   const [shiftMap, setShiftMap] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [open, toggleOpen] = useCollapsed('tc_collapsible_card:Recent activity');
+
+  // Clickable heading shared by every render branch. Reuses the portal's
+  // standard collapse chevron + persisted state so behavior matches the
+  // Care Plan panel and Admin Settings cards.
+  const heading = (
+    <button
+      type="button"
+      onClick={toggleOpen}
+      aria-expanded={open}
+      className={s.collapseToggle}
+    >
+      <CollapseChevron open={open} />
+      <h4 className={s.title}>Recent activity</h4>
+    </button>
+  );
 
   const load = useCallback(async () => {
     if (!carePlanId) {
@@ -87,8 +104,8 @@ export function CarePlanActivity({ carePlanId }) {
   if (loading) {
     return (
       <section className={s.panel}>
-        <h4 className={s.title}>Recent activity</h4>
-        <div className={s.muted}>Loading…</div>
+        {heading}
+        {open && <div className={s.muted}>Loading…</div>}
       </section>
     );
   }
@@ -96,9 +113,13 @@ export function CarePlanActivity({ carePlanId }) {
   if (error) {
     return (
       <section className={s.panel}>
-        <h4 className={s.title}>Recent activity</h4>
-        <div className={s.errorBanner}>{error}</div>
-        <button className={s.linkBtn} onClick={load}>Retry</button>
+        {heading}
+        {open && (
+          <>
+            <div className={s.errorBanner}>{error}</div>
+            <button className={s.linkBtn} onClick={load}>Retry</button>
+          </>
+        )}
       </section>
     );
   }
@@ -106,11 +127,13 @@ export function CarePlanActivity({ carePlanId }) {
   if (observations.length === 0) {
     return (
       <section className={s.panel}>
-        <h4 className={s.title}>Recent activity</h4>
-        <p className={s.muted}>
-          No observations logged yet. Caregivers can log tasks, notes, and refusals from the
-          shift detail screen on their app.
-        </p>
+        {heading}
+        {open && (
+          <p className={s.muted}>
+            No observations logged yet. Caregivers can log tasks, notes, and refusals from the
+            shift detail screen on their app.
+          </p>
+        )}
       </section>
     );
   }
@@ -119,7 +142,9 @@ export function CarePlanActivity({ carePlanId }) {
 
   return (
     <section className={s.panel}>
-      <h4 className={s.title}>Recent activity</h4>
+      {heading}
+      {open && (
+      <>
       <p className={s.subtitle}>
         Latest observations from caregiver shifts ({observations.length}
         {reachedCap ? '+' : ''} entries).
@@ -165,6 +190,8 @@ export function CarePlanActivity({ carePlanId }) {
           Showing the most recent {DEFAULT_LIMIT} entries. Older activity is visible on each
           shift's detail in the schedule.
         </div>
+      )}
+      </>
       )}
     </section>
   );

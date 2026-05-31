@@ -21,6 +21,23 @@
   letter-spacing: 0.05em;
 }
 
+/* Clickable heading: chevron + title. Native button reset so it reads
+   as the original uppercase heading. */
+.collapseToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  align-self: flex-start;
+}
+
 .subtitle {
   font-size: 13px;
   color: #6B7B8F;
