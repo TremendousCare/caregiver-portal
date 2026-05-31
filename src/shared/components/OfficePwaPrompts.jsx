@@ -7,30 +7,18 @@
 // There is intentionally NO update toast: the office SW auto-updates, so
 // deploys reach staff without a click (unlike the caregiver app).
 //
-// This component also re-injects the office manifest from per-org branding
-// once `organizations.settings` is available — startup installs the default
-// manifest; this upgrades it to the org's identity when one is configured.
+// The install identity (manifest + start_url) is selected in index.html's
+// head script, not here — iOS only honors a real static manifest present
+// before it reads the page (see public/office-manifest.webmanifest).
 //
 // All icons are lucide-react components (no emoji glyphs, per UI rules).
 
-import { useEffect } from 'react';
 import { WifiOff, Download, Share, PlusSquare, X } from 'lucide-react';
-import { useApp } from '../context/AppContext';
 import { useOfficePwa } from '../../pwa/useOfficePwa';
-import { installOfficeManifest, resolveOfficeBranding } from '../../pwa/officeManifest';
 import s from './OfficePwaPrompts.module.css';
 
 export function OfficePwaPrompts() {
-  const { currentOrgSettings } = useApp();
   const { online, installAffordance, promptInstall, dismissInstall } = useOfficePwa();
-
-  // Upgrade the install identity to per-org branding when settings load.
-  // No-op today (org settings carry no branding block), so it cleanly falls
-  // back to the Tremendous Care defaults — but ready for Phase D.
-  useEffect(() => {
-    if (!currentOrgSettings) return;
-    installOfficeManifest({ branding: resolveOfficeBranding(currentOrgSettings) });
-  }, [currentOrgSettings]);
 
   return (
     <>

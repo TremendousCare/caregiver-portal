@@ -11,6 +11,25 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Tremendous Care" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script>
+      /* PWA install identity selector — runs synchronously during head parse.
+         The office/admin app and the caregiver app share this one index.html,
+         but each needs its own install identity (start_url + name). iOS Safari
+         ignores blob: and late JS-injected manifests for "Add to Home Screen",
+         so on office routes we point the <link rel="manifest"> at a REAL static
+         file (office-manifest.webmanifest, start_url "/") before iOS reads it.
+         Caregiver and public-token routes keep the default care manifest above,
+         untouched. Reserved prefixes mirror App.jsx and src/pwa/routeScope.js —
+         keep all three in sync. */
+      (function () {
+        var reserved = /^\/(care|bd|apply|upload|sign|survey)(\/|$)/;
+        if (reserved.test(window.location.pathname)) return;
+        var link = document.querySelector('link[rel="manifest"]');
+        if (link) link.href = '/office-manifest.webmanifest';
+        var title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+        if (title) title.content = 'TC Office';
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
