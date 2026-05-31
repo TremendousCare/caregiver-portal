@@ -86,3 +86,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ─── Print: Care Impact "Export report" ───
+   Hide interactive chrome (range picker, export button, footer note) so
+   the printed/PDF'd page is a clean partner-ready summary. Elements opt
+   in via className="no-print". */
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}

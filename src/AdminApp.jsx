@@ -40,6 +40,7 @@ import { AdminSettings } from './components/AdminSettings';
 import { AgentMetricsPage } from './components/agentMetrics/AgentMetricsPage';
 import { AgentGradingPage } from './components/agentGrading/AgentGradingPage';
 import { PipelineHealthPage } from './features/caregivers/PipelineHealthPage';
+import { CareImpactPage } from './features/care-impact/CareImpactPage';
 import { IndeedImportModal } from './features/caregivers/IndeedImport';
 import { MyCnaJobsImportModal } from './features/caregivers/MyCnaJobsImport';
 import { getCurrentPhase, getOverallProgress, isAwaitingInterviewResponse, isAwaitingInterviewHca, isAwaitingInterviewNonHca, isAwaitingHcaVerification } from './lib/utils';
@@ -715,6 +716,7 @@ export default function AdminApp() {
                 <Route path="agent-metrics" element={<AdminOnly><AgentMetricsPage /></AdminOnly>} />
                 <Route path="agent-grading" element={<AdminOnly><AgentGradingPage /></AdminOnly>} />
                 <Route path="pipeline-health" element={<AdminOnly><PipelineHealthPage /></AdminOnly>} />
+                <Route path="care-impact" element={<AdminOnly><CareImpactPage /></AdminOnly>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
