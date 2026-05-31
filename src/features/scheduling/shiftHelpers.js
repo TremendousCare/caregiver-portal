@@ -245,6 +245,38 @@ export function formatSkillsInput(skills) {
 }
 
 /**
+ * Shift statuses hidden from calendar views by default.
+ *
+ * A cancelled shift is no longer happening — leaving a greyed-out block on
+ * the calendar is just visual noise. The row is preserved in the database
+ * (history, payroll, audit) and can still be surfaced on the master
+ * Schedule by explicitly choosing the status in the filter dropdown.
+ */
+export const CALENDAR_HIDDEN_STATUSES = Object.freeze(['cancelled']);
+
+/**
+ * Whether a shift should be hidden from a calendar view by default.
+ *
+ * `visibleStatuses` (optional) is the status — or array of statuses — the
+ * view is explicitly filtering to. If the shift's status is one the view
+ * explicitly asked for, it is never hidden (so picking "Cancelled" in the
+ * Schedule filter still shows cancelled shifts).
+ *
+ * @param {object} shift
+ * @param {string|string[]|null} [visibleStatuses]
+ * @returns {boolean}
+ */
+export function isShiftHiddenFromCalendar(shift, visibleStatuses = null) {
+  if (!shift) return false;
+  const status = shift.status;
+  if (visibleStatuses) {
+    const list = Array.isArray(visibleStatuses) ? visibleStatuses : [visibleStatuses];
+    if (list.includes(status)) return false;
+  }
+  return CALENDAR_HIDDEN_STATUSES.includes(status);
+}
+
+/**
  * Convert a shift row (from storage) into a FullCalendar event object.
  * The full shift is stashed on `extendedProps.shift` so the click
  * handler has access to it.
