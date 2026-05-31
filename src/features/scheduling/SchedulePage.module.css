@@ -157,6 +157,68 @@
   font-size: 13px;
 }
 
+/* ─── Lane board toolbar (day nav + grouping toggle) ─── */
+
+.laneToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.laneNav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.laneNavBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  background: #fff;
+  color: #5A6B80;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.laneNavBtn:hover {
+  background: #F5F8FC;
+  border-color: #C9D3E1;
+  color: #0F1724;
+}
+
+.laneTodayBtn {
+  padding: 7px 14px;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  background: #fff;
+  color: #5A6B80;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.laneTodayBtn:hover {
+  background: #F5F8FC;
+  border-color: #C9D3E1;
+  color: #0F1724;
+}
+
+.laneDateLabel {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0F1724;
+  margin-left: 8px;
+}
+
 /* ─── Calendar container ─── */
 
 .calendarWrap {

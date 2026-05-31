@@ -1,0 +1,209 @@
+/* ─── Resource-lane (timeline) board ─── */
+/* Width of the sticky resource-label column. Shared by the header corner
+   and every row so the time axis and the lanes stay aligned. */
+
+.board {
+  --label-w: 180px;
+  --grid-color: #EEF2F7;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #E1E7EF;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* ─── Header: time axis ─── */
+
+.headerRow {
+  display: grid;
+  grid-template-columns: var(--label-w) 1fr;
+  border-bottom: 1px solid #E1E7EF;
+  background: #F8FAFC;
+  flex: 0 0 auto;
+}
+
+.corner {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5A6B80;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-right: 1px solid #E1E7EF;
+  display: flex;
+  align-items: center;
+}
+
+.axis {
+  position: relative;
+  height: 34px;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  color: #93A1B5;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+/* keep the first / last labels from clipping at the edges */
+.tick:first-child {
+  transform: translateX(0);
+}
+.tick:last-child {
+  transform: translateX(-100%);
+}
+
+/* ─── Scrollable rows ─── */
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #93A1B5;
+  font-size: 13px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: var(--label-w) 1fr;
+  border-bottom: 1px solid #F0F3F8;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowLabel {
+  padding: 8px 12px;
+  border-right: 1px solid #E1E7EF;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #fff;
+  min-width: 0;
+}
+
+.rowLabelText {
+  font-size: 13px;
+  font-weight: 500;
+  color: #0F1724;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowLabelUnassigned .rowLabelText {
+  color: #991B1B;
+  font-weight: 600;
+}
+
+.rowCount {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5A6B80;
+  background: #F0F3F8;
+  border-radius: 10px;
+  padding: 1px 8px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.rowLabelUnassigned .rowCount {
+  color: #fff;
+  background: #DC2626;
+}
+
+/* ─── Lane track + bars ─── */
+
+.track {
+  position: relative;
+  min-width: 0;
+}
+
+.gridlines {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--grid-color) 0,
+    var(--grid-color) 1px,
+    transparent 1px,
+    transparent var(--hour-w)
+  );
+  pointer-events: none;
+}
+
+.nowLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #DC2626;
+  transform: translateX(-1px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.bar {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  transition: filter 0.12s, box-shadow 0.12s;
+  z-index: 1;
+}
+
+.bar:hover {
+  filter: brightness(0.97);
+  box-shadow: 0 1px 4px rgba(15, 23, 36, 0.18);
+  z-index: 3;
+}
+
+.bar:focus-visible {
+  outline: 2px solid #2E4E8D;
+  outline-offset: 1px;
+  z-index: 3;
+}
+
+.barTime {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.barName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
