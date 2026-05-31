@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -20,6 +21,9 @@ import {
   shiftStatusLabel,
   shiftToCalendarEvent,
 } from './shiftHelpers';
+import { ResourceLaneView } from './ResourceLaneView';
+import { computeDayWindowMs } from './resourceLaneHelpers';
+import { DEFAULT_APP_TIMEZONE } from '../../lib/scheduling/timezone';
 import { ShiftCreateModal } from './ShiftCreateModal';
 import { ShiftDrawer } from './ShiftDrawer';
 import { BroadcastModal } from './BroadcastModal';
@@ -68,9 +72,16 @@ export function SchedulePage() {
   const [currentView, setCurrentView] = useState('timeGridWeek');
   const [visibleRange, setVisibleRange] = useState(null);
 
+  // Board mode: the FullCalendar grid ('calendar') or the resource-lane
+  // board ('lanes'). The lane board manages its own single-day window and
+  // row entity, but shares the data load, filters, and drawer with the grid.
+  const [boardMode, setBoardMode] = useState('calendar');
+  const [laneDate, setLaneDate] = useState(() => new Date());
+  const [laneRowMode, setLaneRowMode] = useState('caregiver'); // 'caregiver' | 'client'
+
   // Filters
   const [filterClient, setFilterClient] = useState('');
-  const [filterStatus, setFilterStatus] = useState('open');
+  const [filterStatus, setFilterStatus] = useState('');
 
   // Data
   const [shifts, setShifts] = useState([]);
@@ -168,6 +179,20 @@ export function SchedulePage() {
     loadShifts();
   }, [loadShifts]);
 
+  // In lane mode FullCalendar is unmounted, so it can't drive the visible
+  // range via datesSet. Derive the window from the selected lane day (the
+  // full agency-local day) so the shared loadShifts pipeline fetches it.
+  useEffect(() => {
+    if (boardMode !== 'lanes') return;
+    const { startMs, endMs } = computeDayWindowMs({
+      date: laneDate,
+      startHour: 0,
+      endHour: 24,
+      timezone: DEFAULT_APP_TIMEZONE,
+    });
+    setVisibleRange({ start: new Date(startMs), end: new Date(endMs) });
+  }, [boardMode, laneDate]);
+
   // ─── Realtime subscription ────────────────────────────────────
   useEffect(() => {
     if (!supabase) return undefined;
@@ -202,9 +227,16 @@ export function SchedulePage() {
   );
 
   // ─── FullCalendar events ─────────────────────────────────────
+  // Shift objects that should be visible given the active status filter.
+  // Shared by both the FullCalendar grid (mapped to events below) and the
+  // resource-lane board (which consumes shift objects directly).
+  const visibleShifts = useMemo(
+    () => shifts.filter((shift) => !isShiftHiddenFromCalendar(shift, filterStatus || null)),
+    [shifts, filterStatus],
+  );
+
   const calendarEvents = useMemo(() => {
-    return shifts
-      .filter((shift) => !isShiftHiddenFromCalendar(shift, filterStatus || null))
+    return visibleShifts
       .map((shift) =>
         shiftToCalendarEvent(shift, {
           clientsById,
@@ -213,7 +245,7 @@ export function SchedulePage() {
         }),
       )
       .filter(Boolean);
-  }, [shifts, clientsById, caregiversById, actualsByShiftId, filterStatus]);
+  }, [visibleShifts, clientsById, caregiversById, actualsByShiftId]);
 
   // ─── Calendar handlers ───────────────────────────────────────
   const handleDatesSet = (info) => {
@@ -294,9 +326,32 @@ export function SchedulePage() {
 
   // ─── View toggle ─────────────────────────────────────────────
   const handleViewChange = (viewName) => {
+    const wasLanes = boardMode === 'lanes';
+    setBoardMode('calendar');
     setCurrentView(viewName);
-    calendarRef.current?.getApi()?.changeView(viewName);
+    // When leaving the lane board FullCalendar remounts with
+    // initialView={currentView}; only the already-mounted grid needs an
+    // imperative changeView.
+    if (!wasLanes) calendarRef.current?.getApi()?.changeView(viewName);
   };
+
+  const showLaneBoard = () => setBoardMode('lanes');
+
+  // ─── Lane board day navigation ───────────────────────────────
+  const shiftLaneDate = (deltaDays) =>
+    setLaneDate((prev) => {
+      const next = new Date(prev);
+      next.setDate(next.getDate() + deltaDays);
+      return next;
+    });
+
+  const laneDateLabel = laneDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: DEFAULT_APP_TIMEZONE,
+  });
 
   // ─── New shift button (opens create with defaults for "next hour") ──
   const handleNewShift = () => {
@@ -348,27 +403,35 @@ export function SchedulePage() {
           <div className={s.viewToggle} role="tablist" aria-label="Calendar view">
             <button
               role="tab"
-              aria-selected={currentView === 'timeGridDay'}
-              className={`${s.viewBtn} ${currentView === 'timeGridDay' ? s.viewBtnActive : ''}`}
+              aria-selected={boardMode === 'calendar' && currentView === 'timeGridDay'}
+              className={`${s.viewBtn} ${boardMode === 'calendar' && currentView === 'timeGridDay' ? s.viewBtnActive : ''}`}
               onClick={() => handleViewChange('timeGridDay')}
             >
               Day
             </button>
             <button
               role="tab"
-              aria-selected={currentView === 'timeGridWeek'}
-              className={`${s.viewBtn} ${currentView === 'timeGridWeek' ? s.viewBtnActive : ''}`}
+              aria-selected={boardMode === 'calendar' && currentView === 'timeGridWeek'}
+              className={`${s.viewBtn} ${boardMode === 'calendar' && currentView === 'timeGridWeek' ? s.viewBtnActive : ''}`}
               onClick={() => handleViewChange('timeGridWeek')}
             >
               Week
             </button>
             <button
               role="tab"
-              aria-selected={currentView === 'dayGridMonth'}
-              className={`${s.viewBtn} ${currentView === 'dayGridMonth' ? s.viewBtnActive : ''}`}
+              aria-selected={boardMode === 'calendar' && currentView === 'dayGridMonth'}
+              className={`${s.viewBtn} ${boardMode === 'calendar' && currentView === 'dayGridMonth' ? s.viewBtnActive : ''}`}
               onClick={() => handleViewChange('dayGridMonth')}
             >
               Month
+            </button>
+            <button
+              role="tab"
+              aria-selected={boardMode === 'lanes'}
+              className={`${s.viewBtn} ${boardMode === 'lanes' ? s.viewBtnActive : ''}`}
+              onClick={showLaneBoard}
+            >
+              Lanes
             </button>
           </div>
         </div>
@@ -410,42 +473,102 @@ export function SchedulePage() {
 
       {loadError && <div className={s.errorBanner}>Error: {loadError}</div>}
 
-      <div className={s.calendarWrap}>
-        <FullCalendar
-          ref={calendarRef}
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-          initialView={currentView}
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: '',
-          }}
-          height="100%"
-          allDaySlot={false}
-          slotDuration="01:00:00"
-          snapDuration="00:15:00"
-          slotLabelInterval="01:00"
-          slotMinTime="00:00:00"
-          slotMaxTime="24:00:00"
-          nowIndicator
-          firstDay={0}
-          stickyHeaderDates
-          events={calendarEvents}
-          selectable
-          selectMirror
-          editable
-          eventStartEditable
-          eventDurationEditable
-          eventOverlap
-          dayMaxEvents
-          datesSet={handleDatesSet}
-          select={handleSelect}
-          dateClick={handleDateClick}
-          eventClick={handleEventClick}
-          eventDrop={handleEventDrop}
-          eventResize={handleEventResize}
-        />
-      </div>
+      {boardMode === 'lanes' ? (
+        <>
+          <div className={s.laneToolbar}>
+            <div className={s.laneNav}>
+              <button
+                className={s.laneNavBtn}
+                onClick={() => shiftLaneDate(-1)}
+                aria-label="Previous day"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                className={s.laneNavBtn}
+                onClick={() => shiftLaneDate(1)}
+                aria-label="Next day"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button className={s.laneTodayBtn} onClick={() => setLaneDate(new Date())}>
+                Today
+              </button>
+              <span className={s.laneDateLabel}>{laneDateLabel}</span>
+            </div>
+            <div className={s.viewToggle} role="tablist" aria-label="Lane grouping">
+              <button
+                role="tab"
+                aria-selected={laneRowMode === 'caregiver'}
+                className={`${s.viewBtn} ${laneRowMode === 'caregiver' ? s.viewBtnActive : ''}`}
+                onClick={() => setLaneRowMode('caregiver')}
+              >
+                By caregiver
+              </button>
+              <button
+                role="tab"
+                aria-selected={laneRowMode === 'client'}
+                className={`${s.viewBtn} ${laneRowMode === 'client' ? s.viewBtnActive : ''}`}
+                onClick={() => setLaneRowMode('client')}
+              >
+                By client
+              </button>
+            </div>
+          </div>
+          <div className={s.calendarWrap}>
+            <ResourceLaneView
+              date={laneDate}
+              mode={laneRowMode}
+              shifts={visibleShifts}
+              caregivers={schedulableCaregivers}
+              clients={activeClients}
+              clientsById={clientsById}
+              caregiversById={caregiversById}
+              onShiftClick={(shift) => {
+                setSelectedShift(shift);
+                ensureServicePlansForClient(shift.clientId);
+              }}
+            />
+          </div>
+        </>
+      ) : (
+        <div className={s.calendarWrap}>
+          <FullCalendar
+            ref={calendarRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView={currentView}
+            headerToolbar={{
+              left: 'prev,next today',
+              center: 'title',
+              right: '',
+            }}
+            height="100%"
+            allDaySlot={false}
+            slotDuration="01:00:00"
+            snapDuration="00:15:00"
+            slotLabelInterval="01:00"
+            slotMinTime="00:00:00"
+            slotMaxTime="24:00:00"
+            nowIndicator
+            firstDay={0}
+            stickyHeaderDates
+            events={calendarEvents}
+            selectable
+            selectMirror
+            editable
+            eventStartEditable
+            eventDurationEditable
+            eventOverlap
+            dayMaxEvents
+            datesSet={handleDatesSet}
+            select={handleSelect}
+            dateClick={handleDateClick}
+            eventClick={handleEventClick}
+            eventDrop={handleEventDrop}
+            eventResize={handleEventResize}
+          />
+        </div>
+      )}
 
       {createDraft && (
         <ShiftCreateModal
