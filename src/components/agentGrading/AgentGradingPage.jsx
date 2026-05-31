@@ -46,6 +46,7 @@ const SOURCE_TYPES = [
   { id: 'inbound_sms', label: 'Inbound SMS' },
   { id: 'inbound_email', label: 'Inbound email' },
   { id: 'outcome', label: 'Outcome' },
+  { id: 'call_analyst', label: 'Call analyst' },
 ];
 
 export function AgentGradingPage() {
@@ -379,6 +380,9 @@ export function AgentGradingPage() {
                     </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{s.title || '(untitled)'}</div>
+                      {s.detail && (
+                        <div className={styles.detail} title={s.detail}>{truncate(s.detail, 240)}</div>
+                      )}
                       {s.drafted_content && (
                         <div className={styles.drafted}>"{truncate(s.drafted_content, 200)}"</div>
                       )}

@@ -15,6 +15,10 @@ import {
   gradeBreakdown,
   verdictClass,
   VERDICTS,
+  entityDisplayName,
+  collectEntityIds,
+  buildEntityNameMap,
+  attachEntityNames,
 } from '../../components/agentGrading/gradingHelpers';
 import { sinceIsoForDays } from '../../components/agentGrading/queries';
 
@@ -158,6 +162,117 @@ describe('verdictClass', () => {
     expect(verdictClass(null)).toBe('ungraded');
     expect(verdictClass(undefined)).toBe('ungraded');
     expect(verdictClass('weird')).toBe('ungraded');
+  });
+});
+
+describe('entityDisplayName', () => {
+  it('returns null when no record is given', () => {
+    expect(entityDisplayName('caregiver', null)).toBeNull();
+    expect(entityDisplayName('client', undefined)).toBeNull();
+  });
+
+  it('joins first + last name for a caregiver', () => {
+    expect(entityDisplayName('caregiver', { first_name: 'Rodney', last_name: 'Taylor' }))
+      .toBe('Rodney Taylor');
+  });
+
+  it('handles a present first name with a missing last name', () => {
+    expect(entityDisplayName('caregiver', { first_name: 'Aurora', last_name: '' }))
+      .toBe('Aurora');
+  });
+
+  it('falls back to contact_name then care_recipient_name for clients', () => {
+    expect(entityDisplayName('client', {
+      first_name: '', last_name: '', contact_name: 'Jane Smith', care_recipient_name: 'Grandma Rose',
+    })).toBe('Jane Smith');
+    expect(entityDisplayName('client', {
+      first_name: '', last_name: '', contact_name: '', care_recipient_name: 'Grandma Rose',
+    })).toBe('Grandma Rose');
+  });
+
+  it('does not use client-only fallbacks for caregivers', () => {
+    expect(entityDisplayName('caregiver', {
+      first_name: '', last_name: '', contact_name: 'Jane Smith',
+    })).toBeNull();
+  });
+
+  it('returns null when nothing usable is present', () => {
+    expect(entityDisplayName('client', { first_name: '', last_name: '' })).toBeNull();
+  });
+});
+
+describe('collectEntityIds', () => {
+  it('collects distinct ids per type, skipping already-named rows', () => {
+    const out = collectEntityIds([
+      suggestion('s1', { entity_type: 'caregiver', entity_id: 'cg1' }),
+      suggestion('s2', { entity_type: 'caregiver', entity_id: 'cg1' }), // dup
+      suggestion('s3', { entity_type: 'client', entity_id: 'cl1' }),
+      suggestion('s4', { entity_type: 'client', entity_id: 'cl2', entity_name: 'Already Named' }),
+      suggestion('s5', { entity_type: null, entity_id: null }),
+    ]);
+    expect(out.caregiverIds).toEqual(['cg1']);
+    expect(out.clientIds).toEqual(['cl1']);
+  });
+
+  it('returns empty arrays for empty / null input', () => {
+    expect(collectEntityIds([])).toEqual({ caregiverIds: [], clientIds: [] });
+    expect(collectEntityIds(null)).toEqual({ caregiverIds: [], clientIds: [] });
+  });
+});
+
+describe('buildEntityNameMap', () => {
+  it('keys names by type:id and skips unnamed records', () => {
+    const map = buildEntityNameMap({
+      caregivers: [
+        { id: 'cg1', first_name: 'Rodney', last_name: 'Taylor' },
+        { id: 'cg2', first_name: '', last_name: '' }, // no usable name
+      ],
+      clients: [
+        { id: 'cl1', first_name: '', last_name: '', contact_name: 'Jane Smith' },
+      ],
+    });
+    expect(map.get('caregiver:cg1')).toBe('Rodney Taylor');
+    expect(map.has('caregiver:cg2')).toBe(false);
+    expect(map.get('client:cl1')).toBe('Jane Smith');
+  });
+
+  it('tolerates missing arrays', () => {
+    expect(buildEntityNameMap({}).size).toBe(0);
+    expect(buildEntityNameMap().size).toBe(0);
+  });
+});
+
+describe('attachEntityNames', () => {
+  const map = buildEntityNameMap({
+    caregivers: [{ id: 'cg1', first_name: 'Rodney', last_name: 'Taylor' }],
+    clients: [{ id: 'cl1', first_name: 'Aurora', last_name: 'Vega' }],
+  });
+
+  it('fills entity_name where it was missing', () => {
+    const out = attachEntityNames([
+      suggestion('s1', { entity_type: 'caregiver', entity_id: 'cg1' }),
+      suggestion('s2', { entity_type: 'client', entity_id: 'cl1' }),
+    ], map);
+    expect(out[0].entity_name).toBe('Rodney Taylor');
+    expect(out[1].entity_name).toBe('Aurora Vega');
+  });
+
+  it('leaves already-named rows and unresolvable rows untouched', () => {
+    const already = suggestion('s1', { entity_type: 'caregiver', entity_id: 'cg1', entity_name: 'Manual Name' });
+    const unknown = suggestion('s2', { entity_type: 'client', entity_id: 'missing' });
+    const out = attachEntityNames([already, unknown], map);
+    expect(out[0]).toBe(already); // unchanged reference
+    expect(out[1]).toBe(unknown);
+    expect(out[1].entity_name).toBeNull();
+  });
+
+  it('returns the input list unchanged for an empty map', () => {
+    const sugs = [suggestion('s1', { entity_type: 'caregiver', entity_id: 'cg1' })];
+    expect(attachEntityNames(sugs, new Map())).toBe(sugs);
+  });
+
+  it('returns [] for non-array input', () => {
+    expect(attachEntityNames(null, map)).toEqual([]);
   });
 });
 

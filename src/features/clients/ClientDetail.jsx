@@ -12,6 +12,7 @@ import { ClientSequences } from './client/ClientSequences';
 import { ClientActivityLog } from './client/ClientActivityLog';
 import { AssessmentsPanel } from './client/AssessmentsPanel';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
+import { CareSignalsPanel } from '../care-signals/CareSignalsPanel';
 import { ClientHealthEventsPanel } from '../care-signals/ClientHealthEventsPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
@@ -245,6 +246,8 @@ export function ClientDetail({
 
               {shouldShowClientPlanPanels(client) && (
                 <>
+                  <CareSignalsPanel client={client} currentUser={currentUser} />
+
                   <CarePlanPanel
                     key={carePlanRefreshKey}
                     client={client}
