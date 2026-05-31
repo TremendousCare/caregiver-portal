@@ -42,13 +42,16 @@ const DEFAULT_PORTAL_BASE_URL = "https://caregiver-portal.vercel.app";
 // and silently swallowing every connect/error result.
 const SETTINGS_PATH = "/settings";
 
-function buildRedirect(portalBase: string, key: string, value: string): Response {
-  let dest: URL;
+function buildRedirectUrl(portalBase: string): URL {
   try {
-    dest = new URL(SETTINGS_PATH, portalBase);
+    return new URL(SETTINGS_PATH, portalBase);
   } catch {
-    dest = new URL(SETTINGS_PATH, DEFAULT_PORTAL_BASE_URL);
+    return new URL(SETTINGS_PATH, DEFAULT_PORTAL_BASE_URL);
   }
+}
+
+function buildRedirect(portalBase: string, key: string, value: string): Response {
+  const dest = buildRedirectUrl(portalBase);
   dest.searchParams.set(key, value);
   return Response.redirect(dest.toString(), 302);
 }
@@ -105,12 +108,20 @@ Deno.serve(async (req) => {
     //   {"error":"invalid_client","error_description":"..."}
     // Surface that `error` code in the redirect so the Settings UI
     // can show a useful message instead of the generic
-    // "token_exchange_failed". This is how we figured out the
-    // 2026-05-30 sandbox handshake was failing on a redirect_uri
-    // byte-mismatch — without this, the failure mode is invisible.
-    const intuitErr = msg.match(/"error"\s*:\s*"([a-z_]+)"/i);
+    // "token_exchange_failed". Be permissive about the character set
+    // (some OAuth servers use uppercase or hyphens).
+    const intuitErr = msg.match(/"error"\s*:\s*"([a-zA-Z0-9_-]+)"/);
     const errorCode = intuitErr ? `intuit_${intuitErr[1]}` : "token_exchange_failed";
-    return buildRedirect(portalBase, "qb_error", errorCode);
+    // Also include a truncated body slice so we can diagnose without
+    // tailing function logs. The helper formats the message as
+    // `Intuit token exchange failed: <status> <statusText> — <body>`;
+    // pull the part after " — " when present.
+    const bodyMatch = msg.match(/ — (.+)$/);
+    const detail = (bodyMatch?.[1] ?? msg).slice(0, 300);
+    const dest = buildRedirectUrl(portalBase);
+    dest.searchParams.set("qb_error", errorCode);
+    dest.searchParams.set("qb_detail", detail);
+    return Response.redirect(dest.toString(), 302);
   }
 
   const { accessExpiresAt, refreshExpiresAt } = expiriesFromTokenResponse(tokens);

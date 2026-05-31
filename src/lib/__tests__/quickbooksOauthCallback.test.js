@@ -47,17 +47,38 @@ describe('QuickBooks OAuth callback edge function', () => {
   });
 
   describe('Intuit error code propagation', () => {
-    it('parses Intuit\'s `"error":"..."` field out of the thrown message', () => {
-      // The regex must match Intuit's JSON-body error code, allow
-      // optional whitespace around the colon (Intuit sometimes
-      // formats with no space), and be case-insensitive so a
-      // future error string casing change doesn\'t silently break.
-      expect(src).toMatch(/msg\.match\(\/"error"\\s\*:\\s\*"\(\[a-z_\]\+\)"\/i\)/);
+    it('parses Intuit\'s `"error":"..."` field with a permissive character set', () => {
+      // Some OAuth servers use uppercase or hyphens in error codes
+      // (e.g. `invalid-grant`). Lock the widened regex so we can't
+      // narrow it back to lowercase-only without a deliberate change.
+      expect(src).toMatch(
+        /msg\.match\(\/"error"\\s\*:\\s\*"\(\[a-zA-Z0-9_-\]\+\)"\/\)/,
+      );
     });
 
     it('redirects with `qb_error=intuit_<code>` when Intuit returned a code, otherwise the generic fallback', () => {
-      expect(src).toMatch(/intuitErr \? `intuit_\$\{intuitErr\[1\]\}` : "token_exchange_failed"/);
-      expect(src).toMatch(/buildRedirect\(portalBase, "qb_error", errorCode\)/);
+      expect(src).toMatch(
+        /intuitErr \? `intuit_\$\{intuitErr\[1\]\}` : "token_exchange_failed"/,
+      );
+    });
+
+    it('also attaches `qb_detail` with a truncated Intuit response so the failure is debuggable from the URL bar', () => {
+      // The detail is the bit after " — " in the helper's error
+      // message (or the whole message if the helper didn't format
+      // it that way), capped at 300 chars.
+      expect(src).toMatch(/const bodyMatch = msg\.match\(\/ — \(\.\+\)\$\/\);/);
+      expect(src).toMatch(/const detail = \(bodyMatch\?\.\[1\] \?\? msg\)\.slice\(0, 300\)/);
+      expect(src).toMatch(/dest\.searchParams\.set\("qb_error", errorCode\);/);
+      expect(src).toMatch(/dest\.searchParams\.set\("qb_detail", detail\);/);
+    });
+  });
+
+  describe('redirect helper split', () => {
+    it('exposes both buildRedirect and buildRedirectUrl so error paths can attach extra params', () => {
+      expect(src).toMatch(/function buildRedirectUrl\(portalBase: string\): URL/);
+      expect(src).toMatch(
+        /function buildRedirect\(portalBase: string, key: string, value: string\): Response/,
+      );
     });
   });
 });
