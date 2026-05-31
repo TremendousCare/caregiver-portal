@@ -3,12 +3,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const MIGRATIONS = resolve(__dirname, '../../../supabase/migrations');
+// Renamed from the original 20260603130000/130100 slots: those collided
+// with the already-applied 20260603130000_push_subscriptions migration,
+// which would have caused `db push` to silently skip these files.
 const foundationSql = readFileSync(
-  resolve(MIGRATIONS, '20260603130000_care_coordinator_foundation.sql'),
+  resolve(MIGRATIONS, '20260603131000_care_coordinator_foundation.sql'),
   'utf8',
 );
 const seedSql = readFileSync(
-  resolve(MIGRATIONS, '20260603130100_care_coordinator_seed_agent.sql'),
+  resolve(MIGRATIONS, '20260603131100_care_coordinator_seed_agent.sql'),
   'utf8',
 );
 
