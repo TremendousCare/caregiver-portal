@@ -66,16 +66,29 @@ export function QuickBooksConnection({ showToast }) {
     const params = new URLSearchParams(window.location.search);
     const ok = params.get('qb');
     const err = params.get('qb_error');
+    const detail = params.get('qb_detail');
     if (!ok && !err) return;
 
     if (ok === 'connected') {
       showToast?.('QuickBooks connected successfully.');
       reload();
     } else if (err) {
-      showToast?.(`QuickBooks connection failed: ${err.replace(/_/g, ' ')}`);
+      // Toast shows the short error code; the longer detail (truncated
+      // Intuit response, server stack) goes to the console so a tech-
+      // savvy owner — or whoever is on the call with them — can paste
+      // it into a bug report without copying the URL bar.
+      const human = err.replace(/_/g, ' ');
+      showToast?.(
+        detail
+          ? `QuickBooks connection failed (${human}). Open the console for the full Intuit response.`
+          : `QuickBooks connection failed: ${human}`,
+      );
+      // eslint-disable-next-line no-console
+      console.error('[QuickBooks] connect failed:', { qb_error: err, qb_detail: detail });
     }
     params.delete('qb');
     params.delete('qb_error');
+    params.delete('qb_detail');
     const newSearch = params.toString();
     const newUrl =
       window.location.pathname +
