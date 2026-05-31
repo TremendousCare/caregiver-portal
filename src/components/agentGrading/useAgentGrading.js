@@ -20,10 +20,16 @@ import {
   loadAgentsForGrading,
   loadSuggestions,
   loadGrades,
+  loadEntityRecords,
   upsertGrade,
   sinceIsoForDays,
 } from './queries';
-import { latestGradeBySuggestion } from './gradingHelpers';
+import {
+  latestGradeBySuggestion,
+  collectEntityIds,
+  buildEntityNameMap,
+  attachEntityNames,
+} from './gradingHelpers';
 
 export const MAX_UNGRADED_PAGES = 5;
 
@@ -131,8 +137,24 @@ export function useAgentGrading({
             loadGrades: (params) => loadGrades(supabase, params),
           },
         });
+
+        // Resolve display names for rows the writer left unnamed
+        // (call_analyst always leaves entity_name NULL). Best-effort:
+        // a lookup failure falls back to the raw rows so the page still
+        // renders and stays gradeable.
+        let named = sugs;
+        try {
+          const { caregiverIds, clientIds } = collectEntityIds(sugs);
+          if (caregiverIds.length > 0 || clientIds.length > 0) {
+            const records = await loadEntityRecords(supabase, { caregiverIds, clientIds });
+            named = attachEntityNames(sugs, buildEntityNameMap(records));
+          }
+        } catch {
+          named = sugs;
+        }
+
         if (!cancelled) {
-          setSuggestions(sugs);
+          setSuggestions(named);
           setGrades(grds);
           setLoading(false);
         }

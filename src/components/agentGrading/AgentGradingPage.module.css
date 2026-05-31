@@ -179,6 +179,14 @@
   padding: 1px 6px;
 }
 
+.detail {
+  color: var(--tc-text-secondary);
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 560px;
+}
+
 .drafted {
   color: var(--tc-text-secondary);
   font-style: italic;
