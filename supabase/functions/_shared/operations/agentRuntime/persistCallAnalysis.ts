@@ -56,6 +56,20 @@ export interface PersistCallAnalysisInput {
   shadowMode: boolean;
   /** The parsed analysis from the extractor handler. */
   analysis: CallAnalysisPayload;
+  /** Token cost + model + latency from the runtime invocation. Stamped
+   *  into each agent_actions audit row's `payload._cost` so the metrics
+   *  dashboard (`agent_actions.payload._cost`) can attribute token spend
+   *  and latency to call_analyst — the same `_cost` shape the ai-chat /
+   *  ai-planner / message-router shells emit. The single Sonnet call cost
+   *  is shared across every suggestion in the analysis, so we prorate by
+   *  suggestion count to avoid double-counting. Optional: when omitted
+   *  (legacy callers, tests) no `_cost` is stamped. */
+  cost?: {
+    input_tokens: number;
+    output_tokens: number;
+    duration_ms: number;
+    model: string | null;
+  };
 }
 
 export interface PersistCallAnalysisResult {
@@ -137,6 +151,19 @@ export async function persistCallAnalysis(
   }
 
   // ─── 2. Write per-suggestion agent_actions audit rows ───
+  // Prorate the single analysis-call token cost across the suggestions
+  // so the metrics dashboard can SUM payload._cost without
+  // double-counting (mirrors ai-planner/shell.ts).
+  const suggestionCount = Math.max(1, insertedSuggestionIds.length);
+  const perSuggestionCost = input.cost
+    ? {
+        input_tokens:  Math.round(input.cost.input_tokens / suggestionCount),
+        output_tokens: Math.round(input.cost.output_tokens / suggestionCount),
+        duration_ms:   input.cost.duration_ms,
+        model:         input.cost.model,
+      }
+    : null;
+
   let auditRowsWritten = 0;
   for (const row of insertedSuggestionIds) {
     try {
@@ -153,6 +180,7 @@ export async function persistCallAnalysis(
           source:           "call_analyst_extraction",
           suggestion_id:    row.id,
           call_session_id:  input.callSessionId,
+          ...(perSuggestionCost ? { _cost: perSuggestionCost } : {}),
         },
         outcomeId: null,
       });

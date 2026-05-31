@@ -474,6 +474,12 @@ async function runCallAnalyst(callSessionId: string): Promise<AnalystOutcome> {
       agentVersion:      result.agent.version,
       shadowMode:        result.shadow,
       analysis:          result.analysis,
+      cost: {
+        input_tokens:  result.cost.input_tokens,
+        output_tokens: result.cost.output_tokens,
+        duration_ms:   result.cost.duration_ms,
+        model:         result.agent.model || null,
+      },
     });
 
     if (persistResult.errors.length > 0) {
