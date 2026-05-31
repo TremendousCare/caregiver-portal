@@ -8,8 +8,9 @@
 // triage worklist. Read-only with respect to client care: it never
 // sends anything or changes a care plan.
 //
-// FEATURE FLAG: no-ops unless the care-coordinator agent row has
-// config.enabled = true. Safe to deploy disabled.
+// FEATURE FLAG: no-ops unless the care_coordinator agent row has
+// kill_switch = false. Seeded with kill_switch = true, so safe to
+// deploy disabled; an operator flips it on.
 //
 // Design: docs/CARE_COORDINATOR_AGENT.md
 // ═══════════════════════════════════════════════════════════════
@@ -104,26 +105,28 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // 1. Load the agent + feature flag.
+  // 1. Load the agent. The on/off control is kill_switch (true = OFF),
+  // matching the agents-table convention; window + threshold config
+  // lives in context_recipe. Slug is the CHECK-valid 'care_coordinator'.
   const { data: agent } = await supabase
     .from('agents')
-    .select('id, model, config, status')
-    .eq('slug', 'care-coordinator')
+    .select('id, model, context_recipe, kill_switch')
+    .eq('slug', 'care_coordinator')
     .maybeSingle();
 
-  const config = (agent?.config ?? {}) as Record<string, unknown>;
-  if (!agent || config.enabled !== true || agent.status !== 'active') {
-    return jsonResponse({ ok: true, skipped: 'care-coordinator disabled', evaluated: 0, created: 0 });
+  if (!agent || agent.kill_switch === true) {
+    return jsonResponse({ ok: true, skipped: 'care_coordinator disabled (kill_switch)', evaluated: 0, created: 0 });
   }
 
-  const acuteDays = Number(config.acute_window_days) || 7;
-  const baselineDays = Number(config.baseline_window_days) || 30;
+  const recipe = (agent.context_recipe ?? {}) as Record<string, unknown>;
+  const acuteDays = Number(recipe.acute_window_days) || 7;
+  const baselineDays = Number(recipe.baseline_window_days) || 30;
   const thresholds: SeverityThresholds = {
     watch_min_categories:
-      Number((config.severity_thresholds as Record<string, unknown>)?.watch_min_categories) ||
+      Number((recipe.severity_thresholds as Record<string, unknown>)?.watch_min_categories) ||
       DEFAULT_THRESHOLDS.watch_min_categories,
     urgent_min_categories:
-      Number((config.severity_thresholds as Record<string, unknown>)?.urgent_min_categories) ||
+      Number((recipe.severity_thresholds as Record<string, unknown>)?.urgent_min_categories) ||
       DEFAULT_THRESHOLDS.urgent_min_categories,
   };
   const model = (agent.model as string) || FALLBACK_MODEL;
@@ -272,7 +275,7 @@ serve(async (req) => {
         event_type: 'care_signal_created',
         entity_type: 'client',
         entity_id: plan.client_id,
-        actor: 'system:care-coordinator',
+        actor: 'system:care_coordinator',
         agent_id: agent.id,
         payload: { severity: signal.severity, categories: signal.categories, action: disposition.action },
       });
