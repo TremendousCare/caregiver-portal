@@ -124,37 +124,68 @@ export function computeAttribution(
   const lookback = options.signalLookbackDays ?? 14;
   const readmitWindow = options.readmissionWindowDays ?? 30;
 
-  const eventUpdates: EventUpdate[] = [];
+  const signalsById = new Map(signals.map((s) => [s.id, s]));
+  const eventsById = new Map(events.map((e) => [e.id, e]));
+
+  // Event updates keyed by id so the main loop and the reverse-repair
+  // pass can both contribute fields to the same event without clobbering.
+  const eventUpdatesById = new Map<string, EventUpdate>();
+  const eventUpdate = (eventId: string): EventUpdate => {
+    if (!eventUpdatesById.has(eventId)) eventUpdatesById.set(eventId, { eventId });
+    return eventUpdatesById.get(eventId)!;
+  };
+
+  // Signal updates, de-duped (a fresh link and a one-sided repair could
+  // otherwise both target the same signal id).
   const signalUpdates: SignalUpdate[] = [];
-  // Guard against double-linking a signal to multiple events in one run.
+  const queuedSignalUpdates = new Set<string>();
+  const queueSignalUpdate = (signalId: string, outcomeEventId: string) => {
+    if (queuedSignalUpdates.has(signalId)) return;
+    signalUpdates.push({ signalId, outcomeEventId });
+    queuedSignalUpdates.add(signalId);
+  };
+
+  // A signal is "claimed" once it points to an event OR we queue it to.
   const claimedSignals = new Set(
     signals.filter((s) => s.outcomeEventId).map((s) => s.id),
   );
 
   for (const event of events) {
-    const update: EventUpdate = { eventId: event.id };
-    let changed = false;
-
     if (!event.precedingSignalId) {
       const signal = findPrecedingSignal(event, signals, lookback);
       if (signal && !claimedSignals.has(signal.id)) {
-        update.precedingSignalId = signal.id;
-        signalUpdates.push({ signalId: signal.id, outcomeEventId: event.id });
+        eventUpdate(event.id).precedingSignalId = signal.id;
+        queueSignalUpdate(signal.id, event.id);
         claimedSignals.add(signal.id);
-        changed = true;
+      }
+    } else {
+      // Event → signal link exists. Repair the reverse link if a prior
+      // run wrote the event side but the signal-side update failed
+      // (partial write) — previously this block was skipped, so the gap
+      // was sticky across reruns.
+      const linked = signalsById.get(event.precedingSignalId);
+      if (linked && !linked.outcomeEventId) {
+        queueSignalUpdate(linked.id, event.id);
+        claimedSignals.add(linked.id);
       }
     }
 
     if (!event.relatedDischargeId) {
       const discharge = findRelatedDischarge(event, events, readmitWindow);
-      if (discharge) {
-        update.relatedDischargeId = discharge.id;
-        changed = true;
-      }
+      if (discharge) eventUpdate(event.id).relatedDischargeId = discharge.id;
     }
-
-    if (changed) eventUpdates.push(update);
   }
 
-  return { eventUpdates, signalUpdates };
+  // Reverse-repair the opposite partial failure: a signal already points
+  // to an event, but that event's precedingSignalId is missing (signal
+  // side landed, event side failed). Backfill the event side.
+  for (const s of signals) {
+    if (!s.outcomeEventId) continue;
+    const ev = eventsById.get(s.outcomeEventId);
+    if (ev && !ev.precedingSignalId) {
+      eventUpdate(ev.id).precedingSignalId = s.id;
+    }
+  }
+
+  return { eventUpdates: Array.from(eventUpdatesById.values()), signalUpdates };
 }
