@@ -13,6 +13,7 @@ import { ClientActivityLog } from './client/ClientActivityLog';
 import { AssessmentsPanel } from './client/AssessmentsPanel';
 import { CarePlanPanel } from '../care-plans/CarePlanPanel';
 import { CareSignalsPanel } from '../care-signals/CareSignalsPanel';
+import { ClientHealthEventsPanel } from '../care-signals/ClientHealthEventsPanel';
 import { ServicePlansPanel } from '../scheduling/ServicePlansPanel';
 import { ClientSchedulePanel } from '../scheduling/ClientSchedulePanel';
 import { UpcomingFollowUpsPanel } from '../tasks/UpcomingFollowUpsPanel';
@@ -259,6 +260,8 @@ export function ClientDetail({
                     currentUser={currentUser}
                     showToast={showToast}
                   />
+
+                  <ClientHealthEventsPanel client={client} currentUser={currentUser} />
                 </>
               )}
 
