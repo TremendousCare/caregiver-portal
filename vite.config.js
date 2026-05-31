@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -77,6 +81,19 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  build: {
+    // Two HTML entries that load the same app bundle. They differ only in the
+    // hard-linked PWA manifest, so the office app (index.html) and caregiver
+    // app (care.html) get distinct Home Screen install identities on iOS,
+    // which binds the manifest authored in the served HTML. Vercel routes
+    // /care* to care.html and everything else to index.html (see vercel.json).
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        care: resolve(__dirname, 'care.html'),
+      },
+    },
+  },
   server: {
     port: 3000,
     open: true,

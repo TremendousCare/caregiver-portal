@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/care", "destination": "/care.html" },
+    { "source": "/care/(.*)", "destination": "/care.html" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ]
 }
