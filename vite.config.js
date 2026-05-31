@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -27,13 +31,17 @@ export default defineConfig({
         // Pull in the push / notificationclick handlers (Web Push for
         // shift reminders). Plain script imported into the generated SW.
         importScripts: ['push-sw.js'],
-        // Precache only the navigation shell. We deliberately do NOT
-        // precache the whole bundle — caregivers shouldn't download the
-        // heavy admin chunks. JS/CSS chunks are runtime-cached on first
-        // visit (StaleWhileRevalidate) so the app works offline after the
-        // caregiver opens it once online (e.g. at the start of their day).
-        globPatterns: ['**/index.html'],
-        navigateFallback: '/index.html',
+        // Precache only the CAREGIVER navigation shell (care.html), NOT the
+        // office index.html. index.html hard-links the OFFICE manifest, so if
+        // this SW fell back to it, a SW-controlled /care page would advertise
+        // the office install identity and a re-add could launch the office app
+        // (the bug this avoids). care.html hard-links the caregiver manifest.
+        // We deliberately do NOT precache the whole bundle — caregivers
+        // shouldn't download the heavy admin chunks. JS/CSS chunks are
+        // runtime-cached on first visit (StaleWhileRevalidate) so the app
+        // works offline after the caregiver opens it once online.
+        globPatterns: ['**/care.html'],
+        navigateFallback: '/care.html',
         navigateFallbackAllowlist: [/^\/care/],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -77,6 +85,19 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  build: {
+    // Two HTML entries that load the same app bundle. They differ only in the
+    // hard-linked PWA manifest, so the office app (index.html) and caregiver
+    // app (care.html) get distinct Home Screen install identities on iOS,
+    // which binds the manifest authored in the served HTML. Vercel routes
+    // /care* to care.html and everything else to index.html (see vercel.json).
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        care: resolve(__dirname, 'care.html'),
+      },
+    },
+  },
   server: {
     port: 3000,
     open: true,

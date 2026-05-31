@@ -3,19 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Office/admin app entry. The caregiver app is a separate HTML entry
-         (care.html) so each surface ships its OWN static install identity:
-         iOS Safari binds the <link rel="manifest"> it finds authored in the
-         served HTML and ignores any later JavaScript change, so the office
-         manifest must be hard-linked here, not swapped at runtime. Vercel
-         serves /care* from care.html and everything else from this file. -->
-    <title>Tremendous Care</title>
+    <!-- Caregiver app entry. Served by Vercel for /care* (see vercel.json).
+         Loads the SAME app bundle as index.html — the only difference is the
+         hard-linked install identity (care manifest, start_url /care) so the
+         caregiver Home Screen icon opens the caregiver app. Keep this in sync
+         with index.html except for the manifest link + app title. -->
+    <title>Tremendous Care — Caregiver Portal</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%232E4E8D'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='14' font-weight='bold' fill='white'>TC</text></svg>" />
-    <link rel="manifest" href="/office-manifest.webmanifest" />
+    <link rel="manifest" href="/care-manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
     <meta name="theme-color" content="#2E4E8D" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="TC Office" />
+    <meta name="apple-mobile-web-app-title" content="Tremendous Care" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
