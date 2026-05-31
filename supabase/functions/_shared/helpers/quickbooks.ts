@@ -10,9 +10,16 @@
 
 // Intuit OAuth 2.0 endpoints — same URLs for sandbox and production;
 // the sandbox/prod distinction is determined by which client_id is
-// used, not by which URL is called.
+// used, not by which URL is called. Locked against the discovery
+// document at
+//   https://developer.api.intuit.com/.well-known/openid_sandbox_configuration
+// (issuer https://oauth.platform.intuit.com/op/v1) — see fix in
+// commit history for why the trailing `/bearer` on QB_TOKEN_URL
+// matters: omitting it gets a 404 with an empty body, which is a
+// brutal failure mode to diagnose without the qb_detail path we
+// shipped alongside this constant.
 export const QB_AUTH_BASE_URL  = "https://appcenter.intuit.com/connect/oauth2";
-export const QB_TOKEN_URL      = "https://oauth.platform.intuit.com/oauth2/v1/tokens";
+export const QB_TOKEN_URL      = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 export const QB_REVOKE_URL     = "https://developer.api.intuit.com/v2/oauth2/tokens/revoke";
 
 // The scope set we request at consent time. Locked with the owner
