@@ -301,7 +301,7 @@ Health-event capture + the attribution job + a basic impact dashboard are **v1**
 
 ---
 
-## 12. Retrofit Hygiene — do vs. defer
+## 13. Retrofit Hygiene — do vs. defer
 
 | Do now (free / non-blocking) | Defer (complexity / error risk) |
 |---|---|
@@ -311,7 +311,7 @@ Health-event capture + the attribution job + a basic impact dashboard are **v1**
 
 ---
 
-## 13. Testing
+## 14. Testing
 
 - **Unit (Vitest, per `CLAUDE.md`):** Stop-and-Watch mapping, severity scoring, baseline-suppression, dedup/window logic, SBAR assembly, evidence resolution. New business logic gets tests before merge.
 - **Fixture replay:** a library of real anonymized shift-observation sets (incl. the Blerta 5/31 cluster) with expected severities — guards against calibration regressions when we tune the prompt.
@@ -319,20 +319,24 @@ Health-event capture + the attribution job + a basic impact dashboard are **v1**
 
 ---
 
-## 14. Milestones (within v1)
-
-1. **M1 — Schema + agent manifest + read tools.** `care_signals` migration, `care-coordinator` agent row, read-only tools. No UI.
-2. **M2 — Detector core + prompt + cron sweep.** Analysis runs, writes signals; behind a feature flag. Fixture-replay tests green.
-3. **M3 — Client-page Care Signals panel + triage (ack/dismiss/actioned) + instrumentation.**
-4. **M4 — Briefing integration + calibration tuning** from real shadow-period agreement data.
+## 15. Milestones (within v1)
 
 Each milestone is its own PR with CI (tests + build) green and a rollback note.
 
+1. **M1 — Schema + agent manifest + read tools.** `care_signals` + `client_health_events` migrations (org-scoped, `is_staff()` RLS), `care-coordinator` agent row, read-only tools. No UI.
+2. **M2 — Detector core + prompt + cron sweep.** Two-window analysis (7d acute / 30d baseline) runs and writes signals; behind a feature flag. Fixture-replay tests green (incl. the Blerta cluster + baseline-suppression cases).
+3. **M3 — Client-page Care Signals panel + triage** (acknowledge / dismiss-with-reason / mark-actioned / **create follow-up task**) + §9 instrumentation.
+4. **M4 — Health-event capture + attribution job.** Two-click event logging on the client page; signal→event correlation populates `preceding_signal_id`.
+5. **M5 — Impact dashboard + referral-partner export** (ACH / ED / 30-day readmission trends, signals surfaced/acted/latency, estimated avoided escalations, transitional-care coverage) — carefully labeled per §11.4.
+6. **M6 — Briefing integration + calibration tuning** from real shadow-period agreement data.
+
 ---
 
-## 15. Open Questions for Owner
+## 16. Resolved Decisions & Remaining Watch-items
 
-1. **Detection cadence:** is a few-hour cron sweep acceptable for v1, or do you want near-real-time per-shift detection from the start? (Cron is simpler/safer; real-time is more work.)
-2. **History depth:** analyze the last 7 days of observations by default? Or a different window (e.g., since last published care-plan version)?
-3. **Provider/BAA:** can you confirm the Anthropic data-handling posture so we're clear to send PHI to the model, or should we plan a de-identification step first?
-4. **Escalation artifact:** is "copy the SBAR draft to clipboard" enough for v1, or do you want a one-click "create a follow-up task from this signal" (reusing `follow_up_tasks`) — still human-initiated, but tighter?
+**Resolved with owner (2026-05-31):** cadence = few-hour cron (§0.6); window = 7d acute over 30d/last-version baseline (§0.7, §2.1); PHI to model approved (§0.8, §10); escalation = create follow-up task (§0.9, §7); outcome tracking in scope (§0.10, §11).
+
+**Remaining watch-items (not blockers, revisit during build):**
+1. **Health-event capture friction.** Two-click office logging is the v1 path; success depends on staff actually logging hospitalizations. We should watch capture completeness — if it's thin, the impact numbers are thin. (Future: ADT/claims feed for automatic detection.)
+2. **Avoided-escalation attribution is inherently soft.** "Signal + action + no event" is a *candidate* avoided escalation, not proof. Keep the reporting honest (§11.4) until we have a baseline/cohort comparison.
+3. **Severity thresholds** (§8) start as informed defaults; expect to tune them in M6 from real agreement data before widening sensitivity.
