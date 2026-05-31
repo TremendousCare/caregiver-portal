@@ -65,10 +65,31 @@ describe('normalizeDetectorOutput (gate + validation)', () => {
 
   it('requires a non-empty summary even when categories clear the threshold', () => {
     const out = normalizeDetectorOutput(
-      { signal: true, categories: ['pain', 'ate_less'], summary: '   ' },
+      { signal: true, categories: ['pain', 'ate_less'], summary: '   ', evidence_observation_ids: ['o1'] },
       opts,
     );
     expect(out).toBeNull();
+  });
+
+  it('suppresses a signal with no evidence ids (no traceability, breaks dedup)', () => {
+    const out = normalizeDetectorOutput(
+      { signal: true, categories: ['pain', 'ate_less'], summary: 'x', evidence_observation_ids: [] },
+      opts,
+    );
+    expect(out).toBeNull();
+  });
+
+  it('filters evidence ids to the valid acute set and suppresses if none remain', () => {
+    const out = normalizeDetectorOutput(
+      {
+        signal: true,
+        categories: ['pain', 'ate_less'],
+        summary: 'x',
+        evidence_observation_ids: ['ghost1', 'ghost2'],
+      },
+      { thresholds: DEFAULT_THRESHOLDS, validObservationIds: new Set(['o1', 'o2']) },
+    );
+    expect(out).toBeNull(); // model cited ids that don't exist -> silent
   });
 
   it('produces a normalized signal for a valid cluster', () => {
@@ -79,16 +100,16 @@ describe('normalizeDetectorOutput (gate + validation)', () => {
         acute: true,
         summary: 'Possible acute change',
         sbar: { situation: 'S', background: 'B', assessment: 'A', recommendation: 'R', junk: 1 },
-        evidence_observation_ids: ['o1', 'o2', 7],
+        evidence_observation_ids: ['o1', 'o2', 7, 'ghost'],
       },
-      opts,
+      { thresholds: DEFAULT_THRESHOLDS, validObservationIds: new Set(['o1', 'o2']) },
     );
     expect(out).not.toBeNull();
     expect(out.severity).toBe('urgent');
     expect(out.categories).toEqual(['pain', 'ate_less', 'help_walking']);
     expect(out.summary).toBe('Possible acute change');
     expect(out.sbar.recommendation).toBe('R');
-    expect(out.evidenceObservationIds).toEqual(['o1', 'o2']); // non-strings dropped
+    expect(out.evidenceObservationIds).toEqual(['o1', 'o2']); // non-strings + unknown ids dropped
   });
 });
 

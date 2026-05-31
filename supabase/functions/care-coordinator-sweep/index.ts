@@ -143,6 +143,7 @@ serve(async (req) => {
   let evaluated = 0;
   let created = 0;
   let updated = 0;
+  let failed = 0;
 
   for (const carePlanId of carePlanIds) {
     try {
@@ -196,7 +197,11 @@ serve(async (req) => {
       );
 
       const raw = await callClaude(model, systemPrompt, userPrompt);
-      const signal = normalizeDetectorOutput(raw, { thresholds });
+      // Gate evidence ids to real acute-window observations: a signal
+      // must cite at least one, both for traceability and so dedup has
+      // ids to overlap against on the next sweep.
+      const acuteIds = new Set(summary.acute.map((o) => o.id));
+      const signal = normalizeDetectorOutput(raw, { thresholds, validObservationIds: acuteIds });
       if (!signal) continue;
 
       // Dedup against this client's open signals.
@@ -244,12 +249,22 @@ serve(async (req) => {
         model,
       };
 
+      // Supabase writes return { error } rather than throwing. Check it
+      // before counting success / emitting the event, otherwise a
+      // constraint or schema rejection would report a false success and
+      // operators would lose the only signal that the detector is broken.
+      let writeError = null;
       if (disposition.action === 'update') {
-        await supabase.from('care_signals').update(row).eq('id', disposition.targetId);
-        updated += 1;
+        ({ error: writeError } = await supabase.from('care_signals').update(row).eq('id', disposition.targetId));
+        if (!writeError) updated += 1;
       } else {
-        await supabase.from('care_signals').insert(row);
-        created += 1;
+        ({ error: writeError } = await supabase.from('care_signals').insert(row));
+        if (!writeError) created += 1;
+      }
+      if (writeError) {
+        console.error('care-coordinator: care_signals write failed', plan.client_id, writeError.message);
+        failed += 1;
+        continue; // don't emit a success event for a write that didn't land
       }
 
       // Best-effort event log (full instrumentation lands in M3).
@@ -266,5 +281,5 @@ serve(async (req) => {
     }
   }
 
-  return jsonResponse({ ok: true, evaluated, created, updated });
+  return jsonResponse({ ok: true, evaluated, created, updated, failed });
 });

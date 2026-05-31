@@ -130,7 +130,7 @@ export interface NormalizedSignal {
  */
 export function normalizeDetectorOutput(
   raw: unknown,
-  opts: { thresholds: SeverityThresholds },
+  opts: { thresholds: SeverityThresholds; validObservationIds?: Set<string> },
 ): NormalizedSignal | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -155,9 +155,18 @@ export function normalizeDetectorOutput(
     recommendation: pick('recommendation'),
   };
 
-  const evidenceObservationIds = Array.isArray(r.evidence_observation_ids)
-    ? (r.evidence_observation_ids.filter((x) => typeof x === 'string') as string[])
+  // Evidence IDs must be real, acute-window observation ids. When the
+  // caller supplies the valid set (the sweep always does), unknown ids
+  // are dropped. A signal with zero traceable evidence is suppressed:
+  // without it the card has nothing to show AND dedup has no ids to
+  // overlap against, so the same cluster would re-insert every sweep.
+  let evidenceObservationIds = Array.isArray(r.evidence_observation_ids)
+    ? Array.from(new Set(r.evidence_observation_ids.filter((x) => typeof x === 'string') as string[]))
     : [];
+  if (opts.validObservationIds) {
+    evidenceObservationIds = evidenceObservationIds.filter((id) => opts.validObservationIds!.has(id));
+  }
+  if (evidenceObservationIds.length === 0) return null;
 
   return { severity, categories, summary, sbar, evidenceObservationIds, acute };
 }
