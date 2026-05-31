@@ -10,6 +10,7 @@ import { findRuleConflicts } from '../../lib/scheduling/ruleConflicts';
 import { hasRecurrencePattern } from './recurrenceHelpers';
 import { DAY_OF_WEEK_LABELS_SHORT } from './recurrenceHelpers';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { SearchableSelect } from '../../shared/components/SearchableSelect';
 import s from './RegularCaregiversGrid.module.css';
 
 // ═══════════════════════════════════════════════════════════════
@@ -207,6 +208,21 @@ export function RegularCaregiversGrid({
     }
   };
 
+  // Caregiver options for the per-day pickers, sorted alphabetically by
+  // display name. Built once and shared across all seven day cells. Kept
+  // above the early returns below so hook order stays stable across the
+  // loading → loaded transition.
+  const caregiverOptions = useMemo(
+    () =>
+      (caregivers || [])
+        .map((cg) => ({
+          value: cg.id,
+          label: `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [caregivers],
+  );
+
   if (!patternEnabled) {
     // No recurrence pattern yet — the grid would be all greyed out.
     // Show a brief hint instead so the section is intentional and
@@ -250,7 +266,7 @@ export function RegularCaregiversGrid({
               dayOfWeek={dow}
               inPattern={inPattern}
               activeRule={active}
-              caregivers={caregivers}
+              caregiverOptions={caregiverOptions}
               onPick={(id) => handlePick(dow, id)}
               saving={savingDow === dow}
               conflicts={conflicts}
@@ -267,7 +283,7 @@ function DayCell({
   dayOfWeek,
   inPattern,
   activeRule,
-  caregivers,
+  caregiverOptions,
   onPick,
   saving,
   conflicts,
@@ -286,23 +302,15 @@ function DayCell({
   return (
     <div className={s.cell}>
       <div className={s.cellLabel}>{label}</div>
-      <select
-        className={s.cellSelect}
+      <SearchableSelect
         value={selectedId}
+        onChange={(id) => onPick(id || null)}
+        options={caregiverOptions}
+        emptyOption={{ value: '', label: '— none —' }}
+        placeholder="Search caregivers…"
+        ariaLabel={`Regular caregiver for ${label}`}
         disabled={saving}
-        onChange={(e) => onPick(e.target.value || null)}
-        aria-label={`Regular caregiver for ${label}`}
-      >
-        <option value="">— none —</option>
-        {(caregivers || []).map((cg) => {
-          const name = `${cg.firstName || ''} ${cg.lastName || ''}`.trim() || cg.id;
-          return (
-            <option key={cg.id} value={cg.id}>
-              {name}
-            </option>
-          );
-        })}
-      </select>
+      />
       {conflicts.length > 0 && (
         <div className={s.conflictWarn} title={`${conflicts.length} overlap${conflicts.length === 1 ? '' : 's'}`}>
           Also covers another plan on this day
