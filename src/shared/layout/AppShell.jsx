@@ -8,6 +8,7 @@ import { useBoards } from '../context/BoardContext';
 import { Sidebar } from './Sidebar';
 import { Toast } from '../components/Toast';
 import { NotificationBell } from '../components/NotificationBell';
+import { OfficePwaPrompts } from '../components/OfficePwaPrompts';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { CaregiverSidebarExtra } from '../../features/caregivers/CaregiverSidebarExtra';
 import { ClientSidebarExtra } from '../../features/clients/ClientSidebarExtra';
@@ -217,6 +218,7 @@ export function AppShell() {
   return (
     <div className={layout.app}>
       <Toast message={toast} />
+      <OfficePwaPrompts />
       <NotificationBell />
       <QuickCaptureModal />
       <Sidebar sections={sidebarSections} />
