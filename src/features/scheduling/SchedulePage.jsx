@@ -16,6 +16,7 @@ import {
 import {
   SHIFT_STATUSES,
   computeDefaultShiftEnd,
+  isShiftHiddenFromCalendar,
   shiftStatusLabel,
   shiftToCalendarEvent,
 } from './shiftHelpers';
@@ -203,6 +204,7 @@ export function SchedulePage() {
   // ─── FullCalendar events ─────────────────────────────────────
   const calendarEvents = useMemo(() => {
     return shifts
+      .filter((shift) => !isShiftHiddenFromCalendar(shift, filterStatus || null))
       .map((shift) =>
         shiftToCalendarEvent(shift, {
           clientsById,
@@ -211,7 +213,7 @@ export function SchedulePage() {
         }),
       )
       .filter(Boolean);
-  }, [shifts, clientsById, caregiversById, actualsByShiftId]);
+  }, [shifts, clientsById, caregiversById, actualsByShiftId, filterStatus]);
 
   // ─── Calendar handlers ───────────────────────────────────────
   const handleDatesSet = (info) => {
@@ -400,7 +402,9 @@ export function SchedulePage() {
           </select>
         </label>
         <div className={s.filterSummary}>
-          {loading ? 'Loading…' : `${shifts.length} shift${shifts.length === 1 ? '' : 's'}`}
+          {loading
+            ? 'Loading…'
+            : `${calendarEvents.length} shift${calendarEvents.length === 1 ? '' : 's'}`}
         </div>
       </div>
 

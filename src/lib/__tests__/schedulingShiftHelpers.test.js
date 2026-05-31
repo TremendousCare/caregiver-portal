@@ -14,6 +14,8 @@ import {
   parseSkillsInput,
   formatSkillsInput,
   shiftToCalendarEvent,
+  CALENDAR_HIDDEN_STATUSES,
+  isShiftHiddenFromCalendar,
   validateShiftDraft,
   buildShiftUpdatePatch,
   applyAutoConfirmOnAssign,
@@ -349,6 +351,50 @@ describe('formatSkillsInput', () => {
   it('round-trips with parseSkillsInput', () => {
     const skills = ['Hoyer lift', 'dementia care', 'transfer'];
     expect(parseSkillsInput(formatSkillsInput(skills))).toEqual(skills);
+  });
+});
+
+// ─── isShiftHiddenFromCalendar ─────────────────────────────────
+
+describe('isShiftHiddenFromCalendar', () => {
+  it('hides cancelled shifts by default', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'cancelled' })).toBe(true);
+  });
+
+  it('keeps active statuses visible', () => {
+    for (const status of ['open', 'offered', 'assigned', 'confirmed', 'in_progress']) {
+      expect(isShiftHiddenFromCalendar({ status })).toBe(false);
+    }
+  });
+
+  it('keeps no_show visible (it needs attention, not hiding)', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'no_show' })).toBe(false);
+  });
+
+  it('keeps completed shifts visible (history within the window)', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'completed' })).toBe(false);
+  });
+
+  it('shows a cancelled shift when its status is explicitly requested (string)', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'cancelled' }, 'cancelled')).toBe(false);
+  });
+
+  it('shows a cancelled shift when its status is explicitly requested (array)', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'cancelled' }, ['cancelled'])).toBe(false);
+  });
+
+  it('still hides cancelled when a different status is the explicit filter', () => {
+    expect(isShiftHiddenFromCalendar({ status: 'cancelled' }, 'open')).toBe(true);
+  });
+
+  it('returns false for null / missing shift (nothing to hide)', () => {
+    expect(isShiftHiddenFromCalendar(null)).toBe(false);
+    expect(isShiftHiddenFromCalendar(undefined)).toBe(false);
+  });
+
+  it('exposes cancelled as the hidden-by-default status set', () => {
+    expect(CALENDAR_HIDDEN_STATUSES).toContain('cancelled');
+    expect(CALENDAR_HIDDEN_STATUSES).not.toContain('no_show');
   });
 });
 

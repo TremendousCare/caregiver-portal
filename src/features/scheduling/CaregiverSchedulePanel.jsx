@@ -14,6 +14,7 @@ import {
 } from './storage';
 import {
   computeDefaultShiftEnd,
+  isShiftHiddenFromCalendar,
   shiftToCalendarEvent,
 } from './shiftHelpers';
 import {
@@ -188,6 +189,7 @@ export function CaregiverSchedulePanel({ caregiver, showToast }) {
   // ─── Build calendar events: shifts + availability background ─
   const calendarEvents = useMemo(() => {
     const shiftEvents = shifts
+      .filter((shift) => !isShiftHiddenFromCalendar(shift))
       .map((shift) => shiftToCalendarEvent(shift, { clientsById, caregiversById }))
       .filter(Boolean);
 
