@@ -144,8 +144,25 @@ describe('attributionMatrix', () => {
     const events = [
       evt({ id: 'h2', client_id: 'c2', event_type: 'hospitalization', occurred_at: ago(15) }), // within 14d of s2
     ];
-    const m = attributionMatrix(signals, events, range, { avoidedLookaheadDays: 14 });
+    const m = attributionMatrix(signals, events, { ...range, avoidedLookaheadDays: 14 });
     expect(m.estimatedAvoided).toBe(1); // only s1
+  });
+
+  it('does NOT count avoided until the lookahead window has fully elapsed', () => {
+    // Actioned 5 days ago; the 14-day window has not matured, so even with
+    // no event yet it must not count (would overstate the partner metric).
+    const signals = [sig({ id: 's1', client_id: 'c1', status: 'actioned', created_at: ago(5) })];
+    const immature = attributionMatrix(signals, [], { ...range, avoidedLookaheadDays: 14, nowMs: now });
+    expect(immature.estimatedAvoided).toBe(0);
+
+    // Advance "now" 20 days so the window has elapsed — the same signal counts.
+    const matured = attributionMatrix(signals, [], {
+      ...range,
+      endMs: now + 20 * DAY,
+      nowMs: now + 20 * DAY,
+      avoidedLookaheadDays: 14,
+    });
+    expect(matured.estimatedAvoided).toBe(1);
   });
 
   it('does not count an actioned signal as avoided if it already has an outcome event', () => {

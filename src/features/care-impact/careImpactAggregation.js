@@ -170,7 +170,10 @@ export function monthlyOutcomeTrend(events, { startMs, endMs }) {
  *     window — a LEADING INDICATOR (candidate avoided escalation), NOT a
  *     proven causal save. Labeled as such in the UI.
  */
-export function attributionMatrix(signals, events, { startMs, endMs, avoidedLookaheadDays = 14 } = {}) {
+export function attributionMatrix(signals, events, { startMs, endMs, avoidedLookaheadDays = 14, nowMs } = {}) {
+  // "Now" for lookahead-maturity. Defaults to endMs (the window end the
+  // hook passes as Date.now()).
+  const now = nowMs ?? endMs;
   const rangeEvents = (events || []).filter(
     (e) => inRange(e.occurred_at, startMs, endMs) && (HOSPITAL_EVENTS.has(e.event_type) || ED_EVENTS.has(e.event_type)),
   );
@@ -200,9 +203,13 @@ export function attributionMatrix(signals, events, { startMs, endMs, avoidedLook
     }
     // Estimated-avoided: the signal was ACTIONED (staff intervened) and
     // no serious event for that client followed within the lookahead.
+    // Only count once the FULL lookahead window has elapsed — otherwise a
+    // recent actioned signal whose window hasn't matured would be counted
+    // as "avoided" prematurely, overstating the partner-facing metric.
     if (s.status === 'actioned') {
       const created = new Date(s.created_at).getTime();
       const lookEnd = created + avoidedLookaheadDays * DAY_MS;
+      if (lookEnd > now) continue; // window not yet elapsed — not countable
       const hadEvent = (seriousByClient.get(s.client_id) || []).some((t) => t >= created && t <= lookEnd);
       if (!hadEvent) estimatedAvoided += 1;
     }
