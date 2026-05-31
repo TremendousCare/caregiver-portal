@@ -1,0 +1,123 @@
+/* ═══════════════════════════════════════════════════════════════
+   Tremendous Care — Public Legal Pages (Privacy Policy + Terms)
+   Standalone, no-auth pages linked from the QuickBooks / Intuit
+   production app listing. Plain-document layout.
+   ═══════════════════════════════════════════════════════════════ */
+
+.page {
+  min-height: 100vh;
+  background: var(--tc-bg-page);
+  font-family: var(--tc-font-base);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 16px 80px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.logo {
+  font-family: var(--tc-font-heading);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--tc-navy);
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.logoAccent {
+  color: var(--tc-cyan);
+}
+
+.tagline {
+  font-size: 14px;
+  color: var(--tc-text-secondary);
+  font-weight: 500;
+}
+
+.doc {
+  width: 100%;
+  max-width: 760px;
+  background: var(--tc-bg-card, #ffffff);
+  border: 1px solid var(--tc-border, #e2e8f0);
+  border-radius: 12px;
+  padding: 40px 44px 48px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+.title {
+  font-family: var(--tc-font-heading);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin: 0 0 4px;
+}
+
+.updated {
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  margin: 0 0 28px;
+}
+
+.doc h2 {
+  font-family: var(--tc-font-heading);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--tc-text-primary);
+  margin: 28px 0 8px;
+}
+
+.doc p,
+.doc li {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--tc-text-primary);
+}
+
+.doc p {
+  margin: 0 0 12px;
+}
+
+.doc ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.doc li {
+  margin: 0 0 6px;
+}
+
+.doc a {
+  color: var(--tc-cyan, #0891b2);
+  text-decoration: none;
+}
+
+.doc a:hover {
+  text-decoration: underline;
+}
+
+.intro {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--tc-text-secondary);
+  margin: 0 0 8px;
+}
+
+.footer {
+  margin-top: 40px;
+  font-size: 13px;
+  color: var(--tc-text-secondary);
+  text-align: center;
+}
+
+.footer a {
+  color: var(--tc-cyan, #0891b2);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
