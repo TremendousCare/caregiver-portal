@@ -1,0 +1,96 @@
+.offlineStrip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #B4451F;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  display: flex;
+  gap: 12px;
+  max-width: 340px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  color: #2B3A55;
+  box-shadow: 0 12px 32px rgba(28, 42, 71, 0.18);
+  border: 1px solid #E4E9F2;
+}
+
+.icon {
+  flex-shrink: 0;
+  color: #2E4E8D;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #5A6B85;
+}
+
+.actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #2E4E8D;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.dismiss {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5A6B85;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #8294AE;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+}

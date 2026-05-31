@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Offline — Tremendous Care</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #F7F8FB;
+        color: #2B3A55;
+        font-family: 'Plus Jakarta Sans', 'Outfit', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .card {
+        max-width: 360px;
+        padding: 32px 28px;
+        text-align: center;
+      }
+      .badge {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 18px;
+        border-radius: 16px;
+        background: #2E4E8D;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h1 { font-size: 19px; margin: 0 0 8px; font-weight: 700; }
+      p { font-size: 14px; line-height: 1.5; color: #5A6B85; margin: 0 0 20px; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        font-size: 14px;
+        color: #fff;
+        background: #2E4E8D;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="badge" aria-hidden="true">
+        <!-- WifiOff (lucide) — inline so the offline page needs no other assets -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"
+             fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h.01" />
+          <path d="M8.5 16.429a5 5 0 0 1 7 0" />
+          <path d="M5 12.859a10 10 0 0 1 5.17-2.69" />
+          <path d="M19 12.859a10 10 0 0 0-2.007-1.523" />
+          <path d="M2 8.82a15 15 0 0 1 4.177-2.643" />
+          <path d="M22 8.82a15 15 0 0 0-11.288-3.764" />
+          <path d="m2 2 20 20" />
+        </svg>
+      </div>
+      <h1>You&rsquo;re offline</h1>
+      <p>The office app needs an internet connection. Check your connection and try again.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </div>
+  </body>
+</html>
