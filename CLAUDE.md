@@ -118,6 +118,16 @@ If a contributor proposes work that touches the agent runtime, agent identity, m
 
 ---
 
+## Care Coordinator Agent (Change-of-Condition Detector)
+
+An AI **care coordinator** agent is in active development. It is a read-only clinical-surveillance agent that reads each client's recent shift observations (`care_plan_observations`) against their care-plan baseline, detects deterioration clusters using the validated **Stop-and-Watch / SBAR** framework, and surfaces triage-ready **care signals** (new `care_signals` table) to office staff — plus an outcome-measurement layer (`client_health_events`) for referral-partner reporting (readmissions, ACH, ED visits).
+
+- **Full design + decisions + PR plan**: `docs/CARE_COORDINATOR_AGENT.md` — read this before touching anything care-signal, care-coordinator agent, or `client_health_events` related.
+- **Owner-approved exception to the Agent Platform Vision gate**: this agent proceeds now (not blocked on the SaaS retrofit). Retrofit hygiene (e.g. `org_id`) is applied only where free/non-blocking.
+- **Hard rule**: v1 is **read-only / human-in-the-loop**. The detector has no outward-action tools. Clinical output is always framed as "recommend a nurse review," never diagnosis.
+
+---
+
 ## Project Overview
 
 - **Supabase Project ID**: `zocrnurvazyxdpyqimgj`

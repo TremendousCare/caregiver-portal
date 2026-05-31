@@ -323,8 +323,8 @@ Health-event capture + the attribution job + a basic impact dashboard are **v1**
 
 Each milestone is its own PR with CI (tests + build) green and a rollback note.
 
-1. **M1 — Schema + agent manifest + read tools.** `care_signals` + `client_health_events` migrations (org-scoped, `is_staff()` RLS), `care-coordinator` agent row, read-only tools. No UI.
-2. **M2 — Detector core + prompt + cron sweep.** Two-window analysis (7d acute / 30d baseline) runs and writes signals; behind a feature flag. Fixture-replay tests green (incl. the Blerta cluster + baseline-suppression cases).
+1. **M1 — Data foundation.** `care_signals` + `client_health_events` migrations (org-scoped, `is_staff()` RLS) + `care-coordinator` agent manifest seed. No tools, no UI, behavior-neutral. (Read-only tools moved to M2 — tools without the detector that calls them are dead code.)
+2. **M2 — Detector core + prompt + cron sweep + read-only tools.** Two-window analysis (7d acute / 30d baseline) runs and writes signals; behind a feature flag. Fixture-replay tests green (incl. the Blerta cluster + baseline-suppression cases).
 3. **M3 — Client-page Care Signals panel + triage** (acknowledge / dismiss-with-reason / mark-actioned / **create follow-up task**) + §9 instrumentation.
 4. **M4 — Health-event capture + attribution job.** Two-click event logging on the client page; signal→event correlation populates `preceding_signal_id`.
 5. **M5 — Impact dashboard + referral-partner export** (ACH / ED / 30-day readmission trends, signals surfaced/acted/latency, estimated avoided escalations, transitional-care coverage) — carefully labeled per §11.4.
