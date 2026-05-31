@@ -17,6 +17,7 @@ import { SectionEditor } from './SectionEditor';
 import { PublishModal } from './PublishModal';
 import { CarePlanActivity } from './CarePlanActivity';
 import { regenerateSnapshot } from './snapshotClient';
+import { CollapseChevron, useCollapsed } from '../../shared/components/CollapseChevron';
 import btn from '../../styles/buttons.module.css';
 import s from './CarePlanPanel.module.css';
 
@@ -48,6 +49,7 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
   const [editingSection, setEditingSection] = useState(null); // section object
   const [publishOpen, setPublishOpen] = useState(false);
   const [startingNewDraft, setStartingNewDraft] = useState(false);
+  const [open, toggleOpen] = useCollapsed('tc_collapsible_card:Care Plan');
   const [regenerating, setRegenerating] = useState(false);
 
   // ─── Load ────────────────────────────────────────────────────
@@ -224,13 +226,21 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
   return (
     <section className={s.panel}>
       <header className={s.header}>
-        <div>
-          <h3 className={s.title}>Care Plan</h3>
-          <p className={s.subtitle}>
-            Clinical assessment and plan of care. Everything we learn about{' '}
-            {client?.firstName || 'this client'} over time.
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={toggleOpen}
+          aria-expanded={open}
+          className={s.collapseToggle}
+        >
+          <CollapseChevron open={open} />
+          <div>
+            <h3 className={s.title}>Care Plan</h3>
+            <p className={s.subtitle}>
+              Clinical assessment and plan of care. Everything we learn about{' '}
+              {client?.firstName || 'this client'} over time.
+            </p>
+          </div>
+        </button>
         <div className={s.headerActions}>
           {plan && isDraft && hasAnyContent && (
             <button
@@ -243,6 +253,8 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
         </div>
       </header>
 
+      {open && (
+      <>
       {loading && <div className={s.loading}>Loading care plan…</div>}
 
       {loadError && (
@@ -324,6 +336,8 @@ export function CarePlanPanel({ client, currentUser, showToast }) {
             </details>
           )}
         </>
+      )}
+      </>
       )}
 
       {/* Phase 2b: section editor drawer */}
