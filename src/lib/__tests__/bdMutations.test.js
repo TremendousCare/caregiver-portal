@@ -28,6 +28,8 @@ import {
   findAccountDuplicates,
   createAccount,
   createAccountWithContacts,
+  buildAccountUpdatePatch,
+  updateAccount,
 } from '../../features/bd-portal/lib/bdMutations';
 
 describe('parseDollarsToCents', () => {
@@ -1416,5 +1418,99 @@ describe('createAccountWithContacts', () => {
     expect(r.contacts).toHaveLength(2);
     expect(r.contactErrors).toHaveLength(1);
     expect(r.contactErrors[0].name).toBe('Second');
+  });
+});
+
+// ─── Account update ───
+
+describe('buildAccountUpdatePatch', () => {
+  it('shapes the patch and stamps updated_at (facility)', () => {
+    const patch = buildAccountUpdatePatch(validFacilityAccountDraft());
+    expect(patch).toMatchObject({
+      name: 'Hoag Hospital — Newport Beach',
+      account_type: 'facility',
+      facility_subtype: 'hospital',
+      professional_subtype: null,
+      city: 'Newport Beach',
+      state: 'CA',
+      zip: '92663',
+      is_strategic_shared: false,
+    });
+    expect(typeof patch.updated_at).toBe('string');
+  });
+
+  it('omits insert-only columns (no org_id / source / is_active / created_by)', () => {
+    const patch = buildAccountUpdatePatch(validFacilityAccountDraft());
+    expect(patch).not.toHaveProperty('org_id');
+    expect(patch).not.toHaveProperty('source');
+    expect(patch).not.toHaveProperty('is_active');
+    expect(patch).not.toHaveProperty('created_by');
+  });
+
+  it('clears the wrong-axis subtype for a professional edit', () => {
+    const patch = buildAccountUpdatePatch({
+      ...validProfessionalAccountDraft(),
+      facility_subtype: 'hospital',
+    });
+    expect(patch.facility_subtype).toBe(null);
+    expect(patch.professional_subtype).toBe('attorney');
+  });
+
+  it('trims strings and nulls empties', () => {
+    const patch = buildAccountUpdatePatch({
+      ...validFacilityAccountDraft(),
+      name:    '  Hoag  ',
+      city:    '  ',
+      phone:   '',
+      website: '',
+      notes:   '   ',
+    });
+    expect(patch.name).toBe('Hoag');
+    expect(patch.city).toBe(null);
+    expect(patch.phone).toBe(null);
+    expect(patch.website).toBe(null);
+    expect(patch.notes).toBe(null);
+  });
+});
+
+describe('updateAccount', () => {
+  it('rejects without supabase', async () => {
+    const r = await updateAccount(null, { accountId: 'a-1', draft: validFacilityAccountDraft() });
+    expect(r.error).toBeTruthy();
+  });
+
+  it('rejects without an account id', async () => {
+    const stub = makeAccountLocationStub();
+    const r = await updateAccount(stub, { accountId: null, draft: validFacilityAccountDraft() });
+    expect(r.error?.message).toMatch(/account id/i);
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('rejects an invalid draft (no write attempted)', async () => {
+    const stub = makeAccountLocationStub();
+    const r = await updateAccount(stub, {
+      accountId: 'a-1',
+      draft: { ...validFacilityAccountDraft(), account_type: 'partner' },
+    });
+    expect(r.error).toBeTruthy();
+    expect(stub._observed).toHaveLength(0);
+  });
+
+  it('writes the patch and returns the updated row', async () => {
+    const observed = [];
+    const stub = makeAccountLocationStub({
+      updateResult: {
+        data: { id: 'a-1', name: 'Hoag Hospital — Newport Beach', account_type: 'facility' },
+        error: null,
+      },
+      observed,
+    });
+    const r = await updateAccount(stub, { accountId: 'a-1', draft: validFacilityAccountDraft() });
+    expect(r.error).toBe(null);
+    expect(r.data?.id).toBe('a-1');
+    const updateOp = observed.find((o) => o.op === 'update');
+    expect(updateOp.patch.name).toBe('Hoag Hospital — Newport Beach');
+    expect(updateOp.patch.account_type).toBe('facility');
+    expect(typeof updateOp.patch.updated_at).toBe('string');
   });
 });

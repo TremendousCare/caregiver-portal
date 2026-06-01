@@ -58,6 +58,7 @@ export function BDApp() {
         <Route path="/bd/accounts"                     element={<AccountList />} />
         <Route path="/bd/accounts/new"                 element={<AccountEditor />} />
         <Route path="/bd/accounts/:accountId"          element={<AccountProfile />} />
+        <Route path="/bd/accounts/:accountId/edit"     element={<AccountEditor />} />
         <Route path="/bd/accounts/:accountId/log"      element={<QuickCapture />} />
         <Route path="/bd/accounts/:accountId/refer"    element={<ReferralIntake />} />
         <Route path="/bd/accounts/:accountId/contact"               element={<ContactCardCapture />} />
