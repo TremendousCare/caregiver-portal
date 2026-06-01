@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../../shared/context/AppContext';
-import { isAdminRole } from '../../lib/auth/roles';
+import { isAdminRole, isOwnerRole } from '../../lib/auth/roles';
 import { PayrollTab } from './payroll/PayrollTab';
 import { InvoicingTab } from './invoicing/InvoicingTab';
+import { FinancialsTab } from './financials/FinancialsTab';
 import s from './AccountingPage.module.css';
 
 /**
@@ -25,6 +26,10 @@ export function AccountingPage() {
   // polite empty state rather than RLS-blocked SELECTs producing an
   // unexplained empty UI.
   const isStaff = isAdmin || isAdminRole(currentOrgRole);
+  // Financials is owner-only — payroll/margin numbers stay away from
+  // admins & members. Uses the role helper (never a literal) per the
+  // role-check safety rule in CLAUDE.md.
+  const isOwner = isOwnerRole(currentOrgRole);
   const payrollEnabled = currentOrgSettings?.features_enabled?.payroll === true;
   const invoicingEnabled = currentOrgSettings?.features_enabled?.invoicing === true;
 
@@ -32,8 +37,13 @@ export function AccountingPage() {
     const out = [];
     if (payrollEnabled) out.push({ id: 'payroll', label: 'Payroll' });
     if (invoicingEnabled) out.push({ id: 'invoicing', label: 'Invoicing' });
+    // Financials requires at least one accounting data source to be
+    // meaningful, and is gated to owners.
+    if (isOwner && (payrollEnabled || invoicingEnabled)) {
+      out.push({ id: 'financials', label: 'Financials' });
+    }
     return out;
-  }, [payrollEnabled, invoicingEnabled]);
+  }, [payrollEnabled, invoicingEnabled, isOwner]);
 
   // Default to the first enabled tab. The `?tab=` query param can deep-
   // link directly to a sub-tab (e.g., from a future briefing card or
@@ -102,6 +112,7 @@ export function AccountingPage() {
 
       {effectiveActiveTab === 'payroll' && <PayrollTab />}
       {effectiveActiveTab === 'invoicing' && <InvoicingTab />}
+      {effectiveActiveTab === 'financials' && <FinancialsTab />}
     </div>
   );
 }
