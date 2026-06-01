@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CloudOff, UploadCloud } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -127,6 +127,15 @@ export function CaregiverShiftDetail({ caregiver }) {
 
   const effectiveStatus = shift ? effectiveShiftStatus(shift.status, pendingEntries) : null;
   const action = nextClockAction(effectiveStatus);
+
+  // The checklist is sensitive to its `shift` prop identity (it drives a
+  // data fetch). Build the pending-aware shift object once per real change
+  // so unrelated re-renders here (clock polling, location updates) don't
+  // hand the child a brand-new object and trigger needless reloads.
+  const checklistShift = useMemo(
+    () => (shift ? { ...shift, status: effectiveStatus } : null),
+    [shift, effectiveStatus],
+  );
 
   const getLocationAndEvaluate = async () => {
     setClockState('locating');
@@ -386,7 +395,7 @@ export function CaregiverShiftDetail({ caregiver }) {
           Read-only before clock-in, interactive while in_progress, locked
           after completion. Uses the pending-aware status so a queued
           clock-in unlocks the checklist offline. */}
-      <CarePlanChecklist shift={{ ...shift, status: effectiveStatus }} caregiver={caregiver} />
+      <CarePlanChecklist shift={checklistShift} caregiver={caregiver} />
 
       {!action && effectiveStatus === 'completed' && (
         <section className={s.card}>
