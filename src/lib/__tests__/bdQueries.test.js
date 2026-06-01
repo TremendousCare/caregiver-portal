@@ -26,6 +26,7 @@ import {
   fetchTerritoryCitiesForUser,
   fetchStarredAccountIdsForUser,
   fetchAuditableReps,
+  resolveBriefingIdentity,
 } from '../../features/bd-portal/lib/bdQueries';
 import { ACTIVITY_TYPE_ICON_TYPES } from '../../features/bd-portal/lib/activityTypeIcon';
 
@@ -879,5 +880,67 @@ describe('fetchAuditableReps', () => {
     const errClient = { rpc: async () => ({ data: null, error: { message: 'boom' } }) };
     expect((await fetchAuditableReps(errClient)).data).toEqual([]);
     expect((await fetchAuditableReps(null)).data).toEqual([]);
+  });
+});
+
+describe('resolveBriefingIdentity', () => {
+  const sessionUser = {
+    id: 'self-uuid',
+    email: 'amy@tc.com',
+    user_metadata: { full_name: 'Amy Dutton' },
+  };
+
+  it('uses the signed-in session identity when not viewing-as', () => {
+    const r = resolveBriefingIdentity({ sessionUser, isViewingAs: false });
+    expect(r).toEqual({
+      name: 'Amy Dutton',
+      userId: 'self-uuid',
+      createdByCandidates: ['Amy Dutton', 'amy@tc.com'],
+    });
+  });
+
+  it('falls back to the email local-part when no full_name', () => {
+    const r = resolveBriefingIdentity({
+      sessionUser: { id: 'u', email: 'bob@tc.com', user_metadata: {} },
+      isViewingAs: false,
+    });
+    expect(r.name).toBe('bob');
+    expect(r.userId).toBe('u');
+    expect(r.createdByCandidates).toEqual(['bob@tc.com']);
+  });
+
+  it('scopes to the audited rep when an owner is viewing-as', () => {
+    const r = resolveBriefingIdentity({
+      sessionUser,
+      isViewingAs: true,
+      effectiveRep: { user_id: 'rep-uuid', email: 'rep@tc.com', full_name: 'Rep Smith' },
+      effectiveUserId: 'rep-uuid',
+    });
+    expect(r).toEqual({
+      name: 'Rep Smith',
+      userId: 'rep-uuid',
+      createdByCandidates: ['Rep Smith', 'rep@tc.com'],
+    });
+  });
+
+  it('prefers effectiveUserId over the rep row user_id when viewing-as', () => {
+    const r = resolveBriefingIdentity({
+      sessionUser,
+      isViewingAs: true,
+      effectiveRep: { user_id: 'stale', email: 'rep@tc.com', full_name: 'Rep Smith' },
+      effectiveUserId: 'fresh',
+    });
+    expect(r.userId).toBe('fresh');
+  });
+
+  it('ignores the rep row when viewing-as is set but no rep resolved yet', () => {
+    const r = resolveBriefingIdentity({ sessionUser, isViewingAs: true, effectiveRep: null });
+    expect(r.name).toBe('Amy Dutton');
+    expect(r.userId).toBe('self-uuid');
+  });
+
+  it('returns a safe shape with no arguments', () => {
+    const r = resolveBriefingIdentity();
+    expect(r).toEqual({ name: 'there', userId: null, createdByCandidates: [] });
   });
 });

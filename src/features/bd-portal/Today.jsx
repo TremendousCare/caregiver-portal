@@ -14,6 +14,7 @@ import {
   buildAppleMapsRouteUrl,
   hasRoutableAddress,
   filterToTerritory,
+  resolveBriefingIdentity,
   isCold,
 } from './lib/bdQueries';
 import { hydrateStops, pruneStopsAgainstAccounts } from './lib/bdRoutePlans';
@@ -38,10 +39,30 @@ function formatDays(d) {
 
 export function Today({ displayName }) {
   const navigate = useNavigate();
-  const { isReadOnly } = useBdViewAs();
+  const { isReadOnly, isViewingAs, effectiveRep, effectiveUserId } = useBdViewAs();
   const { loading: accountsLoading, accounts, activities, territoryCities, error: accountsError, refresh: refreshAccounts } = useBdAccounts();
   const { starredIds } = useBdAccountStars();
-  const { loading: briefingLoading, briefing, refresh: refreshBriefing } = useBdBriefing(displayName);
+
+  // The signed-in session user, resolved once. Combined with the view-as
+  // context it yields the *effective* rep identity the briefing scopes to
+  // — so the narrative, the week counters it cites, and the Top-5 list all
+  // describe the same person (the audited rep when an owner is viewing-as).
+  const [sessionUser, setSessionUser] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!cancelled) setSessionUser(session?.user ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const briefingIdentity = useMemo(
+    () => resolveBriefingIdentity({ sessionUser, isViewingAs, effectiveRep, effectiveUserId }),
+    [sessionUser, isViewingAs, effectiveRep, effectiveUserId],
+  );
+
+  const { loading: briefingLoading, briefing, refresh: refreshBriefing } = useBdBriefing(briefingIdentity);
   const { plan: todayPlan, refresh: refreshPlan } = useBdTodayPlan();
 
   // Render-ready stops: pruned against the current accounts list (so
@@ -101,20 +122,25 @@ export function Today({ displayName }) {
 
   // Briefing wins when present; otherwise fall back to the local
   // counters/list. The Today screen never blocks waiting on Claude.
+  // Fall back to the *effective* rep's name (the audited rep when an
+  // owner is viewing-as), not the signed-in owner's, so the greeting
+  // matches the scoped briefing below it.
+  const greetingName = briefingIdentity.name && briefingIdentity.name !== 'there'
+    ? briefingIdentity.name
+    : displayName;
   const greeting = briefing?.greeting
-    ?? `${timeOfDayGreeting()}${displayName ? `, ${displayName}` : ''}`;
+    ?? `${timeOfDayGreeting()}${greetingName ? `, ${greetingName}` : ''}`;
   const narrative = briefing?.narrative;
   const stats = briefing?.stats;
   const weekStats = stats?.week ?? week;
 
-  // Briefing-returned suggestions come from the edge function, which
-  // currently ranks the full org account list — that bypasses the
-  // territory filter applied to `top`. Intersect with the territory
-  // slice so the rep's Top 5 (and the multi-stop route built from it)
-  // stays scoped to South OC ∪ strategic regardless of whether the
-  // briefing or the local fallback is rendering. No-ops when the rep
-  // has no territory configured. Pushing the filter server-side into
-  // bd-briefing is a follow-up.
+  // Briefing-returned suggestions are now scoped to the rep's territory
+  // server-side (bd-briefing looks up the effective rep's territory cities
+  // via the bd_territory_cities_for_user RPC). We keep this client-side
+  // intersection as defense-in-depth so the rep's Top 5 (and the multi-
+  // stop route built from it) stays scoped to South OC ∪ strategic even
+  // if the server scope and the client's territory list ever drift.
+  // No-ops when the rep has no territory configured.
   const territoryAccountIds = useMemo(
     () => new Set(territoryAccounts.map((a) => a.id)),
     [territoryAccounts],

@@ -203,6 +203,54 @@ export async function fetchAuditableReps(supabase) {
   return { data: Array.isArray(res.data) ? res.data : [], error: null };
 }
 
+// Resolves the *effective* rep identity the Today-screen briefing should
+// be scoped to. Mirrors the view-as resolution in useBdWeekRecap so the
+// briefing narrative, the week counters it cites, and the Top-5 list all
+// describe the same person:
+//   - normal rep  → their own session identity,
+//   - owner audit → the rep they're viewing-as (from the auditable-reps
+//     RPC row, which carries { user_id, email, full_name }).
+//
+// Returns:
+//   - name:               friendly display name for the greeting. Prefers
+//                         full_name, falls back to the email local-part,
+//                         then a generic stand-in — same precedence the
+//                         rest of the portal uses (see BDApp).
+//   - userId:             the effective user id. The edge function passes
+//                         this to bd_territory_cities_for_user so the
+//                         account totals / cold count / suggested visits
+//                         are scoped to that rep's territory.
+//   - createdByCandidates: the strings bd_activities.created_by may hold
+//                         for this rep (full_name AND email, since
+//                         useBdLogActivity prefers full_name but older
+//                         rows fall back to email). The edge function
+//                         filters the week counters by these so they
+//                         count the rep's own work — including any
+//                         out-of-territory activity.
+//
+// Pure so it can be unit-tested without a live session.
+export function resolveBriefingIdentity({ sessionUser, isViewingAs, effectiveRep, effectiveUserId } = {}) {
+  const emailLocalPart = (email) => (email ? String(email).split('@')[0] : null);
+
+  if (isViewingAs && effectiveRep) {
+    const fullName = effectiveRep.full_name || null;
+    const email = effectiveRep.email || null;
+    return {
+      name: fullName || emailLocalPart(email) || 'there',
+      userId: effectiveUserId ?? effectiveRep.user_id ?? null,
+      createdByCandidates: [fullName, email].filter(Boolean),
+    };
+  }
+
+  const fullName = sessionUser?.user_metadata?.full_name || null;
+  const email = sessionUser?.email || null;
+  return {
+    name: fullName || emailLocalPart(email) || 'there',
+    userId: sessionUser?.id ?? null,
+    createdByCandidates: [fullName, email].filter(Boolean),
+  };
+}
+
 // Builds a Today-screen counter object from the in-memory account
 // + activity slice. Stays a pure function so the Today component can
 // stay dumb and the rendering is trivially testable.
