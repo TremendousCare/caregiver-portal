@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Camera, Star, Phone, Globe, Map, Mail } from 'lucide-react';
+import { Camera, Star, Phone, Globe, Map, Mail, Pencil } from 'lucide-react';
 import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import { useBdAccountStars } from './hooks/useBdAccountStars';
 import { useBdViewAs } from './context/BdViewAsContext';
@@ -143,6 +143,14 @@ export function AccountProfile() {
             is auditing a rep (read-only mirror). */}
         {!isReadOnly && (
           <>
+            <button
+              type="button"
+              className={s.starBtn}
+              onClick={() => navigate(`/bd/accounts/${account.id}/edit`)}
+              aria-label="Edit account"
+            >
+              <Pencil size={16} strokeWidth={2} aria-hidden />
+            </button>
             <button
               type="button"
               className={s.logCta}

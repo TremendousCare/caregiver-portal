@@ -809,6 +809,63 @@ export async function createAccountWithContacts(supabase, {
   return { data: account, error: null, duplicate: false, contacts, contactErrors };
 }
 
+// ─── Account update ─────────────────────────────────────────────
+//
+// Edits an existing bd_accounts row from the account profile's "Edit"
+// screen. Shares validateAccountDraft with the create flow so the rep
+// gets the same guardrails (name required, type/subtype must be a
+// matched pair in the CHECK domain, website sanity check) whether she's
+// adding or editing.
+//
+// Note on lat/lng: we intentionally leave the geocode pin untouched
+// here, matching the inline address editor (updateAccountLocation),
+// which also never clears lat/lng on an address change.
+
+// Builds the partial UPDATE payload for an account edit. Mirrors
+// buildAccountRow's field shaping (trim + null-on-empty, wrong-axis
+// subtype cleared) but omits insert-only columns (org_id, source,
+// is_active, created_by) and stamps updated_at.
+export function buildAccountUpdatePatch(draft) {
+  const subtype = draft.account_type === 'facility'
+    ? (draft.facility_subtype || null)
+    : null;
+  const profSubtype = draft.account_type === 'professional'
+    ? (draft.professional_subtype || null)
+    : null;
+  return {
+    name:                 String(draft.name).trim(),
+    account_type:         draft.account_type,
+    facility_subtype:     subtype,
+    professional_subtype: profSubtype,
+    address:              draft.address?.trim() || null,
+    city:                 draft.city?.trim()    || null,
+    state:                draft.state?.trim()   || null,
+    zip:                  draft.zip?.trim()     || null,
+    phone:                draft.phone?.trim()   || null,
+    website:              draft.website?.trim() || null,
+    notes:                draft.notes?.trim()   || null,
+    is_strategic_shared:  Boolean(draft.is_strategic_shared),
+    updated_at:           new Date().toISOString(),
+  };
+}
+
+export async function updateAccount(supabase, { accountId, draft }) {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured.') };
+  if (!accountId) return { data: null, error: new Error('Missing account id.') };
+  const validation = validateAccountDraft(draft);
+  if (!validation.ok) return { data: null, error: new Error(validation.error) };
+
+  const patch = buildAccountUpdatePatch(draft);
+  const res = await supabase
+    .from('bd_accounts')
+    .update(patch)
+    .eq('id', accountId)
+    .select('id, name, account_type, facility_subtype, professional_subtype, address, city, state, zip, phone, website, notes, is_strategic_shared')
+    .single();
+  if (res.error) return { data: null, error: res.error };
+  return { data: res.data, error: null };
+}
+
 // ─── Account stars (personal favorites) ─────────────────────────────
 //
 // Toggle a star on/off for the current user. RLS enforces user

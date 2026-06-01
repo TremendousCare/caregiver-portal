@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
-import { useBdLogAccount } from './hooks/useBdLogAccount';
+import { useBdLogAccount, useBdUpdateAccount } from './hooks/useBdLogAccount';
+import { useBdAccountDetail } from './hooks/useBdAccountDetail';
 import {
   ACCOUNT_TYPES,
   ACCOUNT_TYPE_LABELS,
@@ -15,15 +16,24 @@ import {
 } from './lib/bdMutations';
 import s from './BdPortal.module.css';
 
-// Single-screen create flow at /bd/accounts/new. Sections:
+// Single screen handles two modes:
+//   - Create:  /bd/accounts/new                 (INSERT, with inline contacts + dup check)
+//   - Edit:    /bd/accounts/:accountId/edit      (UPDATE the existing row)
+//
+// Create sections:
 //   1) Basics        — name, type, subtype, strategic flag
 //   2) Location & reach — address, city/state/zip, phone, website
 //   3) Notes
 //   4) Contacts (0..N, repeatable)
 //
-// On submit, runs server-side duplicate detection against the org's
-// other accounts; if matches are found, shows a warning panel with
-// links to the existing accounts and a "Create anyway" override.
+// On create-submit, runs server-side duplicate detection against the
+// org's other accounts; if matches are found, shows a warning panel
+// with links to the existing accounts and a "Create anyway" override.
+//
+// Edit mode pre-fills from the loaded account and hides the create-only
+// surfaces (inline contacts — managed from the profile — and duplicate
+// detection). The Notes field here is the static blurb shown at the top
+// of the account profile.
 
 function emptyContactDraft() {
   return {
@@ -40,7 +50,14 @@ function emptyContactDraft() {
 
 export function AccountEditor() {
   const navigate = useNavigate();
-  const { submit, submitting } = useBdLogAccount();
+  const { accountId } = useParams();
+  const isEdit = Boolean(accountId);
+
+  const { submit, submitting: creating } = useBdLogAccount();
+  const { submit: updateSubmit, submitting: updating } = useBdUpdateAccount(accountId);
+  const { account, loading: accountLoading, error: accountError } =
+    useBdAccountDetail(isEdit ? accountId : null);
+  const submitting = creating || updating;
 
   // Account fields.
   const [name, setName]                   = useState('');
@@ -63,6 +80,23 @@ export function AccountEditor() {
   const [formError, setFormError] = useState('');
   const [duplicates, setDuplicates] = useState(null); // null | Array<{id,name,city,...}>
   const [success, setSuccess]     = useState(null);   // null | { account, contactCount }
+
+  // Pre-fill from the loaded account when editing.
+  useEffect(() => {
+    if (!isEdit || !account) return;
+    setName(account.name ?? '');
+    setAccountType(account.account_type ?? 'facility');
+    setFacilitySubtype(account.facility_subtype ?? '');
+    setProfessionalSubtype(account.professional_subtype ?? '');
+    setAddress(account.address ?? '');
+    setCity(account.city ?? '');
+    setStateAbbr(account.state ?? '');
+    setZip(account.zip ?? '');
+    setPhone(account.phone ?? '');
+    setWebsite(account.website ?? '');
+    setNotes(account.notes ?? '');
+    setIsStrategicShared(Boolean(account.is_strategic_shared));
+  }, [isEdit, account]);
 
   const buildDraft = () => ({
     name,
@@ -114,6 +148,12 @@ export function AccountEditor() {
       return;
     }
     try {
+      if (isEdit) {
+        const updated = await updateSubmit(draft);
+        setSuccess({ account: updated, contactCount: 0, updated: true });
+        setTimeout(() => navigate(`/bd/accounts/${accountId}`), 700);
+        return;
+      }
       const result = await submit({ draft, contactDrafts: filledContacts, force });
       if (result?.duplicate) {
         setDuplicates(result.duplicates ?? []);
@@ -138,10 +178,16 @@ export function AccountEditor() {
             <CheckCircle2 size={48} strokeWidth={1.75} />
           </div>
           <p className={s.briefingText}>
-            {success.account?.name} added
-            {success.contactCount > 0
-              ? ` with ${success.contactCount} contact${success.contactCount === 1 ? '' : 's'}.`
-              : '.'}
+            {success.updated
+              ? `${success.account?.name ?? 'Account'} updated.`
+              : (
+                <>
+                  {success.account?.name} added
+                  {success.contactCount > 0
+                    ? ` with ${success.contactCount} contact${success.contactCount === 1 ? '' : 's'}.`
+                    : '.'}
+                </>
+              )}
           </p>
           {success.contactErrors?.length > 0 && (
             <p className={s.muted} style={{ marginTop: 8, color: '#B83232' }}>
@@ -162,12 +208,17 @@ export function AccountEditor() {
     <div className={s.page}>
       <div className={s.detailHeader}>
         <button type="button" className={s.backBtn} onClick={() => navigate(-1)}>← Cancel</button>
-        <h1 className={s.pageTitle} style={{ margin: 0 }}>Add account</h1>
+        <h1 className={s.pageTitle} style={{ margin: 0 }}>{isEdit ? 'Edit account' : 'Add account'}</h1>
       </div>
+
+      {isEdit && accountLoading && <div className={s.empty}>Loading account…</div>}
+      {isEdit && accountError && (
+        <div className={s.error}>Couldn&rsquo;t load account: {accountError.message}</div>
+      )}
 
       {formError && <div className={s.error}>{formError}</div>}
 
-      {duplicates && (
+      {!isEdit && duplicates && (
         <div className={s.card} style={{ borderColor: '#E0B33A', background: '#FFF8E6' }}>
           <div className={s.sectionTitle}>Possible duplicate{duplicates.length === 1 ? '' : 's'}</div>
           <p className={s.muted} style={{ marginTop: 0 }}>
@@ -327,6 +378,7 @@ export function AccountEditor() {
         />
       </div>
 
+      {!isEdit && (
       <div className={s.card}>
         <div className={s.sectionTitle}>Contacts ({filledContacts.length})</div>
         <p className={s.muted} style={{ marginTop: 0 }}>
@@ -439,14 +491,15 @@ export function AccountEditor() {
           <span>Add another contact</span>
         </button>
       </div>
+      )}
 
       <button
         type="button"
         className={s.button}
         onClick={() => handleSave({ force: false })}
-        disabled={submitting}
+        disabled={submitting || (isEdit && accountLoading)}
       >
-        {submitting ? 'Saving…' : 'Save account'}
+        {submitting ? 'Saving…' : (isEdit ? 'Save changes' : 'Save account')}
       </button>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { supabase, getOrgClaims } from '../../../lib/supabase';
-import { createAccountWithContacts, findAccountDuplicates } from '../lib/bdMutations';
+import { createAccountWithContacts, findAccountDuplicates, updateAccount } from '../lib/bdMutations';
 import { useBdViewAs } from '../context/BdViewAsContext';
 import { ViewAsReadOnlyError } from '../lib/bdViewAs';
 
@@ -48,4 +48,32 @@ export function useBdLogAccount() {
   }, []);
 
   return { submitting, error, submit, findDuplicates };
+}
+
+// Wraps updateAccount for the account "Edit" screen. Guards the
+// read-only audit mode like every other BD write, and exposes
+// { submitting, error, submit(draft) } where submit returns the
+// updated row.
+export function useBdUpdateAccount(accountId) {
+  const { isReadOnly } = useBdViewAs();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]           = useState(null);
+
+  const submit = useCallback(async (draft) => {
+    if (isReadOnly) { const e = new ViewAsReadOnlyError(); setError(e); throw e; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { data, error: err } = await updateAccount(supabase, { accountId, draft });
+      if (err) throw err;
+      return data;
+    } catch (e) {
+      setError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [accountId, isReadOnly]);
+
+  return { submitting, error, submit };
 }
