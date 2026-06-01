@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { UploadCloud } from 'lucide-react';
 import {
   loadCarePlanForShift,
@@ -51,20 +51,32 @@ export function CarePlanChecklist({ shift, caregiver }) {
   const [shiftNoteSaving, setShiftNoteSaving] = useState(false);
   const [shiftNoteError, setShiftNoteError] = useState(null);
 
-  // Load on mount and whenever the shift identity changes.
-  const refresh = useCallback(async () => {
-    if (!shift?.id) {
+  // Monotonic request counter so a slow load can't overwrite the state
+  // written by a newer one (e.g. a background refresh that resolves after
+  // the next).
+  const reqSeq = useRef(0);
+
+  // Fetch the care plan + observations for this shift.
+  //
+  // `showLoading` distinguishes the two ways this runs:
+  //   - true  → initial load (or a genuinely new shift). We show the
+  //             "Loading care plan…" screen because there's nothing to
+  //             show yet.
+  //   - false → background refresh after the caregiver logs a task / note
+  //             / refusal, or when queued observations sync. We keep the
+  //             existing list mounted and swap the data in place so the
+  //             page doesn't unmount and jump back to the top.
+  const load = useCallback(async (showLoading) => {
+    if (!shift?.id || !TASK_STATUSES.includes(shift.status)) {
       setLoadState('hidden');
       return;
     }
-    if (!TASK_STATUSES.includes(shift.status)) {
-      setLoadState('hidden');
-      return;
-    }
-    setLoadState('loading');
+    const seq = ++reqSeq.current;
+    if (showLoading) setLoadState('loading');
     setErrorMsg(null);
     try {
       const result = await loadCarePlanForShift(shift);
+      if (seq !== reqSeq.current) return; // superseded by a newer load
       if (!result) {
         setLoadState('hidden');
         return;
@@ -76,15 +88,24 @@ export function CarePlanChecklist({ shift, caregiver }) {
       setShiftNoteDraft(latestNote?.note || '');
       setLoadState('ready');
     } catch (err) {
+      if (seq !== reqSeq.current) return;
       setErrorMsg(err?.message || 'Could not load the care plan.');
-      setLoadState('error');
+      // Only blow away the screen with the full error state on the initial
+      // load. On a background refresh we keep the list (and the
+      // caregiver's place) and surface the problem via the inline banner.
+      if (showLoading) setLoadState('error');
     }
   }, [shift]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Background refresh — re-read without the loading flash. Used by the
+  // action handlers and the offline-sync listener.
+  const refresh = useCallback(() => load(false), [load]);
+
+  // Initial load (and reload when the shift identity actually changes).
+  useEffect(() => { load(true); }, [load]);
 
   // Reload when queued observations sync so pending placeholders are
-  // replaced by the saved rows.
+  // replaced by the saved rows — in place, without the loading flash.
   useEffect(() => onObservationsChanged(refresh), [refresh]);
 
   // Count of observations still queued offline (for the sync indicator).
@@ -233,7 +254,7 @@ export function CarePlanChecklist({ shift, caregiver }) {
     return (
       <section className={s.card}>
         <div className={s.errorBanner}>{errorMsg || 'Could not load care plan.'}</div>
-        <button className={s.linkBtn} onClick={refresh}>Tap to retry</button>
+        <button className={s.linkBtn} onClick={() => load(true)}>Tap to retry</button>
       </section>
     );
   }
