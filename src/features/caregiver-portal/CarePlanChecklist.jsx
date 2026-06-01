@@ -55,6 +55,11 @@ export function CarePlanChecklist({ shift, caregiver }) {
   // written by a newer one (e.g. a background refresh that resolves after
   // the next).
   const reqSeq = useRef(0);
+  // Tracks whether a list is currently on screen. Drives the error
+  // handling below: a background refresh only keeps the list (inline
+  // banner) when there IS a list to keep — otherwise it must surface the
+  // full error screen so the caregiver isn't stranded on "Loading…".
+  const readyRef = useRef(false);
 
   // Fetch the care plan + observations for this shift.
   //
@@ -72,7 +77,10 @@ export function CarePlanChecklist({ shift, caregiver }) {
       return;
     }
     const seq = ++reqSeq.current;
-    if (showLoading) setLoadState('loading');
+    if (showLoading) {
+      setLoadState('loading');
+      readyRef.current = false; // fresh load: nothing on screen to fall back to
+    }
     setErrorMsg(null);
     try {
       const result = await loadCarePlanForShift(shift);
@@ -87,13 +95,17 @@ export function CarePlanChecklist({ shift, caregiver }) {
       const latestNote = pickLatestShiftNote(result.observations);
       setShiftNoteDraft(latestNote?.note || '');
       setLoadState('ready');
+      readyRef.current = true;
     } catch (err) {
       if (seq !== reqSeq.current) return;
       setErrorMsg(err?.message || 'Could not load the care plan.');
-      // Only blow away the screen with the full error state on the initial
-      // load. On a background refresh we keep the list (and the
-      // caregiver's place) and surface the problem via the inline banner.
-      if (showLoading) setLoadState('error');
+      // Keep the list (and the caregiver's place) and surface the problem
+      // via the inline banner ONLY when a list is already on screen. If
+      // nothing has rendered yet — initial load, or a background refresh
+      // that superseded an in-flight initial load — fall through to the
+      // full error screen so the caregiver gets a retry instead of being
+      // stranded on "Loading care plan…".
+      if (showLoading || !readyRef.current) setLoadState('error');
     }
   }, [shift]);
 
