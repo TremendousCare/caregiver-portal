@@ -497,7 +497,7 @@ function SectionCard({ section, data, tasks, onEdit, editDisabled }) {
           <SectionFieldsAndTasks section={section} data={data} tasks={tasks} />
         )}
 
-        {hasData && !usesTasks && <NarrativeAndFields data={data} />}
+        {hasData && !usesTasks && <NarrativeAndFields section={section} data={data} />}
       </div>
     </li>
   );
@@ -574,7 +574,7 @@ function SectionFieldsAndTasks({ section, data, tasks }) {
   if (!sectionHasGroups(section)) {
     return (
       <div>
-        {data && hasMeaningfulContent(data) && <NarrativeAndFields data={data} />}
+        {data && hasMeaningfulContent(data) && <NarrativeAndFields section={section} data={data} />}
         {Array.isArray(tasks) && tasks.length > 0 && <TaskList tasks={tasks} />}
       </div>
     );
@@ -631,23 +631,37 @@ function SectionFieldsAndTasks({ section, data, tasks }) {
 
 // ─── Narrative + fields rendering (non-task sections) ────────
 
-function NarrativeAndFields({ data }) {
-  // Phase 2a stub: render the narrative if present, then any other
-  // top-level string / number / boolean fields as a definition list.
-  // Phase 2b will replace this with proper per-section read-only
-  // rendering using the field definitions from sections.js.
+function NarrativeAndFields({ section, data }) {
+  // Render the narrative if present, then the section's fields as a
+  // definition list. Labels and ordering are kept as-is (humanized data
+  // keys); only the VALUE is formatted with `formatCarePlanFieldValue`
+  // using the matching field definition, so typed values (YN {answer,
+  // note}, PRN {flag, option}, LIST rows, multiselect arrays) read as
+  // clean text instead of a raw JSON dump. Keys without a known field
+  // definition (legacy data) fall back to the generic formatter.
   const narrative = typeof data?.narrative === 'string' ? data.narrative : null;
-  const fields = Object.entries(data || {}).filter(([key]) => key !== 'narrative');
+  const fieldsById = new Map((section?.fields || []).map((f) => [f.id, f]));
+
+  const rows = Object.entries(data || {})
+    .filter(([key, value]) => key !== 'narrative' && !isEmptyValue(value))
+    .map(([key, value]) => {
+      const field = fieldsById.get(key);
+      return {
+        key,
+        label: humanizeKey(key),
+        value: field ? formatCarePlanFieldValue(field, value) : formatFieldValue(value),
+      };
+    });
 
   return (
     <div>
       {narrative && <p className={s.narrative}>{narrative}</p>}
-      {fields.length > 0 && (
+      {rows.length > 0 && (
         <dl className={s.fieldList}>
-          {fields.map(([key, value]) => (
-            <div key={key} className={s.fieldRow}>
-              <dt className={s.fieldLabel}>{humanizeKey(key)}</dt>
-              <dd className={s.fieldValue}>{formatFieldValue(value)}</dd>
+          {rows.map((row) => (
+            <div key={row.key} className={s.fieldRow}>
+              <dt className={s.fieldLabel}>{row.label}</dt>
+              <dd className={s.fieldValue}>{row.value}</dd>
             </div>
           ))}
         </dl>
